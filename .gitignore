@@ -1,0 +1,64 @@
+HELP.md
+target/
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+
+### ==================== 本项目补充 ====================
+
+### 日志与运行时产物
+logs/
+*.log
+
+### 本地数据库备份（Flyway ≠ 备份；备份是本地产物，不进 git）
+*.sql.gz
+dump/
+backups/
+
+### 临时脚本（E3 债：探针脚本用完即弃，统一丢进 scratch/ 且不提交）
+scratch/
+
+### OS
+.DS_Store
+Thumbs.db
+
+### 上传/媒体目录（决策⑨：媒体本地磁盘、路径配置化，内容是运行期数据）
+/data/
+
+### ==================== 老项目参照（仅本地，不进本仓库） ====================
+# old-project/TVhomework1 是 TV 项目的完整副本，用于迁移期对照（见 .docs/迁移参照系.md）。
+# 它自带独立的 git 仓库（249 次提交，remote: YJhhhaaa06/TVhomework1），
+# 直接提交会被记成嵌入仓库引用（gitlink）——克隆外层仓库只会得到一个空壳指针。
+# 且磁盘上 273.8 MB，绝大部分是构建产物（.stage8-target/ 243 MB、target/ 11 MB）。
+#
+# 决策：整个目录仅保留在本地磁盘，不纳入本仓库。
+# 后果（已知并接受）：.docs/ 文档里对老项目源码的行号引用，需用本地这份副本对照查看。
+/old-project/

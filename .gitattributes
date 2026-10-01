@@ -1,0 +1,24 @@
+# ============================================================================
+# 行尾策略
+# ----------------------------------------------------------------------------
+# ⚠️ Flyway 迁移脚本必须强制 LF —— 这不是风格偏好，是正确性要求。
+#
+# 原因：本机 core.autocrlf=true。若不显式声明，*.sql 在仓库内以 LF 存储、
+# 但检出到 Windows 工作区时变成 CRLF。而 Flyway 对迁移脚本按**文件字节**算
+# checksum 并记入 flyway_schema_history。于是同一份 V1 在 Windows 与
+# Linux/CI/测试容器上会算出不同 checksum，触发：
+#     Validate failed: Migration checksum mismatch
+# 且这类故障只在"跨环境"时暴露，本机自测发现不了。
+#
+# 因此：迁移脚本一律 eol=lf，全平台字节一致。
+# ============================================================================
+
+# 迁移脚本：全平台 LF（校验和稳定性）
+*.sql text eol=lf
+
+# Wrapper 脚本
+/mvnw text eol=lf
+*.cmd text eol=crlf
+
+# 其余文本文件：仓库内统一 LF（避免 Windows/Linux 互相污染 diff）
+* text=auto eol=lf

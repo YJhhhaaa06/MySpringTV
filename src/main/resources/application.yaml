@@ -1,0 +1,107 @@
+# ============================================================================
+# MySpringTV — 应用配置
+# ----------------------------------------------------------------------------
+# 口径（决策⑨）：application.yml + profiles；敏感值走环境变量；
+#                TV 的 AppConfig「多级覆盖链」退役，改由 Spring 标准机制承担。
+#
+# 本阶段只配「基础设施」三项（数据源 / Redis / RabbitMQ）+ Flyway。
+# 业务参数（cache.* / feed.* / jwt.*）等对应代码迁移时再逐块加入，
+# 避免把 TV 的 60 个扁平键一次性照搬成"配置债"。
+#
+# 环境变量约定：SPRING_* 由 Spring Boot 宽松绑定自动识别，
+# 因此 ${DB_PASSWORD:MySQL} 亦可写成环境变量 DB_PASSWORD。
+# ============================================================================
+
+spring:
+  application:
+    name: MySpringTV
+
+  # --------------------------------------------------------------------------
+  # 数据源（决策②）：HikariCP 由 mybatis-spring-boot-starter 传递引入
+  # 口径差异：TV 是自研 MyConnectionPool（initSize/maxSize/timeoutMs）；
+  #          此处换成 Hikari，参数按语义对映（initSize→minimum-idle,
+  #          maxSize→maximum-pool-size, timeoutMs→connection-timeout）。
+  # CAUTION: 本机 3306 是**宿主原生 mysqld 8.0.45**，不是 Docker 的 mysql8.4
+  #          （那个映射在 3307，当前未启动）。旧配置与真库口径一致。
+  # --------------------------------------------------------------------------
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/TVDatabase?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai&characterEncoding=utf8}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:MySQL}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      minimum-idle: ${DB_POOL_MIN_IDLE:5}
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:20}
+      connection-timeout: ${DB_POOL_TIMEOUT_MS:5000}
+      pool-name: MySpringTV-Hikari
+
+  # --------------------------------------------------------------------------
+  # Flyway（决策⑥）：SQL-first，V1 baseline = TV 现结构（见 db/migration）
+  # baseline-version=0 是关键：让 baseline 标记落在 0，
+  #   于是 V1 在**已有库**（结构已存在 ⇒ V1 成为 no-op）与
+  #   **空库/测试容器**（真正建结构）上都会被应用，一套脚本服务两种环境。
+  #   若 baseline-version=1，则已有库会跳过 V1、空库会执行 V1，
+  #   两边分叉 —— 正是要避免的。
+  # 提醒：Flyway 管结构演进，不是备份；业务数据仍靠 dump（决策⑥）。
+  # --------------------------------------------------------------------------
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: 0
+    baseline-description: "TV baseline (schema as-is)"
+    validate-on-migrate: true
+    clean-disabled: true          # 防误删：clean 永不开放
+
+  # --------------------------------------------------------------------------
+  # Redis（决策⑤）：Jedis 客户端（Lettuce 已在 pom 中排除）
+  # 超时口径沿用 TV：connect/so 各 1000ms，池 maxWait 1000ms。
+  # 熔断（redis.breaker.*）由 Resilience4j 承接，本阶段未接入。
+  # 注意 Boot 4 前缀为 spring.data.redis.*（旧教程的 spring.redis.* 已废）。
+  # --------------------------------------------------------------------------
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      client-type: jedis
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT_MS:1000}ms
+      timeout: ${REDIS_SO_TIMEOUT_MS:1000}ms
+      jedis:
+        pool:
+          max-active: ${REDIS_MAX_TOTAL:50}
+          max-idle: ${REDIS_MAX_IDLE:10}
+          min-idle: ${REDIS_MIN_IDLE:5}
+          max-wait: ${REDIS_POOL_MAX_WAIT_MS:1000}ms
+
+  # --------------------------------------------------------------------------
+  # RabbitMQ（决策④）：Spring AMQP 接管 TV 手写的 4 个 MQ 坑
+  # 重试语义刻意区分（TV 易错点）：
+  #   listener.simple.retry.maxRetries = **首次之外**的重试次数（对齐 TV 的 2）
+  #   template.retry 同理（发布侧重试）
+  #   —— 与 Resilience4j 的 maxAttempts（含首次调用）不是同一口径。
+  # vhost 键名是 virtual-host（不是 vhost）。
+  # --------------------------------------------------------------------------
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:admin}
+    password: ${RABBITMQ_PASSWORD:admin123}
+    virtual-host: ${RABBITMQ_VHOST:/}
+    connection-timeout: ${RABBITMQ_CONNECTION_TIMEOUT_MS:2000}ms
+    listener:
+      simple:
+        retry:
+          enabled: true
+          max-retries: 2
+          initial-interval: 1000ms
+          multiplier: 2
+          max-interval: 10000ms
+        default-requeue-rejected: false   # 重试耗尽后不重回队列，交给 DLQ
+
+# ----------------------------------------------------------------------------
+# 日志：本阶段保持 Boot 默认。TV 的 LOG_CONVENTION（定栈/脱敏/级别判据 163 行）
+# 按 P2 处置下沉为框架配置，待接入业务代码时再定，不提前搬。
+# ----------------------------------------------------------------------------
+logging:
+  level:
+    root: INFO
