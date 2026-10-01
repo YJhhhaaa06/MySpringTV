@@ -99,6 +99,38 @@ spring:
         default-requeue-rejected: false   # 重试耗尽后不重回队列，交给 DLQ
 
 # ----------------------------------------------------------------------------
+# MyBatis（决策②）：mapper 以 XML 为主
+# ----------------------------------------------------------------------------
+# ⚠️ 前缀是 **mybatis.**（顶层），**不是 spring.mybatis.**。
+# MybatisProperties 的 @ConfigurationProperties(MYBATIS_PREFIX)，实测确认前缀为 "mybatis"。
+# 写成 spring.mybatis.* 会被**静默忽略**（不报错），表现为运行期
+# "Invalid bound statement (not found)" —— 症状离病因很远，故此处显式记录。
+mybatis:
+  mapper-locations: classpath*:mapper/**/*.xml
+  configuration:
+    # resultMap 已显式声明列→属性映射，**不**依赖下划线的隐式转换
+    # （保持显式，避免"改名后静默映射错列"）
+    map-underscore-to-camel-case: false
+
+# ----------------------------------------------------------------------------
+# 业务配置
+# ----------------------------------------------------------------------------
+
+# JWT（决策③「保留 jwt，暂不迁移 Spring Security」）
+# 口径沿袭 TV：HMAC256 自签发，单 Token，sub = userId。
+# TV 把 secret 硬编码为 "STONE" 且无覆盖机制（AppConfig.getJwtSecret() 直读常量）；
+# 此处改为可配置 + 环境变量可覆盖。dev 默认值仅为开箱可跑，⚠️ 部署前必须换掉。
+video:
+  jwt:
+    secret: ${JWT_SECRET:dev-only-change-me-in-production}
+    # ⚠️ 必须带单位后缀（2h），**不能**写裸数字 2。
+    # 绑定目标是 java.time.Duration：裸数字会被当作"2 个单位、无单位"，解析为 **PT2S（2 秒）**，
+    # 于是签发的 token 在 iat 之后 2 秒即过期，表现为"刚登录就 401"，且**不报任何配置错误**。
+    # 这类静默误解析正是切片 0 踩到的坑（JwtServiceSanityTests 已加断言防回归）。
+    # TV 原值 jwt.expireHours=2（小时），此处等价表达为 2h。
+    expire-hours: ${JWT_EXPIRE_HOURS:2h}
+
+# ----------------------------------------------------------------------------
 # 日志：本阶段保持 Boot 默认。TV 的 LOG_CONVENTION（定栈/脱敏/级别判据 163 行）
 # 按 P2 处置下沉为框架配置，待接入业务代码时再定，不提前搬。
 # ----------------------------------------------------------------------------

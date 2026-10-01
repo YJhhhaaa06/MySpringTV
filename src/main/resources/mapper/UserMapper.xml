@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  用户 Mapper。
+
+  迁移口径（《迁移参照系》§2.1）：SQL 文本从 TV 的 UserDao 原样搬，只改参数记号。
+  namespace 必须与 UserDao 全限定名一致。
+-->
+<mapper namespace="io.github.yjhhhaaa06.videoweb.user.dao.UserDao">
+
+    <!--
+      显式 resultMap 取代 TV 的手写 buildUserForLogin / buildUserForProfile。
+      列名 → 属性名的 snake_case 映射在此显式声明，不依赖 map-underscore-to-camel-case
+      的全局开关（显式优于隐式，且便于将来加字段时一眼看到）。
+    -->
+    <resultMap id="userResultMap" type="io.github.yjhhhaaa06.videoweb.user.model.entity.User">
+        <id property="id" column="id"/>
+        <result property="username" column="username"/>
+        <result property="hashedPassword" column="hashed_password"/>
+        <result property="phone" column="phone"/>
+        <result property="followerCount" column="follower_count"/>
+        <result property="followCount" column="follow_count"/>
+        <result property="role" column="role"/>
+    </resultMap>
+
+    <!-- TV: insert into users(username,hashed_password,phone) values(?,?,?) -->
+    <insert id="insert" parameterType="io.github.yjhhhaaa06.videoweb.user.model.entity.User"
+            useGeneratedKeys="true" keyProperty="id">
+        insert into users(username, hashed_password, phone)
+        values(#{username}, #{hashedPassword}, #{phone})
+    </insert>
+
+    <!-- TV: select * from users where id=? -->
+    <select id="findByIdForLogin" resultMap="userResultMap">
+        select * from users where id = #{id}
+    </select>
+
+    <!-- TV: select * from users where phone=? -->
+    <select id="findByPhoneForLogin" resultMap="userResultMap">
+        select * from users where phone = #{phone}
+    </select>
+
+    <!--
+      TV: getUserForProfileById 用的是 select *，但只装配 id/username/follower_count/follow_count。
+      这里**收窄为显式列**：资料接口没有理由把 hashed_password 读出来，
+      减少明文口令散列在内存/日志中的暴露面。
+    -->
+    <select id="findByIdForProfile" resultMap="userResultMap">
+        select id, username, phone, follower_count, follow_count, role
+        from users where id = #{id}
+    </select>
+
+    <!-- TV: select 1 from users where phone=? -->
+    <select id="isPhoneUsed" resultType="boolean">
+        select exists(select 1 from users where phone = #{phone})
+    </select>
+
+    <!-- TV: select 1 from users where username=? -->
+    <select id="isUsernameUsed" resultType="boolean">
+        select exists(select 1 from users where username = #{username})
+    </select>
+
+    <!-- TV: select role from users where id=? （查无此人返回 0） -->
+    <select id="findRoleById" resultType="int">
+        select coalesce((select role from users where id = #{id}), 0)
+    </select>
+
+    <!-- TV: update users set hashed_password=? where id=? -->
+    <update id="updatePassword">
+        update users set hashed_password = #{hashedPassword} where id = #{id}
+    </update>
+
+    <!-- TV: update users set username=? where id=? -->
+    <update id="updateUsername">
+        update users set username = #{username} where id = #{id}
+    </update>
+
+</mapper>

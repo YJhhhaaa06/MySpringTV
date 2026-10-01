@@ -42,6 +42,18 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc</artifactId>
         </dependency>
+        <!-- 声明式参数校验：承接 TV 散落各 Controller 的手写校验（踩坑清单 §8【隐患】） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <!-- JWT（决策③「保留 jwt」）：沿用 TV 的 auth0 java-jwt，JwtUtil 可近乎原样承接。
+             Boot 不托管此件，需显式版本。 -->
+        <dependency>
+            <groupId>com.auth0</groupId>
+            <artifactId>java-jwt</artifactId>
+            <version>4.6.1</version>
+        </dependency>
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-mysql</artifactId>
@@ -100,6 +112,9 @@
             <artifactId>spring-boot-starter-flyway-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- 注意：本项目**暂未迁移到 Spring Security**（决策③后置）。
+             切片 0 的鉴权由自研 JwtAuthFilter 承担（沿用 TV 的 AuthFilter 口径）。
+             此件及上方 spring-boot-starter-security 均为后续切片预置。 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security-test</artifactId>

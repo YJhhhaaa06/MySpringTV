@@ -1,0 +1,206 @@
+package io.github.yjhhhaaa06.videoweb.user.service;
+
+import io.github.yjhhhaaa06.videoweb.common.exception.BusinessException;
+import io.github.yjhhhaaa06.videoweb.common.exception.ConflictException;
+import io.github.yjhhhaaa06.videoweb.common.exception.DuplicatePhoneException;
+import io.github.yjhhhaaa06.videoweb.common.exception.PasswordIncorrectException;
+import io.github.yjhhhaaa06.videoweb.common.exception.UserNotFoundException;
+import io.github.yjhhhaaa06.videoweb.common.security.JwtService;
+import io.github.yjhhhaaa06.videoweb.user.dao.UserDao;
+import io.github.yjhhhaaa06.videoweb.user.model.dto.ChangePasswordRequest;
+import io.github.yjhhhaaa06.videoweb.user.model.dto.RegisterRequest;
+import io.github.yjhhhaaa06.videoweb.user.model.entity.User;
+import io.github.yjhhhaaa06.videoweb.user.model.vo.LoginVO;
+import io.github.yjhhhaaa06.videoweb.user.model.vo.UserInfoVO;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.regex.Pattern;
+
+/**
+ * 用户业务。
+ *
+ * <p>迁移自 TV {@code com.itheima.user.service.UserService}。
+ * 骨架（{@code transactionTemplate.execute} / {@code conn} 穿透 / {@code catch SQLException} 包装）已删除，
+ * 业务语义（校验顺序、异常类型、事务拆分）逐条保留——对照表见《事务边界决策表》U 系列。
+ */
+@Slf4j
+@Service
+public class UserService {
+
+    /** 密码规则，从 TV {@code PasswordUtil.isPasswordLegal} 承接：6-16 位字母或数字。 */
+    private static final Pattern PWD_PATTERN = Pattern.compile("^[a-zA-Z0-9]{6,16}$");
+
+    private final UserDao userDao;
+    private final JwtService jwtService;
+    private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+
+    public UserService(UserDao userDao, JwtService jwtService) {
+        this.userDao = userDao;
+        this.jwtService = jwtService;
+    }
+
+    // ========================================================================
+    // U-1：registerAndLogin —— 刻意**不**加 @Transactional
+    // ========================================================================
+
+    /**
+     * 注册并自动登录。**注册成功即视为成功**（沿袭 TV 池 U-16 兜底语义）。
+     *
+     * <p><b>⚠️ 本方法不得标 {@code @Transactional}</b>。理由见《事务边界决策表》U-1：
+     * 注册与自动登录是**两个独立事务**（注册事务先提交，再做登录查询）。
+     * 若整体纳入一个事务，"自动登录失败"会连带回滚掉已成功的注册——
+     * 直接违反产品语义（旧行为是注册成功、返回 token=null、提示手动登录）。
+     *
+     * <p>自动登录失败时不再抛异常，而是返回 {@code token == null} 的 {@link LoginVO}，token 由前端提示。
+     * 但**注册本身失败**（手机号/用户名占用）仍照旧抛错，不被兜底吞掉。
+     */
+    public LoginVO registerAndLogin(RegisterRequest request) {
+        long id = registerAsUser(request);
+        try {
+            return login(id, request.password());
+        } catch (BusinessException e) {
+            // 注册已提交：不能把自动登录失败报成注册失败；留痕不静默
+            log.warn("注册后自动登录失败, userId={}, 改为提示手动登录", id);
+            return new LoginVO(id, request.username(), null);
+        }
+    }
+
+    /**
+     * 用户注册，返回新用户 id。
+     *
+     * <p>决策表 U-2：校验占用与插入必须原子 ⇒ {@code @Transactional}（REQUIRED）。
+     * 并发下唯一键仍在 DB 层兜底，由 {@code GlobalExceptionHandler} 把
+     * {@code DuplicateKeyException} 映射为 409，使"先查后插"的竞态对客户端不可见。
+     */
+    @Transactional
+    public long registerAsUser(RegisterRequest request) {
+        String username = request.username();
+        String phone = request.phone();
+
+        if (!isPasswordLegal(request.password())) {
+            throw new io.github.yjhhhaaa06.videoweb.common.exception.InvalidPasswordException();
+        }
+        if (userDao.isPhoneUsed(phone)) {
+            throw new DuplicatePhoneException();
+        }
+        if (userDao.isUsernameUsed(username)) {
+            throw new ConflictException("用户名已被占用");
+        }
+
+        User user = new User();
+        user.setUsername(username);
+        user.setPhone(phone);
+        user.setHashedPassword(passwordEncoder.encode(request.password()));
+        userDao.insert(user);   // useGeneratedKeys 回填 id
+        return user.getId();
+    }
+
+    // ========================================================================
+    // 登录
+    // ========================================================================
+
+    /** 按手机号登录（对外 HTTP 入口）。 */
+    public LoginVO login(String phone, String rawPassword) {
+        User dbUser = userDao.findByPhoneForLogin(phone);
+        String token = doLogin(dbUser, rawPassword);
+        return new LoginVO(dbUser.getId(), dbUser.getUsername(), token);
+    }
+
+    /**
+     * 按 id 登录。仅供 {@link #registerAndLogin} 内部调用（与 TV 一致——
+     * TV 的 login(id, pwd) 是 registerAndLogin 的内部路径，无独立 HTTP 入口）。
+     */
+    public LoginVO login(long id, String rawPassword) {
+        User dbUser = userDao.findByIdForLogin(id);
+        String token = doLogin(dbUser, rawPassword);
+        return new LoginVO(dbUser.getId(), dbUser.getUsername(), token);
+    }
+
+    /**
+     * 执行登录校验并签发 token。
+     *
+     * <p>决策表 U-3/U-4：TV 这里包了 {@code transactionTemplate.execute}，但**纯读无写**——
+     * 那个事务只是"取连接的手段"，没有原子性需求，故新实现不加事务注解。
+     * 校验顺序与异常类型与 TV 逐条一致。
+     */
+    private String doLogin(User user, String rawPassword) {
+        if (user == null) {
+            throw new UserNotFoundException();
+        }
+        if (!isPasswordCorrect(rawPassword, user.getHashedPassword())) {
+            throw new PasswordIncorrectException();
+        }
+        String token = jwtService.generateToken(user.getId());
+        // 里程碑：登录成功。只记 userId——账号（手机号）与 token 一律不落盘（沿袭 TV LOG_CONVENTION）
+        log.info("登录成功, userId={}", user.getId());
+        return token;
+    }
+
+    // ========================================================================
+    // 资料与修改
+    // ========================================================================
+
+    /** 当前用户信息（新增端点，见 UserInfoVO 说明）。 */
+    @Transactional(readOnly = true)
+    public UserInfoVO getProfile(long userId) {
+        User user = userDao.findByIdForProfile(userId);
+        if (user == null) {
+            throw new UserNotFoundException();
+        }
+        return new UserInfoVO(user.getId(), user.getUsername(), user.getPhone(), user.isAdmin());
+    }
+
+    /**
+     * 修改密码。
+     *
+     * <p>校验口径沿袭 TV：先查用户存在 → 再校验原密码 → 再校验新密码合法性 → 落库。
+     */
+    @Transactional
+    public void changePassword(long userId, ChangePasswordRequest request) {
+        User user = userDao.findByIdForLogin(userId);
+        if (user == null) {
+            throw new UserNotFoundException();
+        }
+        if (!isPasswordCorrect(request.oldPassword(), user.getHashedPassword())) {
+            throw new PasswordIncorrectException();
+        }
+        if (!isPasswordLegal(request.newPassword())) {
+            throw new io.github.yjhhhaaa06.videoweb.common.exception.InvalidPasswordException();
+        }
+        userDao.updatePassword(userId, passwordEncoder.encode(request.newPassword()));
+    }
+
+    /** 修改用户名。占用校验与更新同事务（同 U-2 口径）。 */
+    @Transactional
+    public void changeUserName(long userId, String newUsername) {
+        if (newUsername == null || newUsername.isBlank()) {
+            throw new io.github.yjhhhaaa06.videoweb.common.exception.ParamException("用户名不能为空");
+        }
+        if (userDao.isUsernameUsed(newUsername)) {
+            throw new ConflictException("用户名已被占用");
+        }
+        userDao.updateUsername(userId, newUsername);
+    }
+
+    /** 是否管理员（承接 TV {@code UserService.isAdmin}，供 admin 路径鉴权用）。 */
+    @Transactional(readOnly = true)
+    public boolean isAdmin(long userId) {
+        return userDao.findRoleById(userId) == 1;
+    }
+
+    // ========================================================================
+    // 密码工具（从 TV PasswordUtil 内联——原本就是 Spring BCrypt，无需移植成本）
+    // ========================================================================
+
+    private boolean isPasswordCorrect(String rawPassword, String hashedPassword) {
+        return rawPassword != null && hashedPassword != null
+                && passwordEncoder.matches(rawPassword, hashedPassword);
+    }
+
+    private boolean isPasswordLegal(String password) {
+        return password != null && PWD_PATTERN.matcher(password).matches();
+    }
+}
