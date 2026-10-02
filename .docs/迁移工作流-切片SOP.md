@@ -47,6 +47,17 @@ Select-String -Path "old-project\TVhomework1\src\main\java\com\itheima\<模块>\
 2. 合成原子是否违反产品语义？→ 违反就 ✅ 保持
 3. 都不明确 → 挂起问人，**不要自行决定**
 
+**顺手一并确认（S1 实测：这两件预判时漏了，都是读代码才发现的，且都会实际影响实现）**：
+
+- **端点鉴权归属** → 读 TV `filter/AuthFilter` 的 `PROTECTED_PREFIXES` / `PROTECTED_EXACT` 两份清单，
+  逐条记下本切片每个端点是否需要登录。
+  （S1 实例：`/coupon/list` 公开；`/coupon/grab`、`/coupon/my` 需登录。
+  清单本身**不迁移**，但它是鉴权口径的**事实来源**，要逐条固化成测试。）
+- **旧异常出口的对外文案** → 读各 Service 的 `catch` 与 `ExceptionFilter`，确认删掉手工包装后
+  **对外 `msg` 会不会变**。
+  （S1 实例：删掉 1062 判断后，重复抢券的 msg 由 `"您已抢过该优惠券"` 变成全局 409 文案。
+  状态码/业务码通常不变，但这属"契约差异"，必须写进决策表与提交信息，否则会被当成回归。）
+
 ### 步骤 3：盘点跨模块依赖
 
 ```powershell
@@ -134,6 +145,8 @@ Select-String -Path "old-project\TVhomework1\src\main\java\com\itheima\<模块>\
 | 7 | **Lombok 与 JDK 25** | 编译告警 `sun.misc.Unsafe ... lombok.permit.Permit` | 当前 Lombok 1.18.46 可用（>1.18.42 门槛）。降级 Boot 会导致编译失败 |
 | 8 | **`@MockitoBean`/`@MockitoSpyBean` 位置** | 找不到类 | 在 `org.springframework.test.context.bean.override.mockito`（Boot 旧的 `boot.test.mock.mockito` 已移除） |
 | 9 | **`TestRestTemplate` 已移除** | 找不到类 | 用 `RestClient`（Boot 4） |
+| 10 | **测试里用 JVM 时间造时间窗** | 用例**偶发**失败（时好时坏）——"活动未开始却抢到了""未过期却查不到" | 时间窗一律交给**数据库时钟**：SQL 里写 `begin_time = NOW() - INTERVAL 1 HOUR, end_time = NOW() + INTERVAL 1 DAY`，**不要**用 `LocalDateTime`/`Timestamp` 绑参。根因：Testcontainers 的 MySQL 容器默认 **UTC**，JVM 是 **Asia/Shanghai**，绑参会引入偏移。属"不报错、只是偶发"的坑（S1 实测） |
+| 11 | **`-o`（离线）跑 `verify`** | 测试 **全绿** 但构建失败：`Cannot access aliyun ... in offline mode`，缺 `maven-archiver` / `plexus-archiver` / `xz` / `zstd-jni` | 离线只适用于 `test`；`verify` 会走到 `maven-jar-plugin`，其依赖通常未被缓存 ⇒ **必须联网**。与代码无关，别去查业务代码（S1 实测） |
 
 ### 配置前缀速查（已实测）
 
