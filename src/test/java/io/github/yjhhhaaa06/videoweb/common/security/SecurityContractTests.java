@@ -62,6 +62,15 @@ class SecurityContractTests extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("类级 @RequiresLogin：follow 全部端点判为需登录（TV 的 `/follow` 是**前缀**保护项）")
+    void follow类级注解覆盖全部端点() {
+        assertThat(requiresLogin("POST", "/follow/add")).isTrue();
+        assertThat(requiresLogin("POST", "/follow/remove")).isTrue();
+        assertThat(requiresLogin("GET", "/follow/following")).isTrue();
+        assertThat(requiresLogin("GET", "/follow/followers")).isTrue();
+    }
+
+    @Test
     @DisplayName("方法级 @RequiresLogin：user / coupon / comment 的受保护端点判为需登录")
     void 方法级注解端点需登录() {
         assertThat(requiresLogin("GET", "/user/me")).isTrue();

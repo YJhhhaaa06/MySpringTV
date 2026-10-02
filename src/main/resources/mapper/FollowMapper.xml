@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  关注关系 Mapper。
+
+  迁移口径（《迁移参照系》§2.1）：SQL 文本、表名、列名、条件与**索引使用方式**从 TV 的 FollowDao
+  原样搬，只改参数记号；`StringBuilder 拼 IN (?,?)` 改成 `<foreach>`（等价且安全）。
+  ⚠️ 两条窗口查询的 ORDER BY 与注释里写的索引是性能契约（TV 的 T11-C-1 特意说明），不要"优化"。
+
+  namespace 必须与 FollowDao 全限定名一致。
+-->
+<mapper namespace="io.github.yjhhhaaa06.videoweb.follow.dao.FollowDao">
+
+    <!-- TV: getFollowedIds —— StringBuilder 拼 "SELECT followed_user_id FROM follow
+         WHERE user_id = ? AND followed_user_id IN (?, ?, ...)"
+         改为 <foreach>（集合非空由调用方保证：空 IN () 是非法 SQL）。 -->
+    <select id="findFollowedIdsIn" resultType="long">
+        SELECT followed_user_id FROM follow
+        WHERE user_id = #{userId}
+          AND followed_user_id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
+    <!-- TV: getAllFollowedUserIds —— SELECT followed_user_id FROM follow WHERE user_id = ?
+         ⚠️ TV 无 ORDER BY，顺序由缓存侧 ZSet(score=成员 id) 归一升序；此处保留原 SQL，
+         升序由 FollowCache 回填前显式排序保证（见 DAO Javadoc）。 -->
+    <select id="findAllFollowedUserIds" resultType="long">
+        SELECT followed_user_id FROM follow WHERE user_id = #{userId}
+    </select>
+
+    <!-- TV: getFollowerUserIds —— SELECT user_id FROM follow WHERE followed_user_id = ?
+         （T11-C 后在 TV 里已零调用；本切片回到 T7「key 存在 ⇒ 完整」口径后重新需要它，见 DAO Javadoc） -->
+    <select id="findAllFollowerUserIds" resultType="long">
+        SELECT user_id FROM follow WHERE followed_user_id = #{followedUserId}
+    </select>
+
+    <!-- TV: getFollowedUserIdsInWindow（T11-C-1 新增）——一字未改。
+         走既有 uk_user_follow(user_id, followed_user_id)：等值列 + 有序第二列，无需 filesort；
+         与缓存侧 ZSet 的 score=成员 id 升序口径同源。 -->
+    <select id="findFollowedUserIdsWindow" resultType="long">
+        SELECT followed_user_id FROM follow WHERE user_id = #{userId}
+        ORDER BY followed_user_id LIMIT #{count} OFFSET #{offset}
+    </select>
+
+    <!-- TV: getFollowerUserIdsInWindow（T11-C-1 新增）——一字未改。
+         依赖 idx_followed_user_user(followed_user_id, user_id)：等值列 + 有序第二列同序，
+         避免用 idx_followed_user_id 时的 filesort。 -->
+    <select id="findFollowerUserIdsWindow" resultType="long">
+        SELECT user_id FROM follow WHERE followed_user_id = #{followedUserId}
+        ORDER BY user_id LIMIT #{count} OFFSET #{offset}
+    </select>
+
+    <!-- TV: isFollowing —— SELECT COUNT(*) FROM follow WHERE user_id = ? AND followed_user_id = ?
+         写法：COUNT(*) > 0 → EXISTS（行集等价，与 ContentDao.isContentExist 同款）。 -->
+    <select id="isFollowing" resultType="boolean">
+        SELECT EXISTS(SELECT 1 FROM follow WHERE user_id = #{userId} AND followed_user_id = #{followedUserId})
+    </select>
+
+    <!-- TV: addFollow —— INSERT INTO follow (user_id, followed_user_id) VALUES (?, ?)
+         ⚠️ 不是 INSERT IGNORE（幂等口径是"先查后抛 409"，见 DAO Javadoc）。 -->
+    <insert id="insertFollow">
+        INSERT INTO follow (user_id, followed_user_id) VALUES (#{userId}, #{followedUserId})
+    </insert>
+
+    <!-- TV: deleteFollow —— DELETE FROM follow WHERE user_id = ? AND followed_user_id = ? -->
+    <delete id="deleteFollow">
+        DELETE FROM follow WHERE user_id = #{userId} AND followed_user_id = #{followedUserId}
+    </delete>
+
+</mapper>

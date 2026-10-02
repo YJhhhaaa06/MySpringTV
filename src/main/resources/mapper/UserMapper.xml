@@ -77,4 +77,57 @@
         update users set username = #{username} where id = #{id}
     </update>
 
+    <!-- ======================================================================
+         S4（follow 切片）补搬的 7 条。
+         ====================================================================== -->
+
+    <!-- TV: updateFollowCount —— update users set follow_count = follow_count + ? where id=?
+         ⚠️ 一字未改——**没有**防负守卫（users.follow_count 是 int unsigned，0 时再 -1 会下溢报 500）。
+         TV 原样行为，保留；详见 UserDao#updateFollowCount 的 Javadoc。 -->
+    <update id="updateFollowCount">
+        update users set follow_count = follow_count + #{delta} where id = #{userId}
+    </update>
+
+    <!-- TV: updateFollowerCount —— update users set follower_count = follower_count + ? where id=?
+         ⚠️ 同上：无防负守卫，原样保留。 -->
+    <update id="updateFollowerCount">
+        update users set follower_count = follower_count + #{delta} where id = #{userId}
+    </update>
+
+    <!-- TV: findUsersByIds —— SELECT id, username FROM users WHERE id IN (...) ORDER BY id
+         StringBuilder 拼 IN → <foreach>（集合非空由调用方保证）。
+         ★ ORDER BY id 是契约（分页顺序稳定性），勿删。只选两列 ⇒ 用同一 resultMap，其余属性为 null。 -->
+    <select id="findUsersByIds" resultMap="userResultMap">
+        SELECT id, username FROM users WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+        ORDER BY id
+    </select>
+
+    <!-- TV: getFollowCountById —— select follow_count from users where id=?
+         TV 在 Java 里用"无行 ⇒ 返回 0"表达"用户不存在按 0 处理"；
+         此处 COALESCE 把该语义收进 SQL（与同文件 findRoleById 同款），避免无行 → null → 拆箱 NPE。 -->
+    <select id="getFollowCountById" resultType="int">
+        select coalesce((select follow_count from users where id = #{userId}), 0)
+    </select>
+
+    <!-- TV: getFollowerCountById —— select follower_count from users where id=?，口径同上。 -->
+    <select id="getFollowerCountById" resultType="int">
+        select coalesce((select follower_count from users where id = #{userId}), 0)
+    </select>
+
+    <!-- TV: insertAutoBigV —— insert ignore into auto_bigv(user_id) values(?)
+         返回 boolean ⇒ MyBatis 的 affected > 0（单行 DML 等价于 TV 的 affected == 1）。
+         ★ 这个返回值是 edge 信号，是语义的一部分（UPGRADED），不要改成 int 再自己比。 -->
+    <insert id="insertAutoBigV">
+        insert ignore into auto_bigv(user_id) values(#{userId})
+    </insert>
+
+    <!-- TV: deleteAutoBigV —— delete from auto_bigv where user_id=?
+         返回 boolean ⇒ affected > 0（DOWNGRADED 的 edge 信号）。 -->
+    <delete id="deleteAutoBigV">
+        delete from auto_bigv where user_id = #{userId}
+    </delete>
+
 </mapper>

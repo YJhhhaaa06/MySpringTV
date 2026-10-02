@@ -141,6 +141,26 @@ video:
   # 缓存几乎立刻失效——不报错，只是命中率莫名很低。
   cache:
     like-ttl: ${LIKE_CACHE_TTL:15m}
+    # 关注关系缓存（S4 切片）。口径对齐 TV AppConfig.getFollowTtlSeconds()
+    # ← app.properties 的 cache.follow.ttlMinutes=30。
+    # TV 取值理由（原注释）："follow 30min（关系低频变 + MULTI 双写失效清晰；
+    # 压测以空关系为主，依据写路径特性保守延长）"——刻意比 like 的 15 分钟长。
+    # ⚠️ 同上：Duration 属性**必须带单位后缀**，写裸数字 30 会解析成 PT30S。
+    follow-ttl: ${FOLLOW_CACHE_TTL:30m}
+
+  # 自动大V滞回判定（S4 切片，user 域但由 follow 事务内调用；见决策表 F-6）。
+  # 口径对齐 TV app.properties 的 feed.bigv.threshold / feed.bigv.downgradeRatio。
+  #
+  # ⚠️ 数值口径（TV 原注释，勿随手改）：
+  #   - threshold  = 升级线：粉丝数 >= 阈值 ⇒ auto_bigv 插入该行（"存在即自动大V"）；
+  #   - downgrade-ratio = 滞回系数：降级线 = 系数 × 阈值。两线之间为"带内"，**状态不翻转**。
+  #     合法区间 (0, 1]：>1 会让降级线高于升级线（滞回反向失效）；<=0 会让降级永不发生（状态只增不减）。
+  #     由 BigVProperties 的紧凑构造器在**绑定期**校验（非法 ⇒ 启动即拒）。
+  #   - 默认 10000 意味着**测试里关注几个用户不会触发状态迁移**；
+  #     要测滞回必须用低阈值覆盖（FollowBigVTests 就是这么做的）。
+  bigv:
+    threshold: ${BIGV_THRESHOLD:10000}
+    downgrade-ratio: ${BIGV_DOWNGRADE_RATIO:0.8}
 
 # ----------------------------------------------------------------------------
 # 日志：本阶段保持 Boot 默认。TV 的 LOG_CONVENTION（定栈/脱敏/级别判据 163 行）

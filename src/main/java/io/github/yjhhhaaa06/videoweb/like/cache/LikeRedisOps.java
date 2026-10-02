@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.like.cache;
 
+import io.github.yjhhhaaa06.videoweb.common.cache.CacheUnavailableException;
 import org.springframework.data.redis.core.RedisOperations;
 import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;

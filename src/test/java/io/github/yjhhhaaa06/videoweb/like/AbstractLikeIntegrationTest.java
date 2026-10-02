@@ -1,7 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.like;
 
 import io.github.yjhhhaaa06.videoweb.support.AbstractHttpIntegrationTest;
-import io.github.yjhhhaaa06.videoweb.support.Envelope;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -15,7 +14,6 @@ import org.springframework.web.client.RestClient;
 
 import java.sql.PreparedStatement;
 import java.sql.Types;
-import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -143,18 +141,9 @@ abstract class AbstractLikeIntegrationTest extends AbstractHttpIntegrationTest {
         jdbcTemplate.update("UPDATE comment SET is_deleted = 1 WHERE comment_id = ?", commentId);
     }
 
+    /** 2 参便捷形态（密码沿用本域的 {@link #PASSWORD}）。实现已下沉到 {@code AbstractHttpIntegrationTest}。 */
     protected String registerAndGetToken(String phone, String username) {
-        ResponseEntity<String> resp = post("/user/register",
-                Map.of("phone", phone, "username", username, "password", PASSWORD), null);
-        String token = Envelope.str(resp, "token");
-        assertThat(token).as("注册必须返回 token，否则后续用例无法进行：%s", resp.getBody()).isNotBlank();
-        return token;
-    }
-
-    protected long userIdOf(String phone) {
-        Long id = jdbcTemplate.queryForObject("SELECT id FROM users WHERE phone = ?", Long.class, phone);
-        assertThat(id).as("手机号 %s 应已注册", phone).isNotNull();
-        return id;
+        return registerAndGetToken(phone, username, PASSWORD);
     }
 
     // ==================== DB 侧 oracle（不信任接口回显） ====================

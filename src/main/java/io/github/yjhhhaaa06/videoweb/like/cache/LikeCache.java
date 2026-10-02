@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.like.cache;
 
+import io.github.yjhhhaaa06.videoweb.common.cache.CacheUnavailableException;
 import io.github.yjhhhaaa06.videoweb.common.config.LikeCacheProperties;
 import io.github.yjhhhaaa06.videoweb.like.dao.CommentLikeDao;
 import io.github.yjhhhaaa06.videoweb.like.dao.ContentLikeDao;

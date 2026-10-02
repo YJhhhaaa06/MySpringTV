@@ -91,4 +91,31 @@ public abstract class AbstractHttpIntegrationTest extends AbstractIntegrationTes
             return request;
         });
     }
+
+    /**
+     * 注册一个用户并取回 token（各域测试都需要"先有个登录用户"这一步）。
+     *
+     * <p>同样下沉到基类而非各域复制：切片 1/2/3 的测试基类各写过一份逐字相同的实现
+     * （唯一差别是密码常量），S4 起统一在这里，省掉漂移风险。
+     *
+     * @return 注册返回的 token；注册未返回 token 时直接断言失败（后续用例无法进行）
+     */
+    protected String registerAndGetToken(String phone, String username, String password) {
+        ResponseEntity<String> resp = post("/user/register",
+                java.util.Map.of("phone", phone, "username", username, "password", password), null);
+        String token = Envelope.str(resp, "token");
+        if (token == null || token.isBlank()) {
+            throw new AssertionError("注册必须返回 token，否则后续用例无法进行：" + resp.getBody());
+        }
+        return token;
+    }
+
+    /** 按手机号反查自增 id（造夹具/断言 oracle 常用）。 */
+    protected long userIdOf(String phone) {
+        Long id = jdbcTemplate.queryForObject("SELECT id FROM users WHERE phone = ?", Long.class, phone);
+        if (id == null) {
+            throw new AssertionError("手机号 " + phone + " 应已注册");
+        }
+        return id;
+    }
 }

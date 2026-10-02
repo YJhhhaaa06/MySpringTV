@@ -1,7 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.like;
 
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
-import io.github.yjhhhaaa06.videoweb.like.cache.CacheUnavailableException;
+import io.github.yjhhhaaa06.videoweb.common.cache.CacheUnavailableException;
 import io.github.yjhhhaaa06.videoweb.like.cache.LikeRedisOps;
 import io.github.yjhhhaaa06.videoweb.like.dao.ContentLikeDao;
 import io.github.yjhhhaaa06.videoweb.like.service.LikeService;
