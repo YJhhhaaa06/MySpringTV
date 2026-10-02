@@ -159,6 +159,7 @@ Select-String -Path "old-project\TVhomework1\src\main\java\com\itheima\<模块>\
 | 12 | **`@Transactional` 标在"会被自调用"的方法上** | ⚠️ **完全没有症状**：不报错、无日志、测试也能绿——只是事务没开 | Spring AOP 代理只拦**外部**调用；`this.foo()` 走目标对象、**绕过代理**。正解：注解标在 **public 入口**，私有方法只写业务（`deleteCommentByUser`/`deleteCommentByAdmin` 标，私有的 `doDeleteComment` 不标）。跨 bean 编排抽到独立 bean，或 `@Lazy` 自注入代理。**并且必须用测试证明事务真的在跑**：spy `PlatformTransactionManager` 数 `getTransaction` 次数，或断言"注入失败后写操作被回滚"。slice 0 的 U-2 就栽在这里（S2 期间才实测出来，见《事务边界决策表》U-2 附注） |
 | 13 | **测试夹具的"冗余计数"不自洽** | 500，且报错指向 `content.comment_count` 而非被测逻辑——容易误判成业务缺陷 | `content.comment_count` 是 **`int unsigned`** 且 `updateCommentCount` **无防负守卫**（TV 原样保留）。夹具若直接插评论行却没同步 `comment_count`，删除时从 0 再 -1 ⇒ `Data truncation: BIGINT UNSIGNED value is out of range`。**夹具必须让计数与行数自洽**（S2 实测踩过一次） |
 | 14 | **盘点依赖时按"模块"而非"端点"看** | 切片规模估算严重失准（S2 计划 ~930 行，照做会是 3000+ 行） | 一个模块的端点可能实现在**别人的 Service 里**：`/comment/show` 调的是 `ContentService.getCommentsForContent`，不是 `CommentService`。盘点跨模块依赖必须**顺着每个端点**走一遍，别只看本模块的 `import`（S2 实测） |
+| 15 | **`HandlerMapping.getHandler()` 返回的是 `HandlerExecutionChain`，不是 `HandlerMethod`** | **鉴权静默失效**：任何"标了注解但**不接收** `@CurrentUserId`"的端点都**匿名可访问**；而接收 userId 的端点**看起来完全正常**（401 来自参数解析器抛异常，不是来自鉴权机制） | 必须 `chain.getHandler()` 解包后再 `instanceof HandlerMethod`。样本：本项目 `RequestMappingLookup` 自切片 0 起就失效，直到 S3 出现第一个"标注解但不收 userId"的端点才暴露（该端点无 token 返回 **200**）（S3 实测） |
 
 ### 配置前缀速查（已实测）
 
@@ -205,6 +206,25 @@ if ($hits) { $hits } else { "✅ 零命中" }
 ```
 
 > 说明：Javadoc 里**允许**出现这些词（用于说明"为什么删掉它"），所以必须排除注释行。
+
+### 2.5 ⚠️ 一条横切的教训：「断言通过」≠「机制生效」
+
+坑 12（`@Transactional` 自调用）与坑 15（`HandlerExecutionChain` 未解包）是**同一类问题**：
+**机制坏了，但测试照样绿**。两者的隐瞒方式不同，值得合并记住：
+
+| 样本 | 机制怎么坏的 | 为什么测试没发现 |
+|------|------------|----------------|
+| 坑 12 | `this.foo()` 绕过代理，`@Transactional` 不生效 | 测试**直调**了 service（走代理的那条路径），而线上走的是自调用路径 |
+| 坑 15 | `instanceof HandlerMethod` 恒为 false，`@RequiresLogin` 不生效 | 断言"无 token → 401"确实通过了——**401 来自 `@CurrentUserId` 参数解析器，不是来自鉴权机制**。断言只看到 401，看不到"401 是谁给的" |
+
+**两个可执行的对策**（S3 起写进 DoD）：
+
+1. **同一个断言，问一句"这个结果还可能由谁产生？"**——若答案是"别的机制也能产生同样的结果"，
+   那就还没有真正测到目标机制。坑 15 的 401 就是典型：状态码一样，来源不同。
+2. **每个"声明式机制"至少配一条直接测机制的契约测试**，不要全靠端到端：
+   - 事务：spy `PlatformTransactionManager` 数 `getTransaction` 次数（或断言"注入失败后写操作被回滚"）
+   - 鉴权：拿 `RequestMappingLookup` 对各类端点直接求值（`SecurityContractTests`）
+   - 一句话：**端到端测"用户看到什么"，契约测试测"机制真的在拦"。两者不可互相替代。**
 
 ### 3.2 环境隔离验证（证明 T1「环境即代码」）
 
