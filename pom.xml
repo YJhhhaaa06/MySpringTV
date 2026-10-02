@@ -163,6 +163,27 @@
             <artifactId>spring-rabbit-test</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!-- ==================== 架构约束测试（S6-B3，决策：ArchUnit） ====================
+             目的：把"模块边界"从文档约定变成**会失败的测试**。S6 实测到的三个跨模块环
+             （content⇄comment⇄like）与 common→user 倒挂，此前没有任何机制能拦住。
+
+             ⚠️ 只引**核心包**，不引 archunit-junit5 引擎：
+             本项目跑 JUnit Platform 6（Boot 4 自带），而 archunit-junit5 的引擎是为
+             JUnit Platform 1.x 写的，混用有版本风险。核心包是纯库，直接在普通 @Test 里
+             调 ClassFileImporter + Rule.check 即可，功能完全够用、依赖面更小。
+
+             ⚠️ 版本必须 ≥ 1.5.0：JDK 25 的 class 文件主版本号是 69，更早的 ArchUnit
+             读取时会报 "Unsupported class file major version 69"。1.5.1 是当前最新。
+
+             依赖冻结纪律（SOP §五）：这是 S6 的**独立一项**，不与业务切片混提交。
+             若将来弃用，删本依赖 + ArchitectureTests 即可，业务代码零改动。 -->
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit</artifactId>
+            <version>1.5.1</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
