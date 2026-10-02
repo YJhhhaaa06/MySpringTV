@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.content.dao;
 
 import io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO;
+import io.github.yjhhhaaa06.videoweb.content.model.entity.Content;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -213,5 +214,32 @@ public interface ContentDao {
 
     /** 作者删除作品：软删。TV: {@code UPDATE content SET is_deleted = 1 WHERE id = ?} */
     int softDeleteContent(@Param("contentId") long contentId);
+
+    // ========================================================================
+    // S7：upload（发布写路径）
+    // ========================================================================
+
+    /**
+     * 发布内容：插入一行并回填自增主键（upload 的 {@code doAddContent}）。
+     *
+     * <p>TV: {@code insert into content (user_id, title,type, description,category_id) values (?, ?, ?,?,?)}
+     * （列顺序与写法逐字保留）——{@code Statement.RETURN_GENERATED_KEYS + getGeneratedKeys()}
+     * 的骨架删掉，改 {@code useGeneratedKeys="true" keyProperty="id"} 回填 {@link Content#getId()}。
+     *
+     * <p>插入列**只有这五列**：{@code like_count}/{@code comment_count}/{@code comment_enabled}/
+     * {@code file_exists}/{@code create_time} 等全部走表默认值（TV 原样）。
+     *
+     * @return 受影响行数（主键从入参 {@code content.getId()} 取）
+     */
+    int addContent(Content content);
+
+    /**
+     * 换源后回写内容级"文件完整性聚合"（TV {@code replaceMedia} 的第二条语句）。
+     *
+     * <p>TV: {@code update content set file_exists=?, last_verify_time=? where id=?}
+     */
+    int updateFileExists(@Param("contentId") long contentId,
+                         @Param("exists") boolean exists,
+                         @Param("lastVerifyTime") java.sql.Timestamp lastVerifyTime);
 }
 

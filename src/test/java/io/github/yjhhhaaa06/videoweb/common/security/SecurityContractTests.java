@@ -121,8 +121,24 @@ class SecurityContractTests extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("S7：upload 三个端点判为需登录（TV 的 `/api/upload` 是**前缀**保护项 ⇒ 类级注解）")
+    void upload类级注解覆盖全部端点() {
+        assertThat(requiresLogin("POST", "/api/upload/video")).isTrue();
+        assertThat(requiresLogin("POST", "/api/upload/post")).isTrue();
+        assertThat(requiresLogin("POST", "/api/upload/replace")).isTrue();
+    }
+
+    @Test
     @DisplayName("未映射的路径返回 false：真正的 404 由 DispatcherServlet 产生，本机制不越权处理路由")
     void 未映射路径不需登录() {
         assertThat(requiresLogin("GET", "/no/such/endpoint")).isFalse();
+    }
+
+    @Test
+    @DisplayName("S7：静态媒体路径 /upload/** 不受 @RequiresLogin 管辖（媒体匿名可访问，同 TV 的 Tomcat 挂载）")
+    void 静态媒体路径公开() {
+        // /upload/** 由 SimpleUrlHandlerMapping（资源处理器）承接，不在 requestMappingHandlerMapping 里
+        // ⇒ RequestMappingLookup 返回 false。这不是"漏保护"：媒体文件本就公开（TV 一致）。
+        assertThat(requiresLogin("GET", "/upload/video/some-file.mp4")).isFalse();
     }
 }

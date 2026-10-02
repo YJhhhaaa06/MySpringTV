@@ -4,6 +4,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
@@ -54,5 +55,34 @@ public abstract class AbstractIntegrationTest {
     /** 测试媒体根：`<基于仓库根的工作目录>/target/test-media`（surefire 的工作目录 = 项目根）。 */
     public static String testMediaRoot() {
         return Path.of("target", "test-media").toAbsolutePath().toString();
+    }
+
+    /** 真实测试素材目录（沿用老项目的外部目录；环境变量 `TV_TEST_RESOURCE_DIR` 可覆盖）。 */
+    public static String testResourceDir() {
+        return System.getenv().getOrDefault("TV_TEST_RESOURCE_DIR",
+                "D:\\dev\\WorkSpace\\VideoPlatform\\TestResource");
+    }
+
+    /**
+     * 取真实测试素材文件；**缺失即失败，不降级**。
+     *
+     * <h2>为什么用外部目录 + 显式失败</h2>
+     * 素材是**真实可解码**的媒体（mp4/png/jpg，共约 9MB），供将来的**转码切片**使用。
+     * 大二进制不入 git（git 对二进制不做 diff，替换即全量新 blob 且永久留在历史 ⇒ 仓库膨胀），
+     * 故沿用老项目的外部目录约定。老项目在缺失时会**静默降级成 1KB 合成素材**——
+     * 本仓刻意去掉该降级：合成素材在转码场景会让用例**假绿**，宁可在此显式失败
+     * （见《决策留痕表》B-15）。
+     *
+     * @throws AssertionError 素材缺失（错误信息直接给出修复方式）
+     */
+    public static Path testResource(String fileName) {
+        Path path = Path.of(testResourceDir()).resolve(fileName);
+        if (!Files.isRegularFile(path)) {
+            throw new AssertionError("测试素材缺失: " + path
+                    + "。请设置环境变量 TV_TEST_RESOURCE_DIR 指向含 "
+                    + "{test_video.mp4, test_cover.png, test_image.jpg} 的目录"
+                    + "（本仓刻意不把大二进制素材入库，见《决策留痕表》B-15）");
+        }
+        return path;
     }
 }

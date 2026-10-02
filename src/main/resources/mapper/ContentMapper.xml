@@ -202,4 +202,22 @@
         UPDATE content SET is_deleted = 1 WHERE id = #{contentId}
     </update>
 
+    <!-- ============================ S7：upload 发布写路径 ============================ -->
+
+    <!-- TV: addContent —— `insert into content (user_id, title,type, description,category_id)
+         values (?, ?, ?,?,?)`（列顺序与写法逐字保留）。
+         `Statement.RETURN_GENERATED_KEYS + getGeneratedKeys()` 骨架 → useGeneratedKeys 回填 id。
+         其余列走表默认值（TV 原样）。 -->
+    <insert id="addContent" parameterType="io.github.yjhhhaaa06.videoweb.content.model.entity.Content"
+            useGeneratedKeys="true" keyProperty="id">
+        insert into content (user_id, title,type, description,category_id)
+        values (#{userId}, #{title}, #{type}, #{description}, #{categoryId})
+    </insert>
+
+    <!-- TV: updateFileExists —— `update content set file_exists=?, last_verify_time=? where id=?`
+         （换源后回写内容级文件完整性聚合；boolean → tinyint 隐式转换）。 -->
+    <update id="updateFileExists">
+        update content set file_exists=#{exists}, last_verify_time=#{lastVerifyTime} where id=#{contentId}
+    </update>
+
 </mapper>

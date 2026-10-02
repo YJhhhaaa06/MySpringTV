@@ -5,10 +5,13 @@ import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import io.github.yjhhhaaa06.videoweb.content.service.ContentService;
+import io.github.yjhhhaaa06.videoweb.upload.service.FileUploadService;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 /**
  * 内容管理接口（作者本人操作，S5）。
@@ -57,9 +60,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class ContentController {
 
     private final ContentService contentService;
+    private final FileUploadService fileUploadService;
 
-    public ContentController(ContentService contentService) {
+    public ContentController(ContentService contentService, FileUploadService fileUploadService) {
         this.contentService = contentService;
+        this.fileUploadService = fileUploadService;
     }
 
     /**
@@ -118,8 +123,9 @@ public class ContentController {
      * {@code sort} 缺失/非法 → 400；{@code type != 2} → 400 {@code "仅支持删除图片"}（在 Service 里）；
      * 非作者 → 403；媒体不存在 → 404 {@code "媒体资源不存在"}。
      *
-     * <p>⚠️ <b>物理文件清理由本切片裁剪</b>（依赖未迁移的 upload 域，见 {@code ContentService.deleteMedia}
-     * 与决策表 G-7 的补回位置）；Service 已把旧 url 返回出来，补回时只需在下面加一行。
+     * <p>★ <b>S7 补回（A7 兑现）</b>：Service 把被删媒体的 url 返回出来，此处**提交后**调
+     * {@code deleteFileByUrl} 清理物理文件（尽力而为：非法 URL / 文件不存在静默忽略）。
+     * S5 交付时因 upload 域未迁移而裁剪，补回位置即此（见《决策表》G-7 与《遗留台账》A7）。
      */
     @PostMapping("/mediaDelete")
     @RequiresLogin
@@ -127,7 +133,8 @@ public class ContentController {
                                            @RequestParam long contentId,
                                            @RequestParam int type,
                                            @RequestParam int sort) {
-        contentService.deleteMedia(contentId, userId, type, sort);
+        String oldUrl = contentService.deleteMedia(contentId, userId, type, sort);
+        fileUploadService.deleteFileByUrl(oldUrl);
         return ApiResponse.success("删除成功");
     }
 
@@ -137,12 +144,17 @@ public class ContentController {
      * <p>级联：内容软删 + 全部评论软删 + 点赞记录物理删 + 媒体记录物理删（**同一事务**）。
      * 非作者 → 403；内容不存在/已删 → 404。
      *
-     * <p>⚠️ 同 {@link #mediaDelete}：物理文件清理被裁剪（补回位置见 G-7）。
+     * <p>★ <b>S7 补回（A7 兑现）</b>：同 {@link #mediaDelete}——Service 返回**全部**媒体
+     * url 列表，此处提交后逐个清物理文件。**磁盘文件随作品一并消失**从此成立
+     * （此前为"DB 行删了、磁盘文件残留"的有意裁剪）。
      */
     @PostMapping("/delete")
     @RequiresLogin
     public ApiResponse<String> delete(@CurrentUserId long userId, @RequestParam long contentId) {
-        contentService.deleteContent(contentId, userId);
+        List<String> mediaUrls = contentService.deleteContent(contentId, userId);
+        for (String url : mediaUrls) {
+            fileUploadService.deleteFileByUrl(url);
+        }
         return ApiResponse.success("删除成功");
     }
 }

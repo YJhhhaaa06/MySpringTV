@@ -55,4 +55,20 @@
         delete from content_media where content_id=#{contentId}
     </delete>
 
+    <!-- ============================ S7：upload 发布写路径 ============================ -->
+
+    <!-- TV: addMedia —— `insert into content_media(content_id,url,type,sort) VALUES (?, ?,?,?)`
+         （写法逐字保留；无生成键需求——媒体行 id 无人引用）。
+         type 语义：1 视频 / 2 图片 / 3 封面（由调用方按上传类型给出）。 -->
+    <insert id="addMedia">
+        insert into content_media(content_id,url,type,sort) VALUES (#{contentId}, #{url}, #{type}, #{sort})
+    </insert>
+
+    <!-- TV: updateMediaUrl —— `update content_media set url=?, file_exists=?, last_verify_time=? where id=?`
+         （换源：更新 url + 立即标记"文件存在" + 记录校验时间；boolean → tinyint 隐式转换）。 -->
+    <update id="updateMediaUrl">
+        update content_media set url=#{url}, file_exists=#{exists}, last_verify_time=#{lastVerifyTime}
+        where id=#{mediaId}
+    </update>
+
 </mapper>

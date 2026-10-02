@@ -13,8 +13,8 @@ import lombok.NoArgsConstructor;
  * <ol>
  *   <li>{@code ContentCache} 把内容全部媒体行按 {@code type} 分组，拼出 coverUrl / videoUrl / imageUrls；</li>
  *   <li>{@code deleteMedia} 按 {@code (contentId, type, sort)} 定位一行并删；</li>
- *   <li>{@code deleteContent} 取全部行拿到 url 列表（交给调用方清理物理文件——本切片**裁剪**，
- *       见《决策表》G-7 的补回位置）。</li>
+ *   <li>{@code deleteContent} 取全部行拿到 url 列表（交给调用方清理物理文件——
+ *       S5 曾**有意裁剪**该清理，S7 已补回：见 {@code ContentController.delete}）。</li>
  * </ol>
  */
 @Data

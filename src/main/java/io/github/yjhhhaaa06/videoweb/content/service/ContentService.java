@@ -8,18 +8,22 @@ import io.github.yjhhhaaa06.videoweb.content.cache.ContentCache;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentMediaDao;
 import io.github.yjhhhaaa06.videoweb.content.event.ContentCacheChangedEvent;
+import io.github.yjhhhaaa06.videoweb.content.model.ContentType;
 import io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO;
+import io.github.yjhhhaaa06.videoweb.content.model.entity.Content;
 import io.github.yjhhhaaa06.videoweb.content.model.entity.ContentMedia;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentDetailVO;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentVO;
 import io.github.yjhhhaaa06.videoweb.comment.dao.CommentDao;
-import io.github.yjhhhaaa06.videoweb.content.dao.ContentMediaDao;
 import io.github.yjhhhaaa06.videoweb.like.dao.ContentLikeDao;
 import io.github.yjhhhaaa06.videoweb.like.service.LikeService;
+import io.github.yjhhhaaa06.videoweb.upload.model.UploadType;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -44,6 +48,9 @@ import java.util.Map;
  *   <tr><td>{@code POST /content/update}</td><td>{@link #updateContentInfo}</td><td>{@code @Transactional}</td></tr>
  *   <tr><td>{@code POST /content/delete} / {@code /mediaDelete}</td><td>{@link #deleteContent} / {@link #deleteMedia}</td>
  *       <td>{@code @Transactional}</td></tr>
+ *   <tr><td>{@code POST /api/upload/video}</td><td>{@link #addVideo}</td><td>{@code @Transactional}（S7）</td></tr>
+ *   <tr><td>{@code POST /api/upload/post}</td><td>{@link #addPost}</td><td>{@code @Transactional}（S7）</td></tr>
+ *   <tr><td>{@code POST /api/upload/replace}</td><td>{@link #replaceMedia}</td><td>{@code @Transactional}（S7）</td></tr>
  * </table>
  *
  * <h2>提交后副作用统一走事件（G-3）</h2>
@@ -285,8 +292,8 @@ public class ContentService {
      *
      * <p>提交后 {@code REFRESH} 内容 key —— 详情的 {@code imageUrls} 与封面可能变了。
      *
-     * @return 被删媒体的 url（**调用方原本要据此清理物理文件**；本切片裁剪了文件清理，
-     *         见类注释与决策表 G-7 的补回位置）
+     * @return 被删媒体的 url（**调用方据此清理物理文件**——S7 已补回：
+     *         {@code ContentController.mediaDelete} 提交后调 {@code deleteFileByUrl}）
      */
     @Transactional
     public String deleteMedia(long contentId, long userId, int type, int sort) {
@@ -334,14 +341,14 @@ public class ContentService {
      * </ol>
      * 即"**内容删了**"这一个业务事实，三方各自失效自己的缓存，本域**不必知道**谁有缓存。
      *
-     * <h2>⚠️ 有意裁剪：物理文件清理不迁移（决策表 G-7）</h2>
+     * <h2>★ S7 补回：物理文件清理已兑现（A7 闭合）</h2>
      * TV 在这里返回 url 列表，由 Controller 逐个 {@code fileUploadService.deleteFileByUrl(url)}
-     * （"尽力而为，DB 已提交"）。该调用依赖**未迁移的 upload 域** ⇒ 本切片裁剪。
-     * <b>影响</b>：DB 记录与磁盘文件都会保留在磁盘上（可观察面 = 文件系统，不是 API）。
-     * <b>补回位置</b>：upload 批次接入 {@code FileUploadService} 后，在 Controller 的提交后段
-     * 补回 `for (String url : urls) fileUploadService.deleteFileByUrl(url)`（本方法已把 url 返回出来）。
+     * （"尽力而为，DB 已提交"）。S5 因 upload 域未迁移**有意裁剪**（只留返回值 + 补回位置），
+     * S7 接入 {@code FileUploadService} 后在 {@code ContentController.delete} 的提交后段补回。
+     * 至此"删作品后磁盘文件同步消失"成立（双端可观察：DB 行 + 文件系统）。
      *
-     * @return 该内容全部媒体的 url（供补回后的物理文件清理使用）
+     * @return 该内容全部媒体的 url（供调用方清理物理文件——S7 已补回：
+     *         {@code ContentController.delete} 提交后逐个 {@code deleteFileByUrl}）
      */
     @Transactional
     public List<String> deleteContent(long contentId, long userId) {
@@ -363,7 +370,116 @@ public class ContentService {
         return mediaUrls;
     }
 
-    /** 所有权校验 + 定位媒体行，供删媒体复用（404「媒体资源不存在」）。 */
+    // ========================================================================
+    // S7：upload 发布写路径（决策表 §四·S7：三处 ✅ 保持单事务）
+    // ========================================================================
+
+    /**
+     * 发布视频（{@code POST /api/upload/video}）：建内容行 + 插视频/封面两条媒体行。
+     *
+     * <h2>★ 决策表 §四·S7：✅ 保持单事务</h2>
+     * 「建内容 + 插媒体」必须同进同退——否则会留下"有内容行但无媒体行"的记录，
+     * 而 {@code ContentCache} 装载时"无媒体 ⇒ 媒体损坏 ⇒ 视为不可见"，等于一条永远打不开的内容。
+     * TV 用 {@code transactionTemplate.execute} 把 {@code doAddContent + addMedia×2} 包在一个事务里，
+     * 新实现照此用 {@code @Transactional}。
+     *
+     * <h2>提交后副作用（模式 A）</h2>
+     * 旧实现在事务后调 {@code contentCache.addContent(videoId)}。本实现改为发
+     * {@code ContentCacheChangedEvent.refresh(videoId)}（AFTER_COMMIT）。
+     * **语义已核对等价**：新 {@code ContentCache.refreshContent} = 装载 → 写 key → 进索引，
+     * 与旧 {@code addContent} 逐字相同（两者在新实现里其实是同一段代码）。
+     *
+     * <h2>⚠️ 两处有意留后</h2>
+     * <ol>
+     *   <li><b>feed 投递</b>：TV 在此处调 {@code feedPushNotifier.publishContentPublished(videoId, userId)}
+     *       （提交后、失败只降级）。订阅方（feed）尚不存在 ⇒ 留 {@code TODO(feed 切片)} + 台账 A3，
+     *       不预埋抽象（沿 S4 的先例）。</li>
+     *   <li><b>文件落盘与 DB 无法原子</b>：由 Controller 在失败时删除已落盘文件补偿
+     *       （见 {@code UploadController}）。</li>
+     * </ol>
+     *
+     * @param videoUrl 已落盘视频的**应用内相对 URL**
+     * @param coverUrl 已落盘封面的应用内相对 URL
+     * @return 新内容 id
+     */
+    @Transactional
+    public long addVideo(long userId, String title, String description, int categoryId,
+                         String videoUrl, String coverUrl) {
+        long contentId = doAddContent(userId, ContentType.VIDEO, title, description, categoryId);
+        contentMediaDao.addMedia(contentId, videoUrl, UploadType.VIDEO.getMediaType(), 1);
+        contentMediaDao.addMedia(contentId, coverUrl, UploadType.COVER.getMediaType(), 1);
+        // TODO(feed 切片)：补回 FeedPushNotifier.publishContentPublished(contentId, userId)
+        //   （提交后投递、失败只降级）。位置与理由见《遗留台账》A3、《决策留痕表》B-7。
+        events.publishEvent(ContentCacheChangedEvent.refresh(contentId));
+        return contentId;
+    }
+
+    /**
+     * 发布图文（{@code POST /api/upload/post}）：建内容行 + 可选封面 + 0~n 张图片。
+     *
+     * <p>决策与副作用口径同 {@link #addVideo}（✅ 保持单事务 / REFRESH 事件 / feed TODO）。
+     * 与视频的唯一结构差异：封面**可选**（{@code coverUrl == null} 不插行），
+     * 图片的 {@code sort} 从 1 递增（TV 原样）。
+     *
+     * @param coverUrl  封面相对 URL；{@code null} 表示无封面
+     * @param imageUrls 正文图片相对 URL 列表（可为空；顺序即 {@code sort} 1..n）
+     */
+    @Transactional
+    public long addPost(long userId, String title, String description, int categoryId,
+                        String coverUrl, List<String> imageUrls) {
+        long contentId = doAddContent(userId, ContentType.POST, title, description, categoryId);
+        if (coverUrl != null) {
+            contentMediaDao.addMedia(contentId, coverUrl, UploadType.COVER.getMediaType(), 1);
+        }
+        int sort = 1;
+        for (String imageUrl : imageUrls) {
+            contentMediaDao.addMedia(contentId, imageUrl, UploadType.IMAGE.getMediaType(), sort++);
+        }
+        // TODO(feed 切片)：口径同 addVideo（《遗留台账》A3）。
+        events.publishEvent(ContentCacheChangedEvent.refresh(contentId));
+        return contentId;
+    }
+
+    /**
+     * 建内容行（TV {@code doAddContent} 的等价内联）。插入列只有 TV 那五列，主键由
+     * {@code useGeneratedKeys} 回填（TV 的手工取键骨架已删）。
+     */
+    private long doAddContent(long userId, ContentType type, String title, String description, int categoryId) {
+        Content content = new Content(null, userId, type.getTypeNumber(), title, description, categoryId);
+        contentDao.addContent(content);
+        return content.getId();
+    }
+
+    /**
+     * 作者换源（{@code POST /api/upload/replace}）：替换自作品某条媒体的文件。
+     *
+     * <h2>★ 决策表 §四·S7：✅ 保持单事务</h2>
+     * 事务内三件事：① 归属 + 媒体定位（404 / 403）→ ② 更新 {@code content_media.url}
+     * （同时把 {@code file_exists} 置 1 并记录校验时间）→ ③ 回写内容级 {@code content.file_exists}
+     * 聚合。三者同进同退（TV 原样）。
+     *
+     * <h2>提交后：两条清理/刷新，顺序与归属</h2>
+     * <ol>
+     *   <li>{@code REFRESH} 内容缓存（媒体 url 变了，详情的 videoUrl/coverUrl/imageUrls 要重载）；</li>
+     *   <li><b>旧文件删除由 Controller 做</b>（{@code deleteFileByUrl(oldUrl)}）——本方法把旧 url
+     *       **返回给调用方**，与 TV 一致。删除发生在事务提交之后（Controller 拿到的返回值时
+     *       事务已提交），故不会出现"DB 未提交却删了旧文件"。</li>
+     * </ol>
+     *
+     * @return 被替换掉的**旧** url（供调用方清理物理文件）
+     */
+    @Transactional
+    public String replaceMedia(long contentId, long userId, int type, int sort, String newUrl) {
+        ContentMedia media = findOwnedMedia(contentId, userId, type, sort);
+        String oldUrl = media.getUrl();
+        Timestamp now = Timestamp.valueOf(LocalDateTime.now());
+        contentMediaDao.updateMediaUrl(media.getMediaId(), newUrl, true, now);
+        contentDao.updateFileExists(contentId, true, now);
+        events.publishEvent(ContentCacheChangedEvent.refresh(contentId));
+        return oldUrl;
+    }
+
+    /** 所有权校验 + 定位媒体行，供删媒体/换源复用（404「媒体资源不存在」）。 */
     private ContentMedia findOwnedMedia(long contentId, long userId, int type, int sort) {
         findOwnedContent(contentId, userId);
         ContentMedia media = contentMediaDao.findMediaByContentTypeSort(contentId, type, sort);

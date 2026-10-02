@@ -20,12 +20,13 @@ import java.util.List;
  *
  * <p><b>不搬</b>（各有归属）：
  * <ul>
- *   <li>{@code addMedia} — upload 批次（建内容时插媒体）</li>
- *   <li>{@code updateMediaUrl} — upload 批次（换源）</li>
- *   <li>{@code updateFileExists} — admin/媒体审计批次（文件校验状态回写）</li>
+ *   <li>{@code updateFileExists} — admin/媒体审计批次（文件校验状态回写；换源路径用的是
+ *       {@link #updateMediaUrl} 自带的 file_exists 参数，不经过它）</li>
  *   <li>{@code deleteMediaById} — admin/运维（按媒体 id 删）</li>
  *   <li>{@code findAllMedia} / {@code findMediaById} — 运维扫描/恢复（无端点）</li>
  * </ul>
+ *
+ * <p>（S7 起 {@code addMedia} / {@code updateMediaUrl} 已由 upload 批次补搬，见文末。）
  *
  * <h2>一处与原实现的形态差异（等价，非行为改动）</h2>
  * TV 的 {@code findMedia} 直接在 DAO 内把行按 {@code type} 分组返回
@@ -81,4 +82,32 @@ public interface ContentMediaDao {
      * TV: {@code delete from content_media where content_id=?}
      */
     int deleteByContentId(@Param("contentId") long contentId);
+
+    // ========================================================================
+    // S7：upload（发布写路径）
+    // ========================================================================
+
+    /**
+     * 新增一条媒体行（发布视频/图文时插视频、封面、图片）。
+     *
+     * <p>TV: {@code insert into content_media(content_id,url,type,sort) VALUES (?, ?,?,?)}
+     *
+     * @param type 1 视频 / 2 图片 / 3 封面（调用方按上传类型给出，TV {@code UploadType.mediaType} 口径）
+     * @param sort 同 type 内序号（视频/封面恒 1；图片从 1 递增）
+     */
+    int addMedia(@Param("contentId") long contentId,
+                 @Param("url") String url,
+                 @Param("type") int type,
+                 @Param("sort") int sort);
+
+    /**
+     * 换源：更新单条媒体的 url，并立即标记"文件存在" + 记录校验时间。
+     *
+     * <p>TV: {@code update content_media set url=?, file_exists=?, last_verify_time=? where id=?}
+     * ——{@code exists=true} 与时间戳由 Service 传入（刚写入的新文件必然存在）。
+     */
+    int updateMediaUrl(@Param("mediaId") long mediaId,
+                       @Param("url") String url,
+                       @Param("exists") boolean exists,
+                       @Param("lastVerifyTime") java.sql.Timestamp lastVerifyTime);
 }

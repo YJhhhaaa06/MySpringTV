@@ -15,6 +15,7 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 
 import java.util.stream.Collectors;
 
@@ -66,11 +67,19 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error(ErrorCode.PARAM_ERROR.getCode(), detail));
     }
 
-    /** 缺参 / 类型不匹配 / 请求体不可解析：均归为参数错误。 */
+    /**
+     * 缺参 / 类型不匹配 / 请求体不可解析 / **缺 multipart part**：均归为参数错误。
+     *
+     * <p>⚠️ 最后一类（{@link MissingServletRequestPartException}）是 S7 加入的：
+     * 上传端点的必填文件 part 缺失时 Spring 抛它。TV 侧同场景是
+     * {@code getPart → null → NPE 未捕获 → 500}（《决策留痕表》D-11 的记录来源），
+     * 本实现按 D-3 先例统一归 400。
+     */
     @ExceptionHandler({
             MissingServletRequestParameterException.class,
             MethodArgumentTypeMismatchException.class,
-            HttpMessageNotReadableException.class
+            HttpMessageNotReadableException.class,
+            MissingServletRequestPartException.class
     })
     public ResponseEntity<ApiResponse<Void>> handleBadRequest(Exception ex, HttpServletRequest req) {
         log.info("请求参数错误 {} {} -> {}", req.getMethod(), req.getRequestURI(), ex.getMessage());
