@@ -1,38 +1,60 @@
 package io.github.yjhhhaaa06.videoweb.comment.service;
 
+import io.github.yjhhhaaa06.videoweb.comment.cache.CommentCache;
 import io.github.yjhhhaaa06.videoweb.comment.dao.CommentDao;
+import io.github.yjhhhaaa06.videoweb.comment.event.CommentCacheChangedEvent;
+import io.github.yjhhhaaa06.videoweb.comment.model.cache.CommentCacheDTO;
 import io.github.yjhhhaaa06.videoweb.comment.model.dto.AddCommentRequest;
 import io.github.yjhhhaaa06.videoweb.comment.model.entity.Comment;
+import io.github.yjhhhaaa06.videoweb.comment.model.vo.CommentVO;
 import io.github.yjhhhaaa06.videoweb.common.exception.ConflictException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ForbiddenException;
 import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
+import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
+import io.github.yjhhhaaa06.videoweb.content.event.ContentCacheChangedEvent;
+import io.github.yjhhhaaa06.videoweb.like.service.LikeService;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 /**
- * 评论业务（S2：**写路径**）。
+ * 评论业务。
  *
  * <p>迁移自 TV {@code com.itheima.comment.service.CommentService}。
  * 骨架（{@code transactionTemplate.execute} / {@code conn} 穿透 / {@code catch (SQLException)} 包装）已删除，
  * 业务语义（校验顺序、异常类型、楼中楼归一化、软删除规则、计数口径）逐条保留——
  * 对照与反模式警告见《事务边界决策表》§二·C（CM-1 / CM-2）。
  *
- * <h2>本切片只交付写路径（CM-3：读路径划归 S5）</h2>
- * 未搬 TV 的 {@code getRepliesForRoot} 与 VO 树转换（{@code convertToCommentVOList}）。
- * 理由：读路径经 {@code ContentService.getCommentsForContent} 拖入 {@code CommentCache}（8 处事务）
- * + {@code ContentCache} + {@code LikeService}，那是 S3/S5 的领域。
- * 端点 {@code GET /comment/show}、{@code GET /comment/replies} 随之不在本切片。
+ * <h2>两段历史</h2>
+ * <ul>
+ *   <li><b>S2</b>：写路径（{@code addComment} / {@code doDeleteComment}）。</li>
+ *   <li><b>S5</b>（本切片）：读路径（{@link #getRepliesForRoot} + VO 树转换
+ *       {@link #convertToCommentVOList}），并把 S2 裁剪掉的**提交后缓存失效补回**（CM-3 的承诺）。</li>
+ * </ul>
  *
- * <h2>三处与 TV 的差异（均已表态，勿当缺陷"修正"）</h2>
+ * <h2>★ 提交后副作用：从"裁剪"到"补回"（G-3）</h2>
+ * S2 因为"当时不存在任何读缓存"而把 TV 的 3 行失效整段裁掉（CM-3 有详细论证与补回位置）。
+ * S5 接入两个 Cache 后**必须补回**，且改为 {@code @TransactionalEventListener(AFTER_COMMIT)}：
  * <ol>
- *   <li><b>评论区开关改读 DB</b>（TV 读 {@code ContentCache}）：消除旧实现的缓存陈旧窗口，见 CM-1 要点 3。</li>
- *   <li><b>提交后缓存失效被裁剪</b>：当前不存在任何读缓存，"失效"是空操作。
- *       ⚠️ 补回位置见 CM-3 末段——S5 接缓存时必须回来把副作用改为
- *       {@code @TransactionalEventListener(AFTER_COMMIT)}。**在那之前"评论后计数不即时更新"属预期。**</li>
- *   <li><b>不再手写 {@code ServerException} 包装与 SEVERE 堆栈日志</b>：由 {@code GlobalExceptionHandler}
- *       单一出口承担（{@code DataAccessException} → 记堆栈 500），业务代码里不再有 try/catch。</li>
+ *   <li>{@code ContentCacheChangedEvent.invalidate(contentId)} —— 评论数变了 ⇒ 失效内容 key
+ *       （读自愈回填 DB 最新的 {@code comment_count}）；</li>
+ *   <li>{@code CommentCacheChangedEvent.roots/replyUnder} —— 增删主楼失效 roots+count、
+ *       增删回复定向 HDEL 该主楼的 replies field。</li>
  * </ol>
+ * ★ 顺序纪律（TV 的 T34/U-22 结论）：**必须在提交后**。事务内先失效会留出窗口，
+ * 并发读者可按旧计数回填缓存，表现为"计数短暂陈旧"。
+ *
+ * <h2>S5 顺带找回的一处实现细节</h2>
+ * TV 在 {@code addComment} 事务内回查了一次 {@code findCommentById(commentId)}，其唯一用途是给
+ * 失效逻辑做 {@code newComment != null} 判据。S2 因失效被裁剪而不搬它。S5 恢复失效时，
+ * 依旧**不恢复那次回查**——刚插入的行必然存在，"插入成功"本身就是判据（省一次带两个 JOIN 的查询）。
+ * TV 为此构造的 {@code DeletedComment} 载体同理不再需要（局部变量已足够）。
  *
  * <h2>⚠️ 事务注解为什么标在"公开入口"而不是私有方法</h2>
  * {@code doDeleteComment} 只被本类调用。若把 {@code @Transactional} 标在它上面，
@@ -43,12 +65,31 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class CommentService {
 
+    /**
+     * T10-B：每主楼首屏只带前 K 条楼中楼。
+     * ⚠️ 与 {@code CommentCache.PREVIEW_REPLIES_PER_ROOT} **必须同值**（TV 原注释要求两处同步）。
+     */
+    public static final int REPLY_PREVIEW_K = 2;
+
+    /** 展开接口的 LIMIT 上界：仅防极端 {@code page*pageSize} 溢出（MySQL LIMIT 是 int）。 */
+    private static final long MAX_REPLY_WINDOW = 50_000L;
+
     private final CommentDao commentDao;
     private final ContentDao contentDao;
+    private final CommentCache commentCache;
+    private final LikeService likeService;
+    private final ApplicationEventPublisher events;
 
-    public CommentService(CommentDao commentDao, ContentDao contentDao) {
+    public CommentService(CommentDao commentDao,
+                          ContentDao contentDao,
+                          CommentCache commentCache,
+                          LikeService likeService,
+                          ApplicationEventPublisher events) {
         this.commentDao = commentDao;
         this.contentDao = contentDao;
+        this.commentCache = commentCache;
+        this.likeService = likeService;
+        this.events = events;
     }
 
     // ========================================================================
@@ -125,14 +166,124 @@ public class CommentService {
         }
         contentDao.updateCommentCount(contentId, 1);
 
-        // ⚠️ TV 在此之后有 3 行缓存失效（contentCache.notifyCommentCountChanged /
-        //    commentCache.invalidateRoots|invalidateReplyUnder）。S2 裁剪——当前无读缓存，
-        //    失效是空操作。补回位置见《事务边界决策表》CM-3 末段。
-        //
-        // 顺带：TV 在事务内还回查了一遍 findCommentById(commentId)，其**唯一用途**是给上面
-        // 那几行失效做 newComment != null 判据（回查结果本身未被使用，且刚插入必然非 null）。
-        // 失效既已裁剪，该回查无人消费 ⇒ 不搬（省一次带两个 JOIN 的查询）。
-        // 补回位置：S5 恢复失效时需一并恢复（或直接以"插入成功"为判据）。
+        // ★ 提交后副作用（G-3，S5 补回 CM-3 的裁剪）：
+        //   ① 评论数变了 ⇒ 失效内容 key（读自愈回填 DB 最新的 comment_count）；
+        //   ② 增主楼失效 roots+count（读懒建窗口）；增回复定向 HDEL 所在主楼的 replies field。
+        //   TV 的 3 行"写在事务 lambda 之后"的失效，从此是框架保证的 AFTER_COMMIT。
+        events.publishEvent(ContentCacheChangedEvent.invalidate(contentId));
+        if (effectiveParentId == null || effectiveParentId == 0) {
+            events.publishEvent(CommentCacheChangedEvent.roots(contentId));
+        } else {
+            events.publishEvent(CommentCacheChangedEvent.replyUnder(contentId, effectiveParentId));
+        }
+
+        // TV 在事务内还回查了一遍 findCommentById(commentId)，其唯一用途是给失效做
+        // newComment != null 判据。S5 恢复失效时**仍不恢复该回查**——刚插入的行必然存在，
+        // "插入成功"本身就是判据（CM-1 的补回说明已预告这个结论）。
+    }
+
+    // ========================================================================
+    // S5：读路径（CM-3 划归本切片）
+    // ========================================================================
+
+    /**
+     * 按主楼展开全部回复（{@code GET /comment/replies}）。
+     *
+     * <p>{@code total} = 主楼 {@code reply_count}（与分页信封里 children 的前 K 口径一致，
+     * 见 T10-B）；{@code list} = 直接回复 + 二级间接回复（{@code comment_id} 升序），
+     * 页间不重不漏由 keyset 构造保证。点赞态只对该页回复批量查询。
+     *
+     * <p><b>决策表 G-3：⚠️ 有意改进——去掉事务。</b>TV 用两个 {@code transactionTemplate.execute}
+     * 各包一条**纯读**（{@code findMainById} / {@code getRepliesInTreeByRoot}），
+     * 无原子性需求，事务只是"取连接的手段"（同 U-3/U-4、C-2/C-3、L-5、F-3、G-2）。
+     */
+    public PageResult<CommentVO> getRepliesForRoot(long rootId, Long userId, int page, int pageSize) {
+        if (page < 1 || pageSize < 1) {
+            return new PageResult<>(new ArrayList<>(), 0, page, pageSize);
+        }
+        CommentCacheDTO root = commentDao.findMainById(rootId);
+        if (root == null) {
+            throw new NotFoundException("评论不存在或已删除");
+        }
+        int total = root.getReplyCount();
+        List<CommentCacheDTO> rows = commentDao.getRepliesInTreeByRoot(
+                root.getContentId(), rootId, 0L, toLimit((long) page * pageSize));
+        List<CommentCacheDTO> pageList = slicePage(rows, page, pageSize);
+
+        Map<Long, Boolean> likedMap = new HashMap<>();
+        if (userId != null && !pageList.isEmpty()) {
+            List<Long> replyIds = new ArrayList<>(pageList.size());
+            for (CommentCacheDTO reply : pageList) {
+                replyIds.add(reply.getCommentId());
+            }
+            likedMap = likeService.batchIsCommentLiked(userId, replyIds);
+            if (likedMap == null) {
+                likedMap = new HashMap<>();
+            }
+        }
+        return new PageResult<>(convertToCommentVOList(pageList, likedMap), total, page, pageSize);
+    }
+
+    /** LIMIT 上界（防极端 {@code page*pageSize} 溢出；单主楼回复量内页间可达）。 */
+    private static int toLimit(long window) {
+        return (int) Math.min(Math.max(window, 1L), MAX_REPLY_WINDOW);
+    }
+
+    /** 从头取回的窗口行中切片该页（越界页空列表；信封 total 已是真实值）。 */
+    private static List<CommentCacheDTO> slicePage(List<CommentCacheDTO> rows, int page, int pageSize) {
+        if (rows == null || rows.isEmpty()) {
+            return new ArrayList<>();
+        }
+        long from = (long) (page - 1) * pageSize;
+        if (from >= rows.size()) {
+            return new ArrayList<>();
+        }
+        int to = (int) Math.min(from + pageSize, rows.size());
+        return new ArrayList<>(rows.subList((int) from, to));
+    }
+
+    // ========================================================================
+    // VO 树转换（承接 TV convertToCommentVOList / convertToCommentVO）
+    // ========================================================================
+
+    /** 评论树 → VO 树（带 {@code isLiked}）。 */
+    public List<CommentVO> convertToCommentVOList(List<CommentCacheDTO> cacheList,
+                                                  Map<Long, Boolean> likedMap) {
+        List<CommentVO> result = new ArrayList<>();
+        if (cacheList == null) {
+            return result;
+        }
+        for (CommentCacheDTO node : cacheList) {
+            result.add(convertToCommentVO(node, likedMap));
+        }
+        return result;
+    }
+
+    /**
+     * 单节点转换（递归 children）。
+     *
+     * <p>与 TV 的一处差异（等价且更稳）：TV 用 7 参构造器填 7 个字段，再**分两处** setter 补
+     * {@code isLiked} / {@code replyToUserId} / {@code replyToUsername} / {@code replyCount}，
+     * 以及递归 children——漏掉任何一处都会**静默丢字段**。本实现逐字段显式拷贝，
+     * 字段集一目了然（与 {@code ContentCache.copyCommon} 同一手法）。
+     */
+    private CommentVO convertToCommentVO(CommentCacheDTO node, Map<Long, Boolean> likedMap) {
+        CommentVO vo = new CommentVO(
+                node.getUsername(), node.getCommentId(), node.getContentId(),
+                node.getUserId(), node.getContent(), node.getParentId(), node.getLikeCount());
+        vo.setReplyToUserId(node.getReplyToUserId());
+        vo.setReplyToUsername(node.getReplyToUsername());
+        vo.setReplyCount(node.getReplyCount());
+        Boolean liked = likedMap.get(node.getCommentId());
+        vo.setIsLiked(liked != null && liked);
+        if (node.getChildren() != null) {
+            List<CommentVO> children = new ArrayList<>(node.getChildren().size());
+            for (CommentCacheDTO child : node.getChildren()) {
+                children.add(convertToCommentVO(child, likedMap));
+            }
+            vo.setChildren(new ArrayList<>(children));
+        }
+        return vo;
     }
 
     // ========================================================================
@@ -206,10 +357,18 @@ public class CommentService {
             commentDao.updateReplyCount(rootId, -1);
         }
 
-        // ⚠️ TV 在此之后有缓存失效（notifyCommentCountChanged + invalidateRoots|invalidateReplyUnder），
-        //    S2 裁剪，理由与补回位置同 addComment。TV 为此在事务内构造了 DeletedComment 载体
-        //    （contentId/commentId/deletedCount/isMain/rootId）并 return 出事务；失效既已裁剪，
-        //    该载体无消费者 ⇒ 不搬，方法返回 void。补回位置：S5 恢复失效时需重新引入该载体
-        //    （或改为在 AFTER_COMMIT 事件里携带同样 5 个字段）。
+        // ★ 提交后副作用（G-3，S5 补回）：失效内容 key（comment_count 变了）+ 评论树缓存。
+        //   TV 为此在事务内构造了 DeletedComment 载体 return 出事务；本实现直接发事件
+        //   （局部变量已含全部所需字段，无需载体）。
+        long contentId = comment.getContentId();
+        events.publishEvent(ContentCacheChangedEvent.invalidate(contentId));
+        if (isMain) {
+            // 删主楼整栋 ⇒ roots+count 失效；那栋的 replies field 也一并清掉
+            events.publishEvent(CommentCacheChangedEvent.roots(contentId));
+            events.publishEvent(CommentCacheChangedEvent.replyUnder(contentId, commentId));
+        } else {
+            // 删回复 ⇒ 定向清所属主楼的 replies field（懒载刷新）
+            events.publishEvent(CommentCacheChangedEvent.replyUnder(contentId, rootId));
+        }
     }
 }

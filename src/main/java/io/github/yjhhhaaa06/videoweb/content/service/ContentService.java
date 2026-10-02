@@ -1,20 +1,29 @@
 package io.github.yjhhhaaa06.videoweb.content.service;
 
+import io.github.yjhhhaaa06.videoweb.comment.cache.CommentCache;
+import io.github.yjhhhaaa06.videoweb.comment.event.CommentCacheChangedEvent;
+import io.github.yjhhhaaa06.videoweb.comment.model.cache.CommentCacheDTO;
+import io.github.yjhhhaaa06.videoweb.comment.model.vo.CommentVO;
+import io.github.yjhhhaaa06.videoweb.comment.service.CommentService;
 import io.github.yjhhhaaa06.videoweb.common.exception.ForbiddenException;
 import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
 import io.github.yjhhhaaa06.videoweb.content.cache.ContentCache;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
+import io.github.yjhhhaaa06.videoweb.content.dao.ContentMediaDao;
 import io.github.yjhhhaaa06.videoweb.content.event.ContentCacheChangedEvent;
 import io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO;
+import io.github.yjhhhaaa06.videoweb.content.model.entity.ContentMedia;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentDetailVO;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentVO;
+import io.github.yjhhhaaa06.videoweb.like.service.LikeService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -51,16 +60,28 @@ import java.util.Map;
 public class ContentService {
 
     private final ContentDao contentDao;
+    private final ContentMediaDao contentMediaDao;
     private final ContentCache contentCache;
+    private final CommentCache commentCache;
+    private final CommentService commentService;
+    private final LikeService likeService;
     private final ContentStatusFiller contentStatusFiller;
     private final ApplicationEventPublisher events;
 
     public ContentService(ContentDao contentDao,
+                          ContentMediaDao contentMediaDao,
                           ContentCache contentCache,
+                          CommentCache commentCache,
+                          CommentService commentService,
+                          LikeService likeService,
                           ContentStatusFiller contentStatusFiller,
                           ApplicationEventPublisher events) {
         this.contentDao = contentDao;
+        this.contentMediaDao = contentMediaDao;
         this.contentCache = contentCache;
+        this.commentCache = commentCache;
+        this.commentService = commentService;
+        this.likeService = likeService;
         this.contentStatusFiller = contentStatusFiller;
         this.events = events;
     }
@@ -129,6 +150,74 @@ public class ContentService {
             contentStatusFiller.fillFollowStatus(vo, userId);
         }
         return vo;
+    }
+
+    // ========================================================================
+    // 评论查询（GET /comment/show —— **注意实现在本类，不在 CommentService**）
+    // ========================================================================
+
+    /**
+     * 评论列表**缺省全量**路径（不传分页参数）。
+     *
+     * <h2>★ 为什么这个端点实现在 {@code ContentService}</h2>
+     * TV 的 {@code CommentController.showComment} 调的是
+     * {@code ContentService.getCommentsForContent}，**不是** {@code CommentService}——
+     * 因为"能不能看评论"取决于**内容**的状态（是否存在 / 是否隐藏 / 评论区是否开启），
+     * 而那些状态在内容缓存里。这是 S2 盘点时发现的"端点在别人 Service 里"的陷阱，
+     * 也是 CM-3 把读路径划归 S5 的直接理由。**迁移时保持同一实现位置**：
+     * 硬搬到 CommentService 会迫使它依赖 ContentCache，反而更糟。
+     *
+     * <h2>前置门禁（TV 原样，顺序不可改）</h2>
+     * <pre>
+     * dto == null              → 内容不存在/已软删/媒体损坏 ⇒ 空数组
+     * !dto.isCommentEnabled()  → 评论区已关 ⇒ 空数组（评论数据保留，重开即恢复）
+     * </pre>
+     * 两者都是"返回空"而不是 404/409——**这是有意的**：读评论不该因为内容不可见而报错，
+     * 否则前端要把"内容被删"与"评论为空"当两种情况处理。
+     *
+     * @return 全量评论树数组（主楼 + 每条的 children 全量）；无评论 ⇒ 空数组（不是 null）
+     */
+    public List<CommentVO> getCommentsForContent(long contentId, Long userId) {
+        ContentCacheDTO dto = contentCache.getContent(contentId);
+        if (dto == null || !dto.isCommentEnabled()) {
+            return new ArrayList<>();
+        }
+        List<CommentCacheDTO> commentTree = commentCache.getFullTree(contentId);
+        if (commentTree == null || commentTree.isEmpty()) {
+            return new ArrayList<>();
+        }
+        return toCommentVOList(commentTree, userId);
+    }
+
+    /**
+     * 评论列表**分页**路径（传了 {@code page} 或 {@code pageSize} 任一）。
+     *
+     * <p>{@code total} = **主楼条数**（不是评论总数）——信封语义与 {@code /follow} 一致；
+     * 每页主楼只带前 K=2 条楼中楼 + {@code replyCount}，展开走 {@code /comment/replies}（T10-B）。
+     *
+     * <p>越界页返回空 list 但 {@code total} 仍为真值（前端据此判末页）。
+     */
+    public PageResult<CommentVO> getCommentsForContent(long contentId, Long userId, int page, int pageSize) {
+        ContentCacheDTO dto = contentCache.getContent(contentId);
+        if (dto == null || !dto.isCommentEnabled()) {
+            return new PageResult<>(new ArrayList<>(), 0, page, pageSize);
+        }
+        CommentCache.PageWindow window = commentCache.getRootPage(contentId, page, pageSize);
+        List<CommentCacheDTO> pageRoots = window.roots();
+        return new PageResult<>(toCommentVOList(pageRoots, userId), window.rootTotal(), page, pageSize);
+    }
+
+    /** 评论树 → VO 树（带点赞态）：点赞态只对**本次要返回的这棵树**批量查询。 */
+    private List<CommentVO> toCommentVOList(List<CommentCacheDTO> tree, Long userId) {
+        Map<Long, Boolean> likedMap = new HashMap<>();
+        if (userId != null && tree != null && !tree.isEmpty()) {
+            List<Long> commentIds = commentCache.collectCommentIds(tree);
+            likedMap = likeService.batchIsCommentLiked(userId, commentIds);
+            if (likedMap == null) {
+                likedMap = new HashMap<>();
+            }
+        }
+        return commentService.convertToCommentVOList(tree, likedMap);
     }
 
     // ========================================================================

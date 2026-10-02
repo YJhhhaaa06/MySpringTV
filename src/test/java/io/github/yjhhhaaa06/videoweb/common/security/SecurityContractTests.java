@@ -110,6 +110,16 @@ class SecurityContractTests extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("S5：comment 读端点公开（TV 只保护 /comment/add 与 /comment/delete 两个精确项）")
+    void comment读端点公开() {
+        assertThat(requiresLogin("GET", "/comment/show")).isFalse();
+        assertThat(requiresLogin("GET", "/comment/replies")).isFalse();
+        // 反向对照：同域的两个写端点**仍是**需登录的（排除"整个 /comment 都被放行"的假绿）
+        assertThat(requiresLogin("POST", "/comment/add")).isTrue();
+        assertThat(requiresLogin("POST", "/comment/delete")).isTrue();
+    }
+
+    @Test
     @DisplayName("未映射的路径返回 false：真正的 404 由 DispatcherServlet 产生，本机制不越权处理路由")
     void 未映射路径不需登录() {
         assertThat(requiresLogin("GET", "/no/such/endpoint")).isFalse();

@@ -176,6 +176,11 @@ Select-String -Path "old-project\TVhomework1\src\main\java\com\itheima\<模块>\
 | 13 | **测试夹具的"冗余计数"不自洽** | 500，且报错指向 `content.comment_count` 而非被测逻辑——容易误判成业务缺陷 | `content.comment_count` 是 **`int unsigned`** 且 `updateCommentCount` **无防负守卫**（TV 原样保留）。夹具若直接插评论行却没同步 `comment_count`，删除时从 0 再 -1 ⇒ `Data truncation: BIGINT UNSIGNED value is out of range`。**夹具必须让计数与行数自洽**（S2 实测踩过一次） |
 | 14 | **盘点依赖时按"模块"而非"端点"看** | 切片规模估算严重失准（S2 计划 ~930 行，照做会是 3000+ 行） | 一个模块的端点可能实现在**别人的 Service 里**：`/comment/show` 调的是 `ContentService.getCommentsForContent`，不是 `CommentService`。盘点跨模块依赖必须**顺着每个端点**走一遍，别只看本模块的 `import`（S2 实测） |
 | 15 | **`HandlerMapping.getHandler()` 返回的是 `HandlerExecutionChain`，不是 `HandlerMethod`** | **鉴权静默失效**：任何"标了注解但**不接收** `@CurrentUserId`"的端点都**匿名可访问**；而接收 userId 的端点**看起来完全正常**（401 来自参数解析器抛异常，不是来自鉴权机制） | 必须 `chain.getHandler()` 解包后再 `instanceof HandlerMethod`。样本：本项目 `RequestMappingLookup` 自切片 0 起就失效，直到 S3 出现第一个"标注解但不收 userId"的端点才暴露（该端点无 token 返回 **200**）（S3 实测） |
+| 16 | **抽公共基类时给它标了 `@Component`** | 启动即失败，且**症状离病因很远**：全部测试报 `ApplicationContext failure threshold (1) exceeded`（上百条相同的 `IllegalStateException`），真正的根因在被截断的 `Caused by` 里：`NoUniqueBeanDefinitionException: expected single matching bean but found 3: redisOps, followRedisOps, likeRedisOps` | 协议**基类**要被多个域**继承**时，它**不能同时是可注入的 bean**——子类也是基类类型 ⇒ 按类型注入立刻歧义。正解：基类写成**抽象类**（不做 bean），子类各自 `@Component`，注入点写**具体类型**。S5 抽 `common/cache/RedisOps` 时踩到（S5 实测） |
+
+> 坑 16 的教训与坑 12/15 同族（**"不报错"或"报错指错地方"**），但隐瞒方式不同：
+> 它不是静默坏掉，而是**用上百条无信息的重复错误盖住唯一一条有信息的**。
+> 排查动作：**先看 `Caused by`，不要看被汇总的 `Tests run: N, Errors: N` 行**。
 
 ### 配置前缀速查（已实测）
 

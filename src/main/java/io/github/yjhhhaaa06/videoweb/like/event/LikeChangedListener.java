@@ -1,5 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.like.event;
 
+import io.github.yjhhhaaa06.videoweb.comment.cache.CommentCache;
+import io.github.yjhhhaaa06.videoweb.content.cache.ContentCache;
 import io.github.yjhhhaaa06.videoweb.like.cache.LikeCache;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -27,22 +29,27 @@ import org.springframework.transaction.event.TransactionalEventListener;
  *    {@code @Transactional} 方法内发布事件，没有"无事务时也要更新缓存"的场景；
  *    若将来出现，必须显式打开并在此说明理由（而不是默默打开）。
  *
- * <h2>⚠️ 一处裁剪（补回位置）</h2>
+ * <h2>⚠️ 一处曾裁剪、已由 S5 补回</h2>
  * TV 在这里还会失效**内容详情缓存** / **评论树缓存**：
  * {@code contentCache.notifyLikeCountChanged(contentId)}、
  * {@code commentCache.notifyCommentLikeChanged(commentId)}。
- * 这两个 Cache 属 **S5**，当前不存在 ⇒ 失效动作无从执行（也无需执行）。
- * 与 S2 的裁剪同性质、同纪律：**不为尚不存在的缓存预埋失效逻辑**。
- * <b>补回位置：S5 接入两个 Cache 时，在本监听器内一并补上这两次失效。</b>
+ * S3 时这两个 Cache 属 S5、尚不存在 ⇒ 失效动作无从执行（"不为尚不存在的缓存预埋失效逻辑"）。
+ * <b>S5 已按这里的补回位置补上</b>（见下方 switch 的两个分支）——它们是
+ * {@code content.like_count} / {@code comment.like_count} 变化的**唯一失效点**：
+ * 少了它们，缓存里的旧点赞数会一直服务到 TTL 到期（对外表现为"点赞后数字不变"）。
  */
 @Slf4j
 @Component
 public class LikeChangedListener {
 
     private final LikeCache likeCache;
+    private final ContentCache contentCache;
+    private final CommentCache commentCache;
 
-    public LikeChangedListener(LikeCache likeCache) {
+    public LikeChangedListener(LikeCache likeCache, ContentCache contentCache, CommentCache commentCache) {
         this.likeCache = likeCache;
+        this.contentCache = contentCache;
+        this.commentCache = commentCache;
     }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
@@ -57,6 +64,9 @@ public class LikeChangedListener {
                 } else {
                     likeCache.unlikeContent(event.userId(), event.targetId());
                 }
+                // S5 补回（L-6）：失效内容 key，读自愈回填 DB 最新 like_count
+                // ⚠️ 用 contentId（= event.targetId()）——别错写成 userId
+                contentCache.notifyLikeCountChanged(event.targetId());
             }
             case COMMENT -> {
                 if (event.liked()) {
@@ -64,6 +74,8 @@ public class LikeChangedListener {
                 } else {
                     likeCache.unlikeComment(event.userId(), event.targetId());
                 }
+                // S5 补回（L-6）：定位评论所属主楼并定向失效其 replies field（懒载刷新 like_count）
+                commentCache.notifyCommentLikeChanged(event.targetId());
             }
         }
     }

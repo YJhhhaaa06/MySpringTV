@@ -1,8 +1,11 @@
 package io.github.yjhhhaaa06.videoweb.comment.dao;
 
+import io.github.yjhhhaaa06.videoweb.comment.model.cache.CommentCacheDTO;
 import io.github.yjhhhaaa06.videoweb.comment.model.entity.Comment;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+
+import java.util.List;
 
 /**
  * 评论数据访问。
@@ -143,4 +146,73 @@ public interface CommentDao {
         }
         return null;                  // 异常长链 / 环，放弃
     }
+
+    // ========================================================================
+    // S5：读路径（6 个方法，S2 已显式声明划归 S5 —— 见决策表 CM-3）
+    // ========================================================================
+
+    /**
+     * 评论点赞缓存失效定位用：查评论所属内容 id；不存在/已删除返回 null。
+     *
+     * <p>TV: {@code SELECT content_id FROM comment WHERE comment_id = ? AND is_deleted = 0}
+     *
+     * <p>⚠️ 归属变更说明：S2 把它标为"随 S3（like）"，但 **S3 实际未搬**——因为它的真实调用方
+     * 只有 {@code CommentCache.notifyCommentLikeChanged}（评论点赞后要定位"失效哪条主楼的
+     * replies field"），而 CommentCache 属 S5。故本切片补搬，归属随使用方走。
+     */
+    Long getContentIdByCommentId(@Param("commentId") long commentId);
+
+    /**
+     * 缺省全量路径的整表查询（T10-B）：该内容**全部未删**评论，{@code comment_id} 升序。
+     *
+     * <p>TV: {@code SELECT c.*, u.username, r.username AS reply_to_username FROM comment c
+     * LEFT JOIN users u … LEFT JOIN users r … WHERE c.content_id=? AND c.is_deleted=0
+     * ORDER BY c.comment_id}
+     *
+     * <p>它只服务**不传分页参数**的兼容路径（{@code /comment/show} 缺省返回全量数组），
+     * 建树在 Java 侧（{@code CommentCache.buildCommentTree} 上溯归一）。不占两键组。
+     */
+    List<CommentCacheDTO> getComments(@Param("contentId") long contentId);
+
+    /**
+     * 主楼窗口查询（keyset，T10-A）：{@code comment_id > afterCommentId} 升序取前 {@code limit} 条**主楼**。
+     *
+     * <p>TV: {@code WHERE c.content_id=? AND c.parent_id IS NULL AND c.is_deleted=0
+     * AND c.comment_id > ? ORDER BY c.comment_id LIMIT ?}
+     *
+     * <p>★ 过滤条件是 {@code parent_id IS NULL}（**不是** {@code = 0}）——与
+     * {@link #findMainById} 的判据（{@code IS NULL OR = 0}）**刻意不同**：前者是窗口装载的
+     * keyset 谓词（走 {@code (content_id, parent_id)} 索引），后者是"单条定位"的宽松判据。
+     * 两者都照搬 TV，不改。
+     */
+    List<CommentCacheDTO> getMainCommentsAfter(@Param("contentId") long contentId,
+                                                @Param("afterCommentId") long afterCommentId,
+                                                @Param("limit") int limit);
+
+    /** 主楼条数（T10-A 的 total 来源：窗口装载**首装**时惰性 COUNT 一次，写 count key）。 */
+    int countMainComments(@Param("contentId") long contentId);
+
+    /**
+     * 楼中楼按主楼批量取（T10-A）：{@code parent_id IN (rootIds)} 升序。
+     *
+     * <p>TV 用 {@code StringBuilder} 拼 {@code IN (?,?,…)}；新写法用 {@code <foreach>}
+     * （《迁移参照系》§2.1 的机械改动）。空入参不发 SQL。
+     */
+    List<CommentCacheDTO> getRepliesByRootIds(@Param("contentId") long contentId,
+                                              @Param("rootIds") List<Long> rootIds);
+
+    /**
+     * 按主楼展开全部回复（T10-B 的 {@code /comment/replies}）：直接回复 + 二级间接回复，
+     * {@code comment_id} 升序 keyset。
+     *
+     * <p>TV 的子查询形态**逐字保留**（{@code parent_id=? OR parent_id IN (SELECT ...)}）——
+     * 它与"addComment 把 parent 归一为主楼"的写入口径配套；存量脏数据最多二级。
+     */
+    List<CommentCacheDTO> getRepliesInTreeByRoot(@Param("contentId") long contentId,
+                                                  @Param("rootId") long rootId,
+                                                  @Param("afterCommentId") long afterCommentId,
+                                                  @Param("limit") int limit);
+
+    /** 定位**未删除主楼**（T10-B 展开接口的前置校验）：主楼被删 / 非主楼 → null。 */
+    CommentCacheDTO findMainById(@Param("commentId") long commentId);
 }

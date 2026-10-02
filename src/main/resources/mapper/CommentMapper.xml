@@ -118,4 +118,94 @@
         SELECT COALESCE(parent_id, 0) FROM comment WHERE comment_id = #{commentId}
     </select>
 
+    <!-- ======================================================================
+         S5：读路径（S2 显式声明划归 S5 —— 决策表 CM-3）
+         结果类型是 CommentCacheDTO（TV 的读路径类型），**不是** S2 的 Comment 实体：
+         两者字段几乎相同，但 CommentCacheDTO 带 children（树），且是缓存 JSON 的载荷类型。
+         为保持"写路径零改动"，两条 resultMap 并存（TV 也是两套装配路径）。
+         ====================================================================== -->
+
+    <resultMap id="commentCacheMap" type="io.github.yjhhhaaa06.videoweb.comment.model.cache.CommentCacheDTO">
+        <id property="commentId" column="comment_id"/>
+        <result property="contentId" column="content_id"/>
+        <result property="userId" column="user_id"/>
+        <result property="content" column="content"/>
+        <result property="parentId" column="parent_id"/>
+        <result property="replyToUserId" column="reply_to_user_id"/>
+        <result property="likeCount" column="like_count"/>
+        <result property="replyCount" column="reply_count"/>
+        <!-- 两列来自 LEFT JOIN users -->
+        <result property="username" column="username"/>
+        <result property="replyToUsername" column="reply_to_username"/>
+        <!-- children 不在表里：由 CommentCache 装配（roots 恒 null / replies 存前 K 条） -->
+    </resultMap>
+
+    <!-- TV: SELECT content_id FROM comment WHERE comment_id = ? AND is_deleted = 0 -->
+    <select id="getContentIdByCommentId" resultType="java.lang.Long">
+        SELECT content_id FROM comment WHERE comment_id = #{commentId} AND is_deleted = 0
+    </select>
+
+    <!-- TV: getComments —— SELECT c.*, u.username, r.username AS reply_to_username
+         FROM comment c LEFT JOIN users u ON c.user_id = u.id
+         LEFT JOIN users r ON c.reply_to_user_id = r.id
+         WHERE c.content_id=? AND c.is_deleted=0 ORDER BY c.comment_id -->
+    <select id="getComments" resultMap="commentCacheMap">
+        SELECT c.*, u.username, r.username AS reply_to_username
+        FROM comment c LEFT JOIN users u ON c.user_id = u.id
+        LEFT JOIN users r ON c.reply_to_user_id = r.id
+        WHERE c.content_id=#{contentId} AND c.is_deleted=0 ORDER BY c.comment_id
+    </select>
+
+    <!-- TV: getMainCommentsAfter（T10-A 主楼 keyset 窗口）
+         ★ parent_id IS NULL（不是 = 0）：与 findMainById 的判据刻意不同，见 DAO 的 Javadoc。
+         (content_id, parent_id) 索引服务本查询。 -->
+    <select id="getMainCommentsAfter" resultMap="commentCacheMap">
+        SELECT c.*, u.username, r.username AS reply_to_username
+        FROM comment c LEFT JOIN users u ON c.user_id = u.id
+        LEFT JOIN users r ON c.reply_to_user_id = r.id
+        WHERE c.content_id=#{contentId} AND c.parent_id IS NULL AND c.is_deleted=0
+          AND c.comment_id &gt; #{afterCommentId} ORDER BY c.comment_id LIMIT #{limit}
+    </select>
+
+    <!-- TV: countMainComments —— SELECT COUNT(*) FROM comment
+         WHERE content_id=? AND parent_id IS NULL AND is_deleted=0 -->
+    <select id="countMainComments" resultType="int">
+        SELECT COUNT(*) FROM comment
+        WHERE content_id=#{contentId} AND parent_id IS NULL AND is_deleted=0
+    </select>
+
+    <!-- TV: getRepliesByRootIds —— `parent_id IN (?,?,…)` 由 StringBuilder 拼装 ⇒ 改 <foreach>。
+         ORDER BY c.comment_id 保持（分组后组内有序由它保证）。 -->
+    <select id="getRepliesByRootIds" resultMap="commentCacheMap">
+        SELECT c.*, u.username, r.username AS reply_to_username
+        FROM comment c LEFT JOIN users u ON c.user_id = u.id
+        LEFT JOIN users r ON c.reply_to_user_id = r.id
+        WHERE c.content_id=#{contentId} AND c.parent_id IN
+        <foreach item="rootId" collection="rootIds" open="(" separator="," close=")">
+            #{rootId}
+        </foreach>
+        AND c.is_deleted=0 ORDER BY c.comment_id
+    </select>
+
+    <!-- TV: getRepliesInTreeByRoot（T10-B 展开接口）——子查询形态逐字保留：
+         直接回复（parent_id=rootId）+ 二级间接回复（parent 是 rootId 的直接回复）。 -->
+    <select id="getRepliesInTreeByRoot" resultMap="commentCacheMap">
+        SELECT c.*, u.username, r.username AS reply_to_username
+        FROM comment c LEFT JOIN users u ON c.user_id = u.id
+        LEFT JOIN users r ON c.reply_to_user_id = r.id
+        WHERE c.content_id=#{contentId} AND c.is_deleted=0 AND c.comment_id &gt; #{afterCommentId} AND (
+          c.parent_id=#{rootId} OR c.parent_id IN (
+            SELECT s.comment_id FROM comment s
+            WHERE s.content_id=#{contentId} AND s.parent_id=#{rootId} AND s.is_deleted=0))
+        ORDER BY c.comment_id LIMIT #{limit}
+    </select>
+
+    <!-- TV: findMainById —— 定位未删除主楼；★ parent_id IS NULL OR parent_id = 0（宽松判据，见 DAO）。 -->
+    <select id="findMainById" resultMap="commentCacheMap">
+        SELECT c.*, u.username, r.username AS reply_to_username
+        FROM comment c LEFT JOIN users u ON c.user_id = u.id
+        LEFT JOIN users r ON c.reply_to_user_id = r.id
+        WHERE c.comment_id=#{commentId} AND c.is_deleted=0 AND (c.parent_id IS NULL OR c.parent_id = 0)
+    </select>
+
 </mapper>
