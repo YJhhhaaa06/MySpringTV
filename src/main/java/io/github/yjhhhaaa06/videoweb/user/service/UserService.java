@@ -7,12 +7,14 @@ import io.github.yjhhhaaa06.videoweb.common.exception.PasswordIncorrectException
 import io.github.yjhhhaaa06.videoweb.common.exception.UserNotFoundException;
 import io.github.yjhhhaaa06.videoweb.common.security.JwtService;
 import io.github.yjhhhaaa06.videoweb.user.dao.UserDao;
+import io.github.yjhhhaaa06.videoweb.user.event.UserRenamedEvent;
 import io.github.yjhhhaaa06.videoweb.user.model.dto.ChangePasswordRequest;
 import io.github.yjhhhaaa06.videoweb.user.model.dto.RegisterRequest;
 import io.github.yjhhhaaa06.videoweb.user.model.entity.User;
 import io.github.yjhhhaaa06.videoweb.user.model.vo.LoginVO;
 import io.github.yjhhhaaa06.videoweb.user.model.vo.UserInfoVO;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,11 +37,13 @@ public class UserService {
 
     private final UserDao userDao;
     private final JwtService jwtService;
+    private final ApplicationEventPublisher events;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
-    public UserService(UserDao userDao, JwtService jwtService) {
+    public UserService(UserDao userDao, JwtService jwtService, ApplicationEventPublisher events) {
         this.userDao = userDao;
         this.jwtService = jwtService;
+        this.events = events;
     }
 
     // ========================================================================
@@ -183,6 +187,11 @@ public class UserService {
             throw new ConflictException("用户名已被占用");
         }
         userDao.updateUsername(userId, newUsername);
+        // S5：改名必须级联失效该作者的内容缓存（内容详情/主页里的 authorName 是从 users JOIN 来的
+        // 冗余快照）。TV 在这里直接调 contentCache.invalidateAuthorContentKeys(userId)，
+        // 本实现改为**发事件**（提交后由 ContentCacheChangedListener 处理）——user 域不必知道
+        // content 域有缓存。旧 pytest 的 test_change_user_name.py 对这条级联有逐字断言。
+        events.publishEvent(new UserRenamedEvent(userId, newUsername));
     }
 
     /** 是否管理员（承接 TV {@code UserService.isAdmin}，供 admin 路径鉴权用）。 */

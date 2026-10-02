@@ -1,0 +1,52 @@
+feat(slice-S5a): 迁移 content 读路径 + ContentCache + 首页/搜索/详情/开关/编辑
+
+S5 的第一段：content 读路径 + 缓存。决策表 §二·G（G-1/G-2/G-3/G-4/G-6）是本提交的规格书。
+
+## 交付端点
+- `GET /search/IdSearch`（详情，含媒体列表）
+- `GET /search/keywordSearch`（关键词搜索 + 分页信封）
+- `GET /start`（首页推荐，索引随机抽样）
+- `POST /content/commentEnabled`（作者开关评论区 —— S2 的 CM-3 显式划入，闭环"关闭后只能靠 DB 改"）
+- `POST /content/update`（作者编辑标题/简介）
+
+## 主要新增
+- `content/cache/ContentCache`（739 行 TV → 精简版）：三态读（命中/空标记/miss 回填）、
+  `content:index:*` 类型分区索引 + **懒重建**、媒体装配（buildContentMedia）、推荐随机抽样、
+  两种失败的区分。
+- `content/cache/ContentRedisOps`：索引 LIST 命令（LRANGE / LREM+LPUSH / SCAN / 重建）。
+- `content/dao/ContentDao` +11 方法、`ContentMediaDao`（2 方法）+ 两个 mapper。
+- `content/model/{cache/ContentCacheDTO, entity/ContentMedia, vo/ContentVO|ContentDetailVO}`。
+- `content/service/{ContentService, ContentStatusFiller}`、三个 Controller。
+- `content/event/{ContentCacheChangedEvent, ContentCacheChangedListener}`（AFTER_COMMIT）。
+- `common/config/{ContentCacheProperties, CommentCacheProperties, MediaProperties}`。
+- `common/web/PageParams`（rule of three 第 3 个使用方；FollowController 同时改为委托，口径零变化）。
+- `user/event/UserRenamedEvent` + UserService 发事件 ⇒ **补上 TV 的"改名级联失效作者内容缓存"**
+  （切片 0 漏接；旧 pytest test_change_user_name 有逐字断言）。用事件而非直接依赖，
+  user 域不必知道 content 有缓存。
+
+## 三处刻意的契约差异（都是改进，逐条留痕）
+1. **DB 失败不再降级成"没有"**：TV 的 CacheAside 把 loader 抛的 DatabaseException 吞成 null
+   ⇒ 内容接口在 DB 故障时返回 404「找不到对应内容」。S5 按 L-5/F-5 的纪律改为**上抛 500**
+   ——"降级成空值会把读不到伪装成没有"。这是本提交最重要的行为变更。
+2. **非法 contentId 由 500 变 400**（TV 未捕获 NumberFormatException）。
+3. **不再支持 GET + JSON body**（TV 的兼容分支）；旧 pytest 的调用都是 query。
+   另：`contentId` 缺失/非法的 **msg** 由 TV 的专用文案变为全局"参数错误"（状态码与 code 仍 400）。
+
+## 有意裁剪（补回位置已写入决策表）
+- `ContentCache.init()` 启动全量预热 **不搬**（G-6）：产物（内容 key / 索引）两条都有自愈路径，
+  代价是启动期一次无上限全表查询；接压测/真实数据时回补。
+- 索引重建的 10 秒进程内冷却退避去掉（G-6，当前无规模压力）。
+- `addVideo`/`addPost`/`replaceMedia` → upload 批次；`listContentForAdmin`/`hideContent`/`unhideContent`
+  → admin 批次（G-7）。
+
+## 测试
+`ContentReadTests`（17 例：字段形状 / 三种 404 / 个性化状态 / T19 分页归一 / T15 同秒 id 降序
+**两条分支都测** / 首页过滤与校验 / 开关的权限与参数 / 编辑的权限与参数）、
+`ContentCacheTests`（9 例：★AFTER_COMMIT 回滚证明 + 反向对照、三态读、空标记防穿透、
+★DB 失败上抛、★Redis 失败降级不写回、索引懒重建、索引降级空推荐、改名级联 + 反向对照）、
+`SecurityContractTests` 增 content 端点鉴权口径。**全量 117 → 146 例全绿。**
+
+## 踩到的坑
+`@CurrentUserId` 原本只有"必须有身份"的语义（取不到抛 401）。S5 有 6 个"公开可见 + 已登录则
+个性化"的端点（/start、/search/*、/profile、/comment/*），故给注解加了 `required=false`
+（取不到注入 null）。默认值 true ⇒ 既有端点行为零变化。

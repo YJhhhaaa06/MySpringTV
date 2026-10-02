@@ -91,6 +91,25 @@ class SecurityContractTests extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("S5：content 作者写端点（TV 的 PROTECTED_EXACT 精确项）判为需登录")
+    void content写端点需登录() {
+        // TV 的 AuthFilter 里，/content/** 下**只有这几条**在精确清单里（该域没有前缀级保护）
+        // ⇒ 新实现必须用**方法级** @RequiresLogin（用类级会把将来的公开端点误拦）。
+        assertThat(requiresLogin("POST", "/content/commentEnabled")).isTrue();
+        assertThat(requiresLogin("POST", "/content/update")).isTrue();
+        // 注：/content/mediaDelete、/content/delete 的断言在 S5 的 content 写路径提交里补齐
+        // （端点尚未落地时 RequestMappingLookup 会判为"未映射 ⇒ false"，属机制的正确行为）。
+    }
+
+    @Test
+    @DisplayName("S5：content 读端点公开（TV 清单不含它们；带 token 只做个性化）")
+    void content读端点公开() {
+        assertThat(requiresLogin("GET", "/search/IdSearch")).isFalse();
+        assertThat(requiresLogin("GET", "/search/keywordSearch")).isFalse();
+        assertThat(requiresLogin("GET", "/start")).isFalse();
+    }
+
+    @Test
     @DisplayName("未映射的路径返回 false：真正的 404 由 DispatcherServlet 产生，本机制不越权处理路由")
     void 未映射路径不需登录() {
         assertThat(requiresLogin("GET", "/no/such/endpoint")).isFalse();

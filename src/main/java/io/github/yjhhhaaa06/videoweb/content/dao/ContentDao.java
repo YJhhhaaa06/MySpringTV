@@ -1,35 +1,41 @@
 package io.github.yjhhhaaa06.videoweb.content.dao;
 
+import io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+import java.util.Collection;
+import java.util.List;
+
 /**
- * 内容数据访问 —— **content-thin（S2 薄依赖版）**。
+ * 内容数据访问。
  *
- * <h2>为什么只有 3 个方法</h2>
- * 按《切片计划》§〇：`content` 是 23 文件 / 3,806 行 / 11 处事务的巨模块，
- * 若整体先做会成为所有下游的阻塞源。故拆成：
+ * <h2>两段历史，一个类</h2>
  * <ul>
- *   <li><b>content-thin</b>（本类）：只搬下游**必需**的方法。</li>
- *   <li><b>content-full</b>（S5）：读路径 / 搜索 / admin / 媒体，约 21 个 DAO 方法。</li>
+ *   <li><b>S2 的 content-thin</b>（3 方法）：只搬下游**必需**的（存在性 / 评论数联动 / 评论区开关），
+ *       避免 content 成为所有下游切片的阻塞源。</li>
+ *   <li><b>S5</b>（本切片，+11 方法）：读路径 / 搜索 / 作者写路径。
+ *       至此 content 模块除 upload（{@code addContent}）与 admin（{@code getContentStatus} /
+ *       {@code updateContentDeletedState} / {@code findContentForAdmin}）与 feed（
+ *       {@code findContentIdsByUsers} / {@code findRecentContentIdsByUsers…} / {@code countContentByUsers}）
+ *       之外的方法都到位——见《事务边界决策表》§二·G 盘点 B。</li>
  * </ul>
  *
- * <p>S2（comment 写路径）实际只需要这 3 个：
- * <ol>
- *   <li>{@link #isContentExist} —— "被评论的内容是否存在"（CM-1 的 404 判据）</li>
- *   <li>{@link #updateCommentCount} —— 评论数联动（CM-1 +1 / CM-2 回减，**与评论写同事务**）</li>
- *   <li>{@link #findCommentEnabledById} —— 评论区开关门禁（CM-1，409 判据）</li>
- * </ol>
- *
- * <p>⚠️ 《切片计划》§二 原列的 `updateLikeCount` 属 **like 切片（S3）** 的需求，S2 用不到，**故不搬**——
- * 薄依赖的口径是"本切片交付所必需"，不是"计划里提到过"。
- *
  * <h2>迁移口径</h2>
- * SQL 文本、表名、列名原样保留（《迁移参照系》§2.1）。机械改动：删 `Connection conn` 首参、
- * 删 `throws SQLException`、`?` → `#{name}`、`@Component` → `@Mapper`。
+ * SQL 文本、表名、列名、排序原样保留（《迁移参照系》§2.1）。机械改动：删 {@code Connection conn} 首参、
+ * 删 {@code throws SQLException}、{@code ?} → {@code #{name}}、
+ * {@code StringBuilder} 拼 {@code IN (?,?)} → {@code <foreach>}、{@code @Component} → {@code @Mapper}。
+ *
+ * <p>⚠️ 一处**刻意保留的不一致**：{@code SELECT ... WHERE is_deleted = 0}（{@code findContent}）
+ * 与 {@code WHERE c.is_deleted = 0}（本类其它方法）的别名写法**未统一**——SQL 逐字照搬，
+ * 便于与 TV 对照复核；统一别名属"顺手美化"，会让逐字 diff 失去意义。
  */
 @Mapper
 public interface ContentDao {
+
+    // ========================================================================
+    // S2 的 content-thin（3 + 1 方法）
+    // ========================================================================
 
     /**
      * 内容是否存在（**未软删**）。
@@ -65,8 +71,13 @@ public interface ContentDao {
      *
      * <p>⚠️ **有意改进**：新实现直读 DB，而非走 ContentCache。
      * 旧实现读缓存 ⇒ 作者刚关评论区时缓存可能仍是"开"，存在**陈旧窗口**（靠失效通知 + TTL 自愈兜）。
-     * 本切片无读缓存（ContentCache 属 S5），直读 DB 既无缓存可用、也顺带消除该窗口——
-     * 语义上不放松（关闭后仍不可发），只是**更即时**。S5 接入缓存后可评估是否改回（见决策表 CM-1 要点 3）。
+     * S2 时无读缓存，直读 DB 既无缓存可用、也顺带消除该窗口——语义上不放松（关闭后仍不可发），
+     * 只是**更即时**。
+     *
+     * <p><b>S5 追加表态（CM-1 要点 3 的"接入缓存后评估"结论）：保持直读 DB，不回退读缓存。</b>
+     * 理由：① 这条查询是**写路径的门禁**（发评论前判一次），不在热读路径上，直读 DB 成本可忽略；
+     * ② 读缓存会重新引入"作者关评论区后仍能发评论"的陈旧窗口，而该窗口的代价（用户违规内容入池）
+     * 高于一次主键查询；③ 保持 S2 已固化的测试不变（少一次回归面）。
      *
      * @return {@code true}=开 / {@code false}=关；**内容不存在或已软删 → {@code null}**
      *         （调用方据此跳过门禁，把 404 判定交给事务内的 {@link #isContentExist}——与 TV 同构）
@@ -90,4 +101,117 @@ public interface ContentDao {
      * @return 受影响行数
      */
     int updateLikeCount(@Param("contentId") long contentId, @Param("delta") int delta);
+
+    // ========================================================================
+    // S5：读路径
+    // ========================================================================
+
+    /**
+     * 按 id 查内容（**未软删**，JOIN users 取 authorName）。
+     *
+     * <p>TV: {@code SELECT c.id, c.title, …, u.username, u.id AS user_id FROM content c
+     * JOIN users u ON c.user_id = u.id WHERE c.id=? AND is_deleted = 0}
+     *
+     * <p>列名 {@code u.id AS user_id} 映射到 {@code authorId}——**别改这行的列别名**，
+     * 它与 {@code findContentsByIds} / {@code findAllContent} 必须逐字一致（否则批量装载分组错位）。
+     *
+     * <p>返回行**不含媒体字段**（coverUrl/videoUrl/imageUrls）——由
+     * {@code ContentCache.buildContentMedia} 从媒体表补齐。
+     */
+    ContentCacheDTO findContent(@Param("contentId") long contentId);
+
+    /**
+     * 按 id 集合批量查内容（TV 第五期 T2 的装载合并：把 miss/降级的逐 key 查询收敛为一趟）。
+     *
+     * <p>TV 用 {@code StringBuilder} 拼 {@code IN (?,?,…)}；新写法用 {@code <foreach>}
+     * （《迁移参照系》§2.1 的机械改动之一）。
+     *
+     * <p><b>无匹配行不出现在结果里</b>（调用方按"缺失 = 确认无数据"处理）；空/null 入参**不发 SQL**、
+     * 返回空列表。查询顺序不保证，调用方按 id 归位。
+     */
+    List<ContentCacheDTO> findContentsByIds(@Param("ids") Collection<Long> ids);
+
+    /**
+     * 全表未删内容（JOIN users），按 {@code create_time DESC, id DESC}。
+     *
+     * <p>它服务**索引懒重建**（{@code content:index:*} 缺失时从 DB 重建）。
+     * ⚠️ 这是**无上限**查询（TV 原样）——TV 还有启动期 `init()` 全量预热，本切片不搬（决策表 G-6），
+     * 故它只在"索引 key 缺失"时被触发。接压测/真实数据时应与冷却退避一起回补。
+     */
+    List<ContentCacheDTO> findAllContent();
+
+    /**
+     * 关键词搜索的**该页 id 列表**（T12：DB 查询与缓存读分离，本方法只在 DB 侧）。
+     *
+     * <p>TV 两条分支（原样保留）：
+     * <ul>
+     *   <li><b>单字符</b>：{@code title LIKE '%kw%'} —— 因为 MySQL 的 ngram 全文索引对单字
+     *       命中不可靠（TV 的实测结论）；</li>
+     *   <li><b>多字符</b>：{@code MATCH(title, description) AGAINST (? IN NATURAL LANGUAGE MODE)}。</li>
+     * </ul>
+     * 两处 {@code ORDER BY c.create_time DESC, c.id DESC} 都是 **T15 的 tie-breaker 修复**
+     * （缺 {@code , c.id DESC} 时同秒内容分页会重复/漏项）——**不得删**。
+     *
+     * <p>入参 {@code keyword} 必须是**已 trim** 的（调用方负责）；单/多字符分支的判据就是它的长度。
+     *
+     * @param offset 起始偏移（{@code (page-1)*pageSize}，由 Service 计算并保证 ≥0）
+     * @param limit  页大小
+     */
+    List<Long> keywordSearchInBrief(@Param("keyword") String keyword,
+                                    @Param("offset") int offset,
+                                    @Param("limit") int limit);
+
+    /** 关键词搜索命中总数。分支判据与 {@link #keywordSearchInBrief} **必须同源**（否则 total 与 list 口径漂移）。 */
+    int countKeywordSearch(@Param("keyword") String keyword);
+
+    /** 某作者的内容总数（`/profile` 信封的 total）。TV: {@code SELECT COUNT(*) FROM content WHERE user_id = ? AND is_deleted = 0} */
+    int countContentByUser(@Param("userId") long userId);
+
+    /**
+     * 某作者的**窗口**内容 id（feed2-25 T25，治 U-24：替代"全量 id 读 + 内存切片"）。
+     *
+     * <p>{@code ORDER BY c.id DESC LIMIT ? OFFSET ?}——用 contentId 排序的理由（TV 原注释）：
+     * {@code content.id} 自增 ⇒ id 越大发布越晚，与 {@code ORDER BY create_time DESC, id DESC}
+     * 的运行期次序一致；且 {@code idx_user_id (user_id)} 的 InnoDB 二级索引物理为
+     * {@code (user_id, id)} 升序 ⇒ **反向索引扫描、免 filesort**，成本 ∝ offset+pageSize
+     * （而非该作者内容总量）。
+     *
+     * <p>{@code offset < 0} 或 {@code pageSize <= 0} 时**不发 SQL**，返回空列表（TV 原样）。
+     */
+    List<Long> findContentIdsByUserWindow(@Param("userId") long userId,
+                                          @Param("offset") int offset,
+                                          @Param("pageSize") int pageSize);
+
+    /**
+     * 某作者的全部内容 id（**全量**）。
+     *
+     * <p>分页装载用 {@link #findContentIdsByUserWindow}；本方法只服务**改名后的级联失效**
+     * （要失效该作者的**全部**内容 key，不能只失效一页）。
+     */
+    List<Long> findContentIdsByUser(@Param("userId") long userId);
+
+    // ========================================================================
+    // S5：作者写路径
+    // ========================================================================
+
+    /**
+     * 作者开关评论区。TV: {@code UPDATE content SET comment_enabled = ? WHERE id = ?}
+     *
+     * <p>{@code enabled ? 1 : 0} 的类型转换在 XML 里用 {@code #{enabled}} 的 boolean→tinyint 隐式转换，
+     * 与 TV 的 {@code ps.setInt(1, enabled ? 1 : 0)} 等价。
+     */
+    int updateCommentEnabled(@Param("contentId") long contentId, @Param("enabled") boolean enabled);
+
+    /**
+     * 作者编辑标题与简介。TV: {@code UPDATE content SET title = ?, description = ? WHERE id = ?}
+     *
+     * <p>全文索引（ngram）由 MySQL **自动维护**，无额外语句——TV 原注释。
+     */
+    int updateContentInfo(@Param("contentId") long contentId,
+                          @Param("title") String title,
+                          @Param("description") String description);
+
+    /** 作者删除作品：软删。TV: {@code UPDATE content SET is_deleted = 1 WHERE id = ?} */
+    int softDeleteContent(@Param("contentId") long contentId);
 }
+

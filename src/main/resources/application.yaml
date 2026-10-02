@@ -147,6 +147,27 @@ video:
     # 压测以空关系为主，依据写路径特性保守延长）"——刻意比 like 的 15 分钟长。
     # ⚠️ 同上：Duration 属性**必须带单位后缀**，写裸数字 30 会解析成 PT30S。
     follow-ttl: ${FOLLOW_CACHE_TTL:30m}
+    # 内容缓存（S5 切片）。口径对齐 TV AppConfig.getContentTtlMillis()
+    # ← app.properties 的 cache.content.ttlMinutes=30。
+    # TV 理由（原注释）："content 30min（热读域：启动全量重建后恒 100% hitData +
+    # 滑动续期后热点常驻，miss≈0 无穿透风险）"。
+    # ⚠️ 但本切片**不搬** ContentCache.init() 的启动全量重建（决策表 G-6：其产物两条都有
+    #    自愈路径，只是预热；代价是启动期一次无上限全表查询）⇒ 首读会 miss 并回源 DB，
+    #    TTL 值本身不变。接压测/真实数据时回补 init()。
+    content-ttl: ${CONTENT_CACHE_TTL:30m}
+    # 评论缓存（S5 切片）。口径对齐 TV AppConfig.getCommentTtlSeconds()
+    # ← app.properties 的 cache.comment.ttlMinutes=10。
+    # TV 理由（原注释）："comment 10min（命中 38%~42%，新鲜度敏感：评论增删/点赞失效驱动，
+    # 保持短 TTL 最安全）"——刻意比内容的 30 分钟短得多。
+    # ⚠️ 单位口径：TV 的 getCommentTtlSeconds() 返回**秒**、getContentTtlMillis() 返回**毫秒**，
+    #    本实现统一用 Duration（Spring 原生表达），消除这个历史不一致。
+    comment-ttl: ${COMMENT_CACHE_TTL:10m}
+
+  # 媒体资源 URL 前缀（S5 切片）。替代 TV 的 RequestContext.getContextPath()
+  # （Servlet context path 的 ThreadLocal，本项目内嵌容器下恒为空串）。
+  # ⚠️ 默认值必须保持空串：改它会让 /search/IdSearch 的 videoUrl/imageUrls 形状变化。
+  media:
+    base-url: ${MEDIA_BASE_URL:}
 
   # 自动大V滞回判定（S4 切片，user 域但由 follow 事务内调用；见决策表 F-6）。
   # 口径对齐 TV app.properties 的 feed.bigv.threshold / feed.bigv.downgradeRatio。

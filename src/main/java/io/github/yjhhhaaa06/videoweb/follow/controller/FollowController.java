@@ -4,6 +4,7 @@ import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
+import io.github.yjhhhaaa06.videoweb.common.web.PageParams;
 import io.github.yjhhhaaa06.videoweb.follow.model.vo.FollowUserVO;
 import io.github.yjhhhaaa06.videoweb.follow.service.FollowService;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -119,31 +120,16 @@ public class FollowController {
     // 分页参数归一（口径逐字沿袭 TV BaseServletUtil.normalizePage / normalizePageSize）
     // ========================================================================
 
-    /** 页码归一：缺省 / 非数字 / ≤0 → 1。 */
-    private static int normalizePage(String raw) {
-        Integer parsed = parseIntOrNull(raw);
-        return (parsed == null || parsed <= 0) ? 1 : parsed;
-    }
-
     /**
-     * 信封大小归一：缺省 / 非数字 / ≤0 → {@code min(default, max)}；传了 → {@code min(raw, max)}。
-     * **返回值恒 ≤ max**——把"信封不会超过上限"这一不变量收进方法内。
+     * S5 起委托 {@link PageParams}（第三个使用方出现，按 rule of three 抽公共）
+     * ——**口径零变化**：S4 时这三个私有方法就是照它写的，其测试（FollowFlowTests
+     * 的分页用例）是这次委托的回归网。
      */
-    private static int normalizePageSize(String raw) {
-        int fallback = Math.min(FOLLOW_PAGE_SIZE_DEFAULT, FOLLOW_PAGE_SIZE_MAX);
-        Integer parsed = parseIntOrNull(raw);
-        return (parsed == null || parsed <= 0) ? fallback : Math.min(parsed, FOLLOW_PAGE_SIZE_MAX);
+    private static int normalizePage(String raw) {
+        return PageParams.normalizePage(raw);
     }
 
-    /** {@code null} / 空白 / 非数字 → {@code null}（由调用方决定回落值）。 */
-    private static Integer parseIntOrNull(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return null;
-        }
-        try {
-            return Integer.valueOf(raw);
-        } catch (NumberFormatException e) {
-            return null;
-        }
+    private static int normalizePageSize(String raw) {
+        return PageParams.normalizePageSize(raw, FOLLOW_PAGE_SIZE_MAX, FOLLOW_PAGE_SIZE_DEFAULT);
     }
 }

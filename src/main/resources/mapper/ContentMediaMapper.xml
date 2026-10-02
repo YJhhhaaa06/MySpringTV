@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  content_media Mapper（S5）。
+  TV 的 ContentMediaDao 用 buildContentMedia(ResultSet) 手工装配；此处显式 resultMap。
+  列顺序与别名逐字照搬 TV（`id` 映射到 mediaId——TV 的实体字段就叫 mediaId）。
+-->
+<mapper namespace="io.github.yjhhhaaa06.videoweb.content.dao.ContentMediaDao">
+
+    <resultMap id="contentMediaMap" type="io.github.yjhhhaaa06.videoweb.content.model.entity.ContentMedia">
+        <id property="mediaId" column="id"/>
+        <result property="contentId" column="content_id"/>
+        <result property="url" column="url"/>
+        <result property="type" column="type"/>
+        <result property="sort" column="sort"/>
+    </resultMap>
+
+    <!-- TV: select id,content_id,url,type,sort from content_media where content_id=? order by type,sort -->
+    <select id="findMediaByContentId" resultMap="contentMediaMap">
+        select id,content_id,url,type,sort from content_media where content_id=#{contentId}
+        order by type,sort
+    </select>
+
+    <!-- TV: `... where content_id IN (?…) order by content_id,type,sort`
+         —— StringBuilder 拼 IN 改 <foreach>（机械改动，SQL 语义不变）。 -->
+    <select id="findMediaByContentIds" resultMap="contentMediaMap">
+        select id,content_id,url,type,sort from content_media where content_id IN
+        <foreach item="id" collection="ids" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+        order by content_id,type,sort
+    </select>
+
+</mapper>

@@ -3,14 +3,34 @@
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 
 <!--
-  content Mapper —— **content-thin 版**（S2 的薄依赖，只含 comment 写路径所需 3 条）。
+  content Mapper。
 
-  ⚠️ S5（content-full）会扩展本文件：读路径 / 搜索 / admin / 媒体等约 21 条语句。
-     扩展时请保持"SQL 文本原样保留"口径，并在每条上方补 TV 原 SQL 对照注释。
-
+  历史：S2 只含 comment 写路径所需的 3 条（content-thin）；S5 补齐读路径 / 搜索 / 作者写路径。
+  每条上方保留 TV 原 SQL 对照，便于逐字复核「SQL 未被改动」。
   namespace 必须与 ContentDao 全限定名一致。
 -->
 <mapper namespace="io.github.yjhhhaaa06.videoweb.content.dao.ContentDao">
+
+    <!--
+      内容行 → ContentCacheDTO（显式 resultMap；全局 map-underscore-to-camel-case 已关）。
+      ⚠️ 列别名必须与三条查询（findContent / findContentsByIds / findAllContent）逐字一致：
+         作者 id 一律取 `u.id AS user_id`，作者名一律取 `u.username`。
+      ⚠️ 媒体字段（coverUrl/videoUrl/imageUrls）**不在此映射**——DB 查询不返回它们，
+         由 ContentCache.buildContentMedia 从 content_media 补齐（三处共用同一装载路径）。
+    -->
+    <resultMap id="contentCacheMap" type="io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO">
+        <id property="id" column="id"/>
+        <result property="authorId" column="user_id"/>
+        <result property="type" column="type"/>
+        <result property="title" column="title"/>
+        <result property="description" column="description"/>
+        <result property="categoryId" column="category_id"/>
+        <result property="commentCount" column="comment_count"/>
+        <result property="likeCount" column="like_count"/>
+        <result property="commentEnabled" column="comment_enabled"/>
+        <result property="authorName" column="username"/>
+        <result property="createTime" column="create_time"/>
+    </resultMap>
 
     <!-- TV: SELECT COUNT(*) FROM content WHERE id = ? AND is_deleted = 0
          ★ is_deleted = 0 是有意的：给已删除内容评论必须被拒。
@@ -39,6 +59,147 @@
          本方法由 S3 补上（S1 的 content-thin 曾有意排除它）。 -->
     <update id="updateLikeCount">
         UPDATE content SET like_count = like_count + #{delta} WHERE id = #{contentId}
+    </update>
+
+    <!-- ============================ S5：读路径 ============================ -->
+
+    <!-- TV: ContentDao.findContent —— 列顺序、`u.id AS user_id` 别名、`WHERE c.id=? AND is_deleted =0`
+         全部原样（别名不得改动：批量装载按 id 归位、作者 id 映射都依赖它）。 -->
+    <select id="findContent" resultMap="contentCacheMap">
+        SELECT
+           c.id,
+           c.title,
+           c.description,
+           c.type,
+           c.category_id,
+           c.comment_count,
+           c.like_count,
+           c.comment_enabled,
+           c.create_time,
+           u.username,
+           u.id AS user_id
+       FROM content c
+       JOIN users u ON c.user_id = u.id
+       WHERE c.id=#{contentId} AND is_deleted =0
+    </select>
+
+    <!-- TV: findContentsByIds —— `StringBuilder` 拼 `IN (?,?,…)` 改 <foreach>（机械改动，SQL 语义不变）。
+         空集合由 DAO 的入参断言挡住（本仓写法：MyBatis 侧不处理空 IN）。 -->
+    <select id="findContentsByIds" resultMap="contentCacheMap">
+        SELECT
+           c.id,
+           c.title,
+           c.description,
+           c.type,
+           c.category_id,
+           c.comment_count,
+           c.like_count,
+           c.comment_enabled,
+           c.create_time,
+           u.username,
+           u.id AS user_id
+       FROM content c
+       JOIN users u ON c.user_id = u.id
+       WHERE c.is_deleted = 0 AND c.id IN
+       <foreach item="id" collection="ids" open="(" separator="," close=")">
+           #{id}
+       </foreach>
+    </select>
+
+    <!-- TV: findAllContent —— 索引懒重建的装载源。`ORDER BY c.create_time DESC, c.id DESC` 原样。 -->
+    <select id="findAllContent" resultMap="contentCacheMap">
+        SELECT
+           c.id,
+           c.title,
+           c.description,
+           c.type,
+           c.category_id,
+           c.comment_count,
+           c.like_count,
+           c.comment_enabled,
+           c.create_time,
+           u.username,
+           u.id AS user_id
+       FROM content c
+       JOIN users u ON c.user_id = u.id
+       WHERE is_deleted =0
+       ORDER BY c.create_time DESC, c.id DESC
+    </select>
+
+    <!--
+      TV: keywordSearchInBrief —— 两条分支**逐字保留**（含两处 ORDER BY 的 `, c.id DESC`
+      tie-breaker，T15 修复；缺它同秒内容分页会重复/漏项）。
+      判据 = trim 后关键词长度（Service 已 trim）。
+      TV 的 `pstmt.setString(1, "%" + kw + "%")` 等价写作 `CONCAT('%', #{keyword}, '%')`。
+    -->
+    <select id="keywordSearchInBrief" resultType="java.lang.Long">
+        <choose>
+            <when test="keyword != null and keyword.length() == 1">
+                SELECT c.id FROM content c
+                WHERE c.title LIKE CONCAT('%', #{keyword}, '%') AND c.is_deleted = 0
+                ORDER BY c.create_time DESC, c.id DESC
+                LIMIT #{offset}, #{limit}
+            </when>
+            <otherwise>
+                SELECT c.id FROM content c
+                WHERE MATCH(c.title, c.description) AGAINST (#{keyword} IN NATURAL LANGUAGE MODE)
+                  AND c.is_deleted = 0
+                ORDER BY c.create_time DESC, c.id DESC
+                LIMIT #{offset}, #{limit}
+            </otherwise>
+        </choose>
+    </select>
+
+    <!-- TV: countKeywordSearch —— 分支判据与 list 查询**同源**（否则 total 与 list 口径漂移）。 -->
+    <select id="countKeywordSearch" resultType="int">
+        <choose>
+            <when test="keyword != null and keyword.length() == 1">
+                SELECT COUNT(*) FROM content c
+                WHERE c.title LIKE CONCAT('%', #{keyword}, '%') AND c.is_deleted = 0
+            </when>
+            <otherwise>
+                SELECT COUNT(*) FROM content c
+                WHERE MATCH(c.title, c.description) AGAINST (#{keyword} IN NATURAL LANGUAGE MODE)
+                  AND c.is_deleted = 0
+            </otherwise>
+        </choose>
+    </select>
+
+    <!-- TV: countContentByUser -->
+    <select id="countContentByUser" resultType="int">
+        SELECT COUNT(*) FROM content WHERE user_id = #{userId} AND is_deleted = 0
+    </select>
+
+    <!-- TV: findContentIdsByUserWindow —— `ORDER BY c.id DESC LIMIT ? OFFSET ?`
+         用 id 而非 create_time 排序的理由（TV 原注释）：idx_user_id 物理为 (user_id, id)，
+         反向索引扫描免 filesort，成本 ∝ offset+pageSize。**不得改回 create_time**。 -->
+    <select id="findContentIdsByUserWindow" resultType="java.lang.Long">
+        SELECT c.id FROM content c WHERE c.user_id = #{userId} AND c.is_deleted = 0
+        ORDER BY c.id DESC LIMIT #{pageSize} OFFSET #{offset}
+    </select>
+
+    <!-- TV: findContentIdsByUser —— 全量（改名级联失效用）。
+         ⚠️ 与窗口版**并存**：分页用窗口版，失效用全量版。 -->
+    <select id="findContentIdsByUser" resultType="java.lang.Long">
+        SELECT c.id FROM content c WHERE c.user_id = #{userId} AND c.is_deleted = 0
+        ORDER BY c.create_time DESC, c.id DESC
+    </select>
+
+    <!-- ============================ S5：作者写路径 ============================ -->
+
+    <!-- TV: updateCommentEnabled —— `ps.setInt(1, enabled ? 1 : 0)` 的等价值：boolean → tinyint 隐式转换。 -->
+    <update id="updateCommentEnabled">
+        UPDATE content SET comment_enabled = #{enabled} WHERE id = #{contentId}
+    </update>
+
+    <!-- TV: updateContentInfo（A3）。全文索引由 MySQL 自动维护，无额外语句。 -->
+    <update id="updateContentInfo">
+        UPDATE content SET title = #{title}, description = #{description} WHERE id = #{contentId}
+    </update>
+
+    <!-- TV: softDeleteContent（A1，复用 is_deleted 字段，无 DDL）。 -->
+    <update id="softDeleteContent">
+        UPDATE content SET is_deleted = 1 WHERE id = #{contentId}
     </update>
 
 </mapper>

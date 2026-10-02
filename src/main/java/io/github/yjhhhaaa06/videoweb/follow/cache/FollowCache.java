@@ -257,6 +257,42 @@ public class FollowCache {
         return toResultMap(followedUserIds, new HashSet<>(all));
     }
 
+    /**
+     * 单条判定 {@code userId} 是否关注了 {@code followedUserId}。
+     *
+     * <pre>
+     * 空标记命中 → false
+     * 数据 key 命中 → 一趟 ZSCORE
+     * miss         → 回源 DB 全量 → 原子回填 → 作答
+     * Redis 失败   → 降级：单条 DB 判定（不为 1 个 id 拉全量）
+     * </pre>
+     *
+     * <p><b>S5 补入</b>（S4 时它没有调用方——F-7 明确记："单条 {@code isFollowing}
+     * 的调用方是 S5 的 {@code ContentStatusFiller}/{@code ProfileService}"）。
+     * 现由详情页的 {@code isFollowed} 使用。
+     */
+    public boolean isFollowing(long userId, long followedUserId) {
+        String dataKey = followingKey(userId);
+        String emptyKey = emptyKey(dataKey);
+        try {
+            Set<String> existing = ops.existingOf(dataKey, emptyKey);
+            if (existing.contains(emptyKey)) {
+                return false;
+            }
+            if (existing.contains(dataKey)) {
+                List<Boolean> hits = ops.zMembersPresent(dataKey, List.of(followedUserId), props.followTtl());
+                return !hits.isEmpty() && hits.getFirst();
+            }
+        } catch (CacheUnavailableException e) {
+            log.warn("关注状态缓存读失败，降级 DB: key={}", dataKey, e);
+            // DB 失败必须上抛（不被此 catch 吞掉）：loader 在本 catch 块内执行，异常直接冒泡
+            return followDao.isFollowing(userId, followedUserId);
+        }
+        List<Long> all = sortedAsc(followDao.findAllFollowedUserIds(userId));
+        backfillQuietly(dataKey, emptyKey, all);
+        return all.contains(followedUserId);
+    }
+
     // ========================================================================
     // 内部：回填 / 切片 / 结果映射
     // ========================================================================
