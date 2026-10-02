@@ -7,7 +7,7 @@ import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
 import io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentVO;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ProfileVO;
-import io.github.yjhhhaaa06.videoweb.follow.cache.FollowCache;
+import io.github.yjhhhaaa06.videoweb.follow.service.FollowService;
 import io.github.yjhhhaaa06.videoweb.like.service.LikeService;
 import io.github.yjhhhaaa06.videoweb.user.dao.UserDao;
 import io.github.yjhhhaaa06.videoweb.user.model.entity.User;
@@ -32,19 +32,22 @@ import java.util.Map;
  * 再取新连接"）。三条纯读无原子性需求；去掉后**对外行为完全一致**。
  *
  * <h2>★ 本切片在此兑现 S4 的 F-7 承诺（G-8）</h2>
- * {@code followerCount} / {@code followCount} 走 {@link FollowCache} 的**计数缓存**
+ * {@code followerCount} / {@code followCount} 走 {@link FollowService} 的**计数缓存**
  * （S4 去掉、F-7 写明"S5 迁 ProfileService 时补回"）。三处缓存的读都在**事务外**：
  * 关注态、两个计数、以及内容批量。
  *
  * <h2>顺序与"哪些字段可以缺席"</h2>
  * <pre>
- * ① isFollowed（单条，FollowCache）  —— 只看别人时才有；看自己 / 匿名 ⇒ null
- * ② 两个计数（FollowCache）          —— 恒有
+ * ① isFollowed（单条，FollowService）  —— 只看别人时才有；看自己 / 匿名 ⇒ null
+ * ② 两个计数（FollowService）          —— 恒有
  * ③ 用户行 + 总数 + 窗口 id（DB）    —— 用户不存在 ⇒ 404
  * ④ 页内内容批量（ContentCache）      —— 取不到的条目**跳过**（已删/媒体损坏）
  * ⑤ 页内点赞态（LikeService 批量）    —— 仅登录且列表非空
  * </pre>
  * ①② 放在 ③ 之前是 TV 的原样顺序（缓存读比 DB 读便宜，且 404 时白读一次也无害）。
+ *
+ * <p>⚠️ <b>S6-B2a</b>：①② 原先直连 {@code follow.cache.FollowCache}，现改为经
+ * {@code FollowService} 的公开查询方法——关注域的缓存实现不再是对外 API。行为不变。
  */
 @Slf4j
 @Service
@@ -52,18 +55,18 @@ public class ProfileService {
 
     private final UserDao userDao;
     private final ContentDao contentDao;
-    private final FollowCache followCache;
+    private final FollowService followService;
     private final ContentCache contentCache;
     private final LikeService likeService;
 
     public ProfileService(UserDao userDao,
                           ContentDao contentDao,
-                          FollowCache followCache,
+                          FollowService followService,
                           ContentCache contentCache,
                           LikeService likeService) {
         this.userDao = userDao;
         this.contentDao = contentDao;
-        this.followCache = followCache;
+        this.followService = followService;
         this.contentCache = contentCache;
         this.likeService = likeService;
     }
@@ -78,13 +81,13 @@ public class ProfileService {
      * @throws NotFoundException 用户不存在（404「用户不存在」）
      */
     public ProfileVO getProfile(long profileUserId, Long currentUserId, int page, int pageSize) {
-        // ① 是否关注（走 FollowCache 三态读 + miss 回填 + Redis 挂降级 DB），事务外
+        // ① 是否关注（走 FollowService → 关注域缓存三态读 + miss 回填 + Redis 挂降级 DB），事务外
         Boolean isFollowed = (currentUserId != null && currentUserId != profileUserId)
-                ? followCache.isFollowing(currentUserId, profileUserId)
+                ? followService.isFollowing(currentUserId, profileUserId)
                 : null;
         // ② 关注数 / 粉丝数（G-8 的计数缓存，事务外）
-        int followerCount = followCache.getFollowerCount(profileUserId);
-        int followCount = followCache.getFollowCount(profileUserId);
+        int followerCount = followService.getFollowerCount(profileUserId);
+        int followCount = followService.getFollowCount(profileUserId);
 
         // ③ DB 查询：用户行 + 内容总数 + 页内 id 窗口（feed2-25 T25：窗口 SQL 取代"全量 id + 内存切片"）
         User user = userDao.findByIdForProfile(profileUserId);

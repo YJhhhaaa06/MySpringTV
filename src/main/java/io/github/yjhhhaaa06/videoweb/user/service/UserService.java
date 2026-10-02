@@ -5,6 +5,7 @@ import io.github.yjhhhaaa06.videoweb.common.exception.ConflictException;
 import io.github.yjhhhaaa06.videoweb.common.exception.DuplicatePhoneException;
 import io.github.yjhhhaaa06.videoweb.common.exception.PasswordIncorrectException;
 import io.github.yjhhhaaa06.videoweb.common.exception.UserNotFoundException;
+import io.github.yjhhhaaa06.videoweb.common.security.AdminChecker;
 import io.github.yjhhhaaa06.videoweb.common.security.JwtService;
 import io.github.yjhhhaaa06.videoweb.user.dao.UserDao;
 import io.github.yjhhhaaa06.videoweb.user.event.UserRenamedEvent;
@@ -30,7 +31,7 @@ import java.util.regex.Pattern;
  */
 @Slf4j
 @Service
-public class UserService {
+public class UserService implements AdminChecker {
 
     /** 密码规则，从 TV {@code PasswordUtil.isPasswordLegal} 承接：6-16 位字母或数字。 */
     private static final Pattern PWD_PATTERN = Pattern.compile("^[a-zA-Z0-9]{6,16}$");
@@ -194,7 +195,13 @@ public class UserService {
         events.publishEvent(new UserRenamedEvent(userId, newUsername));
     }
 
-    /** 是否管理员（承接 TV {@code UserService.isAdmin}，供 admin 路径鉴权用）。 */
+    /**
+     * 是否管理员（承接 TV {@code UserService.isAdmin}，供 admin 路径鉴权用）。
+     *
+     * <p>本方法同时是 {@link AdminChecker} 端口的实现（S6-B1）——由本类提供实现、
+     * 由 {@code common.security.JwtAuthFilter} 按接口消费，避免 {@code common} 反向依赖 {@code user}。
+     */
+    @Override
     @Transactional(readOnly = true)
     public boolean isAdmin(long userId) {
         return userDao.findRoleById(userId) == 1;

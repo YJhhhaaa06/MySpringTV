@@ -19,9 +19,15 @@ package io.github.yjhhhaaa06.videoweb.comment.event;
  *       <td>{@link Op#INVALIDATE_ROOTS}</td><td>增主楼 / 删主楼</td></tr>
  *   <tr><td>{@code commentCache.invalidateReplyUnder(contentId, rootId)}</td>
  *       <td>{@link Op#INVALIDATE_REPLY_UNDER}</td><td>增回复 / 删回复</td></tr>
- *   <tr><td>{@code commentCache.invalidateComments(contentId)}</td>
- *       <td>{@link Op#INVALIDATE_COMMENTS}</td><td>内容被删/下架的级联</td></tr>
  * </table>
+ *
+ * <h2>★ S6-B2d：{@code INVALIDATE_COMMENTS} 已移除</h2>
+ * 它原表示"内容被删/下架 ⇒ 整组失效评论两键组"，由 {@code ContentService.deleteContent}
+ * 发本事件触发——即**内容域发评论域的事件**。现在改由评论域订阅
+ * {@code ContentCacheChangedEvent.REMOVE} 自行整组失效
+ * （{@code comment.event.ContentRemovedCommentListener}），故该 op 已无发布方。
+ * 按本项目"不搬无主代码"的纪律**一并移除**，而不是留着等人用。
+ * （{@code CommentCache.invalidateComments} 本身**仍在用**——它是主楼上溯失败时的兜底，见其实现。）
  *
  * <p>评论**点赞**的失效（{@code notifyCommentLikeChanged}）不走本事件——它由
  * {@code LikeChangedListener}（S3 已有的 AFTER_COMMIT 监听器）直接调用，
@@ -39,9 +45,7 @@ public record CommentCacheChangedEvent(long contentId, Long rootId, Op op) {
         /** 失效主楼序列 + 计数（DEL roots + count 及其空标记）：增/删主楼。 */
         INVALIDATE_ROOTS,
         /** 定向失效某主楼的楼中楼 field（HDEL replies field）：增/删回复。 */
-        INVALIDATE_REPLY_UNDER,
-        /** 整组失效（DEL roots + replies + count）：内容被删/下架时级联。 */
-        INVALIDATE_COMMENTS
+        INVALIDATE_REPLY_UNDER
     }
 
     /** 增/删**主楼**后：失效 roots + count（读懒重建窗口）。 */
@@ -52,10 +56,5 @@ public record CommentCacheChangedEvent(long contentId, Long rootId, Op op) {
     /** 增/删**回复**后：定向 HDEL 该主楼的 replies field（懒载刷新）。 */
     public static CommentCacheChangedEvent replyUnder(long contentId, Long rootId) {
         return new CommentCacheChangedEvent(contentId, rootId, Op.INVALIDATE_REPLY_UNDER);
-    }
-
-    /** 内容被删/下架：整组失效。 */
-    public static CommentCacheChangedEvent comments(long contentId) {
-        return new CommentCacheChangedEvent(contentId, null, Op.INVALIDATE_COMMENTS);
     }
 }

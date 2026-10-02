@@ -2,7 +2,7 @@ package io.github.yjhhhaaa06.videoweb.content.service;
 
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentDetailVO;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentVO;
-import io.github.yjhhhaaa06.videoweb.follow.cache.FollowCache;
+import io.github.yjhhhaaa06.videoweb.follow.service.FollowService;
 import io.github.yjhhhaaa06.videoweb.like.service.LikeService;
 import org.springframework.stereotype.Component;
 
@@ -22,9 +22,13 @@ import java.util.Map;
  * <h2>★ 一次列表请求只打一次缓存/DB（批量而非逐条）</h2>
  * {@link #fillLikeAndFollowBatch} 把 N 条内容收敛成 **2 次批量查询**：
  * ① {@code LikeService.batchIsContentLiked}（一趟 pipeline SISMEMBER 或一次 IN 查询）；
- * ② {@code FollowCache.batchIsFollowing}（一趟 pipeline ZSCORE 或一次 IN 查询）。
+ * ② {@code FollowService.batchIsFollowing}（一趟 pipeline ZSCORE 或一次 IN 查询）。
  * 若逐条调用，一个 100 条的推荐页就是 200 次往返——这正是 TV 的 T8 引批量读要保住的**性质**，
  * 也是本类存在的唯一理由（否则各 Service 内联几行就够了）。
+ *
+ * <p>⚠️ <b>S6-B2a</b>：② 原先直连 {@code follow.cache.FollowCache}，现改为经
+ * {@code FollowService} 的公开查询方法。批量语义是原样透传，**性能性质不变**；
+ * 变的是"关注域缓存实现不再是对外 API"。
  *
  * <h2>四类填充点与调用方</h2>
  * <table>
@@ -47,11 +51,11 @@ import java.util.Map;
 public class ContentStatusFiller {
 
     private final LikeService likeService;
-    private final FollowCache followCache;
+    private final FollowService followService;
 
-    public ContentStatusFiller(LikeService likeService, FollowCache followCache) {
+    public ContentStatusFiller(LikeService likeService, FollowService followService) {
         this.likeService = likeService;
-        this.followCache = followCache;
+        this.followService = followService;
     }
 
     // ========================================================================
@@ -108,7 +112,7 @@ public class ContentStatusFiller {
         if (authorIds.isEmpty()) {
             return;
         }
-        Map<Long, Boolean> followedMap = followCache.batchIsFollowing(userId, authorIds);
+        Map<Long, Boolean> followedMap = followService.batchIsFollowing(userId, authorIds);
         for (ContentVO vo : list) {
             Boolean followed = followedMap.get(vo.getAuthorId());
             vo.setIsFollowed(followed != null && followed);
@@ -120,6 +124,6 @@ public class ContentStatusFiller {
         if (userId == null || vo == null) {
             return;
         }
-        vo.setIsFollowed(followCache.isFollowing(userId, vo.getAuthorId()));
+        vo.setIsFollowed(followService.isFollowing(userId, vo.getAuthorId()));
     }
 }

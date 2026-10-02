@@ -37,7 +37,6 @@ public class CommentCacheChangedListener {
             case INVALIDATE_ROOTS -> commentCache.invalidateRoots(event.contentId());
             case INVALIDATE_REPLY_UNDER ->
                     commentCache.invalidateReplyUnder(event.contentId(), event.rootId());
-            case INVALIDATE_COMMENTS -> commentCache.invalidateComments(event.contentId());
         }
     }
 }

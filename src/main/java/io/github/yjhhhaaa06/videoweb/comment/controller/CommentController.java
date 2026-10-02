@@ -9,7 +9,6 @@ import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import io.github.yjhhhaaa06.videoweb.common.web.PageParams;
-import io.github.yjhhhaaa06.videoweb.content.service.ContentService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -57,8 +56,9 @@ import org.springframework.web.bind.annotation.RestController;
  * 故在 {@code CommentFlowTests} 与 {@code SecurityContractTests} 里逐条固化为测试。
  *
  * <h2>S5 补上的两个读端点（CM-3 的交付项）</h2>
- * {@code GET /comment/show}：**实现在 {@code ContentService}**（不是 CommentService）——
- * "能不能看评论"取决于内容的状态与评论区开关；见那里的说明。
+ * {@code GET /comment/show}：**S6-B2d 起实现在 {@code CommentService}**（此前在 ContentService）——
+ * 门禁"能不能看评论"仍由内容域回答（{@code ContentService.isCommentReadable}），
+ * 但评论树与 VO 组装回到本域，消除了 {@code content⇄comment} 双向环。
  * {@code GET /comment/replies}：实现在 {@code CommentService.getRepliesForRoot}。
  */
 @RestController
@@ -78,11 +78,9 @@ public class CommentController {
     private static final int COMMENT_PAGE_SIZE_DEFAULT = 200;
 
     private final CommentService commentService;
-    private final ContentService contentService;
 
-    public CommentController(CommentService commentService, ContentService contentService) {
+    public CommentController(CommentService commentService) {
         this.commentService = commentService;
-        this.contentService = contentService;
     }
 
     /**
@@ -128,7 +126,7 @@ public class CommentController {
      * 超上限 → **500**；其它原样回显。
      *
      * <p>缺 {@code contentId} / 非法 → 400；内容不存在 / 评论区已关 → **200 + 空**（不是 404/409，
-     * 见 {@code ContentService.getCommentsForContent} 的门禁说明）。
+     * 见 {@code CommentService.getCommentsForContent} 的门禁说明）。
      */
     @GetMapping("/show")
     public ApiResponse<?> show(@CurrentUserId(required = false) Long userId,
@@ -139,9 +137,9 @@ public class CommentController {
             throw new ParamException("contentId不能为空");
         }
         if (page == null && pageSize == null) {
-            return ApiResponse.success(contentService.getCommentsForContent(contentId, userId));
+            return ApiResponse.success(commentService.getCommentsForContent(contentId, userId));
         }
-        return ApiResponse.success(contentService.getCommentsForContent(contentId, userId,
+        return ApiResponse.success(commentService.getCommentsForContent(contentId, userId,
                 PageParams.normalizePage(page),
                 PageParams.normalizePageSize(pageSize, COMMENT_PAGE_SIZE_MAX, COMMENT_PAGE_SIZE_DEFAULT)));
     }

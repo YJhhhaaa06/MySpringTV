@@ -1,7 +1,5 @@
 package io.github.yjhhhaaa06.videoweb.like.event;
 
-import io.github.yjhhhaaa06.videoweb.comment.cache.CommentCache;
-import io.github.yjhhhaaa06.videoweb.content.cache.ContentCache;
 import io.github.yjhhhaaa06.videoweb.like.cache.LikeCache;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -27,34 +25,44 @@ import org.springframework.transaction.event.TransactionalEventListener;
  *   异步会引入"提交后缓存短暂未更新"的新窗口，且让测试需要等待，属无谓复杂化。
  * ② <b>{@code fallbackExecution} 保持默认 false</b>：本项目的点赞写操作**一律**在
  *    {@code @Transactional} 方法内发布事件，没有"无事务时也要更新缓存"的场景；
- *    若将来出现，必须显式打开并在此说明理由（而不是默默打开）。
+ *   若将来出现，必须显式打开并在此说明理由（而不是默默打开）。
  *
- * <h2>⚠️ 一处曾裁剪、已由 S5 补回</h2>
- * TV 在这里还会失效**内容详情缓存** / **评论树缓存**：
- * {@code contentCache.notifyLikeCountChanged(contentId)}、
- * {@code commentCache.notifyCommentLikeChanged(commentId)}。
- * S3 时这两个 Cache 属 S5、尚不存在 ⇒ 失效动作无从执行（"不为尚不存在的缓存预埋失效逻辑"）。
- * <b>S5 已按这里的补回位置补上</b>（见下方 switch 的两个分支）——它们是
- * {@code content.like_count} / {@code comment.like_count} 变化的**唯一失效点**：
- * 少了它们，缓存里的旧点赞数会一直服务到 TTL 到期（对外表现为"点赞后数字不变"）。
+ * <h2>★ S6-B2b：本监听器已"瘦身"——只剩点赞域自己的缓存</h2>
+ * 原先它还直接驱动 {@code content.cache.ContentCache} 与 {@code comment.cache.CommentCache}：
+ *
+ * <pre>
+ *   like.event.LikeChangedListener ──► content.cache.ContentCache    ❌ 跨域碰别人的缓存
+ *                                  └─► comment.cache.CommentCache    ❌
+ * </pre>
+ *
+ * 那让**点赞域**被迫知道"内容缓存有个 notifyLikeCountChanged、评论缓存有个
+ * notifyCommentLikeChanged"——别人的缓存实现成了点赞域的编译期依赖，
+ * 也让 {@code content⇄like}、{@code comment⇄like} 两个环闭得更死。
+ *
+ * <p>现在改为**各方订阅同一个事件、各自失效自己的缓存**：
+ * <ul>
+ *   <li>{@code content.event.LikeChangedContentListener} —— 失效内容 key（{@code content.like_count} 变了）</li>
+ *   <li>{@code comment.event.LikeChangedCommentListener} —— 失效评论树 field（{@code comment.like_count} 变了）</li>
+ * </ul>
+ * 依赖方向由"like → 别人的缓存"变成"content/comment → like 的事件"，
+ * 而 {@code content→like}、{@code comment→like} 本就存在（它们要查点赞态），**没有新增环**。
+ *
+ * <p>⚠️ <b>时序不变性</b>：三个监听器都标 {@code AFTER_COMMIT}，在**同一次**提交后被同步调用。
+ * 发起点赞的那个域不再决定别人的失效顺序——这是有意的：它们本就互不依赖。
  */
 @Slf4j
 @Component
 public class LikeChangedListener {
 
     private final LikeCache likeCache;
-    private final ContentCache contentCache;
-    private final CommentCache commentCache;
 
-    public LikeChangedListener(LikeCache likeCache, ContentCache contentCache, CommentCache commentCache) {
+    public LikeChangedListener(LikeCache likeCache) {
         this.likeCache = likeCache;
-        this.contentCache = contentCache;
-        this.commentCache = commentCache;
     }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onLikeChanged(LikeChangedEvent event) {
-        log.debug("点赞事务已提交，更新缓存: user={}, target={}, id={}, liked={}",
+        log.debug("点赞事务已提交，更新点赞缓存: user={}, target={}, id={}, liked={}",
                 event.userId(), event.target(), event.targetId(), event.liked());
 
         switch (event.target()) {
@@ -64,9 +72,6 @@ public class LikeChangedListener {
                 } else {
                     likeCache.unlikeContent(event.userId(), event.targetId());
                 }
-                // S5 补回（L-6）：失效内容 key，读自愈回填 DB 最新 like_count
-                // ⚠️ 用 contentId（= event.targetId()）——别错写成 userId
-                contentCache.notifyLikeCountChanged(event.targetId());
             }
             case COMMENT -> {
                 if (event.liked()) {
@@ -74,8 +79,6 @@ public class LikeChangedListener {
                 } else {
                     likeCache.unlikeComment(event.userId(), event.targetId());
                 }
-                // S5 补回（L-6）：定位评论所属主楼并定向失效其 replies field（懒载刷新 like_count）
-                commentCache.notifyCommentLikeChanged(event.targetId());
             }
         }
     }

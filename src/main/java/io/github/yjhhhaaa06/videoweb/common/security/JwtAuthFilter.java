@@ -3,7 +3,6 @@ package io.github.yjhhhaaa06.videoweb.common.security;
 import io.github.yjhhhaaa06.videoweb.common.exception.BusinessException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
-import io.github.yjhhhaaa06.videoweb.user.service.UserService;
 import tools.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -53,16 +52,16 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final JwtService jwtService;
-    private final UserService userService;
+    private final AdminChecker adminChecker;
     private final ObjectMapper objectMapper;
     private final RequestMappingLookup mappingLookup;
 
     public JwtAuthFilter(JwtService jwtService,
-                         UserService userService,
+                         AdminChecker adminChecker,
                          ObjectMapper objectMapper,
                          RequestMappingLookup mappingLookup) {
         this.jwtService = jwtService;
-        this.userService = userService;
+        this.adminChecker = adminChecker;
         this.objectMapper = objectMapper;
         this.mappingLookup = mappingLookup;
     }
@@ -96,9 +95,10 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         }
 
         // 3) 管理员路径：叠加角色校验（沿袭 TV：/api/admin 需 role==1）
+        //    走 AdminChecker 窄端口而非直接注入 UserService —— 依赖方向为「业务→基建」（S6-B1）
         if (isAdminPath(request)) {
             Long userId = (Long) request.getAttribute(ATTR_USER_ID);
-            if (userId == null || !userService.isAdmin(userId)) {
+            if (userId == null || !adminChecker.isAdmin(userId)) {
                 writeError(response, ErrorCode.FORBIDDEN.getCode(), ErrorCode.FORBIDDEN.getMessage());
                 return;
             }

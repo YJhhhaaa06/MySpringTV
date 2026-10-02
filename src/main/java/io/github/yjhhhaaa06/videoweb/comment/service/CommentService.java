@@ -12,7 +12,7 @@ import io.github.yjhhhaaa06.videoweb.common.exception.ForbiddenException;
 import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
 import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
-import io.github.yjhhhaaa06.videoweb.content.event.ContentCacheChangedEvent;
+import io.github.yjhhhaaa06.videoweb.content.service.ContentService;
 import io.github.yjhhhaaa06.videoweb.like.service.LikeService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -42,10 +42,11 @@ import java.util.Map;
  * S2 因为"当时不存在任何读缓存"而把 TV 的 3 行失效整段裁掉（CM-3 有详细论证与补回位置）。
  * S5 接入两个 Cache 后**必须补回**，且改为 {@code @TransactionalEventListener(AFTER_COMMIT)}：
  * <ol>
- *   <li>{@code ContentCacheChangedEvent.invalidate(contentId)} —— 评论数变了 ⇒ 失效内容 key
- *       （读自愈回填 DB 最新的 {@code comment_count}）；</li>
  *   <li>{@code CommentCacheChangedEvent.roots/replyUnder} —— 增删主楼失效 roots+count、
- *       增删回复定向 HDEL 该主楼的 replies field。</li>
+ *       增删回复定向 HDEL 该主楼的 replies field；</li>
+ *   <li>内容 key 的失效（{@code comment_count} 变了）也**由本事件的订阅方处理**——
+ *       {@code content.event.CommentCacheChangedContentListener} 订阅本域事件后失效**自己的** key。
+ *       <b>S6-B2d 起本域不再发布内容域的事件</b>，故上面不再列 {@code ContentCacheChangedEvent}。</li>
  * </ol>
  * ★ 顺序纪律（TV 的 T34/U-22 结论）：**必须在提交后**。事务内先失效会留出窗口，
  * 并发读者可按旧计数回填缓存，表现为"计数短暂陈旧"。
@@ -76,17 +77,20 @@ public class CommentService {
 
     private final CommentDao commentDao;
     private final ContentDao contentDao;
+    private final ContentService contentService;
     private final CommentCache commentCache;
     private final LikeService likeService;
     private final ApplicationEventPublisher events;
 
     public CommentService(CommentDao commentDao,
                           ContentDao contentDao,
+                          ContentService contentService,
                           CommentCache commentCache,
                           LikeService likeService,
                           ApplicationEventPublisher events) {
         this.commentDao = commentDao;
         this.contentDao = contentDao;
+        this.contentService = contentService;
         this.commentCache = commentCache;
         this.likeService = likeService;
         this.events = events;
@@ -167,10 +171,9 @@ public class CommentService {
         contentDao.updateCommentCount(contentId, 1);
 
         // ★ 提交后副作用（G-3，S5 补回 CM-3 的裁剪）：
-        //   ① 评论数变了 ⇒ 失效内容 key（读自愈回填 DB 最新的 comment_count）；
+        //   ① 评论数变了 ⇒ **由内容域自己订阅本事件**失效内容 key（S6-B2d：本域不再发别人的事件）；
         //   ② 增主楼失效 roots+count（读懒建窗口）；增回复定向 HDEL 所在主楼的 replies field。
         //   TV 的 3 行"写在事务 lambda 之后"的失效，从此是框架保证的 AFTER_COMMIT。
-        events.publishEvent(ContentCacheChangedEvent.invalidate(contentId));
         if (effectiveParentId == null || effectiveParentId == 0) {
             events.publishEvent(CommentCacheChangedEvent.roots(contentId));
         } else {
@@ -240,6 +243,73 @@ public class CommentService {
         }
         int to = (int) Math.min(from + pageSize, rows.size());
         return new ArrayList<>(rows.subList((int) from, to));
+    }
+
+    // ========================================================================
+    // 评论查询（GET /comment/show）—— S6-B2d 从 ContentService 搬回本域
+    // ========================================================================
+
+    /**
+     * 评论列表**缺省全量**路径（不传分页参数）。
+     *
+     * <h2>★ S6-B2d：为什么它现在在这里，而不是在 {@code ContentService}</h2>
+     * TV 的 {@code CommentController.showComment} 调的是 {@code ContentService.getCommentsForContent}
+     * ——"端点在别人 Service 里"是 S2 盘点时发现的陷阱，S5 当时**刻意保持了同一实现位置**。
+     *
+     * <p>S6 把它搬回评论域，因为那个位置让 {@code content⇄comment} 成了**双向环**：
+     * {@code ContentService} 被迫 import 评论域的缓存、DAO、VO、Service 四类东西。
+     * 拆法不是"整个搬走"（那会让评论域依赖 {@code ContentCache}），而是把内容域那部分
+     * 收敛成一条窄查询 {@link ContentService#isCommentReadable}——**门禁留在内容域，
+     * 评论数据回到评论域**。依赖方向由此变成单向 {@code comment → content}。
+     *
+     * <h2>前置门禁（TV 原样，顺序不可改）</h2>
+     * <pre>
+     * !isCommentReadable(contentId) → 内容不存在/已软删/媒体损坏/评论区已关 ⇒ 空数组
+     * </pre>
+     * 返回空而**不是** 404/409 是有意的：读评论不该因为内容不可见而报错，
+     * 否则前端要把"内容被删"与"评论为空"当两种情况处理。
+     *
+     * @return 全量评论树数组（主楼 + 每条的 children 全量）；无评论 ⇒ 空数组（不是 null）
+     */
+    public List<CommentVO> getCommentsForContent(long contentId, Long userId) {
+        if (!contentService.isCommentReadable(contentId)) {
+            return new ArrayList<>();
+        }
+        List<CommentCacheDTO> commentTree = commentCache.getFullTree(contentId);
+        if (commentTree == null || commentTree.isEmpty()) {
+            return new ArrayList<>();
+        }
+        return toCommentVOList(commentTree, userId);
+    }
+
+    /**
+     * 评论列表**分页**路径（传了 {@code page} 或 {@code pageSize} 任一）。
+     *
+     * <p>{@code total} = **主楼条数**（不是评论总数）——信封语义与 {@code /follow} 一致；
+     * 每页主楼只带前 K=2 条楼中楼 + {@code replyCount}，展开走 {@code /comment/replies}（T10-B）。
+     *
+     * <p>越界页返回空 list 但 {@code total} 仍为真值（前端据此判末页）。
+     */
+    public PageResult<CommentVO> getCommentsForContent(long contentId, Long userId, int page, int pageSize) {
+        if (!contentService.isCommentReadable(contentId)) {
+            return new PageResult<>(new ArrayList<>(), 0, page, pageSize);
+        }
+        CommentCache.PageWindow window = commentCache.getRootPage(contentId, page, pageSize);
+        List<CommentCacheDTO> pageRoots = window.roots();
+        return new PageResult<>(toCommentVOList(pageRoots, userId), window.rootTotal(), page, pageSize);
+    }
+
+    /** 评论树 → VO 树（带点赞态）：点赞态只对**本次要返回的这棵树**批量查询。 */
+    private List<CommentVO> toCommentVOList(List<CommentCacheDTO> tree, Long userId) {
+        Map<Long, Boolean> likedMap = new HashMap<>();
+        if (userId != null && tree != null && !tree.isEmpty()) {
+            List<Long> commentIds = commentCache.collectCommentIds(tree);
+            likedMap = likeService.batchIsCommentLiked(userId, commentIds);
+            if (likedMap == null) {
+                likedMap = new HashMap<>();
+            }
+        }
+        return convertToCommentVOList(tree, likedMap);
     }
 
     // ========================================================================
@@ -357,11 +427,13 @@ public class CommentService {
             commentDao.updateReplyCount(rootId, -1);
         }
 
-        // ★ 提交后副作用（G-3，S5 补回）：失效内容 key（comment_count 变了）+ 评论树缓存。
+        // ★ 提交后副作用（G-3，S5 补回）：失效评论树缓存。
+        //   ⚠️ 内容 key 的失效（comment_count 变了）**不再由本域发布**——S6-B2d 起
+        //   内容域自己订阅 CommentCacheChangedEvent 并失效自己的 key，
+        //   本域因此不必 import 内容域的事件类型。
         //   TV 为此在事务内构造了 DeletedComment 载体 return 出事务；本实现直接发事件
         //   （局部变量已含全部所需字段，无需载体）。
         long contentId = comment.getContentId();
-        events.publishEvent(ContentCacheChangedEvent.invalidate(contentId));
         if (isMain) {
             // 删主楼整栋 ⇒ roots+count 失效；那栋的 replies field 也一并清掉
             events.publishEvent(CommentCacheChangedEvent.roots(contentId));

@@ -1,10 +1,5 @@
 package io.github.yjhhhaaa06.videoweb.content.service;
 
-import io.github.yjhhhaaa06.videoweb.comment.cache.CommentCache;
-import io.github.yjhhhaaa06.videoweb.comment.event.CommentCacheChangedEvent;
-import io.github.yjhhhaaa06.videoweb.comment.model.cache.CommentCacheDTO;
-import io.github.yjhhhaaa06.videoweb.comment.model.vo.CommentVO;
-import io.github.yjhhhaaa06.videoweb.comment.service.CommentService;
 import io.github.yjhhhaaa06.videoweb.common.exception.ForbiddenException;
 import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
@@ -67,8 +62,6 @@ public class ContentService {
     private final CommentDao commentDao;
     private final ContentLikeDao contentLikeDao;
     private final ContentCache contentCache;
-    private final CommentCache commentCache;
-    private final CommentService commentService;
     private final LikeService likeService;
     private final ContentStatusFiller contentStatusFiller;
     private final ApplicationEventPublisher events;
@@ -78,8 +71,6 @@ public class ContentService {
                           CommentDao commentDao,
                           ContentLikeDao contentLikeDao,
                           ContentCache contentCache,
-                          CommentCache commentCache,
-                          CommentService commentService,
                           LikeService likeService,
                           ContentStatusFiller contentStatusFiller,
                           ApplicationEventPublisher events) {
@@ -88,8 +79,6 @@ public class ContentService {
         this.commentDao = commentDao;
         this.contentLikeDao = contentLikeDao;
         this.contentCache = contentCache;
-        this.commentCache = commentCache;
-        this.commentService = commentService;
         this.likeService = likeService;
         this.contentStatusFiller = contentStatusFiller;
         this.events = events;
@@ -162,71 +151,44 @@ public class ContentService {
     }
 
     // ========================================================================
-    // 评论查询（GET /comment/show —— **注意实现在本类，不在 CommentService**）
+    // 评论可读性门禁（GET /comment/show 的前置判断）
     // ========================================================================
 
     /**
-     * 评论列表**缺省全量**路径（不传分页参数）。
+     * 内容是否**允许读取评论**：内容存在（未软删、媒体未损坏）**且**评论区开启。
      *
-     * <h2>★ 为什么这个端点实现在 {@code ContentService}</h2>
-     * TV 的 {@code CommentController.showComment} 调的是
-     * {@code ContentService.getCommentsForContent}，**不是** {@code CommentService}——
-     * 因为"能不能看评论"取决于**内容**的状态（是否存在 / 是否隐藏 / 评论区是否开启），
-     * 而那些状态在内容缓存里。这是 S2 盘点时发现的"端点在别人 Service 里"的陷阱，
-     * 也是 CM-3 把读路径划归 S5 的直接理由。**迁移时保持同一实现位置**：
-     * 硬搬到 CommentService 会迫使它依赖 ContentCache，反而更糟。
+     * <h2>★ S6-B2d：为什么这里只剩"门禁"，评论数据本身搬走了</h2>
+     * 迁移自 TV 的 {@code ContentService.getCommentsForContent}，但**只有门禁部分留在这里**。
+     * 原来整个方法在本类，理由是"能不能看评论取决于**内容**的状态（是否存在 / 是否隐藏 /
+     * 评论区是否开启），而那些状态在内容缓存里"——这个理由**对门禁成立，对数据不成立**：
+     * 评论树、评论 VO、点赞态填充全是 comment 域自己的事。
      *
-     * <h2>前置门禁（TV 原样，顺序不可改）</h2>
+     * <p>把整段留在这里的代价是实打实的：{@code content} 域被迫 import
+     * {@code comment.cache.CommentCache}、{@code comment.dao.CommentDao}、
+     * {@code comment.service.CommentService}、{@code comment.model.vo.CommentVO}——
+     * 于是 {@code content⇄comment} 形成了一个**双向环**，两个域谁也不能独立看懂。
+     *
+     * <p>现在拆成一条**窄查询**：内容域只回答"能不能看"（本方法），
+     * 评论域用这个答案 + 自己的缓存与 VO 组装响应
+     * （{@code CommentService.getCommentsForContent}）。依赖方向变成**单向** {@code comment → content}。
+     *
+     * <p>⚠️ 注意这与"硬搬到 CommentService 会迫使它依赖 ContentCache"并不矛盾——
+     * 本方法把那次缓存读封装在**内容域内部**，评论域看到的是一个 {@code boolean}，
+     * 不是 {@code ContentCache}。这正是端口的用法。
+     *
+     * <h2>口径（TV 原样，不可改）</h2>
      * <pre>
-     * dto == null              → 内容不存在/已软删/媒体损坏 ⇒ 空数组
-     * !dto.isCommentEnabled()  → 评论区已关 ⇒ 空数组（评论数据保留，重开即恢复）
+     * dto == null              → 内容不存在 / 已软删 / 媒体损坏 ⇒ false
+     * !dto.isCommentEnabled()  → 评论区已关 ⇒ false（评论数据保留，重开即恢复）
      * </pre>
-     * 两者都是"返回空"而不是 404/409——**这是有意的**：读评论不该因为内容不可见而报错，
-     * 否则前端要把"内容被删"与"评论为空"当两种情况处理。
+     * 调用方对 false 的处理是**返回空**而不是 404/409——这是有意的：读评论不该因为内容不可见
+     * 而报错，否则前端要把"内容被删"与"评论为空"当两种情况处理。**判空与报错的区别留在调用方**。
      *
-     * @return 全量评论树数组（主楼 + 每条的 children 全量）；无评论 ⇒ 空数组（不是 null）
+     * @return {@code true} 表示可以读取该内容的评论
      */
-    public List<CommentVO> getCommentsForContent(long contentId, Long userId) {
+    public boolean isCommentReadable(long contentId) {
         ContentCacheDTO dto = contentCache.getContent(contentId);
-        if (dto == null || !dto.isCommentEnabled()) {
-            return new ArrayList<>();
-        }
-        List<CommentCacheDTO> commentTree = commentCache.getFullTree(contentId);
-        if (commentTree == null || commentTree.isEmpty()) {
-            return new ArrayList<>();
-        }
-        return toCommentVOList(commentTree, userId);
-    }
-
-    /**
-     * 评论列表**分页**路径（传了 {@code page} 或 {@code pageSize} 任一）。
-     *
-     * <p>{@code total} = **主楼条数**（不是评论总数）——信封语义与 {@code /follow} 一致；
-     * 每页主楼只带前 K=2 条楼中楼 + {@code replyCount}，展开走 {@code /comment/replies}（T10-B）。
-     *
-     * <p>越界页返回空 list 但 {@code total} 仍为真值（前端据此判末页）。
-     */
-    public PageResult<CommentVO> getCommentsForContent(long contentId, Long userId, int page, int pageSize) {
-        ContentCacheDTO dto = contentCache.getContent(contentId);
-        if (dto == null || !dto.isCommentEnabled()) {
-            return new PageResult<>(new ArrayList<>(), 0, page, pageSize);
-        }
-        CommentCache.PageWindow window = commentCache.getRootPage(contentId, page, pageSize);
-        List<CommentCacheDTO> pageRoots = window.roots();
-        return new PageResult<>(toCommentVOList(pageRoots, userId), window.rootTotal(), page, pageSize);
-    }
-
-    /** 评论树 → VO 树（带点赞态）：点赞态只对**本次要返回的这棵树**批量查询。 */
-    private List<CommentVO> toCommentVOList(List<CommentCacheDTO> tree, Long userId) {
-        Map<Long, Boolean> likedMap = new HashMap<>();
-        if (userId != null && tree != null && !tree.isEmpty()) {
-            List<Long> commentIds = commentCache.collectCommentIds(tree);
-            likedMap = likeService.batchIsCommentLiked(userId, commentIds);
-            if (likedMap == null) {
-                likedMap = new HashMap<>();
-            }
-        }
-        return commentService.convertToCommentVOList(tree, likedMap);
+        return dto != null && dto.isCommentEnabled();
     }
 
     // ========================================================================
@@ -359,15 +321,18 @@ public class ContentService {
      * ③④⑤⑥ 不同进同退会留下**不可自愈的不一致**（内容已删而点赞记录/媒体行仍在，或反之）
      * ——没有任何补偿机制能修复它。故撤销事务是错的。
      *
-     * <h2>★ 三个提交后副作用（两个事件 + 一个跨域失效）</h2>
+     * <h2>★ 三个提交后副作用（一个自有事件 + 两个订阅方）</h2>
      * <ol>
      *   <li>{@code ContentCacheChangedEvent.remove} —— DEL 内容 key + 从**全部**索引 key 剔除
      *       （只 DEL 内容 key 会让它留在推荐索引里，被反复探测到一个永远 null 的 id）；</li>
-     *   <li>{@code CommentCacheChangedEvent.comments} —— 整组失效评论两键组（评论已被级联软删）；</li>
-     *   <li>点赞计数 key 的失效由 {@code ContentCacheChangedListener} 的 REMOVE 分支触发
-     *       （{@code LikeService.deleteContentLike}，TV 的 T4 结论：成员 key 是用户维度，
+     *   <li>评论两键组的失效**由评论域自己订阅上面这个事件**完成
+     *       （{@code comment.event.ContentRemovedCommentListener}）——S6-B2d 起本域不再发布
+     *       评论域的事件；</li>
+     *   <li>点赞计数 key 的失效**由点赞域自己订阅同一个事件**完成
+     *       （{@code like.event.ContentRemovedLikeListener}；TV 的 T4 结论：成员 key 是用户维度，
      *       内容被删时无法廉价反查逐个 SREM）。</li>
      * </ol>
+     * 即"**内容删了**"这一个业务事实，三方各自失效自己的缓存，本域**不必知道**谁有缓存。
      *
      * <h2>⚠️ 有意裁剪：物理文件清理不迁移（决策表 G-7）</h2>
      * TV 在这里返回 url 列表，由 Controller 逐个 {@code fileUploadService.deleteFileByUrl(url)}
@@ -395,7 +360,6 @@ public class ContentService {
         contentMediaDao.deleteByContentId(contentId);
 
         events.publishEvent(ContentCacheChangedEvent.remove(contentId));
-        events.publishEvent(CommentCacheChangedEvent.comments(contentId));
         return mediaUrls;
     }
 

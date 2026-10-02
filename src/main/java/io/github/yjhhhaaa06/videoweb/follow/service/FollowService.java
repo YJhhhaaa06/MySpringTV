@@ -188,6 +188,51 @@ public class FollowService {
         return buildUserViews(users, ids, currentUserId);
     }
 
+    // ========================================================================
+    // 对外查询 API（S6-B2a）：关注态的**唯一对外入口**
+    // ========================================================================
+
+    /**
+     * 单个关注态：{@code userId} 是否关注了 {@code followedUserId}。
+     *
+     * <h2>★ 这组方法存在的唯一理由：把 {@code FollowCache} 收回成本域私有</h2>
+     * 在 S6 之前，{@code content} 域的 {@code ContentStatusFiller} 与 {@code ProfileService}
+     * **直接注入 {@code follow.cache.FollowCache}**——于是关注域的缓存实现变成了跨域 API：
+     * 它的方法签名、降级语义、甚至"是否建计数缓存"都成了别的域要跟着走的东西。
+     *
+     * <p>这里把下游真正用到的 4 个查询提升为 {@code FollowService} 的公开方法，
+     * 下游改为依赖**本 Service**（域的服务契约）而非其缓存实现。
+     * 缓存要优化、要换实现、要加空标记（见《遗留台账》B2），下游都不必知道。
+     *
+     * <p><b>性能性质必须保住</b>：{@code ContentStatusFiller} 的类注释写明
+     * "一次列表请求只打一次缓存/DB（批量而非逐条）"——100 条推荐页若逐条判关注态就是 100 次往返。
+     * 故批量方法 {@link #batchIsFollowing} 是**原样透传**批量语义，不是循环调用单条版本。
+     */
+    public boolean isFollowing(long userId, long followedUserId) {
+        return followCache.isFollowing(userId, followedUserId);
+    }
+
+    /**
+     * 批量关注态：{@code userId} 是否关注了 {@code followedUserIds} 中的每一个。
+     *
+     * <p>一趟 pipeline {@code ZSCORE}（命中）或一次 {@code IN} 查询（降级）——见 {@link #isFollowing} 的说明。
+     *
+     * @return id → 是否已关注；缺失的 id 表示未知（调用方按 false 处理）
+     */
+    public Map<Long, Boolean> batchIsFollowing(long userId, List<Long> followedUserIds) {
+        return followCache.batchIsFollowing(userId, followedUserIds);
+    }
+
+    /** 关注数（三态读缓存，miss 回源 {@code users.follow_count}，Redis 故障降级 DB）。 */
+    public int getFollowCount(long userId) {
+        return followCache.getFollowCount(userId);
+    }
+
+    /** 粉丝数（同 {@link #getFollowCount}）。 */
+    public int getFollowerCount(long userId) {
+        return followCache.getFollowerCount(userId);
+    }
+
     /**
      * 批量判关注态后按 DB 返回序组装用户视图。
      *
