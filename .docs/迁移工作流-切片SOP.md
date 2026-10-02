@@ -68,6 +68,15 @@ Select-String -Path "old-project\TVhomework1\src\main\java\com\itheima\<模块>\
 
 确认被依赖的模块**已存在**或本切片会一并交付（薄依赖）。
 
+> ⚠️ **上面的 import 扫描只覆盖"本模块直接引用了谁"，不足以裁定切片范围。**
+> 必须再**顺着本模块的每个端点**走一遍其调用链——因为端点可能实现在别人的 Service 里。
+> （S2 实例：`/comment/show` 的入口是 `ContentService.getCommentsForContent`，不是 `CommentService`；
+> 若不查这一层，会以为 comment 只需 content-thin，实际会拖入 CommentCache 的 8 处事务 + LikeService。）
+>
+> **范围裁定规则**：逐个端点标注"本切片交付 / 划归哪个切片"，并写进《事务边界决策表》。
+> 划走端点时**必须一并划走它的事务边界行**，并在决策表里给出补回位置——
+> 否则该切片会留一批"看似未表态"的 🔴 行。
+
 ### 步骤 4：搬 DAO（SQL 复制，签名重写）
 
 机械改动清单（《迁移参照系》§2.1）：
@@ -147,6 +156,9 @@ Select-String -Path "old-project\TVhomework1\src\main\java\com\itheima\<模块>\
 | 9 | **`TestRestTemplate` 已移除** | 找不到类 | 用 `RestClient`（Boot 4） |
 | 10 | **测试里用 JVM 时间造时间窗** | 用例**偶发**失败（时好时坏）——"活动未开始却抢到了""未过期却查不到" | 时间窗一律交给**数据库时钟**：SQL 里写 `begin_time = NOW() - INTERVAL 1 HOUR, end_time = NOW() + INTERVAL 1 DAY`，**不要**用 `LocalDateTime`/`Timestamp` 绑参。根因：Testcontainers 的 MySQL 容器默认 **UTC**，JVM 是 **Asia/Shanghai**，绑参会引入偏移。属"不报错、只是偶发"的坑（S1 实测） |
 | 11 | **`-o`（离线）跑 `verify`** | 测试 **全绿** 但构建失败：`Cannot access aliyun ... in offline mode`，缺 `maven-archiver` / `plexus-archiver` / `xz` / `zstd-jni` | 离线只适用于 `test`；`verify` 会走到 `maven-jar-plugin`，其依赖通常未被缓存 ⇒ **必须联网**。与代码无关，别去查业务代码（S1 实测） |
+| 12 | **`@Transactional` 标在"会被自调用"的方法上** | ⚠️ **完全没有症状**：不报错、无日志、测试也能绿——只是事务没开 | Spring AOP 代理只拦**外部**调用；`this.foo()` 走目标对象、**绕过代理**。正解：注解标在 **public 入口**，私有方法只写业务（`deleteCommentByUser`/`deleteCommentByAdmin` 标，私有的 `doDeleteComment` 不标）。跨 bean 编排抽到独立 bean，或 `@Lazy` 自注入代理。**并且必须用测试证明事务真的在跑**：spy `PlatformTransactionManager` 数 `getTransaction` 次数，或断言"注入失败后写操作被回滚"。slice 0 的 U-2 就栽在这里（S2 期间才实测出来，见《事务边界决策表》U-2 附注） |
+| 13 | **测试夹具的"冗余计数"不自洽** | 500，且报错指向 `content.comment_count` 而非被测逻辑——容易误判成业务缺陷 | `content.comment_count` 是 **`int unsigned`** 且 `updateCommentCount` **无防负守卫**（TV 原样保留）。夹具若直接插评论行却没同步 `comment_count`，删除时从 0 再 -1 ⇒ `Data truncation: BIGINT UNSIGNED value is out of range`。**夹具必须让计数与行数自洽**（S2 实测踩过一次） |
+| 14 | **盘点依赖时按"模块"而非"端点"看** | 切片规模估算严重失准（S2 计划 ~930 行，照做会是 3000+ 行） | 一个模块的端点可能实现在**别人的 Service 里**：`/comment/show` 调的是 `ContentService.getCommentsForContent`，不是 `CommentService`。盘点跨模块依赖必须**顺着每个端点**走一遍，别只看本模块的 `import`（S2 实测） |
 
 ### 配置前缀速查（已实测）
 
