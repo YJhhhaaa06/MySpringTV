@@ -92,6 +92,20 @@ public interface CommentDao {
     int softDeleteOne(@Param("commentId") long commentId);
 
     /**
+     * 评论点赞数增减。
+     *
+     * <p>TV: {@code UPDATE comment SET like_count = like_count + ? WHERE comment_id = ?}
+     *
+     * <p>⚠️ 本方法在 **S2 里被有意排除**（当时列为"评论点赞计数，随 S3(like)"）。现由 **S3** 补上。
+     *
+     * <p><b>无防负守卫</b>（对比同类的 {@link #updateReplyCount} 有），TV 原样行为，故保留。
+     * 注意 {@code comment.like_count} 是**有符号** {@code int}（而 {@code content.like_count} 是
+     * {@code int unsigned}）：同一场景（计数为 0 时再 −1）此处**静默变成 −1 而不报错**，
+     * 内容侧则会因 UNSIGNED 下溢报 500。这个不对称是 TV 既有行为，不修。
+     */
+    int updateLikeCount(@Param("commentId") long commentId, @Param("delta") int delta);
+
+    /**
      * 单跳取"父指针"，语义由返回值**三态**表达：
      * <ul>
      *   <li>{@code null} —— 该评论行**不存在**（链断）</li>

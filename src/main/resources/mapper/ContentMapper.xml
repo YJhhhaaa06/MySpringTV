@@ -33,4 +33,12 @@
         SELECT comment_enabled FROM content WHERE id = #{contentId} AND is_deleted = 0
     </select>
 
+    <!-- TV: UPDATE content SET like_count = like_count + ? WHERE id = ?
+         ⚠️ 一字未改——**没有**防负守卫，保留 TV 原样行为（content.like_count 是 int unsigned，
+         与 comment.like_count 的有符号 int 形成不对称；见 ContentDao#updateLikeCount 的 Javadoc）。
+         本方法由 S3 补上（S1 的 content-thin 曾有意排除它）。 -->
+    <update id="updateLikeCount">
+        UPDATE content SET like_count = like_count + #{delta} WHERE id = #{contentId}
+    </update>
+
 </mapper>

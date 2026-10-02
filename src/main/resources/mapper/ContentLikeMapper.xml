@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  内容点赞 Mapper。
+
+  迁移口径（《迁移参照系》§2.1）：SQL 文本从 TV 的 ContentLikeDao 原样搬，只改参数记号。
+  namespace 必须与 ContentLikeDao 全限定名一致。
+  每条语句上方保留 TV 原 SQL 对照，便于逐字复核「SQL 未被改动」。
+
+  ⚠️ 不搬 TV 的 deleteByContentId（内容删除级联物理删点赞），调用方在 S5。
+-->
+<mapper namespace="io.github.yjhhhaaa06.videoweb.like.dao.ContentLikeDao">
+
+    <!-- TV: INSERT INTO content_like (user_id, content_id) VALUES (?, ?) -->
+    <insert id="addLike">
+        INSERT INTO content_like (user_id, content_id) VALUES (#{userId}, #{contentId})
+    </insert>
+
+    <!-- TV: DELETE FROM content_like WHERE user_id = ? AND content_id = ? -->
+    <delete id="deleteLike">
+        DELETE FROM content_like WHERE user_id = #{userId} AND content_id = #{contentId}
+    </delete>
+
+    <!-- TV: SELECT COUNT(*) FROM content_like WHERE user_id = ? AND content_id = ?
+         ★ 唯一键 uk_user_content 保证这最多一行；写法 COUNT>0 → EXISTS（行集等价）。 -->
+    <select id="isLiked" resultType="boolean">
+        SELECT EXISTS(SELECT 1 FROM content_like WHERE user_id = #{userId} AND content_id = #{contentId})
+    </select>
+
+    <!--
+      TV 用 StringBuilder 循环拼 "SELECT content_id FROM content_like WHERE user_id = ? AND content_id IN (?,?,...)"
+      —— 此处由 <foreach> 一行替代（《迁移参照系》§2.1 点名的"白赚"项）。
+      空集合时 MyBatis 会生成 IN () 语法错，故调用方（LikeCache）保证非空；
+      与 TV 一致：TV 也在方法开头 `if (contentIds == null || isEmpty) return emptySet()`。
+    -->
+    <select id="findLikedContentIds" resultType="long">
+        SELECT content_id FROM content_like
+        WHERE user_id = #{userId} AND content_id IN
+        <foreach item="id" collection="contentIds" open="(" separator="," close=")">#{id}</foreach>
+    </select>
+
+    <!-- TV: SELECT content_id FROM content_like WHERE user_id = ? -->
+    <select id="findLikedContentIdsByUser" resultType="long">
+        SELECT content_id FROM content_like WHERE user_id = #{userId}
+    </select>
+
+    <!-- TV: SELECT COUNT(*) FROM content_like WHERE content_id = ? -->
+    <select id="countByContentId" resultType="int">
+        SELECT COUNT(*) FROM content_like WHERE content_id = #{contentId}
+    </select>
+
+</mapper>

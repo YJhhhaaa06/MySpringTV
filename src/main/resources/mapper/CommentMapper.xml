@@ -100,6 +100,14 @@
         UPDATE comment SET is_deleted = 1 WHERE comment_id = #{commentId}
     </update>
 
+    <!-- TV: UPDATE comment SET like_count = like_count + ? WHERE comment_id = ?
+         ⚠️ 一字未改——**没有**防负守卫）。comment.like_count 是有符号 int，
+         故 0 时再 -1 只会静默变 -1（内容侧 counterpart 是 unsigned，会报 500）。
+         本方法由 S3 补上（S2 曾有意排除它）。 -->
+    <update id="updateLikeCount">
+        UPDATE comment SET like_count = like_count + #{delta} WHERE comment_id = #{commentId}
+    </update>
+
     <!--
       单跳父指针，三态见 CommentDao#findParentOrDefault 的 Javadoc：
         无行 → null（链断）；parent_id IS NULL → 折叠为 0（已到主楼）；否则返回父 id。

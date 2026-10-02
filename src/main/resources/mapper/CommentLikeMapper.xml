@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  评论点赞 Mapper。
+
+  迁移口径（《迁移参照系》§2.1）：SQL 文本从 TV 的 CommentLikeDao 原样搬，只改参数记号。
+  namespace 必须与 CommentLikeDao 全限定名一致。
+-->
+<mapper namespace="io.github.yjhhhaaa06.videoweb.like.dao.CommentLikeDao">
+
+    <!-- TV: INSERT INTO comment_like (user_id, comment_id) VALUES (?, ?) -->
+    <insert id="addLike">
+        INSERT INTO comment_like (user_id, comment_id) VALUES (#{userId}, #{commentId})
+    </insert>
+
+    <!-- TV: DELETE FROM comment_like WHERE user_id = ? AND comment_id = ? -->
+    <delete id="removeLike">
+        DELETE FROM comment_like WHERE user_id = #{userId} AND comment_id = #{commentId}
+    </delete>
+
+    <!-- TV: SELECT COUNT(*) FROM comment_like WHERE user_id = ? AND comment_id = ?
+         ★ 唯一键 uk_user_comment 保证最多一行；COUNT>0 → EXISTS。 -->
+    <select id="isLiked" resultType="boolean">
+        SELECT EXISTS(SELECT 1 FROM comment_like WHERE user_id = #{userId} AND comment_id = #{commentId})
+    </select>
+
+    <!-- TV 的 StringBuilder IN 拼接 → <foreach>（同内容侧）。 -->
+    <select id="findLikedCommentIds" resultType="long">
+        SELECT comment_id FROM comment_like
+        WHERE user_id = #{userId} AND comment_id IN
+        <foreach item="id" collection="commentIds" open="(" separator="," close=")">#{id}</foreach>
+    </select>
+
+    <!-- TV: SELECT comment_id FROM comment_like WHERE user_id = ? -->
+    <select id="findLikedCommentIdsByUser" resultType="long">
+        SELECT comment_id FROM comment_like WHERE user_id = #{userId}
+    </select>
+
+    <!-- TV: SELECT COUNT(*) FROM comment_like WHERE comment_id = ? -->
+    <select id="countByCommentId" resultType="int">
+        SELECT COUNT(*) FROM comment_like WHERE comment_id = #{commentId}
+    </select>
+
+</mapper>

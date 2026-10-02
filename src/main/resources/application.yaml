@@ -116,6 +116,11 @@ mybatis:
 # 业务配置
 # ----------------------------------------------------------------------------
 
+# ----------------------------------------------------------------------------
+# 业务配置（统一挂在 video.* 下；⚠️ 不要写第二个顶层 video: 键——
+# YAML 重复键会覆盖前面的，video.jwt 会被悄悄吃掉，表现为登录直接 500）
+# ----------------------------------------------------------------------------
+
 # JWT（决策③「保留 jwt，暂不迁移 Spring Security」）
 # 口径沿袭 TV：HMAC256 自签发，单 Token，sub = userId。
 # TV 把 secret 硬编码为 "STONE" 且无覆盖机制（AppConfig.getJwtSecret() 直读常量）；
@@ -126,9 +131,16 @@ video:
     # ⚠️ 必须带单位后缀（2h），**不能**写裸数字 2。
     # 绑定目标是 java.time.Duration：裸数字会被当作"2 个单位、无单位"，解析为 **PT2S（2 秒）**，
     # 于是签发的 token 在 iat 之后 2 秒即过期，表现为"刚登录就 401"，且**不报任何配置错误**。
-    # 这类静默误解析正是切片 0 踩到的坑（JwtServiceSanityTests 已加断言防回归）。
+    # 这类静默误解析正是切片 0 踩到的坑（JwtPropertiesBindingTests 已加断言防回归）。
     # TV 原值 jwt.expireHours=2（小时），此处等价表达为 2h。
     expire-hours: ${JWT_EXPIRE_HOURS:2h}
+
+  # 缓存（决策⑤：显式封装层，不用 @Cacheable）
+  # 口径对齐 TV AppConfig.getLikeTtlSeconds() ← app.properties 的 cache.like.ttlMinutes=15。
+  # ⚠️ 同上：Duration 属性**必须带单位后缀**。写裸数字 15 会解析成 PT15S（15 秒），
+  # 缓存几乎立刻失效——不报错，只是命中率莫名很低。
+  cache:
+    like-ttl: ${LIKE_CACHE_TTL:15m}
 
 # ----------------------------------------------------------------------------
 # 日志：本阶段保持 Boot 默认。TV 的 LOG_CONVENTION（定栈/脱敏/级别判据 163 行）

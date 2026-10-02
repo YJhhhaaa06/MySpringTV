@@ -72,4 +72,22 @@ public interface ContentDao {
      *         （调用方据此跳过门禁，把 404 判定交给事务内的 {@link #isContentExist}——与 TV 同构）
      */
     Boolean findCommentEnabledById(@Param("contentId") long contentId);
+
+    /**
+     * 内容点赞数增减。
+     *
+     * <p>TV: {@code UPDATE content SET like_count = like_count + ? WHERE id = ?}
+     *
+     * <p>⚠️ 本方法在 **S1 的 content-thin（3 方法）里被有意排除**——当时认定它属 like 切片（S3）的需求。
+     * 现由 **S3** 补上，正好印证"薄依赖的口径是**本切片交付所必需**，不是计划里提到过"。
+     *
+     * <p><b>无防负守卫</b>（对比 {@code CommentDao.updateReplyCount} 有），TV 原样行为，故保留。
+     * ⚠️ 已知尖锐处：{@code content.like_count} 列类型是 {@code int unsigned}，
+     * 取消未点赞的赞时若计数为 0 会因 UNSIGNED 下溢报错 → 500（与 {@code comment_count} 同款，
+     * 已实测复现）。注意 {@code comment.like_count} 是**有符号** int，同场景只会变成 −1 而不报错——
+     * 两表这个不对称是 TV 既有行为，不修。详见《事务边界决策表》L-1/L-2。
+     *
+     * @return 受影响行数
+     */
+    int updateLikeCount(@Param("contentId") long contentId, @Param("delta") int delta);
 }
