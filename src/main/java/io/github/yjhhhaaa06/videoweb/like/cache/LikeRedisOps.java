@@ -1,8 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.like.cache;
 
-import io.github.yjhhhaaa06.videoweb.common.cache.CacheUnavailableException;
-import org.springframework.data.redis.core.RedisOperations;
-import org.springframework.data.redis.core.SessionCallback;
+import io.github.yjhhhaaa06.videoweb.common.cache.RedisOps;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
@@ -11,25 +9,18 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import java.util.function.Supplier;
 
 /**
- * 点赞缓存的 **Redis 协议层**——只负责"把命令发出去"，不含任何缓存语义
+ * 点赞缓存的 **Redis 命令层** —— 只负责"把命令发出去"，不含任何缓存语义
  * （三态判断 / 回源 / 回填 / 降级都在 {@link LikeCache}）。
  *
- * <h2>为什么单独一层</h2>
- * ① 决策⑤ 要求的是"**显式封装层**"（不用 {@code @Cacheable}），本类与 {@link LikeCache}
- * 一起构成该层：上层管语义、下层管协议；
- * ② 所有 Redis 异常在此**归一化为 {@link CacheUnavailableException}**，
- * 使"Redis 失败 vs DB 失败"在类型上可区分（见 {@link CacheUnavailableException} 的说明）；
- * ③ 降级路径因此可以**确定性地被测试**：把本类换成会抛异常的 spy 即可，无需真的停掉 Redis。
+ * <h2>S5 起的分工（决策表 G-6）</h2>
+ * 通用协议（连接、异常归一化、{@code keyExists}/{@code getString}/{@code setString}/
+ * {@code delete}/{@code expire}/pipeline/Lua 执行）已上移到 {@link RedisOps} **基类**——
+ * S3/S4 时 like 与 follow 各持一份逐字重复的实现，S5 按 rule of three 收敛。
+ * 本类只留**域内**命令：Set 成员判定、两次条件写 Lua、原子回填 Lua。
  *
- * <h2>与 TV {@code cache} 包的关系（有意不搬，见决策表 L-7）</h2>
- * TV 的 {@code RedisAccess}(90) + {@code CacheAside}(624) + {@code SetCache}(397) + {@code CacheKeys}(296)
- * 共 2,528 行/12 文件，但它**不能开箱即用**：依赖自研连接池 {@code MyRedisPool}、
- * 自研熔断 {@code RedisCircuitBreaker}（已判给 Resilience4j）、{@code AppConfig} 覆盖链、
- * Jackson 2 包名、{@code @Component}/{@code @InjectConstructor}、{@code LogUtil}、{@code TransactionTemplate}。
- * 搬它等于先做一次基建重构 ⇒ 按决策⑤ 做精简版，去掉的机制与影响**逐条记录在 L-7**。
+ * <p>收敛是**纯搬迁**：命令语义、Lua 脚本、TTL 口径一字未改（既有 like 测试是回归网）。
  *
  * <h2>条件写为什么用 Lua</h2>
  * "只在 key 已存在时才 INCR/SADD"是**防残缺缓存**的关键（冷 key 不创建半套数据，
@@ -38,14 +29,14 @@ import java.util.function.Supplier;
  * 该错误值会存活到 TTL 到期）。Lua 脚本在 Redis 服务端原子执行，窗口消失。
  */
 @Component
-public class LikeRedisOps {
+public class LikeRedisOps extends RedisOps {
 
     /**
      * 点赞条件写（原子，一趟往返）：set 存在才 SADD、count 存在才 INCR。
      * KEYS: {@code [setKey, countKey]}；ARGV: {@code [memberId]}。
      *
      * <p>对照 TV {@code LikeCacheService.LIKE_CONDITIONAL_SCRIPT}：**少了 {@code DEL KEYS[3]}**
-     * ——那一行是清"空标记"（{@code empty:...}），而精简版有意不做空标记（见 L-7 的影响记录）。
+     * ——那一行是清"空标记"（{@code empty:...}），而精简版有意不做空标记（见决策表 L-7）。
      */
     private static final String LIKE_LUA =
             "if redis.call('EXISTS', KEYS[1]) == 1 then redis.call('SADD', KEYS[1], ARGV[1]) end "
@@ -83,17 +74,11 @@ public class LikeRedisOps {
     private static final DefaultRedisScript<Long> BACKFILL_SET_SCRIPT =
             new DefaultRedisScript<>(BACKFILL_SET_LUA, Long.class);
 
-    private final StringRedisTemplate redis;
-
     public LikeRedisOps(StringRedisTemplate redis) {
-        this.redis = redis;
+        super(redis);
     }
 
     // ==================== 读 ====================
-
-    public boolean keyExists(String key) {
-        return guarded(() -> Boolean.TRUE.equals(redis.hasKey(key)));
-    }
 
     public boolean setIsMember(String key, long member) {
         return guarded(() -> Boolean.TRUE.equals(redis.opsForSet().isMember(key, String.valueOf(member))));
@@ -106,52 +91,25 @@ public class LikeRedisOps {
      * 目标就是"命令数与装载量双降"。若这里退化成 N 次独立 SISMEMBER，页面上 200 条评论
      * 就是 200 个往返，那个性质会被悄悄破坏。
      */
-    @SuppressWarnings("unchecked")
     public List<Boolean> setIsMemberBatch(String key, List<Long> members) {
-        return guarded(() -> {
-            List<Object> raw = redis.executePipelined(new SessionCallback<Object>() {
-                @Override
-                public <K, V> Object execute(RedisOperations<K, V> operations) {
-                    RedisOperations<String, String> typed = (RedisOperations<String, String>) operations;
-                    for (Long member : members) {
-                        typed.opsForSet().isMember(key, String.valueOf(member));
-                    }
-                    return null;
-                }
-            });
-            return raw.stream().map(o -> Boolean.TRUE.equals(o)).toList();
+        List<Object> raw = pipeline(ops -> {
+            for (Long member : members) {
+                ops.opsForSet().isMember(key, String.valueOf(member));
+            }
         });
-    }
-
-    /** 读计数。**key 不存在返回 null**（0 是合法值，必须与"不存在"区分开）。 */
-    public String getString(String key) {
-        return guarded(() -> redis.opsForValue().get(key));
+        return raw.stream().map(o -> Boolean.TRUE.equals(o)).toList();
     }
 
     // ==================== 写 ====================
 
-    public void setString(String key, String value, Duration ttl) {
-        guardedVoid(() -> redis.opsForValue().set(key, value, ttl));
-    }
-
-    /** 续期（滑动过期：命中即续，热 key 不会被 TTL 淘汰）。 */
-    public void expire(String key, Duration ttl) {
-        guardedVoid(() -> redis.expire(key, ttl));
-    }
-
-    /** 删除若干 key（失败路径的"失效让读自愈"）。 */
-    public void delete(String... keys) {
-        guardedVoid(() -> redis.delete(List.of(keys)));
-    }
-
     /** 条件写：点赞。{@code memberId} 是 contentId 或 commentId（成员写在用户维度的 set 里）。 */
     public void applyLikeConditionalWrite(String setKey, String countKey, long memberId) {
-        evalConditional(LIKE_SCRIPT, setKey, countKey, memberId);
+        eval(LIKE_SCRIPT, List.of(setKey, countKey), String.valueOf(memberId));
     }
 
     /** 条件写：取消点赞。 */
     public void applyUnlikeConditionalWrite(String setKey, String countKey, long memberId) {
-        evalConditional(UNLIKE_SCRIPT, setKey, countKey, memberId);
+        eval(UNLIKE_SCRIPT, List.of(setKey, countKey), String.valueOf(memberId));
     }
 
     /** 原子回填用户维度 set（含 TTL）。空集不创建 key。 */
@@ -161,28 +119,6 @@ public class LikeRedisOps {
         for (Long m : members) {
             args.add(String.valueOf(m));
         }
-        guardedVoid(() -> redis.execute(BACKFILL_SET_SCRIPT, List.of(setKey), args.toArray(new String[0])));
-    }
-
-    // ==================== 异常归一化 ====================
-
-    private void evalConditional(DefaultRedisScript<Long> script, String setKey, String countKey, long memberId) {
-        guardedVoid(() -> redis.execute(script, List.of(setKey, countKey), String.valueOf(memberId)));
-    }
-
-    /** 把任意 Redis 层异常归一化为 {@link CacheUnavailableException}。 */
-    private <T> T guarded(Supplier<T> action) {
-        try {
-            return action.get();
-        } catch (RuntimeException e) {
-            throw new CacheUnavailableException("Redis 访问失败: " + e.getMessage(), e);
-        }
-    }
-
-    private void guardedVoid(Runnable action) {
-        guarded(() -> {
-            action.run();
-            return null;
-        });
+        eval(BACKFILL_SET_SCRIPT, List.of(setKey), args.toArray(new String[0]));
     }
 }

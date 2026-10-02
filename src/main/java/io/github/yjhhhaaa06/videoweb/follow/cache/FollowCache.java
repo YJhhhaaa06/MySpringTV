@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.follow.cache;
 
+import io.github.yjhhhaaa06.videoweb.common.cache.CacheKeys;
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheUnavailableException;
 import io.github.yjhhhaaa06.videoweb.common.config.FollowCacheProperties;
 import io.github.yjhhhaaa06.videoweb.follow.dao.FollowDao;
@@ -77,19 +78,19 @@ public class FollowCache {
      */
     static final Duration EMPTY_MARKER_TTL = Duration.ofSeconds(60);
 
-    /** 我关注了谁：{@code user:following:{userId}}（ZSet，score = followedUserId）。 */
+    /** 我关注了谁：{@code user:following:{userId}}（ZSet，score = followedUserId）。委托 {@link CacheKeys}。 */
     static String followingKey(long userId) {
-        return "user:following:" + userId;
+        return CacheKeys.userFollowing(userId);
     }
 
-    /** 谁关注了我：{@code user:follower:{userId}}（ZSet，score = userId）。 */
+    /** 谁关注了我：{@code user:follower:{userId}}（ZSet，score = userId）。委托 {@link CacheKeys}。 */
     static String followerKey(long userId) {
-        return "user:follower:" + userId;
+        return CacheKeys.userFollower(userId);
     }
 
-    /** 空标记：{@code empty:{dataKey}}。 */
+    /** 空标记：{@code empty:{dataKey}}。委托 {@link CacheKeys}。 */
     static String emptyKey(String dataKey) {
-        return "empty:" + dataKey;
+        return CacheKeys.empty(dataKey);
     }
 
     private final FollowRedisOps ops;

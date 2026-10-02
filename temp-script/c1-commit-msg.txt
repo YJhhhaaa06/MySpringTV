@@ -1,0 +1,38 @@
+refactor(cache): 抽 common/cache 公共缓存基建（rule of three），like/follow 收敛
+
+S5 开工前的第一刀：缓存基建。S3/S4 各自在 `like.cache` / `follow.cache` 内写了
+一份逐字重复的协议代码（guarded 异常归一化、keyExists/getString/setString/delete/expire、
+StringRedisTemplate 持有与构造、键工厂）。两片都把这归因于「第 2 个使用方，等 S5 出现
+第 3 个使用方再抽」（决策表 L-7 / F-7）；S5 同时引入 ContentCache 与 CommentCache
+两个新使用方 ⇒ 本提交兑现。
+
+新增 common/cache：
+- `RedisOps`：**抽象**协议层基类。guarded/guardedVoid 异常归一化、keyExists、
+  existingKeys（一趟 pipeline EXISTS）、getString、setString、delete、expire、
+  pipeline（SessionCallback 版）、eval（Lua）、scanKeys（SCAN 而非 KEYS）。
+  全是 like/follow 逐字重复过的那批命令。
+- `CacheKeys`：键工厂 + 常量（EMPTY_MARKER_{VALUE,TTL_SECONDS}、CONTENT_INDEX_PREFIX）。
+  **键字符串逐字不变**——测试里硬编码了 key 形状（`content:likeCount:` 等），
+  这正是防"缓存静默失联"的那道网。另预留 S5 需要的 content/comment/两键组/索引键。
+- `JsonCodec`：Jackson 3（tools.jackson.*）封装，注入 Boot 的 ObjectMapper
+  （JavaTime 随 jackson-databind 3 内置）。编解码失败包成 CacheUnavailableException
+  ⇒ "脏 JSON"按缓存失效处理，绝不让坏缓存把接口搞成 500。
+- `CacheAside`：三态 JSON cache-aside（hit-data / hit-empty 空标记 / miss 回填），
+  含"数据 key 已存在则不写空标记"的守卫、写失败 DEL 自愈、TTL 抖动、读命中续期
+  （空标记从不续期）、批量读 + 批量装载器、降级不写回。
+
+收敛 like/follow：
+- `LikeRedisOps` / `FollowRedisOps` 改为 `extends RedisOps`，只留域内命令
+  （Set/ZSet 成员判定、Lua 条件写与回填）。
+- `FollowRedisOps.existingOf(String,String)` 保留**定长两参**签名（测试用它打桩：
+  `doThrow(...).when(followRedisOps).existingOf(anyString(), anyString())`），
+  内部委托基类 existingKeys；`LikeCache` / `FollowCache` 的键工厂改为委托 CacheKeys。
+- 语义零变化：三态读、条件写 Lua、降级路径、TTL 口径、键字符串一字未改。
+  既有 117 例是本次收敛的回归网。
+
+踩到的坑（补进 SOP §二 坑 16）：
+`RedisOps` 一开始标了 `@Component` —— 启动即
+`NoUniqueBeanDefinitionException: expected single matching bean but found 3:
+redisOps, followRedisOps, likeRedisOps`（子类也是 RedisOps 类型 ⇒ 按类型注入歧义）。
+117 例**全部**报 "ApplicationContext failure threshold (1) exceeded"，症状离病因很远。
+正解：协议基类必须是**抽象类**，不做 bean；语义由子类定义，注入点写具体类型。

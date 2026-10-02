@@ -1,36 +1,27 @@
 package io.github.yjhhhaaa06.videoweb.follow.cache;
 
-import io.github.yjhhhaaa06.videoweb.common.cache.CacheUnavailableException;
-import org.springframework.data.redis.core.RedisOperations;
-import org.springframework.data.redis.core.SessionCallback;
+import io.github.yjhhhaaa06.videoweb.common.cache.RedisOps;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.function.Supplier;
 
 /**
- * 关注缓存的 **Redis 协议层**——只负责"把命令发出去"，不含任何缓存语义
+ * 关注缓存的 **Redis 命令层** —— 只负责"把命令发出去"，不含任何缓存语义
  * （三态判断 / 回源 / 回填 / 降级都在 {@link FollowCache}）。
  *
- * <h2>为什么单独一层</h2>
- * ① 决策⑤ 要求的是"**显式封装层**"（不用 {@code @Cacheable}），本类与 {@link FollowCache}
- * 一起构成该层：上层管语义、下层管协议；
- * ② 所有 Redis 异常在此**归一化为 {@link CacheUnavailableException}**，
- * 使"Redis 失败 vs DB 失败"在类型上可区分；
- * ③ 降级路径因此可以**确定性地被测试**：把本类换成会抛异常的 spy 即可，无需真的停掉 Redis。
+ * <h2>S5 起的分工（决策表 G-6：rule of three 收敛）</h2>
+ * S4 时本类与 {@code LikeRedisOps} 各持一份逐字重复的协议代码（{@code guarded}/{@code guardedVoid}、
+ * {@code delete}/{@code expire}/{@code getString}/{@code setString}/{@code keyExists}）。
+ * S4 的 F-7 预定"等 S5 的第 3 个使用方再抽"，S5 兑现：通用协议上移到
+ * {@link RedisOps} **基类**，本类只留**域内**命令——ZSet（{@code score = 成员 id} ⇒ 有序）、
+ * 四次 Lua 条件写 / 回填 / 空标记。
  *
- * <h2>与 like 的关系（照抄形态，不抽公共层）</h2>
- * 与 {@code LikeRedisOps} 同构（同一套 {@code guarded} 归一化、同一套 Lua 原子写法），
- * 差别只有数据结构：like 用 {@code Set}（无序），follow 用 **{@code ZSet}**（{@code score = 成员 id} ⇒ 有序）。
- * 按《事务边界决策表》F-7：本切片是第 2 个使用方（like + follow），
- * 按 rule of three 等 **S5** 出现第 3 个使用方再抽 {@code common/cache} 的框架层。
- * 唯一例外是异常的公共类型（已上移到 {@code common.cache}）。
+ * <p>收敛是**纯搬迁**：命令语义、Lua 脚本、TTL 口径一字未改。
  *
  * <h2>为什么用 Lua 而不是 Pipeline / MULTI</h2>
  * <ul>
@@ -47,7 +38,7 @@ import java.util.function.Supplier;
  * 那是自研连接池时代的写法；Spring Data Redis 下同类保证由 Lua 提供，且少一次往返。
  */
 @Component
-public class FollowRedisOps {
+public class FollowRedisOps extends RedisOps {
 
     // ==================== Lua 脚本 ====================
 
@@ -130,6 +121,21 @@ public class FollowRedisOps {
             + "end "
             + "return 0";
 
+    /**
+     * 计数 key 的条件写（S5 / G-8 补回）：**只在计数 key 已加载时**才 INCRBY。
+     * KEYS: {@code [countKey]}；ARGV: {@code [delta]}。
+     *
+     * <p>为什么条件：与 like 的条件写同一个理由（防残缺缓存）。计数 key 不存在 ⇒ 说明
+     * "这个计数从未被读过/装载过"，此刻写一个"1"会让读路径把它当成权威值，
+     * 而真实值可能是 37。故 key 不存在时**什么都不做**（读路径会回源 DB 并回填）。
+     */
+    private static final String COUNT_CONDITIONAL_LUA =
+            "if redis.call('EXISTS', KEYS[1]) == 1 then "
+            + "  redis.call('INCRBY', KEYS[1], ARGV[1]) "
+            + "  return 1 "
+            + "end "
+            + "return 0";
+
     private static final DefaultRedisScript<Long> FOLLOW_WRITE_SCRIPT =
             new DefaultRedisScript<>(FOLLOW_WRITE_LUA, Long.class);
     private static final DefaultRedisScript<Long> UNFOLLOW_WRITE_SCRIPT =
@@ -138,46 +144,24 @@ public class FollowRedisOps {
             new DefaultRedisScript<>(BACKFILL_ZSET_LUA, Long.class);
     private static final DefaultRedisScript<Long> MARK_EMPTY_SCRIPT =
             new DefaultRedisScript<>(MARK_EMPTY_LUA, Long.class);
-
-    private final StringRedisTemplate redis;
+    private static final DefaultRedisScript<Long> COUNT_CONDITIONAL_SCRIPT =
+            new DefaultRedisScript<>(COUNT_CONDITIONAL_LUA, Long.class);
 
     public FollowRedisOps(StringRedisTemplate redis) {
-        this.redis = redis;
+        super(redis);
     }
 
     // ==================== 读 ====================
 
     /**
      * 一趟 pipeline 判断两个 key 是否存在，返回**存在**的那些 key。
+     * 委托基类的 {@link RedisOps#existingKeys(String...)}（协议层已收敛）。
      *
-     * <p>三态读的判定需要同时知道"数据 key 在不在"与"空标记在不在"，两次独立往返会把
-     * 判定成本翻倍；pipeline 保住"一趟往返"的性质（TV 的 {@code probeZSet} 同款）。
-     *
-     * <p>刻意用**两个固定参数**而不是 {@code String...}：调用面只有这一种形态，
+     * <p>保留**定长两参**签名（而非直接用 varargs）：调用面只有这一种形态，
      * 定长签名让桩与断言无歧义（varargs 的匹配语义容易写出"看着对、其实没匹配上"的桩）。
      */
-    @SuppressWarnings("unchecked")
     public Set<String> existingOf(String key1, String key2) {
-        String[] keys = {key1, key2};
-        return guarded(() -> {
-            List<Object> raw = redis.executePipelined(new SessionCallback<Object>() {
-                @Override
-                public <K, V> Object execute(RedisOperations<K, V> operations) {
-                    RedisOperations<String, String> typed = (RedisOperations<String, String>) operations;
-                    for (String key : keys) {
-                        typed.hasKey(key);
-                    }
-                    return null;
-                }
-            });
-            Set<String> existing = new LinkedHashSet<>();
-            for (int i = 0; i < keys.length; i++) {
-                if (i < raw.size() && Boolean.TRUE.equals(raw.get(i))) {
-                    existing.add(keys[i]);
-                }
-            }
-            return existing;
-        });
+        return existingKeys(key1, key2);
     }
 
     /**
@@ -190,23 +174,15 @@ public class FollowRedisOps {
      *
      * @return 升序成员（可能为空——越界页）与总数
      */
-    @SuppressWarnings("unchecked")
     public WindowRead zWindow(String key, long offset, long stop, Duration ttl) {
-        return guarded(() -> {
-            List<Object> raw = redis.executePipelined(new SessionCallback<Object>() {
-                @Override
-                public <K, V> Object execute(RedisOperations<K, V> operations) {
-                    RedisOperations<String, String> typed = (RedisOperations<String, String>) operations;
-                    typed.opsForZSet().range(key, offset, stop);
-                    typed.opsForZSet().zCard(key);
-                    typed.expire(key, ttl);
-                    return null;
-                }
-            });
-            List<Long> ids = toLongList(raw.get(0));
-            Long total = raw.size() > 1 && raw.get(1) instanceof Number n ? n.longValue() : 0L;
-            return new WindowRead(ids, total);
+        List<Object> raw = pipeline(ops -> {
+            ops.opsForZSet().range(key, offset, stop);
+            ops.opsForZSet().zCard(key);
+            ops.expire(key, ttl);
         });
+        List<Long> ids = toLongList(raw.get(0));
+        Long total = raw.size() > 1 && raw.get(1) instanceof Number n ? n.longValue() : 0L;
+        return new WindowRead(ids, total);
     }
 
     /**
@@ -214,27 +190,19 @@ public class FollowRedisOps {
      *
      * <p>用 {@code ZSCORE}（而非 {@code ZRANK}）：只需"在不在"，且 {@code ZSCORE} 不依赖偏移语义。
      */
-    @SuppressWarnings("unchecked")
     public List<Boolean> zMembersPresent(String key, List<Long> members, Duration ttl) {
-        return guarded(() -> {
-            List<Object> raw = redis.executePipelined(new SessionCallback<Object>() {
-                @Override
-                public <K, V> Object execute(RedisOperations<K, V> operations) {
-                    RedisOperations<String, String> typed = (RedisOperations<String, String>) operations;
-                    for (Long member : members) {
-                        typed.opsForZSet().score(key, String.valueOf(member));
-                    }
-                    typed.expire(key, ttl);
-                    return null;
-                }
-            });
-            List<Boolean> result = new ArrayList<>(members.size());
-            for (int i = 0; i < members.size(); i++) {
-                // ZSCORE 未命中返回 null（而不是 false）
-                result.add(i < raw.size() && raw.get(i) != null);
+        List<Object> raw = pipeline(ops -> {
+            for (Long member : members) {
+                ops.opsForZSet().score(key, String.valueOf(member));
             }
-            return result;
+            ops.expire(key, ttl);
         });
+        List<Boolean> result = new ArrayList<>(members.size());
+        for (int i = 0; i < members.size(); i++) {
+            // ZSCORE 未命中返回 null（而不是 false）
+            result.add(i < raw.size() && raw.get(i) != null);
+        }
+        return result;
     }
 
     // ==================== 写 ====================
@@ -243,7 +211,8 @@ public class FollowRedisOps {
     public void applyFollowWrite(String followingKey, String followerKey,
                                  String emptyFollowingKey, String emptyFollowerKey,
                                  long userId, long followedUserId, Duration ttl) {
-        evalConditional(FOLLOW_WRITE_SCRIPT, followingKey, followerKey, emptyFollowingKey, emptyFollowerKey,
+        eval(FOLLOW_WRITE_SCRIPT,
+                List.of(followingKey, followerKey, emptyFollowingKey, emptyFollowerKey),
                 String.valueOf(userId), String.valueOf(followedUserId), String.valueOf(ttl.toSeconds()));
     }
 
@@ -251,7 +220,8 @@ public class FollowRedisOps {
     public void applyUnfollowWrite(String followingKey, String followerKey,
                                    String emptyFollowingKey, String emptyFollowerKey,
                                    long userId, long followedUserId, Duration ttl) {
-        evalConditional(UNFOLLOW_WRITE_SCRIPT, followingKey, followerKey, emptyFollowingKey, emptyFollowerKey,
+        eval(UNFOLLOW_WRITE_SCRIPT,
+                List.of(followingKey, followerKey, emptyFollowingKey, emptyFollowerKey),
                 String.valueOf(userId), String.valueOf(followedUserId), String.valueOf(ttl.toSeconds()));
     }
 
@@ -262,42 +232,22 @@ public class FollowRedisOps {
         for (Long m : members) {
             args.add(String.valueOf(m));
         }
-        guardedVoid(() -> redis.execute(BACKFILL_ZSET_SCRIPT, List.of(dataKey, emptyKey),
-                args.toArray(new Object[0])));
+        eval(BACKFILL_ZSET_SCRIPT, List.of(dataKey, emptyKey), args.toArray(new Object[0]));
     }
 
     /** 写空标记（原子，见 {@link #MARK_EMPTY_LUA}）。{@code emptyTtl} 是**短 TTL**，与数据 key 的 TTL 不同。 */
     public void markEmpty(String dataKey, String emptyKey, Duration emptyTtl) {
-        guardedVoid(() -> redis.execute(MARK_EMPTY_SCRIPT, List.of(dataKey, emptyKey),
-                String.valueOf(emptyTtl.toSeconds())));
+        eval(MARK_EMPTY_SCRIPT, List.of(dataKey, emptyKey), String.valueOf(emptyTtl.toSeconds()));
     }
 
-    /** 删除若干 key（失败路径的"失效让读自愈"）。 */
-    public void delete(String... keys) {
-        guardedVoid(() -> redis.delete(List.of(keys)));
-    }
-
-    // ==================== 异常归一化 ====================
-
-    private void evalConditional(DefaultRedisScript<Long> script, String k1, String k2, String k3, String k4,
-                                 String... args) {
-        guardedVoid(() -> redis.execute(script, List.of(k1, k2, k3, k4), (Object[]) args));
-    }
-
-    /** 把任意 Redis 层异常归一化为 {@link CacheUnavailableException}。 */
-    private <T> T guarded(Supplier<T> action) {
-        try {
-            return action.get();
-        } catch (RuntimeException e) {
-            throw new CacheUnavailableException("Redis 访问失败: " + e.getMessage(), e);
-        }
-    }
-
-    private void guardedVoid(Runnable action) {
-        guarded(() -> {
-            action.run();
-            return null;
-        });
+    /**
+     * 计数条件写（G-8）：key 存在才 {@code INCRBY}。不存在 ⇒ 什么都不做（读路径回源 DB）。
+     *
+     * @return 是否实际执行了自增
+     */
+    public boolean applyCountConditionalWrite(String countKey, int delta) {
+        Long applied = eval(COUNT_CONDITIONAL_SCRIPT, List.of(countKey), String.valueOf(delta));
+        return applied != null && applied == 1L;
     }
 
     private static List<Long> toLongList(Object raw) {

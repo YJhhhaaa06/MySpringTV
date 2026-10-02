@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.like.cache;
 
+import io.github.yjhhhaaa06.videoweb.common.cache.CacheKeys;
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheUnavailableException;
 import io.github.yjhhhaaa06.videoweb.common.config.LikeCacheProperties;
 import io.github.yjhhhaaa06.videoweb.like.dao.CommentLikeDao;
@@ -59,24 +60,26 @@ import java.util.function.LongPredicate;
 @Component
 public class LikeCache {
 
-    /** 内容点赞数 key。 */
+    /**
+     * 内容点赞数 key。委托 {@link CacheKeys}（S5 起键工厂是**全仓唯一源**；键字符串逐字不变）。
+     */
     static String contentLikeCountKey(long contentId) {
-        return "content:likeCount:" + contentId;
+        return CacheKeys.contentLikeCount(contentId);
     }
 
-    /** 评论点赞数 key。 */
+    /** 评论点赞数 key。委托 {@link CacheKeys}。 */
     static String commentLikeCountKey(long commentId) {
-        return "comment:likeCount:" + commentId;
+        return CacheKeys.commentLikeCount(commentId);
     }
 
-    /** 用户维度内容点赞成员 key（Set&lt;contentId&gt;）。 */
+    /** 用户维度内容点赞成员 key（Set&lt;contentId&gt;）。委托 {@link CacheKeys}。 */
     static String userLikeSetKey(long userId) {
-        return "user:likeSet:" + userId;
+        return CacheKeys.userLikeSet(userId);
     }
 
-    /** 用户维度评论点赞成员 key（Set&lt;commentId&gt;）。 */
+    /** 用户维度评论点赞成员 key（Set&lt;commentId&gt;）。委托 {@link CacheKeys}。 */
     static String userCommentLikeSetKey(long userId) {
-        return "user:commentLikeSet:" + userId;
+        return CacheKeys.userCommentLikeSet(userId);
     }
 
     private final LikeRedisOps ops;
