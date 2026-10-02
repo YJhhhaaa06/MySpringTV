@@ -98,6 +98,17 @@ spring:
           max-interval: 10000ms
         default-requeue-rejected: false   # 重试耗尽后不重回队列，交给 DLQ
 
+  # --------------------------------------------------------------------------
+  # Multipart 上传限额（S7）：对齐 TV UploadController / MediaAdminController 的
+  # @MultipartConfig(maxFileSize=50MB, maxRequestSize=100MB)。
+  # ⚠️ TV 的 app.properties 里另有 upload.maxSize=104857600，实测**零消费者**
+  #    （仅 AppConfig.getUploadMaxSize 定义处），按"不搬无主配置"丢弃（《决策留痕表》B-13）。
+  # --------------------------------------------------------------------------
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 100MB
+
 # ----------------------------------------------------------------------------
 # MyBatis（决策②）：mapper 以 XML 为主
 # ----------------------------------------------------------------------------
@@ -168,6 +179,16 @@ video:
   # ⚠️ 默认值必须保持空串：改它会让 /search/IdSearch 的 videoUrl/imageUrls 形状变化。
   media:
     base-url: ${MEDIA_BASE_URL:}
+
+  # 上传媒体**磁盘根目录**（S7）。⚠️ 与上面 media.base-url（URL 前缀）**严格分家**：
+  #   本键 = 落盘 + /upload/** 静态服务共用**同一物理根**（TV 侧是 app.properties + context.xml
+  #   两份配置 + 启动一致性校验；本项目一处配置，校验对象消失——B-12）。
+  # dev 默认沿用老项目 stone：本项目 dev 库与老项目同为 TVDatabase，存量 content_media 行
+  #   都指向该目录——不拷贝、不迁移（B-11）。将来"分家"= 拷目录（保持 video|image|cover
+  #   子结构）+ 改这一行（或设环境变量 UPLOAD_ROOT），DB 存相对 URL，无需改动。
+  # ⚠️ 空值拒绝启动（沿袭 TV AppShutDownListener 的 "upload.path 未配置或为空，拒绝启动"）。
+  upload:
+    root: ${UPLOAD_ROOT:D:/data/projects/VideoPlatform/stone}
 
   # 自动大V滞回判定（S4 切片，user 域但由 follow 事务内调用；见决策表 F-6）。
   # 口径对齐 TV app.properties 的 feed.bigv.threshold / feed.bigv.downgradeRatio。

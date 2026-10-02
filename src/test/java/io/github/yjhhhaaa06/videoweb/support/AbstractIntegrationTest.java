@@ -4,6 +4,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
+import java.nio.file.Path;
+
 /**
  * 全栈测试基类：**环境即代码**（决策⑦ / T1+E2 债）。
  *
@@ -41,5 +43,16 @@ public abstract class AbstractIntegrationTest {
         registry.add("spring.rabbitmq.port", Containers::rabbitPort);
         registry.add("spring.rabbitmq.username", Containers.RABBITMQ::getAdminUsername);
         registry.add("spring.rabbitmq.password", Containers.RABBITMQ::getAdminPassword);
+
+        // 上传媒体根（S7）：**无条件覆盖**到项目内 target/test-media——与数据源覆盖同理。
+        // 理由：默认值指向真实媒体根（stone），测试上传/删除会往里面写真实文件；
+        //       覆盖后测试的落盘、静态访问、物理删除断言全部发生在 target/ 内
+        //       （gitignore 覆盖、mvn clean 可回收、沙箱可写）。见《决策留痕表》B-14。
+        registry.add("video.upload.root", AbstractIntegrationTest::testMediaRoot);
+    }
+
+    /** 测试媒体根：`<基于仓库根的工作目录>/target/test-media`（surefire 的工作目录 = 项目根）。 */
+    public static String testMediaRoot() {
+        return Path.of("target", "test-media").toAbsolutePath().toString();
     }
 }
