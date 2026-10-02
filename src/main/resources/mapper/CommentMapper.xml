@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  评论 Mapper（S2：comment 写路径）。
+
+  迁移口径（《迁移参照系》§2.1）：SQL 文本从 TV 的 CommentDao 原样搬，只改参数记号。
+  namespace 必须与 CommentDao 全限定名一致。
+  每条语句上方保留 TV 原 SQL 对照，便于逐字复核「SQL 未被改动」。
+
+  ⚠️ 本文件只含写路径 8 条。读路径语句（getComments / getMainCommentsAfter /
+     countMainComments / getRepliesByRootIds / getRepliesInTreeByRoot / findMainById）
+     随 S5；点赞相关（updateLikeCount）随 S3；getContentIdByCommentId 随 S3。
+-->
+<mapper namespace="io.github.yjhhhaaa06.videoweb.comment.dao.CommentDao">
+
+    <!--
+      显式 resultMap，取代 TV 的 buildComment(ResultSet) 手工装配（T14 拆到域内后方法体）。
+      全局 map-underscore-to-camel-case 已关（application.yaml），故列→属性必须显式声明。
+      注意主键列名是 comment_id（不是 id）。
+    -->
+    <resultMap id="commentMap" type="io.github.yjhhhaaa06.videoweb.comment.model.entity.Comment">
+        <id property="commentId" column="comment_id"/>
+        <result property="contentId" column="content_id"/>
+        <result property="userId" column="user_id"/>
+        <result property="content" column="content"/>
+        <result property="parentId" column="parent_id"/>
+        <result property="replyToUserId" column="reply_to_user_id"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateTime" column="update_time"/>
+        <result property="likeCount" column="like_count"/>
+        <result property="isDeleted" column="is_deleted"/>
+        <result property="replyCount" column="reply_count"/>
+        <!-- 以下两列来自 JOIN；写路径不消费，保留以维持 SQL 逐字一致 + 供 S5 直接用 -->
+        <result property="username" column="username"/>
+        <result property="replyToUsername" column="reply_to_username"/>
+    </resultMap>
+
+    <!--
+      TV: insert into comment (content_id, user_id, content, parent_id, reply_to_user_id) values (?,?,?,?,?)
+          + pstmt.setNull(4, Types.BIGINT) / setNull(5, Types.BIGINT)
+      两处 setNull 的等价表达是 jdbcType=BIGINT（null 时驱动需要显式类型）。
+      TV 的 RETURN_GENERATED_KEYS + getGeneratedKeys + "获取评论ID失败" 骨架全部删掉：
+      useGeneratedKeys 直接回填 commentId。
+    -->
+    <insert id="insert" parameterType="io.github.yjhhhaaa06.videoweb.comment.model.entity.Comment"
+            useGeneratedKeys="true" keyProperty="commentId">
+        insert into comment (content_id, user_id, content, parent_id, reply_to_user_id)
+        values (#{contentId}, #{userId}, #{content}, #{parentId,jdbcType=BIGINT}, #{replyToUserId,jdbcType=BIGINT})
+    </insert>
+
+    <!--
+      TV: SELECT c.*, u.username, r.username AS reply_to_username FROM comment c
+          LEFT JOIN users u ON c.user_id = u.id
+          LEFT JOIN users r ON c.reply_to_user_id = r.id WHERE c.comment_id = ?
+      ★ 两个 LEFT JOIN 与 username 列原样保留（虽然写路径不消费 username）：
+        逐字一致便于对照复核，且 S5 读路径直接复用同一语句。见 Comment 实体的说明。
+      ★ 不过滤 is_deleted ——「是否存在」由调用方用 isCommentExist 表达（TV 同构）。
+    -->
+    <select id="findById" resultMap="commentMap">
+        SELECT c.*, u.username, r.username AS reply_to_username FROM comment c
+        LEFT JOIN users u ON c.user_id = u.id
+        LEFT JOIN users r ON c.reply_to_user_id = r.id WHERE c.comment_id = #{commentId}
+    </select>
+
+    <!-- TV: SELECT COUNT(*) FROM comment WHERE comment_id = ? AND is_deleted = 0
+         ★ is_deleted = 0：已软删的评论视为"不存在"（CM-2 删已删评论 → 404 的依据）。
+         写法：COUNT(*) > 0 → EXISTS（行集等价，同 ContentDao.isContentExist）。 -->
+    <select id="isCommentExist" resultType="boolean">
+        SELECT EXISTS(SELECT 1 FROM comment WHERE comment_id = #{commentId} AND is_deleted = 0)
+    </select>
+
+    <!--
+      TV: UPDATE comment SET reply_count = reply_count + ? WHERE comment_id = ? AND reply_count + ? >= 0
+      ★ 尾部 AND reply_count + ? >= 0 是**防负守卫**，一字未改。
+        删回复时若 reply_count 已为 0，守卫拦住 ⇒ 受影响行数 0 ⇒ 不会出现 -1。
+    -->
+    <update id="updateReplyCount">
+        UPDATE comment SET reply_count = reply_count + #{delta}
+        WHERE comment_id = #{rootId} AND reply_count + #{delta} &gt;= 0
+    </update>
+
+    <!-- TV: SELECT COUNT(*) FROM comment WHERE parent_id = ? AND is_deleted = 0
+         ★ 过滤 is_deleted=0 是本口径的关键：删主楼时必须"先计数再软删"，
+         否则先软删会把楼内回复也置 1、这里数到 0，导致 comment_count 少扣。 -->
+    <select id="countFloorReplies" resultType="int">
+        SELECT COUNT(*) FROM comment WHERE parent_id = #{mainCommentId} AND is_deleted = 0
+    </select>
+
+    <!-- TV: UPDATE comment SET is_deleted = 1 WHERE comment_id = ? OR parent_id = ?
+         删主楼 = 整栋软删（主楼自身 + 直接挂它的楼内回复）。 -->
+    <update id="softDeleteFloor">
+        UPDATE comment SET is_deleted = 1 WHERE comment_id = #{mainCommentId} OR parent_id = #{mainCommentId}
+    </update>
+
+    <!-- TV: UPDATE comment SET is_deleted = 1 WHERE comment_id = ?
+         删回复 = 只删自己（不影响主楼与同楼其他回复）。 -->
+    <update id="softDeleteOne">
+        UPDATE comment SET is_deleted = 1 WHERE comment_id = #{commentId}
+    </update>
+
+    <!--
+      单跳父指针，三态见 CommentDao#findParentOrDefault 的 Javadoc：
+        无行 → null（链断）；parent_id IS NULL → 折叠为 0（已到主楼）；否则返回父 id。
+      TV 对应语句：SELECT parent_id FROM comment WHERE comment_id=?
+      （TV 用 rs.getLong + rs.wasNull() 区分"行不存在/父为空"两种 null；COALESCE 把它折叠成单列三态。）
+    -->
+    <select id="findParentOrDefault" resultType="java.lang.Long">
+        SELECT COALESCE(parent_id, 0) FROM comment WHERE comment_id = #{commentId}
+    </select>
+
+</mapper>

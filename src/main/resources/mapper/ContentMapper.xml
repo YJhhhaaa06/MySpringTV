@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  content Mapper —— **content-thin 版**（S2 的薄依赖，只含 comment 写路径所需 3 条）。
+
+  ⚠️ S5（content-full）会扩展本文件：读路径 / 搜索 / admin / 媒体等约 21 条语句。
+     扩展时请保持"SQL 文本原样保留"口径，并在每条上方补 TV 原 SQL 对照注释。
+
+  namespace 必须与 ContentDao 全限定名一致。
+-->
+<mapper namespace="io.github.yjhhhaaa06.videoweb.content.dao.ContentDao">
+
+    <!-- TV: SELECT COUNT(*) FROM content WHERE id = ? AND is_deleted = 0
+         ★ is_deleted = 0 是有意的：给已删除内容评论必须被拒。
+         写法：COUNT(*) > 0 → EXISTS（行集等价；与 UserDao.isPhoneUsed 同款）。 -->
+    <select id="isContentExist" resultType="boolean">
+        SELECT EXISTS(SELECT 1 FROM content WHERE id = #{contentId} AND is_deleted = 0)
+    </select>
+
+    <!-- TV: UPDATE content SET comment_count = comment_count + ? WHERE id = ?
+         ⚠️ 一字未改——**没有**防负守卫（对比 comment.updateReplyCount 有），保留 TV 原样行为。
+         已知尖锐处见 ContentDao#updateCommentCount 的 Javadoc（int unsigned 下溢）。 -->
+    <update id="updateCommentCount">
+        UPDATE content SET comment_count = comment_count + #{delta} WHERE id = #{contentId}
+    </update>
+
+    <!-- TV: ContentCache 内部 loadContentFromDb 的 comment_enabled 列
+         直读 DB 而非缓存（有意改进，见 ContentDao#findCommentEnabledById 的 Javadoc）。
+         单列查询：无行 ⇒ MyBatis 返回 null；有行 ⇒ tinyint(1) → Boolean。 -->
+    <select id="findCommentEnabledById" resultType="java.lang.Boolean">
+        SELECT comment_enabled FROM content WHERE id = #{contentId} AND is_deleted = 0
+    </select>
+
+</mapper>
