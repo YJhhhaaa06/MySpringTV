@@ -33,4 +33,26 @@
         order by content_id,type,sort
     </select>
 
+    <!-- TV: select id,content_id,url,type,sort from content_media where content_id=? and type=? and sort=? -->
+    <select id="findMediaByContentTypeSort" resultMap="contentMediaMap">
+        select id,content_id,url,type,sort from content_media
+        where content_id=#{contentId} and type=#{type} and sort=#{sort}
+    </select>
+
+    <!-- TV: delete from content_media where content_id=? and type=? and sort=? -->
+    <delete id="deleteMediaByContentIdAndTypeSort">
+        delete from content_media where content_id=#{contentId} and type=#{type} and sort=#{sort}
+    </delete>
+
+    <!-- TV: update content_media set sort=sort-1 where content_id=? and type=2 and sort>?
+         ★ type=2 写死在 SQL 里（只重排图片），与"作者只能删图片"的入口约束一致，一字未改。 -->
+    <update id="compactImageSort">
+        update content_media set sort=sort-1 where content_id=#{contentId} and type=2 and sort&gt;#{deletedSort}
+    </update>
+
+    <!-- TV: delete from content_media where content_id=? -->
+    <delete id="deleteByContentId">
+        delete from content_media where content_id=#{contentId}
+    </delete>
+
 </mapper>

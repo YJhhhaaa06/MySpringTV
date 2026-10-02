@@ -97,16 +97,17 @@ class SecurityContractTests extends AbstractIntegrationTest {
         // ⇒ 新实现必须用**方法级** @RequiresLogin（用类级会把将来的公开端点误拦）。
         assertThat(requiresLogin("POST", "/content/commentEnabled")).isTrue();
         assertThat(requiresLogin("POST", "/content/update")).isTrue();
-        // 注：/content/mediaDelete、/content/delete 的断言在 S5 的 content 写路径提交里补齐
-        // （端点尚未落地时 RequestMappingLookup 会判为"未映射 ⇒ false"，属机制的正确行为）。
+        assertThat(requiresLogin("POST", "/content/mediaDelete")).isTrue();
+        assertThat(requiresLogin("POST", "/content/delete")).isTrue();
     }
 
     @Test
-    @DisplayName("S5：content 读端点公开（TV 清单不含它们；带 token 只做个性化）")
+    @DisplayName("S5：content / comment 读端点公开（TV 清单不含它们；带 token 只做个性化）")
     void content读端点公开() {
         assertThat(requiresLogin("GET", "/search/IdSearch")).isFalse();
         assertThat(requiresLogin("GET", "/search/keywordSearch")).isFalse();
         assertThat(requiresLogin("GET", "/start")).isFalse();
+        assertThat(requiresLogin("GET", "/profile")).isFalse();
     }
 
     @Test

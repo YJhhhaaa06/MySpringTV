@@ -1,0 +1,46 @@
+feat(slice-S5c): content 写路径（删作品/删图）+ /profile + FollowCache 计数缓存补回
+
+S5 的第三段：把 content 模块收口，并兑现 S4 留下的两处"补回位置"。
+
+## 交付端点
+- `POST /content/delete`（作者删作品：软删 + 四条级联）
+- `POST /content/mediaDelete`（作者删单张图 + sort 重排）
+- `GET /profile`（用户主页：内容分页信封 + 关注态 + 计数）
+
+## 兑现两处"补回位置"（本提交的纪律要点）
+- **S2 → S5**：`CommentDao.softDeleteByContentId`（删内容级联软删评论）补搬。
+- **S3 → S5**：`ContentLikeDao.deleteByContentId`（物理删点赞行 S5）、
+  `LikeService.deleteContentLike`（失效内容点赞计数 key）补搬。
+- **S4/F-7 → S5（G-8）**：`FollowCache` 的计数缓存 `user:followCount` / `user:followerCount`
+  按 F-7 写明的"补回位置"补回：`/profile` 直接需要它们，降级路径的 total 也改走它们（恢复 TV 口径）；
+  写入方是 `FollowChangedListener` 的**条件写**（key 不存在则不创建 ⇒ 不产生"半套计数"）。
+
+## 主要新增/改动
+- `content/service/{ProfileService, }` + `content/model/vo/ProfileVO` + `content/controller/ProfileController`。
+- `ContentService`：`deleteContent` / `deleteMedia` + `findOwnedMedia` / `groupMediaByType`。
+- `ContentMediaDao` +4 方法（定位 / 删单条 / 重排 sort / 按内容级联删）。
+- `ContentCacheChangedListener` 的 REMOVE 分支补上 `likeService.deleteContentLike`。
+- `ContentController` +2 端点；`SecurityContractTests` 补齐 4 写端点 + 4 读端点的鉴权口径。
+
+## 有意裁剪（唯一一处，补回位置已写入决策表 G-7）
+**物理文件清理不迁移**：TV 在 `deleteContent`/`deleteMedia` 之后逐个
+`fileUploadService.deleteFileByUrl(url)`，依赖未迁移的 upload 域。本切片裁剪 ⇒
+DB 记录全删、**磁盘文件残留**（可观察面 = 文件系统，非 API）。Service 已把 url 返回出来，
+upload 批次接 `FileUploadService` 后在 Controller 的提交后段补一行循环即可。
+（与 S2/CM-3、S4 notifier 的裁剪同性质同纪律。）
+
+## 一处"看似 bug"的实现细节（有意保留）
+`/profile` 的 `isFollowed` 是**三态** `Boolean`：匿名 → null、看自己 → null、看别人 → 真实值。
+用 `boolean` 会把前两种静默变成 false（"我没关注他"），属语义错误。旧 pytest 对匿名场景有断言。
+
+## 测试
+`ContentAuthorTests`（4 例：★删作品的**四条独立 oracle**（content/comment/content_like/content_media）
++ 三处缓存全失效 + 反向对照；删图的 sort 重排 1..n；type!=2 → 400 且不删；媒体不存在 404）、
+`ProfileReadTests`（8 例：信封嵌在 `data.contentPage`、域级 100/100、★contentId 降序 + 逐页不重不漏、
+关注态三态、★计数缓存"连读两次只打一次 DB"、★条件写的边界（已加载侧 INCRBY / 冷 key 不动 / 读回填））。
+**全量 165 → 177 例全绿。**
+
+## 踩到的坑（写进测试注释）
+"关注后 viewers 的 `user:followCount` 应为 1"——**错**：该 key 从未被读过，
+条件写按设计不动它。这个假红暴露的是**测试对"条件写边界"的理解偏差**，不是实现缺陷；
+修正后它反而成了该边界最直接的证明。

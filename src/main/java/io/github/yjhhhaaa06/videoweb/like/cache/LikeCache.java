@@ -146,6 +146,19 @@ public class LikeCache {
         }
     }
 
+    /**
+     * 内容被删/下架：失效其点赞**计数**缓存（S5 补入，承接 TV {@code LikeCacheService.deleteContentLike}）。
+     *
+     * <p>为什么只失效计数、不管成员：T4 反转后成员 key 是**用户维度**
+     * （{@code user:likeSet:{userId}}），内容删除无法廉价反查"谁点过赞"逐个 SREM。
+     * 残留成员指向已删除内容——而内容 id 自增**不复用**，且没有"对已删内容查点赞状态"的读路径，
+     * 故永不外显（TV 原注释的完整论证）。DB 侧的点赞行由
+     * {@code ContentLikeDao.deleteByContentId} 物理删除。
+     */
+    public void invalidateContentLikeCount(long contentId) {
+        invalidateQuietly(contentLikeCountKey(contentId));
+    }
+
     // ========================================================================
     // 读：内容
     // ========================================================================

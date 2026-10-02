@@ -208,4 +208,11 @@
         WHERE c.comment_id=#{commentId} AND c.is_deleted=0 AND (c.parent_id IS NULL OR c.parent_id = 0)
     </select>
 
+    <!-- TV: softDeleteByContentId —— UPDATE comment SET is_deleted = 1 WHERE content_id = ?
+         S5 补搬（S2 曾有意排除：无调用方 = 无主代码，并写明"补回位置：S5 搬内容删除时一并补"）。
+         一次覆盖主楼与楼内回复；对已单删的评论幂等（再置 1 无副作用）。 -->
+    <update id="softDeleteByContentId">
+        UPDATE comment SET is_deleted = 1 WHERE content_id = #{contentId}
+    </update>
+
 </mapper>

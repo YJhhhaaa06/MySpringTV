@@ -10,25 +10,28 @@ import java.util.List;
 /**
  * 内容媒体数据访问（承接 TV {@code com.itheima.content.dao.ContentMediaDao}）。
  *
- * <h2>只搬本切片端点在用的 2 条（决策表 §二·G 盘点 B）</h2>
- * {@link #findMediaByContentId}（内容详情的媒体聚合）与
- * {@link #findMediaByContentIds}（批量装载的媒体聚合）。
+ * <h2>只搬本切片端点在用的方法（决策表 §二·G 盘点 B）</h2>
+ * 读：{@link #findMediaByContentId}（内容详情的媒体聚合）、
+ * {@link #findMediaByContentIds}（批量装载的媒体聚合）、
+ * {@link #findMediaByContentTypeSort}（作者删单条图的前置定位）。
+ * 写：{@link #deleteMediaByContentIdAndTypeSort}（删单条图）、
+ * {@link #compactImageSort}（删图后重排 sort 保持 1..n 连续）、
+ * {@link #deleteByContentId}（删作品时级联清媒体记录）。
  *
  * <p><b>不搬</b>（各有归属）：
  * <ul>
- *   <li>{@code addMedia} / {@code updateMediaUrl} / {@code updateFileExists}</li>
- *   <li>{@code deleteMediaById} / {@code findAllMedia} / {@code findMediaById}</li>
- *   <li>{@code findMediaByContentTypeSort} / {@code deleteMediaByContentIdAndTypeSort} /
- *       {@code compactImageSort} / {@code deleteByContentId} —— 随 content 写路径（S5 后半，
- *       本仓按提交切分：媒体写路径在 content 删除/媒体写路径那一段一并交付）</li>
+ *   <li>{@code addMedia} — upload 批次（建内容时插媒体）</li>
+ *   <li>{@code updateMediaUrl} — upload 批次（换源）</li>
+ *   <li>{@code updateFileExists} — admin/媒体审计批次（文件校验状态回写）</li>
+ *   <li>{@code deleteMediaById} — admin/运维（按媒体 id 删）</li>
+ *   <li>{@code findAllMedia} / {@code findMediaById} — 运维扫描/恢复（无端点）</li>
  * </ul>
  *
  * <h2>一处与原实现的形态差异（等价，非行为改动）</h2>
  * TV 的 {@code findMedia} 直接在 DAO 内把行按 {@code type} 分组返回
  * {@code Map<Integer, List<ContentMedia>>}。新实现返回**扁平行列表**（SQL 的
- * {@code order by type,sort} 保证同 type 内有序），分组由 {@code ContentAggregate.groupMediaByType}
- * 完成——这样 DAO 只做"取行"，分组逻辑与批量路径**共用同一份实现**（TV 的批量路径就是在
- * Java 侧分组的，两处口径因此统一）。
+ * {@code order by type,sort} 保证同 type 内有序），分组由 {@code ContentCache.groupMediaByType} 完成
+ * ——这样 DAO 只做"取行"，分组逻辑与批量路径**共用同一份实现**（TV 的批量路径本就在 Java 侧分组）。
  */
 @Mapper
 public interface ContentMediaDao {
@@ -47,4 +50,35 @@ public interface ContentMediaDao {
      * ——{@code StringBuilder} 拼 IN 改 {@code <foreach>}（机械改动）。
      */
     List<ContentMedia> findMediaByContentIds(@Param("ids") Collection<Long> ids);
+
+    /**
+     * 按 {@code (contentId, type, sort)} 定位单条媒体（作者换源/删图的前置）。
+     * 查不到返回 {@code null} ⇒ 调用方抛 404「媒体资源不存在」。
+     */
+    ContentMedia findMediaByContentTypeSort(@Param("contentId") long contentId,
+                                            @Param("type") int type,
+                                            @Param("sort") int sort);
+
+    /**
+     * 按 {@code (contentId, type, sort)} 删除单条媒体（作者删错图）。
+     * TV: {@code delete from content_media where content_id=? and type=? and sort=?}
+     */
+    int deleteMediaByContentIdAndTypeSort(@Param("contentId") long contentId,
+                                          @Param("type") int type,
+                                          @Param("sort") int sort);
+
+    /**
+     * 删图后重排剩余图片的 {@code sort}，保持 {@code 1..n} 连续
+     * （前端用 {@code index+1} 定位图片，空洞会让"第 3 张"指错）。
+     *
+     * <p>TV: {@code update content_media set sort=sort-1 where content_id=? and type=2 and sort>?}
+     * ——{@code type=2}（图片）是**写死在 SQL 里**的，与作者删图只允许 type=2 一致。
+     */
+    int compactImageSort(@Param("contentId") long contentId, @Param("deletedSort") int deletedSort);
+
+    /**
+     * 删除某内容的**全部**媒体记录（作者删作品的级联）。
+     * TV: {@code delete from content_media where content_id=?}
+     */
+    int deleteByContentId(@Param("contentId") long contentId);
 }

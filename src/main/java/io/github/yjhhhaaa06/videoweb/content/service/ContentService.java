@@ -17,6 +17,9 @@ import io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO;
 import io.github.yjhhhaaa06.videoweb.content.model.entity.ContentMedia;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentDetailVO;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentVO;
+import io.github.yjhhhaaa06.videoweb.comment.dao.CommentDao;
+import io.github.yjhhhaaa06.videoweb.content.dao.ContentMediaDao;
+import io.github.yjhhhaaa06.videoweb.like.dao.ContentLikeDao;
 import io.github.yjhhhaaa06.videoweb.like.service.LikeService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -61,6 +64,8 @@ public class ContentService {
 
     private final ContentDao contentDao;
     private final ContentMediaDao contentMediaDao;
+    private final CommentDao commentDao;
+    private final ContentLikeDao contentLikeDao;
     private final ContentCache contentCache;
     private final CommentCache commentCache;
     private final CommentService commentService;
@@ -70,6 +75,8 @@ public class ContentService {
 
     public ContentService(ContentDao contentDao,
                           ContentMediaDao contentMediaDao,
+                          CommentDao commentDao,
+                          ContentLikeDao contentLikeDao,
                           ContentCache contentCache,
                           CommentCache commentCache,
                           CommentService commentService,
@@ -78,6 +85,8 @@ public class ContentService {
                           ApplicationEventPublisher events) {
         this.contentDao = contentDao;
         this.contentMediaDao = contentMediaDao;
+        this.commentDao = commentDao;
+        this.contentLikeDao = contentLikeDao;
         this.contentCache = contentCache;
         this.commentCache = commentCache;
         this.commentService = commentService;
@@ -294,5 +303,118 @@ public class ContentService {
             throw new ForbiddenException("只能操作自己的作品");
         }
         return dto;
+    }
+
+    // ========================================================================
+    // 作者删单条媒体（G-1：✅ 保持单事务）
+    // ========================================================================
+
+    /**
+     * 作者删除自己作品的单条**图片**（{@code POST /content/mediaDelete?contentId=&type=&sort=}）。
+     *
+     * <p>两条**不得"顺手优化"**的规则（TV 原注释）：
+     * <ol>
+     *   <li><b>只允许 {@code type == 2}（图片）</b>：视频与封面是**结构性资源**，只可替换不可删
+     *       （删了视频，内容就成了一条构建不出来的记录）。校验在**事务外**（TV 亦在事务外，
+     *       {@code ParamException("仅支持删除图片")} → 400），保留"参数错不占事务"的性质。</li>
+     *   <li><b>删完必须重排 {@code sort}</b>：前端用 {@code index+1} 定位第 N 张图，
+     *       {@code sort} 出现空洞会让"第 3 张"指错。重排与删除同一事务（重排失败会留空洞）。</li>
+     * </ol>
+     *
+     * <p>提交后 {@code REFRESH} 内容 key —— 详情的 {@code imageUrls} 与封面可能变了。
+     *
+     * @return 被删媒体的 url（**调用方原本要据此清理物理文件**；本切片裁剪了文件清理，
+     *         见类注释与决策表 G-7 的补回位置）
+     */
+    @Transactional
+    public String deleteMedia(long contentId, long userId, int type, int sort) {
+        if (type != 2) {
+            throw new ParamException("仅支持删除图片");
+        }
+        ContentMedia media = findOwnedMedia(contentId, userId, type, sort);
+        String oldUrl = media.getUrl();
+        contentMediaDao.deleteMediaByContentIdAndTypeSort(contentId, type, sort);
+        contentMediaDao.compactImageSort(contentId, sort);
+        events.publishEvent(ContentCacheChangedEvent.refresh(contentId));
+        return oldUrl;
+    }
+
+    // ========================================================================
+    // 作者删作品（G-1：✅ 保持单事务 —— 本切片最宽的级联）
+    // ========================================================================
+
+    /**
+     * 作者删除自己的作品（{@code POST /content/delete?contentId=}，软删除、不可恢复）。
+     *
+     * <h2>★ 决策表 G-1：✅ 保持单事务</h2>
+     * 一个事务里做四件事，**任一失败必须整体回滚**：
+     * <pre>
+     * ① findOwnedContent            — 存在 + 所有权（404 / 403）
+     * ② 读全部媒体 url              — 返回值要交给调用方清理物理文件（本切片裁剪了清理）
+     * ③ contentDao.softDeleteContent — 内容软删
+     * ④ commentDao.softDeleteByContentId — 级联软删**全部**评论（含主楼与楼内回复，对已单删幂等）
+     * ⑤ contentLikeDao.deleteByContentId — 物理删点赞记录
+     * ⑥ contentMediaDao.deleteByContentId — 物理删媒体记录
+     * </pre>
+     * ③④⑤⑥ 不同进同退会留下**不可自愈的不一致**（内容已删而点赞记录/媒体行仍在，或反之）
+     * ——没有任何补偿机制能修复它。故撤销事务是错的。
+     *
+     * <h2>★ 三个提交后副作用（两个事件 + 一个跨域失效）</h2>
+     * <ol>
+     *   <li>{@code ContentCacheChangedEvent.remove} —— DEL 内容 key + 从**全部**索引 key 剔除
+     *       （只 DEL 内容 key 会让它留在推荐索引里，被反复探测到一个永远 null 的 id）；</li>
+     *   <li>{@code CommentCacheChangedEvent.comments} —— 整组失效评论两键组（评论已被级联软删）；</li>
+     *   <li>点赞计数 key 的失效由 {@code ContentCacheChangedListener} 的 REMOVE 分支触发
+     *       （{@code LikeService.deleteContentLike}，TV 的 T4 结论：成员 key 是用户维度，
+     *       内容被删时无法廉价反查逐个 SREM）。</li>
+     * </ol>
+     *
+     * <h2>⚠️ 有意裁剪：物理文件清理不迁移（决策表 G-7）</h2>
+     * TV 在这里返回 url 列表，由 Controller 逐个 {@code fileUploadService.deleteFileByUrl(url)}
+     * （"尽力而为，DB 已提交"）。该调用依赖**未迁移的 upload 域** ⇒ 本切片裁剪。
+     * <b>影响</b>：DB 记录与磁盘文件都会保留在磁盘上（可观察面 = 文件系统，不是 API）。
+     * <b>补回位置</b>：upload 批次接入 {@code FileUploadService} 后，在 Controller 的提交后段
+     * 补回 `for (String url : urls) fileUploadService.deleteFileByUrl(url)`（本方法已把 url 返回出来）。
+     *
+     * @return 该内容全部媒体的 url（供补回后的物理文件清理使用）
+     */
+    @Transactional
+    public List<String> deleteContent(long contentId, long userId) {
+        findOwnedContent(contentId, userId);
+        List<String> mediaUrls = new ArrayList<>();
+        Map<Integer, List<ContentMedia>> mediaByType =
+                groupMediaByType(contentMediaDao.findMediaByContentId(contentId));
+        for (List<ContentMedia> group : mediaByType.values()) {
+            for (ContentMedia media : group) {
+                mediaUrls.add(media.getUrl());
+            }
+        }
+        contentDao.softDeleteContent(contentId);
+        commentDao.softDeleteByContentId(contentId);
+        contentLikeDao.deleteByContentId(contentId);
+        contentMediaDao.deleteByContentId(contentId);
+
+        events.publishEvent(ContentCacheChangedEvent.remove(contentId));
+        events.publishEvent(CommentCacheChangedEvent.comments(contentId));
+        return mediaUrls;
+    }
+
+    /** 所有权校验 + 定位媒体行，供删媒体复用（404「媒体资源不存在」）。 */
+    private ContentMedia findOwnedMedia(long contentId, long userId, int type, int sort) {
+        findOwnedContent(contentId, userId);
+        ContentMedia media = contentMediaDao.findMediaByContentTypeSort(contentId, type, sort);
+        if (media == null) {
+            throw new NotFoundException("媒体资源不存在");
+        }
+        return media;
+    }
+
+    /** 扁平行按 {@code type} 分组（行已由 SQL 按 {@code type,sort} 排序 ⇒ 组内保序）。 */
+    private static Map<Integer, List<ContentMedia>> groupMediaByType(List<ContentMedia> rows) {
+        Map<Integer, List<ContentMedia>> byType = new HashMap<>();
+        for (ContentMedia media : rows) {
+            byType.computeIfAbsent(media.getType(), key -> new ArrayList<>()).add(media);
+        }
+        return byType;
     }
 }

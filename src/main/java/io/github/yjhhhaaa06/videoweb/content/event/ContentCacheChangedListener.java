@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.content.event;
 
 import io.github.yjhhhaaa06.videoweb.content.cache.ContentCache;
+import io.github.yjhhhaaa06.videoweb.like.service.LikeService;
 import io.github.yjhhhaaa06.videoweb.user.event.UserRenamedEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -38,9 +39,11 @@ import org.springframework.transaction.event.TransactionalEventListener;
 public class ContentCacheChangedListener {
 
     private final ContentCache contentCache;
+    private final LikeService likeService;
 
-    public ContentCacheChangedListener(ContentCache contentCache) {
+    public ContentCacheChangedListener(ContentCache contentCache, LikeService likeService) {
         this.contentCache = contentCache;
+        this.likeService = likeService;
     }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
@@ -48,9 +51,25 @@ public class ContentCacheChangedListener {
         switch (event.op()) {
             case INVALIDATE -> contentCache.invalidateContent(event.contentId());
             case REFRESH -> contentCache.refreshContent(event.contentId());
-            case REMOVE -> contentCache.removeContent(event.contentId());
+            case REMOVE -> {
+                contentCache.removeContent(event.contentId());
+                // 内容被删 ⇒ 它的点赞计数缓存也必须失效（TV 的 T4 结论：成员 key 是用户维度，
+                // 无法廉价反查"谁点过赞"逐个 SREM；残留成员指向已删内容而 id 不复用 ⇒ 永不外显）。
+                // 这是"一次业务事实、三处缓存受影响"的第三处——另两处是内容 key（上面）
+                // 与评论两键组（由 ContentService.deleteContent 在同一事务内发的评论事件负责）。
+                likeService.deleteContentLike(event.contentId());
+            }
         }
     }
+
+    /**
+     * ⚠️ 一个**不能做**的事（写在这里防止后来者"顺手重构"）：
+     * 不要在本方法里 {@code publishEvent(new CommentCacheChangedEvent(...))} 来转发评论侧的失效。
+     * AFTER_COMMIT 回调执行时**事务已经结束**，此时发布的事件不会再被
+     * {@code @TransactionalEventListener(AFTER_COMMIT)}（{@code fallbackExecution} 默认 false）接收
+     * ——转发会被**静默丢弃**。评论侧的事件必须在**事务内**发布（见
+     * {@code ContentService.deleteContent}），这正是它那里的两行代码的由来。
+     */
 
     /**
      * 用户改名 → 失效该作者的全部内容 key（读自愈重新 JOIN users 回填新 authorName）。

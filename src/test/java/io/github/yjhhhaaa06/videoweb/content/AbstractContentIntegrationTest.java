@@ -375,4 +375,26 @@ public abstract class AbstractContentIntegrationTest extends AbstractHttpIntegra
     protected static String rootCountKey(long contentId) {
         return "content:comments:" + contentId + ":count";
     }
+
+    /** 内容是否仍在**类型分区索引**里（遍历全部 {@code content:index:*} 的 LIST）。 */
+    protected boolean indexContains(long contentId) {
+        Set<String> keys = redis.keys(CONTENT_INDEX_PREFIX + "*");
+        if (keys == null) {
+            return false;
+        }
+        for (String key : keys) {
+            java.util.List<String> values = redis.opsForList().range(key, 0, -1);
+            if (values != null && values.contains(String.valueOf(contentId))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 该内容的媒体行（{@code type} / {@code sort} 的拼接，用于断言 sort 连续）。 */
+    protected java.util.List<String> mediaTypeSorts(long contentId, int type) {
+        return jdbcTemplate.queryForList(
+                "SELECT CONCAT(type, ':', sort) FROM content_media WHERE content_id = ? AND type = ? ORDER BY sort",
+                String.class, contentId, type);
+    }
 }

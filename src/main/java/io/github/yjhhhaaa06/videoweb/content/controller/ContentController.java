@@ -110,4 +110,39 @@ public class ContentController {
             default -> null;
         };
     }
+
+    /**
+     * 作者删除单条媒体（{@code POST /content/mediaDelete?contentId=&type=&sort=}）。
+     *
+     * <p>{@code type} 缺失/非法 → 400（TV 文案 {@code "type不能为空"} / {@code "type格式错误，应为 1/2/3"}）；
+     * {@code sort} 缺失/非法 → 400；{@code type != 2} → 400 {@code "仅支持删除图片"}（在 Service 里）；
+     * 非作者 → 403；媒体不存在 → 404 {@code "媒体资源不存在"}。
+     *
+     * <p>⚠️ <b>物理文件清理由本切片裁剪</b>（依赖未迁移的 upload 域，见 {@code ContentService.deleteMedia}
+     * 与决策表 G-7 的补回位置）；Service 已把旧 url 返回出来，补回时只需在下面加一行。
+     */
+    @PostMapping("/mediaDelete")
+    @RequiresLogin
+    public ApiResponse<String> mediaDelete(@CurrentUserId long userId,
+                                           @RequestParam long contentId,
+                                           @RequestParam int type,
+                                           @RequestParam int sort) {
+        contentService.deleteMedia(contentId, userId, type, sort);
+        return ApiResponse.success("删除成功");
+    }
+
+    /**
+     * 作者删除整个作品（{@code POST /content/delete?contentId=}，软删除、不可恢复）。
+     *
+     * <p>级联：内容软删 + 全部评论软删 + 点赞记录物理删 + 媒体记录物理删（**同一事务**）。
+     * 非作者 → 403；内容不存在/已删 → 404。
+     *
+     * <p>⚠️ 同 {@link #mediaDelete}：物理文件清理被裁剪（补回位置见 G-7）。
+     */
+    @PostMapping("/delete")
+    @RequiresLogin
+    public ApiResponse<String> delete(@CurrentUserId long userId, @RequestParam long contentId) {
+        contentService.deleteContent(contentId, userId);
+        return ApiResponse.success("删除成功");
+    }
 }

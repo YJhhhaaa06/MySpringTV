@@ -55,14 +55,19 @@ import java.util.Set;
  * 批量状态（一趟 pipeline）、三态读、空标记。
  * <b>去掉</b>：**单飞**（并发 miss 各打一次 DB，正确性不变）、**{@code partial} 标记**
  * （T11-C 的前缀窗口装载 ⇒ 本切片回到"key 存在即完整"的 T7 口径；影响与补回位置见 F-7）、
- * **计数缓存**（{@code user:followCount}/{@code user:followerCount} —— 去掉 partial 后它在本切片
- * 只剩"降级路径取 total"这一个用途，直查 DB 一列即可）、打点、熔断、TV 的通用
- * {@code CacheAside}/{@code ZSetCache} 框架层。
+ * 打点、熔断、TV 的通用 {@code CacheAside}/{@code ZSetCache} 框架层。
+ *
+ * <h2>★ 计数缓存：S4 去掉、S5 补回（决策表 G-8）</h2>
+ * S4 曾去掉 {@code user:followCount} / {@code user:followerCount}（理由：去掉 {@code partial} 后
+ * 它只剩"降级路径取 total"一个用途），并写明"补回位置 = S5 迁 {@code ProfileService} 时"。
+ * <b>S5 兑现</b>：{@code /profile} 直接需要这两个计数（{@link #getFollowCount} /
+ * {@link #getFollowerCount}），降级路径的 total 也改走它们（恢复 TV 口径）。
+ * 写入方是 {@code FollowChangedListener}（提交后）的条件写 —— 见 {@link #applyCountWrite}。
  *
  * <h2>本切片不搬的读接口（无主代码）</h2>
- * {@code getFollowingIds}（全量关注 id，调用方全是 feed 域）、单条 {@code isFollowing}
- * （调用方是 S5 的 {@code ContentStatusFiller}/{@code ProfileService}）——
- * 按"不搬无主代码"的纪律留在各自切片；{@code batchIsFollowing} 则**搬**（{@code FollowService} 在用）。
+ * {@code getFollowingIds}（全量关注 id，调用方全是 feed 域）**不搬**——
+ * 按"不搬无主代码"的纪律留在 feed 切片。单条 {@link #isFollowing} 与
+ * {@link #batchIsFollowing} 都**搬**（S5 的 {@code ContentStatusFiller} / {@code ProfileService} 在用）。
  */
 @Slf4j
 @Component
@@ -142,6 +147,28 @@ public class FollowCache {
                     userId, followedUserId, follow, e);
             invalidateQuietly(following, follower);
         }
+        // ★ G-8：计数的条件写（与关系写同属"提交后"的缓存维护）
+        applyCountWrite(CacheKeys.userFollowCount(userId), follow ? 1 : -1);
+        applyCountWrite(CacheKeys.userFollowerCount(followedUserId), follow ? 1 : -1);
+    }
+
+    /**
+     * 计数 key 的**条件写**（G-8）：key 存在才 {@code INCRBY}。
+     *
+     * <p>为什么条件：与 like/follow 的关系写同一个理由——防残缺缓存。计数 key 不存在
+     * （从未被读过）时写一个 1，会让读路径把它当权威值，而真实值可能是 37。
+     * 于是这里什么都不做，读路径下次 miss 回源 DB 并回填。
+     *
+     * <p>计数 key **没有空标记**：0 是合法值，"不存在"才表示未知——两者靠 GET 返回
+     * {@code null} / {@code "0"} 区分。
+     */
+    private void applyCountWrite(String countKey, int delta) {
+        try {
+            ops.applyCountConditionalWrite(countKey, delta);
+        } catch (CacheUnavailableException e) {
+            log.warn("关注计数缓存写失败，失效 key 让读自愈: key={}", countKey, e);
+            invalidateQuietly(countKey);
+        }
     }
 
     private void invalidateQuietly(String... dataKeys) {
@@ -151,6 +178,55 @@ public class FollowCache {
         } catch (CacheUnavailableException e) {
             log.warn("缓存失效也失败（Redis 不可用），交由 TTL 自愈: keys={}", List.of(keys));
         }
+    }
+
+    // ========================================================================
+    // 读：计数（G-8 补回 —— S4 的 F-7 去掉，F-7 同时写明"S5 迁 ProfileService 时补回"）
+    // ========================================================================
+
+    /**
+     * 我的关注数（{@code user:followCount:{userId}}）。
+     *
+     * <pre>
+     * key 命中   → 返回值并续期
+     * miss       → 回源 {@code users.follow_count} 列 → 回填
+     * Redis 失败 → 降级直读列（不影响结果）
+     * </pre>
+     *
+     * <p>口径与 TV 的 T6 R-01 一致：DB 是最终真理，缓存只是加速器。
+     * 0 是**合法值**，必须与"key 不存在"区分——靠 {@code GET} 返回 {@code null} 识别 miss。
+     */
+    public int getFollowCount(long userId) {
+        return count(CacheKeys.userFollowCount(userId), () -> userDao.getFollowCountById(userId));
+    }
+
+    /** 我的粉丝数（{@code user:followerCount:{userId}}）。逻辑同 {@link #getFollowCount}。 */
+    public int getFollowerCount(long userId) {
+        return count(CacheKeys.userFollowerCount(userId), () -> userDao.getFollowerCountById(userId));
+    }
+
+    private int count(String countKey, java.util.function.IntSupplier dbLoader) {
+        try {
+            String cached = ops.getString(countKey);
+            if (cached != null) {
+                ops.expire(countKey, props.followTtl());
+                return Integer.parseInt(cached);
+            }
+        } catch (CacheUnavailableException e) {
+            log.warn("关注计数缓存读失败，降级 DB: key={}", countKey, e);
+            // DB 失败必须上抛（不被此 catch 吞掉）：loader 在本 catch 块内执行，异常直接冒泡
+            return dbLoader.getAsInt();
+        } catch (NumberFormatException e) {
+            log.warn("关注计数缓存值非法，按 miss 处理并清除: key={}", countKey);
+            invalidateQuietly(countKey);
+        }
+        int value = dbLoader.getAsInt();
+        try {
+            ops.setString(countKey, String.valueOf(value), props.followTtl());
+        } catch (CacheUnavailableException e) {
+            log.warn("关注计数回填失败（不影响本次读结果，下次读重试）: key={}", countKey);
+        }
+        return value;
     }
 
     // ========================================================================
@@ -173,7 +249,7 @@ public class FollowCache {
         return window(followingKey(userId), offset, count,
                 () -> followDao.findAllFollowedUserIds(userId),
                 () -> followDao.findFollowedUserIdsWindow(userId, offset, count),
-                () -> userDao.getFollowCountById(userId));
+                () -> getFollowCount(userId));      // G-8：降级路径的 total 走计数缓存（恢复 TV 口径）
     }
 
     /**
@@ -184,7 +260,7 @@ public class FollowCache {
         return window(followerKey(userId), offset, count,
                 () -> followDao.findAllFollowerUserIds(userId),
                 () -> followDao.findFollowerUserIdsWindow(userId, offset, count),
-                () -> userDao.getFollowerCountById(userId));
+                () -> getFollowerCount(userId));
     }
 
     private Window window(String dataKey, long offset, int count,

@@ -197,4 +197,19 @@ public class LikeService {
         }
         return likeCache.batchIsCommentLiked(userId, commentIds);
     }
+
+    // ========================================================================
+    // 级联失效：内容被删/下架（S5 补入；S3 曾声明"本切片无调用方 → S5"）
+    // ========================================================================
+
+    /**
+     * 失效内容被删/下架后的点赞缓存（计数 key）。
+     *
+     * <p>调用方是 {@code ContentCacheChangedListener} 的 {@code REMOVE} 分支
+     * （**提交后**执行）——TV 的调用点同样在 {@code ContentService} 的事务之后。
+     * 为什么只失效计数、成员怎么办：见 {@link LikeCache#invalidateContentLikeCount}。
+     */
+    public void deleteContentLike(long contentId) {
+        likeCache.invalidateContentLikeCount(contentId);
+    }
 }

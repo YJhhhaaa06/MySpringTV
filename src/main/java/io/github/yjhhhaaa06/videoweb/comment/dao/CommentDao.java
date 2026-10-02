@@ -215,4 +215,15 @@ public interface CommentDao {
 
     /** 定位**未删除主楼**（T10-B 展开接口的前置校验）：主楼被删 / 非主楼 → null。 */
     CommentCacheDTO findMainById(@Param("commentId") long commentId);
+
+    /**
+     * 删除内容时**级联软删该内容的全部评论**（A1；S5 补搬，S2 已声明划归 S5）。
+     *
+     * <p>TV: {@code UPDATE comment SET is_deleted = 1 WHERE content_id = ?}
+     * ——一次覆盖主楼与楼内回复，**对已单删的评论幂等**（再置 1 无副作用）。
+     *
+     * <p>它与 {@code contentDao.softDeleteContent} 必须**同一事务**：
+     * 内容已删而评论未删（或反之）会留下不可自愈的不一致。
+     */
+    int softDeleteByContentId(@Param("contentId") long contentId);
 }

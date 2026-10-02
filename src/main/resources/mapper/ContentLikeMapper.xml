@@ -51,4 +51,10 @@
         SELECT COUNT(*) FROM content_like WHERE content_id = #{contentId}
     </select>
 
+    <!-- TV: DELETE FROM content_like WHERE content_id = ?
+         S5 补搬（S3 曾有意排除：当时无调用方，并写明"补回位置：S5 搬内容删除时一并补"）。 -->
+    <delete id="deleteByContentId">
+        DELETE FROM content_like WHERE content_id = #{contentId}
+    </delete>
+
 </mapper>
