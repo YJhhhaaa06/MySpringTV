@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  优惠券 Mapper。
+
+  迁移口径（《迁移参照系》§2.1）：SQL 文本从 TV 的 CouponDao 原样搬，只改参数记号。
+  namespace 必须与 CouponDao 全限定名一致。
+  每条语句上方保留 TV 原 SQL 对照，便于逐字复核「SQL 未被改动」。
+-->
+<mapper namespace="io.github.yjhhhaaa06.videoweb.coupon.dao.CouponDao">
+
+    <!--
+      显式 resultMap 取代 TV 的 rowToMap(ResultSet) 手工遍历 + 手搭 HashMap。
+      注意全局 map-underscore-to-camel-case 已关（application.yaml），
+      故列名 → 属性名的映射必须在此显式声明——这是刻意的（改名后不会静默映射错列）。
+    -->
+    <resultMap id="couponVoMap" type="io.github.yjhhhaaa06.videoweb.coupon.model.vo.CouponVO">
+        <id property="id" column="id"/>
+        <result property="title" column="title"/>
+        <result property="stock" column="stock"/>
+        <result property="beginTime" column="begin_time"/>
+        <result property="endTime" column="end_time"/>
+        <result property="createTime" column="create_time"/>
+    </resultMap>
+
+    <resultMap id="couponOrderVoMap" type="io.github.yjhhhaaa06.videoweb.coupon.model.vo.CouponOrderVO">
+        <id property="id" column="id"/>
+        <result property="couponId" column="coupon_id"/>
+        <result property="couponCode" column="coupon_code"/>
+        <result property="status" column="status"/>
+        <result property="title" column="title"/>
+        <result property="createTime" column="create_time"/>
+    </resultMap>
+
+    <!--
+      TV: UPDATE coupon SET stock = stock - 1
+          WHERE id = ? AND stock > 0 AND begin_time <= NOW() AND end_time >= NOW()
+
+      ★ 一字未改。这条 SQL 是本切片的并发正确性所在（决策表 C-1）：
+        - stock = stock - 1 由数据库做原子增减（非"先查再扣"）
+        - stock > 0 与活动时间窗是同一条 WHERE 的合取项，判定与扣减不可分割
+      改动其中任何一项都会重新引入超发或 TOCTOU。
+    -->
+    <update id="deductStock">
+        UPDATE coupon SET stock = stock - 1
+        WHERE id = #{couponId} AND stock > 0 AND begin_time &lt;= NOW() AND end_time &gt;= NOW()
+    </update>
+
+    <!-- TV: INSERT INTO coupon_order (coupon_id, user_id, coupon_code) VALUES (?, ?, ?) -->
+    <insert id="insertOrder">
+        INSERT INTO coupon_order (coupon_id, user_id, coupon_code)
+        VALUES (#{couponId}, #{userId}, #{couponCode})
+    </insert>
+
+    <!--
+      TV: SELECT id, title, stock, begin_time, end_time, create_time
+          FROM coupon WHERE end_time > NOW() ORDER BY begin_time ASC
+      TV 用 ResultSet 手工遍历 + rowToMap；此处交给 resultMap。
+      条件与排序原样，勿收窄为"时间窗内"（见 CouponDao#findAvailableCoupons 的 Javadoc 警告）。
+    -->
+    <select id="findAvailableCoupons" resultMap="couponVoMap">
+        SELECT id, title, stock, begin_time, end_time, create_time
+        FROM coupon WHERE end_time &gt; NOW() ORDER BY begin_time ASC
+    </select>
+
+    <!--
+      TV: SELECT co.id, co.coupon_id, co.coupon_code, co.status, co.create_time, c.title
+          FROM coupon_order co JOIN coupon c ON co.coupon_id = c.id
+          WHERE co.user_id = ? ORDER BY co.create_time DESC
+      TV 在此手工只装配 6 个键（与 couponVoMap 的键集合不同：无 begin/end_time），故单独一个 resultMap。
+    -->
+    <select id="findOrdersByUserId" resultMap="couponOrderVoMap">
+        SELECT co.id, co.coupon_id, co.coupon_code, co.status, co.create_time, c.title
+        FROM coupon_order co JOIN coupon c ON co.coupon_id = c.id
+        WHERE co.user_id = #{userId} ORDER BY co.create_time DESC
+    </select>
+
+</mapper>

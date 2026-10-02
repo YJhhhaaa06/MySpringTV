@@ -35,6 +35,17 @@ public final class Envelope {
         return node.asString();
     }
 
+    /**
+     * 取整个 {@code data} 节点。
+     *
+     * <p>用于 {@code data} 本身不是对象的端点——例如 {@code /coupon/grab} 的 {@code data}
+     * 是一个**纯字符串**券码，{@code /coupon/list} 的 {@code data} 是**数组**。
+     * {@link #str} 走的是 {@code data.<field>} 路径，对这两种形状取不到值，故需要本方法。
+     */
+    public static JsonNode data(ResponseEntity<String> response) {
+        return parse(response).path("data");
+    }
+
     public static long num(ResponseEntity<String> response, String field) {
         return parse(response).path("data").path(field).asLong();
     }
