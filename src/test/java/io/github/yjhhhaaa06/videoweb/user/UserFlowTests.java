@@ -4,11 +4,8 @@ import io.github.yjhhhaaa06.videoweb.support.AbstractHttpIntegrationTest;
 import io.github.yjhhhaaa06.videoweb.support.Envelope;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.client.RestClient;
 
 import java.util.Map;
 
@@ -238,31 +235,6 @@ class UserFlowTests extends AbstractHttpIntegrationTest {
     }
 
     // ==================== helpers ====================
-
-    private ResponseEntity<String> post(String path, Object body, String token) {
-        RestClient.RequestBodySpec spec = client.post().uri(path)
-                .contentType(MediaType.APPLICATION_JSON);
-        if (token != null) {
-            spec = spec.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-        }
-        RestClient.RequestBodySpec finalSpec = spec;
-        return finalSpec.body(body).exchange((request, response) -> ResponseEntity
-                .status(response.getStatusCode())
-                .headers(response.getHeaders())
-                .body(response.bodyTo(String.class)), false);
-    }
-
-    private ResponseEntity<String> get(String path, String token) {
-        RestClient.RequestHeadersSpec<?> spec = client.get().uri(path);
-        if (token != null) {
-            spec = spec.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-        }
-        RestClient.RequestHeadersSpec<?> finalSpec = spec;
-        return finalSpec.exchange((request, response) -> ResponseEntity
-                .status(response.getStatusCode())
-                .headers(response.getHeaders())
-                .body(response.bodyTo(String.class)), false);
-    }
 
     private long countUsers() {
         Long n = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM users", Long.class);

@@ -3,11 +3,8 @@ package io.github.yjhhhaaa06.videoweb.coupon;
 import io.github.yjhhhaaa06.videoweb.support.AbstractHttpIntegrationTest;
 import io.github.yjhhhaaa06.videoweb.support.Envelope;
 import org.junit.jupiter.api.BeforeEach;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
-import org.springframework.web.client.RestClient;
 
 import java.sql.PreparedStatement;
 import java.util.Map;
@@ -105,25 +102,5 @@ abstract class AbstractCouponIntegrationTest extends AbstractHttpIntegrationTest
 
     protected ResponseEntity<String> grab(long couponId, String token) {
         return post("/coupon/grab", Map.of("couponId", couponId), token);
-    }
-
-    protected ResponseEntity<String> post(String path, Object body, String token) {
-        return send(spec -> {
-            RestClient.RequestBodySpec request = spec.uri(path).contentType(MediaType.APPLICATION_JSON);
-            if (token != null) {
-                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-            }
-            return request.body(body);
-        });
-    }
-
-    protected ResponseEntity<String> get(String path, String token) {
-        return sendGet(spec -> {
-            RestClient.RequestHeadersSpec<?> request = spec.uri(path);
-            if (token != null) {
-                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-            }
-            return request;
-        });
     }
 }

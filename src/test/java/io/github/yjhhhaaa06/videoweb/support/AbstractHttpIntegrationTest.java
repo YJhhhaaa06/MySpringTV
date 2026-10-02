@@ -3,6 +3,8 @@ package io.github.yjhhhaaa06.videoweb.support;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.client.RestClient;
@@ -60,5 +62,33 @@ public abstract class AbstractHttpIntegrationTest extends AbstractIntegrationTes
                         .status(response.getStatusCode())
                         .headers(response.getHeaders())
                         .body(response.bodyTo(String.class)), false);
+    }
+
+    /**
+     * 带可选 Bearer token 的 JSON POST。{@code token == null} 表示匿名请求；
+     * {@code body == null} 表示**不带请求体**（如 {@code /comment/delete} 参数在 query 上）。
+     *
+     * <p>放在基类而非各域测试里：切片 0/1/2 的测试基类都各写过一份**逐字相同**的实现，
+     * 该重复是纯粹的复制粘贴（不含域语义），下沉到这里可以少两份漂移风险。
+     */
+    protected ResponseEntity<String> post(String path, Object body, String token) {
+        return send(spec -> {
+            RestClient.RequestBodySpec request = spec.uri(path).contentType(MediaType.APPLICATION_JSON);
+            if (token != null) {
+                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+            }
+            return body == null ? request : request.body(body);
+        });
+    }
+
+    /** 带可选 Bearer token 的 GET。{@code token == null} 表示匿名请求。 */
+    protected ResponseEntity<String> get(String path, String token) {
+        return sendGet(spec -> {
+            RestClient.RequestHeadersSpec<?> request = spec.uri(path);
+            if (token != null) {
+                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+            }
+            return request;
+        });
     }
 }
