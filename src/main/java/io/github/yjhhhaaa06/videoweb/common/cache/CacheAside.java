@@ -39,10 +39,15 @@ import java.util.function.Supplier;
  *
  * <h2>相对 TV 有意去掉的（逐条记在决策表 G-6，此处只列要点）</h2>
  * <b>去掉</b>：单飞 {@code SingleFlight}（并发 miss 各打一次 DB，正确性不变）、
- * {@code CacheStats} 打点、{@code CacheResult}/{@code CacheStatus} 三态枚举（本类只暴露
- * "值或 null"，够用）、{@code writeBatch}（它只服务 TV 的启动全量重建，而 {@code init()} 本切片不搬）。
+ * {@code CacheResult}/{@code CacheStatus} 三态枚举（本类只暴露"值或 null"，够用）、
+ * {@code writeBatch}（它只服务 TV 的启动全量重建，而 {@code init()} 本切片不搬）。
  * <b>保留</b>：三态读、空标记（含"数据 key 已存在则不写空标记"的守卫）、写失败 DEL 自愈、
  * TTL 抖动、读命中续期（**空标记从不续期**）、批量读（含批量装载器）、降级不写回。
+ *
+ * <p><b>打点（B3，2026-10-03 收回）</b>：原"去掉 {@code CacheStats} 打点"那一项已由 T2 兑现，
+ * 但不是搬回 TV 的摘要日志，而是接入 Micrometer（{@link CacheMetrics}，六事件同名）——
+ * 于是这里的每一处"命中的是哪一个状态"都变成可抓取的指标。
+ * 覆盖边界（like/follow/comment/feed 四域自持三态机、未接线）见 {@link CacheMetrics} 类注释。
  *
  * <h2>为什么 {@code extends RedisOps}</h2>
  * 本类需要协议层的 {@code pipeline} / {@code delete} / {@code keyExists} / {@code setString}。
@@ -59,9 +64,13 @@ public class CacheAside extends RedisOps {
 
     private final JsonCodec codec;
 
-    public CacheAside(StringRedisTemplate redis, JsonCodec codec) {
+    /** 打点（B3）：六类事件与 TV {@code CacheStats} 同名，见 {@link CacheMetrics}。 */
+    private final CacheMetrics metrics;
+
+    public CacheAside(StringRedisTemplate redis, JsonCodec codec, CacheMetrics metrics) {
         super(redis);
         this.codec = codec;
+        this.metrics = metrics;
     }
 
     // ========================================================================
@@ -80,22 +89,29 @@ public class CacheAside extends RedisOps {
         try {
             probe = probeAndRenew(dataKey, ttl);
         } catch (CacheUnavailableException e) {
+            metrics.record(CacheMetrics.Event.DEGRADE);
             log.warn("缓存读异常，降级直查 DB: key={}", dataKey, e);
             return loader.get();
         }
         if (probe.emptyMarker()) {
+            metrics.record(CacheMetrics.Event.HIT_EMPTY);
             return null;                                   // hit-empty：已确认无数据
         }
         if (probe.json() != null) {
             try {
-                return codec.fromJson(probe.json(), type);  // hit-data
+                T value = codec.fromJson(probe.json(), type);
+                metrics.record(CacheMetrics.Event.HIT_DATA);   // 反序列化成功后才算命中（脏 JSON 归降级）
+                return value;
             } catch (CacheUnavailableException e) {
+                metrics.record(CacheMetrics.Event.DEGRADE);
                 log.warn("缓存值不可信（脏 JSON），本次降级直查 DB（不回填）: key={}", dataKey);
                 return loader.get();
             }
         }
         // miss：回源 + 回填（loader 的 DB 异常原样上抛，见类注释）
+        metrics.record(CacheMetrics.Event.MISS);
         T value = loader.get();
+        metrics.record(CacheMetrics.Event.LOAD);
         if (value != null) {
             writeOrInvalidate(dataKey, value, ttl);
         } else {
@@ -147,21 +163,26 @@ public class CacheAside extends RedisOps {
                 boolean empty = Boolean.TRUE.equals(raw.get(i * 3));
                 String json = (String) raw.get(i * 3 + 1);
                 if (empty) {
+                    metrics.record(CacheMetrics.Event.HIT_EMPTY);
                     result.put(key, null);
                     continue;
                 }
                 if (json == null) {
+                    metrics.record(CacheMetrics.Event.MISS);
                     missed.add(key);
                     continue;
                 }
                 try {
                     result.put(key, codec.fromJson(json, type));
+                    metrics.record(CacheMetrics.Event.HIT_DATA);
                 } catch (CacheUnavailableException e) {
+                    metrics.record(CacheMetrics.Event.DEGRADE);
                     log.warn("批量缓存反序列化失败（该 key 按 miss 处理并自愈回填）: key={}", key);
                     missed.add(key);
                 }
             }
         } catch (CacheUnavailableException e) {
+            metrics.record(CacheMetrics.Event.DEGRADE);
             log.warn("批量缓存读异常，整批降级直查 DB（不写回）: keys={}", dataKeys.size(), e);
             cacheUnavailable = true;
         }
@@ -213,16 +234,20 @@ public class CacheAside extends RedisOps {
         Map<String, T> load(List<String> dataKeys);
     }
 
-    /** 逐 key 或批量装载（{@code batchLoader == null} 时退化为逐 key）。 */
+    /** 逐 key 或批量装载（{@code batchLoader == null} 时退化为逐 key）。每次装载计一次 {@code load}。 */
     private <T> Map<String, T> load(List<String> keys, Function<String, T> loader,
                                     BatchLoader<T> batchLoader) {
         if (batchLoader != null) {
             Map<String, T> loaded = batchLoader.load(keys);
+            for (int i = 0; i < keys.size(); i++) {
+                metrics.record(CacheMetrics.Event.LOAD);
+            }
             return loaded == null ? Map.of() : loaded;
         }
         Map<String, T> loaded = new HashMap<>(keys.size());
         for (String key : keys) {
             loaded.put(key, loader.apply(key));
+            metrics.record(CacheMetrics.Event.LOAD);
         }
         return loaded;
     }
@@ -244,6 +269,7 @@ public class CacheAside extends RedisOps {
                 o.delete(CacheKeys.empty(dataKey));
             });
         } catch (CacheUnavailableException e) {
+            metrics.record(CacheMetrics.Event.WRITE_FAIL);
             log.warn("缓存写失败，失效 key 让读自愈: key={}", dataKey, e);
             invalidate(dataKey);
         }
@@ -268,6 +294,7 @@ public class CacheAside extends RedisOps {
                         Duration.ofSeconds(CacheKeys.EMPTY_MARKER_TTL_SECONDS));
             }
         } catch (CacheUnavailableException e) {
+            metrics.record(CacheMetrics.Event.WRITE_FAIL);
             log.warn("空标记写入失败（读路径将视同 miss 走 DB 自愈）: key={}", dataKey, e);
         }
     }
@@ -283,6 +310,7 @@ public class CacheAside extends RedisOps {
                 delete(dataKey, CacheKeys.empty(dataKey));
             } catch (CacheUnavailableException e) {
                 // DEL 也失败（Redis 挂）⇒ 读路径整体降级走 DB，仍然一致，不产生永久不可见窗口
+                metrics.record(CacheMetrics.Event.WRITE_FAIL);
                 log.warn("缓存失效也失败（疑似 Redis 异常），读路径将降级走 DB: key={}", dataKey, e);
             }
         }
