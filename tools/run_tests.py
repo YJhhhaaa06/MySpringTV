@@ -93,8 +93,9 @@ MVNW = ROOT / ("mvnw.cmd" if os.name == "nt" else "mvnw")
 REPORT_DIR = ROOT / "target" / "test-reports"
 SUREFIRE_DIR = ROOT / "target" / "surefire-reports"
 
-# 默认排除的 tag 组：T3 起把 `resilience` 加进来，故障注入测试便不进默认回归集。
-DEFAULT_EXCLUDED_GROUPS: tuple[str, ...] = ()
+# 默认排除的 tag 组：第三批 T3 起把 `resilience` 加进来——故障注入测试不进默认回归集，
+# 只能用 `--group resilience` 显式选跑（T1 的设计约定）。
+DEFAULT_EXCLUDED_GROUPS: tuple[str, ...] = ("resilience",)
 
 # stdout 里最多列出的失败用例数（一屏内可读；其余折叠为 "+N more"）。
 MAX_FAILURES_PRINTED = 10
@@ -375,10 +376,22 @@ def write_markdown(
     md_path.write_text("\n".join(out) + "\n", encoding="utf-8")
 
 
+def effective_excluded_groups(args: argparse.Namespace) -> list[str]:
+    """实际生效的排除 tag 集。
+
+    ⚠️ 必须把**显式 `--group` 的 tag 从排除集里剔除**：否则 `--group resilience`
+    会同时生成 `-Dgroups=resilience` 与 `-DexcludedGroups=resilience`，两者交叠 ⇒ **零用例**
+    （而 `DEFAULT_EXCLUDED_GROUPS` 含 `resilience`，正是这种情况）。
+    """
+    groups = set(args.group or [])
+    requested = list(DEFAULT_EXCLUDED_GROUPS) + list(args.exclude_group or [])
+    return [tag for tag in requested if tag not in groups]
+
+
 def build_command(args: argparse.Namespace) -> tuple[list[str], list[str]]:
     """返回 (实际执行 cmd, 用于回显的 mvnw 参数)。"""
     groups = list(args.group or [])
-    excluded = list(DEFAULT_EXCLUDED_GROUPS) + list(args.exclude_group or [])
+    excluded = effective_excluded_groups(args)
     tests = list(args.test or [])
 
     mvn_args = ["-B", "clean", "verify", "-Dmaven.test.failure.ignore=true"]
@@ -438,7 +451,7 @@ def main(argv: list[str] | None = None) -> int:
     cmd, display = build_command(args)
     filters = {
         "groups": list(args.group or []),
-        "exclude_groups": list(DEFAULT_EXCLUDED_GROUPS) + list(args.exclude_group or []),
+        "exclude_groups": effective_excluded_groups(args),
         "tests": list(args.test or []),
     }
 

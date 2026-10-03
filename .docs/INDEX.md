@@ -14,12 +14,12 @@
 **禁用 Spring**）迁到 Spring Boot 4.1 / Java 25 的项目。技术栈：MyBatis + Jedis + Spring AMQP +
 Flyway + Testcontainers。
 
-| 现状（2026-10-03） | 值 |
+| 现状（2026-10-04） | 值 |
 |---|---|
 | 老端点迁移 | **43 / 43 / 0**（100%） |
-| 回归基线 | `mvnw.cmd -B clean verify` → **304 例全绿 + BUILD SUCCESS**（3 分 33 秒；2026-10-03 第三批 T2 后） |
+| 回归基线 | `python tools/run_tests.py` → **304 例全绿**（默认排除 `resilience`）；`--group resilience` → **16 例全绿**；合计 **320 例** + BUILD SUCCESS（2026-10-04 第三批 T3 后；`mvnw.cmd -B clean verify` 同 320 全绿） |
 | 事务边界 | **66 处全部表态**，无 🔴 |
-| 未结的账 | 《遗留台账》**B 类 6 项待认领**（B1/B2/B4–B7 保真度裁剪 + B8/B9 MQ 二条）+ **B10 前端 / B11 未用依赖 / B13 DLQ 溢出**；**C3/C4**（Security 链待认领）。已闭合：B3/B12（T2，见台账 D19/D20） |
+| 未结的账 | 《遗留台账》**B 类 3 项待认领**（**B2 空标记 / B5 预热 / B7 `partial`** 保真度裁剪）+ **B8/B9 MQ 二条** + **B10 前端 / B11 未用依赖 / B13 DLQ 溢出**；**C3/C4**（Security 链待认领）。已闭合：B3/B12（T2，D19/D20）；**B1/B4/B6（T3，D21/D22/D23）** |
 
 > ⚠️ **两条必须知道的边界**：
 > ① **"43/43 迁移完成"只覆盖 HTTP 后端面**——老项目自制前端（20 文件 / 184.5 KB）**整体未迁**（台账 B10）。

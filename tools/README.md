@@ -95,7 +95,7 @@ python tools/doc_links.py --strict         # 把"尚未创建"也计为失败
 python tools/doc_archive.py --plan temp-script/doc-plan.json            # 归档预演（不落盘）
 python tools/doc_archive.py --plan temp-script/doc-plan.json --apply     # 归档落盘
 python tools/endpoint_matrix.py            # 复算端点对照
-python tools/run_tests.py                  # 全量回归（mvnw -B clean verify）
+python tools/run_tests.py                  # 默认回归（mvnw -B clean verify，排除 @Tag("resilience")）
 python tools/run_tests.py --group resilience           # 只跑 @Tag("resilience")
 python tools/run_tests.py --group a --group b          # 多组（并集）
 python tools/run_tests.py --exclude-group slow         # 排除某组
@@ -117,6 +117,9 @@ python tools/run_tests.py --test SecurityContractTests # 只跑一个测试类
 > 且用 `-Dmaven.test.failure.ignore=true` 跑完全部失败后再由脚本透传退出码。
 > 两条防呆：**指定 `--group`/`--test` 却零命中 ⇒ 按失败退出**（不静默绿灯）；
 > **早于本次运行起点的 surefire XML 一律不采信**（防拿上一轮结果冒充本次）。
+> ⚠️ **默认排除 `resilience` 组**（`DEFAULT_EXCLUDED_GROUPS`，T1 的设计约定：故障注入组不进默认回归集），
+> 需显式 `--group resilience` 才跑；脚本会把显式 `--group` 的 tag 从排除集里剔除，
+> 避免 `-Dgroups=X` 与 `-DexcludedGroups=X` 交叠导致**零用例**。
 > 用法以 `python tools/run_tests.py --help` 为准。
 
 > 注：本项目**没有** `tv.py` 那样的统一入口——脚本少，直接调即可。
