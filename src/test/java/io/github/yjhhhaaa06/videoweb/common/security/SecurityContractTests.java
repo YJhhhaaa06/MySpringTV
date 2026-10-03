@@ -145,6 +145,13 @@ class SecurityContractTests extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("S9：feed 端点判为需登录（TV 的 `/feed` 是 PROTECTED_EXACT **精确**保护项）")
+    void feed端点需登录() {
+        // TV AuthFilter.PROTECTED_EXACT 含 "/feed"（精确，非前缀）⇒ 类级 @RequiresLogin 与之对应。
+        assertThat(requiresLogin("GET", "/feed")).isTrue();
+    }
+
+    @Test
     @DisplayName("未映射的路径返回 false：真正的 404 由 DispatcherServlet 产生，本机制不越权处理路由")
     void 未映射路径不需登录() {
         assertThat(requiresLogin("GET", "/no/such/endpoint")).isFalse();
