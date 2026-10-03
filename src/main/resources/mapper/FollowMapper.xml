@@ -71,4 +71,14 @@
         DELETE FROM follow WHERE user_id = #{userId} AND followed_user_id = #{followedUserId}
     </delete>
 
+    <!-- TV: getFollowerUserIdsAfter（S9 补入，写扩散粉丝窗口迭代）—— 一字未改。
+         SELECT user_id FROM follow WHERE followed_user_id = ? AND user_id > ? ORDER BY user_id LIMIT ?
+         走 idx_followed_user_user(followed_user_id, user_id)：等值列 + 有序第二列，免 filesort。
+         ⚠️ 游标严格递增（user_id > cursor）⇒ 不重、不受行位移影响；不得改成 OFFSET。 -->
+    <select id="getFollowerUserIdsAfter" resultType="long">
+        SELECT user_id FROM follow WHERE followed_user_id = #{followedUserId}
+          AND user_id > #{afterUserId}
+        ORDER BY user_id LIMIT #{count}
+    </select>
+
 </mapper>

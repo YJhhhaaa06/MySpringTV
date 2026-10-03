@@ -130,4 +130,23 @@
         delete from auto_bigv where user_id = #{userId}
     </delete>
 
+    <!-- TV: findAutoBigVUserIdsIn（S9 补入，读侧大V判定三路并集第②路）—— StringBuilder 拼 IN → <foreach>。
+         SELECT user_id FROM auto_bigv WHERE user_id IN (?,…) —— PK(user_id) 覆盖索引点查，无新索引。 -->
+    <select id="findAutoBigVUserIdsIn" resultType="java.lang.Long">
+        SELECT user_id FROM auto_bigv WHERE user_id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
+    <!-- TV: findUserIdsByMinFollowerCount（S9 补入，读侧大V判定三路并集第③路）—— 同上。
+         SELECT id FROM users WHERE follower_count >= ? AND id IN (?,…)
+         ★ 冷启动兜底：历史已达标但未入状态表的作者，不得因"没有状态行"被突然降级。 -->
+    <select id="findUserIdsByMinFollowerCount" resultType="java.lang.Long">
+        SELECT id FROM users WHERE follower_count >= #{minFollowerCount} AND id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
 </mapper>

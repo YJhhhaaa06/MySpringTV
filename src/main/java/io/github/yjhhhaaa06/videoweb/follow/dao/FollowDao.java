@@ -56,6 +56,34 @@ public interface FollowDao {
                                 @Param("ids") List<Long> followedUserIds);
 
     /**
+     * 粉丝方向**游标（keyset）**批量读：{@code user_id > cursor} 升序取一批（S9 补入）。
+     *
+     * <p>TV: {@code getFollowerUserIdsAfter} —— {@code SELECT user_id FROM follow
+     * WHERE followed_user_id = ? AND user_id > ? ORDER BY user_id LIMIT ?}
+     *
+     * <h2>★ 为什么这条在 S4 被判"无主代码不搬"、S9 又搬回来</h2>
+     * 它**唯一**的调用方是 {@code feed.service.FeedInboxWriter}（写扩散的粉丝窗口迭代）——
+     * S4 时 feed 域尚未迁移，故按"不搬无主代码"的纪律留在原处（见类注释与 F-7 末段）。
+     * S9 交付 feed 域后**它就是有主的**，按纪律回收（《决策留痕表》B-20）。
+     *
+     * <h2>游标并发口径（TV 原样登记）</h2>
+     * 游标严格递增（{@code user_id > cursor}）⇒ 同一遍历**不重**，也不受并发插入 / 删除引起的
+     * 行位移影响（对照 OFFSET 的重复 / 跳行）；遍历期间**新增关注**若其 {@code user_id} ≤ 当前游标
+     * 则本轮可能漏——由其关注动作触发的收件箱重建兜底；遍历期间**取关者**可能仍被写入
+     * （与旧窗口快照口径一致）——由下次重建清理（"只多不丢"不变量不破）。
+     *
+     * <p>走既有 {@code idx_followed_user_user(followed_user_id, user_id)}：等值列 + 有序第二列，
+     * **免 filesort**；返回不足 {@code count} = DB 已到底（调用方的终止口径）。
+     *
+     * @param followedUserId 被关注的博主（收件箱窗口的"作者"）
+     * @param afterUserId    游标（上批末位 id；严格大于它取下一批）。首次传 0（id 为正 ⇒ 覆盖全体）
+     * @param count          每批条数（调用方保证 &gt; 0）
+     */
+    List<Long> getFollowerUserIdsAfter(@Param("followedUserId") long followedUserId,
+                                       @Param("afterUserId") long afterUserId,
+                                       @Param("count") int count);
+
+    /**
      * 用户关注的**全部**博主 id（缓存 miss 时的回填 loader）。
      *
      * <p>TV: {@code getAllFollowedUserIds} —— {@code SELECT followed_user_id FROM follow WHERE user_id = ?}

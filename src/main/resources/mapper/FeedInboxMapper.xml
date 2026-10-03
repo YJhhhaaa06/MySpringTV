@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  feed 收件箱 Mapper（S9）。
+  namespace 必须与 FeedInboxDao 全限定名一致。
+  每条上方保留 TV 原 SQL 对照，便于逐字复核「SQL 未被改动」。
+  机械改动：`?` 占位 + setLong → #{name}；StringBuilder 拼 VALUES → <foreach>（《迁移参照系》§2.1）。
+-->
+<mapper namespace="io.github.yjhhhaaa06.videoweb.feed.dao.FeedInboxDao">
+
+    <!--
+      TV: FeedInboxDao.insertIgnoreBatch —— 一条多行
+        INSERT IGNORE INTO feed_inbox (user_id, content_id) VALUES (?, ?),(?, ?),…
+      ⚠️ INSERT IGNORE 是幂等语义的载体（uk_user_content 静默去重），不得改成裸 INSERT。
+      空集合由调用方拦截（<foreach> 不接受空集合）——TV 在 DAO 内返回 0，本实现把该守卫放调用方。
+    -->
+    <insert id="insertIgnoreBatch">
+        INSERT IGNORE INTO feed_inbox (user_id, content_id) VALUES
+        <foreach collection="fanIds" item="fanId" separator=",">
+            (#{fanId}, #{contentId})
+        </foreach>
+    </insert>
+
+    <!-- TV: FeedInboxDao.deleteByUser —— DELETE FROM feed_inbox WHERE user_id = ? -->
+    <delete id="deleteByUser">
+        DELETE FROM feed_inbox WHERE user_id = #{userId}
+    </delete>
+
+    <!--
+      TV: FeedInboxDao.insertBatch —— 向同一用户写入一批 contentId（一条多行 INSERT IGNORE）
+        INSERT IGNORE INTO feed_inbox (user_id, content_id) VALUES (?, ?),(?, ?),…
+      ⚠️ 用 INSERT IGNORE（而非裸 INSERT）与并发 fanout 的"幂等、无覆盖"语义一致 ⇒ 交错结果为并集。
+      空集合由调用方拦截（TV 在 DAO 内返回 0）。
+    -->
+    <insert id="insertBatch">
+        INSERT IGNORE INTO feed_inbox (user_id, content_id) VALUES
+        <foreach collection="contentIds" item="contentId" separator=",">
+            (#{userId}, #{contentId})
+        </foreach>
+    </insert>
+
+    <!-- TV: FeedInboxDao.upsertSync —— 本仓首个 upsert（"存在即已同步"）
+         INSERT INTO feed_inbox_sync (user_id) VALUES (?)
+         ON DUPLICATE KEY UPDATE sync_time = CURRENT_TIMESTAMP
+         注：MySQL 命中唯一键仍会消耗一次自增 id（仅观感，无正确性影响，TV 原样不规避）。 -->
+    <insert id="upsertSync">
+        INSERT INTO feed_inbox_sync (user_id) VALUES (#{userId})
+        ON DUPLICATE KEY UPDATE sync_time = CURRENT_TIMESTAMP
+    </insert>
+
+    <!-- TV: FeedInboxDao.existsSync —— SELECT 1 FROM feed_inbox_sync WHERE user_id = ? LIMIT 1
+         写法：TV 用 rs.next() 手写布尔；这里用 EXISTS(0/1)（与 ContentDao.isContentExist 同款），
+         避免无行 → null → 拆箱 NPE（原始类型 boolean 的拆箱坑，实测 500）。 -->
+    <select id="existsSync" resultType="boolean">
+        SELECT EXISTS(SELECT 1 FROM feed_inbox_sync WHERE user_id = #{userId})
+    </select>
+
+    <!-- TV: FeedInboxDao.findInboxContentIds —— 升序（与缓存 ZSet 的 score 序同向）
+         SELECT content_id FROM feed_inbox WHERE user_id = ? ORDER BY content_id
+         ⚠️ 无 LIMIT（TV 原样，读侧最终只可见 M 条但会装载全量行——已登记的读放大）。 -->
+    <select id="findInboxContentIds" resultType="java.lang.Long">
+        SELECT content_id FROM feed_inbox WHERE user_id = #{userId} ORDER BY content_id
+    </select>
+
+</mapper>

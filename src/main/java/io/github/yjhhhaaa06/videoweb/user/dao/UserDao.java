@@ -143,4 +143,35 @@ public interface UserDao {
      * @return {@code true} = 本次真删到行（DOWNGRADED）；{@code false} = 本就不是自动大V
      */
     boolean deleteAutoBigV(@Param("userId") long userId);
+
+    /**
+     * 批量读**自动大V状态表**命中的作者子集（S9 补入）——读侧大V判定三路并集的**第②路**（滞回产物）。
+     *
+     * <p>TV: {@code findAutoBigVUserIdsIn} —— {@code SELECT user_id FROM auto_bigv WHERE user_id IN (?,…)}
+     * （走主键 {@code PK(user_id)} 覆盖索引点查，无新索引）。
+     *
+     * <p>命中者 = "曾达线升为大V、掉粉后仍在带内未降级"的作者——**这就是滞回**：
+     * 若只看第③路（粉丝数 ≥ 阈值），掉到带内的作者会被突然降级（大V内容从发件箱腿消失）。
+     *
+     * @param ids 待判定作者（调用方按批量尺寸分块保证非空）
+     */
+    List<Long> findAutoBigVUserIdsIn(@Param("ids") List<Long> ids);
+
+    /**
+     * 批量读**粉丝数 ≥ 阈值**的作者子集（S9 补入）——读侧大V判定三路并集的**第③路**（DB 真值兜底）。
+     *
+     * <p>TV: {@code findUserIdsByMinFollowerCount} ——
+     * {@code SELECT id FROM users WHERE follower_count >= ? AND id IN (?,…)}
+     *
+     * <h2>★ 第③路不可省（TV 原注释的裁决，逐字保留）</h2>
+     * 冷启动 / 历史数据尚未入状态表时，**已达标作者不得因"没有状态行"突然降级**：
+     * 一个早就有 15000 粉的作者没有 {@code auto_bigv} 行，若只剩第①（名单）②（状态表）两路，
+     * 他会被判成普通作者 → 其内容一夜间从"发件箱腿"落到"收件箱腿"，可见性错乱。
+     * 第③路用 DB 真值兜住这个缺口。
+     *
+     * @param ids              待判定作者（调用方按批量尺寸分块保证非空）
+     * @param minFollowerCount 阈值（升级线）
+     */
+    List<Long> findUserIdsByMinFollowerCount(@Param("ids") List<Long> ids,
+                                             @Param("minFollowerCount") int minFollowerCount);
 }

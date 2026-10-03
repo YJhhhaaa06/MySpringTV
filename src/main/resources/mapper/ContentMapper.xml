@@ -263,4 +263,65 @@
         ORDER BY c.create_time DESC, c.id DESC
     </select>
 
+    <!-- ============================ S9：feed（关注动态流） ============================ -->
+
+    <!-- TV: findContentIdsByUsers —— 纯拉降级路径的当页 id
+         SELECT c.id FROM content c WHERE c.user_id IN (?,…) AND c.is_deleted = 0
+         ORDER BY c.create_time DESC, c.id DESC LIMIT ?, ?
+         ⚠️ 两个排序键都在（create_time DESC 后跟 id DESC 的 tie-breaker），不得删。
+         StringBuilder 拼 IN → <foreach>（SQL 文本其余部分逐字保留）。 -->
+    <select id="findContentIdsByUsers" resultType="java.lang.Long">
+        SELECT c.id FROM content c WHERE c.user_id IN
+        <foreach collection="userIds" item="userId" open="(" separator="," close=")">
+            #{userId}
+        </foreach>
+        AND c.is_deleted = 0
+        ORDER BY c.create_time DESC, c.id DESC
+        LIMIT #{offset}, #{pageSize}
+    </select>
+
+    <!-- TV: countContentByUsers —— SELECT COUNT(*) FROM content WHERE user_id IN (?,…) AND is_deleted = 0
+         与 findContentIdsByUsers 分支判据同源（否则 total 与 list 口径漂移）。 -->
+    <select id="countContentByUsers" resultType="int">
+        SELECT COUNT(*) FROM content WHERE user_id IN
+        <foreach collection="userIds" item="userId" open="(" separator="," close=")">
+            #{userId}
+        </foreach>
+        AND is_deleted = 0
+    </select>
+
+    <!-- TV: findRecentContentIdsByUsers —— 每作者各取最近 K 条，UNION ALL 成一条语句
+         每分支： (SELECT id FROM content WHERE user_id = ? AND is_deleted = 0 ORDER BY id DESC LIMIT ?)
+         ⚠️ 排序口径 = contentId 降序（id 自增 ⇒ 越大越新；与 feed_inbox 不存时间字段的口径同源）。
+         ⚠️ is_deleted 不在 idx_user_id 中、需回表过滤 ⇒ 每分支最坏上界 = 该作者内容量（TV 原样登记）。 -->
+    <select id="findRecentContentIdsByUsers" resultType="java.lang.Long">
+        <foreach collection="userIds" item="userId" separator=" UNION ALL ">
+            (SELECT id FROM content WHERE user_id = #{userId} AND is_deleted = 0
+             ORDER BY id DESC LIMIT #{perAuthorLimit})
+        </foreach>
+    </select>
+
+    <!-- TV: findRecentContentIdsByAuthor —— 同 findRecentContentIdsByUsers，但多选一列 user_id AS author_id
+         （idx_user_id 物理为 (user_id, id)，该列随索引即可取到）⇒ 一趟查询即可按作者切分结果。
+         ⚠️ UNION ALL 外层顺序不保证 ⇒ 调用方对每个作者显式降序重排。
+         ⚠️ is_deleted 需回表过滤 ⇒ 每分支最坏上界 = 该作者内容量（TV 原样登记）。 -->
+    <!-- ⚠️ AuthorContentId 是 record（不可变）⇒ **必须用 <constructor> 映射**：
+         MyBatis 默认对象工厂走"无参构造 + setter"，对 record 会报
+         "There is no setter for property named 'authorId'"（实测）。
+         且 javaType 必须是**包装类型** java.lang.Long——构造器按 Class 匹配，
+         原始类型 long 与 Long 不等 ⇒ "NoSuchMethodException: <init>(Long,Long)"（实测）。 -->
+    <resultMap id="authorContentIdMap" type="io.github.yjhhhaaa06.videoweb.content.model.AuthorContentId">
+        <constructor>
+            <arg column="author_id" javaType="java.lang.Long"/>
+            <arg column="id" javaType="java.lang.Long"/>
+        </constructor>
+    </resultMap>
+
+    <select id="findRecentContentIdsByAuthor" resultMap="authorContentIdMap">
+        <foreach collection="authorIds" item="authorId" separator=" UNION ALL ">
+            (SELECT user_id AS author_id, id FROM content WHERE user_id = #{authorId} AND is_deleted = 0
+             ORDER BY id DESC LIMIT #{perAuthorLimit})
+        </foreach>
+    </select>
+
 </mapper>

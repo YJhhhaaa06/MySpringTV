@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.content.dao;
 
+import io.github.yjhhhaaa06.videoweb.content.model.AuthorContentId;
 import io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO;
 import io.github.yjhhhaaa06.videoweb.content.model.entity.Content;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.AdminContentVO;
@@ -283,5 +284,64 @@ public interface ContentDao {
      * 与 TV 的 {@code rs.getInt("is_deleted") == 2} **完全等价**。
      */
     List<AdminContentVO> findContentForAdmin();
+
+    // ========================================================================
+    // S9：feed（关注动态流的两路读 + 重建 + 补推）
+    // ========================================================================
+
+    /**
+     * 关注流**纯拉降级**路径的当页 id：关注作者集合的内容，按 {@code create_time DESC, id DESC} 分页。
+     *
+     * <p>TV: {@code SELECT c.id FROM content c WHERE c.user_id IN (?,…) AND c.is_deleted = 0
+     * ORDER BY c.create_time DESC, c.id DESC LIMIT ?, ?}
+     * ——SQL 逐字保留（含<span>两个</span>排序键：{@code create_time DESC} 后跟 {@code id DESC} 的
+     * tie-breaker，缺后者同秒内容分页会重复/漏项）。
+     *
+     * <p>{@code userIds} 为空时**不发 SQL**（{@code <foreach>} 不接受空集合，调用方保证非空）。
+     *
+     * @param offset 起始偏移（{@code (page-1)*pageSize}，调用方保证 ≥0）
+     * @param pageSize 页大小
+     */
+    List<Long> findContentIdsByUsers(@Param("userIds") List<Long> userIds,
+                                     @Param("offset") int offset,
+                                     @Param("pageSize") int pageSize);
+
+    /**
+     * 关注流纯拉降级路径的**命中总数**（与当页 id 同源 SQL，仅 SELECT 列不同）。
+     *
+     * <p>TV: {@code SELECT COUNT(*) FROM content WHERE user_id IN (?,…) AND is_deleted = 0}
+     */
+    int countContentByUsers(@Param("userIds") List<Long> userIds);
+
+    /**
+     * **每作者各取最近 K 条**内容 id（窗口重建的窗口装载）。
+     *
+     * <p>TV: 每作者一个 {@code (SELECT id FROM content WHERE user_id = ? AND is_deleted = 0
+     * ORDER BY id DESC LIMIT ?)} 分支，{@code UNION ALL} 成一条语句（{@code <foreach>} 承接）。
+     *
+     * <p>排序口径 = **contentId 降序**（{@code content.id} 自增 ⇒ id 越大越新；与
+     * {@code feed_inbox} 不存时间字段、"排序 / 归并 / 裁剪全按 contentId"的口径同源）。
+     * ⚠️ {@code is_deleted} 不在 {@code idx_user_id} 中、需回表过滤 ⇒ 每分支最坏上界 = 该作者内容量。
+     *
+     * @param perAuthorLimit 每作者保留条数 K（调用方保证 &gt; 0）
+     */
+    List<Long> findRecentContentIdsByUsers(@Param("userIds") List<Long> userIds,
+                                           @Param("perAuthorLimit") int perAuthorLimit);
+
+    /**
+     * 每作者各取最近 K 条内容 id、**并带回作者归属**（大V发件箱批量回源）。
+     *
+     * <p>TV: 分支里多选一列 {@code user_id AS author_id}（{@code idx_user_id} 物理为
+     * {@code (user_id, id)}，该列随索引即可取到）⇒ 一趟查询即可按作者切分结果、直接用于逐作者缓存回填。
+     *
+     * <p>⚠️ {@code UNION ALL} 的**外层顺序不保证** ⇒ 调用方需对每个作者的结果**显式降序重排**。
+     * 返回**扁平行**（{@link AuthorContentId}），归组由调用方做（见该 record 的说明）；
+     * **无内容的作者不出现在结果中**。
+     *
+     * @param authorIds      作者 id 列表（调用方保证非空）
+     * @param perAuthorLimit 每作者保留条数 N（调用方保证 &gt; 0）
+     */
+    List<AuthorContentId> findRecentContentIdsByAuthor(@Param("authorIds") List<Long> authorIds,
+                                                       @Param("perAuthorLimit") int perAuthorLimit);
 }
 
