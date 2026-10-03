@@ -145,4 +145,42 @@ public final class CacheKeys {
     public static String userFollowerCount(long userId) {
         return "user:followerCount:" + userId;
     }
+
+    // ==================== feed（S9） ====================
+
+    /**
+     * 收件箱窗口：{@code feed:inbox:{userId}}（**ZSet**，score = contentId ⇒ ZRANGE 升序 = 内容倒序的反序）。
+     *
+     * <p><b>写者只有读路径</b>：fanout / 重建**只 DEL 不写**（单写 DB 真相 {@code feed_inbox} +
+     * 写后失效 + 读 miss 回源回填）。故本键**不产生"前缀态"**——"全量读即等于完整集合"成立。
+     *
+     * <p><b>失效集 = 两件套</b>（数据 key + {@code empty:}）：TV 的 {@code feedInboxCacheKeys} 是
+     * **三件套**（多一个 {@code partial:} 前缀窗口标记）。本仓 S4 起已不再使用 {@code partial:}
+     * （F-7：回到"key 存在即完整"的 T7 口径）——本键的写者只有读路径 ⇒ {@code partial:} 永不产生，
+     * 失效集随之降为两件套（《决策留痕表》C-10）。
+     */
+    public static String feedInbox(long userId) {
+        return "feed:inbox:" + userId;
+    }
+
+    /**
+     * 大V发件箱窗口：{@code feed:outbox:{authorId}}（ZSet，score = contentId，存该作者最近 N 条）。
+     *
+     * <p>真相源始终是 {@code content} 表；本键是**可降级读缓存**（miss → 回源 → 回填；
+     * Redis 异常 → DB 直查、不写回）。失效集 = 两件套（数据 key + {@code empty:}，TV 原样）。
+     */
+    public static String feedOutbox(long authorId) {
+        return "feed:outbox:" + authorId;
+    }
+
+    /**
+     * 收件箱重建去重锁：{@code feed:rebuild:lock:{userId}}（String token，SET NX EX）。
+     *
+     * <p>锁只是**去重优化**，不承担正确性：TTL 到点后若真有并发重建交叉执行，两次都是同一份
+     * {@code content} 真相的窗口快照（{@code INSERT IGNORE} 幂等）⇒ 并集、只多不丢。
+     * 释放用 Lua CAS（值等于自己的 token 才删，避免误删他人已获得的锁）。
+     */
+    public static String feedRebuildLock(long userId) {
+        return "feed:rebuild:lock:" + userId;
+    }
 }
