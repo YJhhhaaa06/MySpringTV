@@ -60,10 +60,14 @@ ROOT = Path(__file__).resolve().parent.parent   # tools/ 的上一级
 
 这样 `python tools/xxx.py` 在任何目录下跑都对。
 
-### 3.3 用 `argparse`，给 `--dry-run` 与 `--help`
+### 3.3 用 `argparse`，给 `--help` 与"默认只预演"
 
-会改文件的脚本**必须有 `--dry-run`**：先打印"将要做什么"，不落盘。
-这是本项目"先看结论再执行"的纪律在脚本层的体现。
+会改文件的脚本**默认必须只预演**（先打印"将要做什么"，不落盘），落盘要显式加开关
+（`doc_archive.py` 用 `--apply`）。这是本项目"先看结论再执行"的纪律在脚本层的体现。
+
+> ⚠️ 别图省事把开关叫 `--dry-run` 却让它默认落盘——**名字与默认值对不上时，
+> 照文档敲命令的人会直接改到文件**。（`doc_archive.py` 早期文档就犯过：写了
+> `--dry-run` 但脚本根本没有这个参数，默认即预演。）
 
 ### 3.4 只读优先
 
@@ -76,7 +80,7 @@ ROOT = Path(__file__).resolve().parent.parent   # tools/ 的上一级
 | 脚本 | 作用 | 只读？ |
 |------|------|--------|
 | `doc_stats.py` | 度量 `.docs` 体量，按文件与 H2 章节归因，找出膨胀源 | ✅ 只读 |
-| `doc_archive.py` | 把已完成阶段的历史明细从正文抽到 `.docs/archive/`，正文留指针 | ❌ 会写（有 `--dry-run`） |
+| `doc_archive.py` | 把已完成阶段的历史明细从正文抽到 `.docs/archive/`，正文留指针 | ❌ 会写（**默认只预演**，加 `--apply` 才落盘） |
 | `endpoint_matrix.py` | 复算老项目 43 端点 × 新项目实现状态，校验《端点对照表》 | ✅ 只读 |
 
 ## 五、常用命令
@@ -84,9 +88,13 @@ ROOT = Path(__file__).resolve().parent.parent   # tools/ 的上一级
 ```bash
 python tools/doc_stats.py                  # 文档体量报告
 python tools/doc_stats.py --top 6          # 对最大的 6 份做章节拆解
-python tools/doc_archive.py --plan p.json --dry-run   # 预演归档
+python tools/doc_archive.py --plan temp-script/doc-plan.json            # 归档预演（不落盘）
+python tools/doc_archive.py --plan temp-script/doc-plan.json --apply     # 归档落盘
 python tools/endpoint_matrix.py            # 复算端点对照
 ```
+
+> `doc_archive.py` 的计划格式见脚本头部 docstring：`extract`（按标题抽节，`levels` 可指定 H2/H3）
+> 与 `move`（整份移入归档）两种操作。
 
 > 注：本项目**没有** `tv.py` 那样的统一入口——脚本少，直接调即可。
 > 脚本多了再考虑加（rule of three）。

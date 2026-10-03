@@ -47,7 +47,9 @@
 >    ——做法是扫一遍它的 import 依赖面（S3 靠这个发现 `cache` 包有 10 类待改件）。
 >    **结论必须落纸**，否则下一个切片会重新论证一遍。
 >
-> 三件盘点写进《事务边界决策表》的切片小节（S4 的 §二·E 是其完整范例）。
+> 三件盘点写进《事务边界决策表》的切片小节。**完整范例**（已归档，需要时照抄格式）：
+> `archive/事务边界明细-S1-S5.md` 的 S4 小节（§二·E）、
+> `archive/事务边界明细-S7-S9.md` 的 §四·S8（8 端点那份，含"实现位置逐个核对"表）。
 
 ```powershell
 # 列出本切片相关的所有事务调用点
@@ -414,40 +416,16 @@ python tools/doc_stats.py --top 6    # 看最大的 6 份里哪一节最肥
 
 ## 八、脚本语言：统一 Python（S6 立规）
 
-> 立规理由（原话）："**powershell、bat 对 LLM 不友好**"。
+立规理由一句话：**PowerShell / bat 对 LLM 不友好**——语法噪声高（`$_`、`-Path`、管道语义每次都要重新推理）、
+错误模式不通用（`$LASTEXITCODE`、非终止错误不抛异常，写了错也不自知）、不可被 pytest/CI 复用。
 
-### 8.1 为什么
+**约定与用法详见 `tools/README.md`**（单一事实源：放哪 / 为什么 / 硬性约定 / 现有脚本）。
+三条最容易踩的，这里只列结论：
 
-| 问题 | 具体表现 |
-|------|---------|
-| **语法噪声高** | `Select-String -Path X -Pattern Y \| ForEach-Object { $_.Line }` 里的 `$_`、`-Path`、管道语义，每次都要重新推理；Python 的 `read_text()` / `re.findall()` 是通用知识 |
-| **错误模式不通用** | `$LASTEXITCODE`、`-ErrorAction`、非终止错误不抛异常…… PowerShell 专有陷阱，模型容易写错**且不自知** |
-| **不可复用** | Python 能被 pytest / CI / 其它脚本调用；`.ps1` 基本只能手跑 |
+1. **必须强制 UTF-8 输出**——Windows 默认 GBK，中文会乱码、emoji 直接崩溃。
+2. **路径从仓库根解析**（`Path(__file__).resolve().parent.parent`），不依赖当前工作目录。
+3. **改文件的脚本必须有 `--dry-run` 语义**（只读优先；度量/校验类应当只读）。
 
 > ⚠️ 这条**只约束本项目**。`old-project/TVhomework1` 有自己的 `AGENTS.md` 约束，
 > 本项目只把它当**只读的行为规格书**，不向其写入任何文件。
-
-### 8.2 放哪
-
-| 类型 | 位置 | 入库 |
-|------|------|------|
-| 可复用（下个切片还会跑） | `tools/` | ✅ |
-| 一次性（用完即弃） | `temp-script/` | ❌（已 gitignore） |
-
-判据：**"下一个切片还会跑它吗？"**
-
-### 8.3 硬性约定（写到每个脚本里）
-
-1. **必须强制 UTF-8 输出**——Windows 默认 GBK，中文会乱码、emoji 会直接崩溃：
-   ```python
-   for _s in (sys.stdout, sys.stderr):
-       if hasattr(_s, "reconfigure"):
-           _s.reconfigure(encoding="utf-8", errors="replace")
-   ```
-   读文件也要显式 `encoding="utf-8"`。
-2. **路径从仓库根解析**（`Path(__file__).resolve().parent.parent`），不依赖当前工作目录。
-3. **改文件的脚本必须有 `--dry-run`**，先打印再落盘。
-4. **只读优先**：度量/校验类脚本应当只读，把判断留给人。
-
-详见 `tools/README.md`。
 

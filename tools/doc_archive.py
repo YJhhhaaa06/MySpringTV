@@ -16,8 +16,8 @@ SOP §七.2 的纪律是"**正文只留当前有效结论**，被推翻/已兑�
 
 先写一份"手术计划"（JSON 数组），再预演，最后执行：
 
-    python tools/doc_archive.py --plan temp-script/doc-plan.json --dry-run
-    python tools/doc_archive.py --plan temp-script/doc-plan.json
+    python tools/doc_archive.py --plan temp-script/doc-plan.json            # 预演（默认，不落盘）
+    python tools/doc_archive.py --plan temp-script/doc-plan.json --apply    # 真正落盘
 
 计划里每个操作二选一：
 
@@ -40,8 +40,11 @@ SOP §七.2 的纪律是"**正文只留当前有效结论**，被推翻/已兑�
 ]
 ```
 
-- `extract`：把正文里**标题匹配 `match`（正则）的全部 H2 章节**搬进归档文件，
+- `extract`：把正文里**标题匹配 `match`（正则）的章节**搬进归档文件，
   并在原位置留一行 `pointer` 指过去。
+  默认只抽 **H2**（S6 起的既有口径）；`levels` 可指定标题级别，例如 `[3]` 抽 H3、
+  `[2, 3]` 两者都抽。一个章节在**下一个同级或更高级**标题处结束——所以抽 H3 时
+  不会把后面的 H2 一起吞掉（`切片计划` 的工单是 H3，就是为此加的）。
 - `move`：整份文件移到归档目录。
 
 ## 安全设计
@@ -68,23 +71,30 @@ ROOT = Path(__file__).resolve().parent.parent
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
 
 
-def find_h2_sections(lines: list[str], pattern: re.Pattern[str]) -> list[tuple[int, int]]:
-    """返回匹配的 H2 章节的 [start, end) 行区间（0-based，end 不含）。"""
-    starts = [
-        i
-        for i, line in enumerate(lines)
-        if (m := HEADING_RE.match(line)) and len(m.group(1)) == 2 and pattern.search(m.group(2))
-    ]
+def find_sections(
+    lines: list[str], pattern: re.Pattern[str], levels: set[int]
+) -> list[tuple[int, int]]:
+    """返回匹配的章节的 [start, end) 行区间（0-based，end 不含）。
+
+    `levels` 是要匹配的标题级别（2=H2，3=H3…）。一个章节在**下一个同级或更高级**
+    标题处结束，所以抽 H3 时不会把后面的 H2 一起吞掉。
+
+    ⚠️ `pattern` 作用于**标题文字**（`##` 前缀已剥掉），所以计划里写 `^二[、·]` 是对的；
+    早期实现误把它作用于带前缀的整行，导致锚定 `^` 的正则永远匹配不上（2026-10-03 修正）。
+    """
+    headings: list[tuple[int, int, str]] = []  # (行号, 级别, 标题文字)
+    for i, line in enumerate(lines):
+        if m := HEADING_RE.match(line):
+            headings.append((i, len(m.group(1)), m.group(2)))
+
+    starts = [i for i, lvl, text in headings if lvl in levels and pattern.search(text)]
     if not starts:
         return []
 
-    # 全部 H2 的起点，用来算每个匹配章节的结束位置（下一个 H2 或文件尾）
-    all_h2 = [
-        i for i, line in enumerate(lines) if (m := HEADING_RE.match(line)) and len(m.group(1)) == 2
-    ]
     ranges: list[tuple[int, int]] = []
     for s in starts:
-        nxt = [x for x in all_h2 if x > s]
+        s_level = next(lvl for i, lvl, _ in headings if i == s)
+        nxt = [i for i, lvl, _ in headings if i > s and lvl <= s_level]
         e = nxt[0] if nxt else len(lines)
         ranges.append((s, e))
 
@@ -102,6 +112,7 @@ def do_extract(op: dict, apply: bool, force: bool) -> bool:
     src = (ROOT / op["from"]).resolve()
     dst = (ROOT / op["to"]).resolve()
     pattern = re.compile(op["match"])
+    levels = {int(x) for x in op.get("levels", [2])}  # 默认只抽 H2（S6 起的既有口径）
 
     if not src.is_file():
         print(f"  ✗ 源文件不存在：{op['from']}")
@@ -111,9 +122,9 @@ def do_extract(op: dict, apply: bool, force: bool) -> bool:
         return False
 
     lines = src.read_text(encoding="utf-8").splitlines(keepends=True)
-    ranges = find_h2_sections([ln.rstrip("\n") for ln in lines], pattern)
+    ranges = find_sections([ln.rstrip("\n") for ln in lines], pattern, levels)
     if not ranges:
-        print(f"  ✗ 没有 H2 标题匹配 /{op['match']}/：{op['from']}")
+        print(f"  ✗ 没有 H{levels} 标题匹配 /{op['match']}/：{op['from']}")
         return False
 
     extracted: list[str] = []
