@@ -90,11 +90,23 @@ spring:
     connection-timeout: ${RABBITMQ_CONNECTION_TIMEOUT_MS:2000}ms
     listener:
       simple:
+        # 预取 1（S9）：对齐 TV MqConsumerContainer.DEFAULT_PREFETCH=1——prefetch 大于 1 会让同一
+        # 队列在途多条，失败重试时"本队列没有可处理的消息被耽搁"这条平衡被打破。Boot 默认 250。
+        prefetch: 1
+        # 单消费者（S9）：对齐 TV"每队列一条消费 channel"的口径（隔离 head-of-line）。
+        concurrency: 1
+        # 确认模式 auto（S9）：与 TV 的"手动 ack + 失败 nack(requeue=false)"**语义等价**——
+        # 成功⇒ack；重试耗尽⇒reject（default-requeue-rejected=false）⇒ 经队列 DLX 转死信。
+        acknowledge-mode: auto
         retry:
           enabled: true
+          # max-retries = **首次之外**的重试次数（对齐 TV feed.consume.retry.maxRetries=2）。
           max-retries: 2
+          # ⚠️ multiplier=1（**有意**）：TV 是**固定**退避（feed.consume.retry.backoffMillis=1000，
+          # 无限乘），不是指数。写 2 会变成指数退避（1s→2s→4s…），与 TV 的"总等待上界 = 次数 × 本值
+          # 简单可证"口径不符。故固定为 1×initial-interval。
+          multiplier: 1
           initial-interval: 1000ms
-          multiplier: 2
           max-interval: 10000ms
         default-requeue-rejected: false   # 重试耗尽后不重回队列，交给 DLQ
 
@@ -203,6 +215,36 @@ video:
   bigv:
     threshold: ${BIGV_THRESHOLD:10000}
     downgrade-ratio: ${BIGV_DOWNGRADE_RATIO:0.8}
+    # 大V名单（S9 补入）：逗号分隔的用户 id；空 ⇒ 无名单（判定只走"状态表 ∪ 粉丝数≥阈值"两路）。
+    # 口径对齐 TV app.properties 的 feed.bigv.userIds（默认空）。读侧三路并集的第①路。
+    user-ids: ${BIGV_USER_IDS:}
+
+  # feed 批次参数（S9）。逐条对齐 TV app.properties 的 feed.*（见 FeedProperties 类注释的对照表）。
+  # ⚠️ 凡 Duration 属性**必须带单位后缀**（60m/1s/7d），裸数字会被解析成秒级，不报错只是行为诡异。
+  feed:
+    # 收件箱读缓存（ZSet）TTL，命中滑动续期。TV: feed.inbox.ttlMinutes=60
+    inbox-ttl: ${FEED_INBOX_TTL:60m}
+    # 重建/补推时"每关注作者取最近 K 条"。TV: feed.inbox.windowPerAuthor=20
+    inbox-window-per-author: ${FEED_INBOX_WINDOW_PER_AUTHOR:20}
+    # 重建窗口裁剪上界 C（表侧每用户行数上限）。TV: feed.inbox.windowMax=200
+    inbox-window-max: ${FEED_INBOX_WINDOW_MAX:200}
+    # 读侧归并窗口裁剪上界 M（收件箱腿 ∪ 大V发件箱腿）。TV: feed.readWindowMax=300
+    read-window-max: ${FEED_READ_WINDOW_MAX:300}
+    # 大V发件箱腿每作者取最近 N 条。TV: feed.outbox.windowSize=20
+    outbox-window-size: ${FEED_OUTBOX_WINDOW_SIZE:20}
+    # 大V发件箱读缓存 TTL。TV: feed.outbox.ttlMinutes=60
+    outbox-ttl: ${FEED_OUTBOX_TTL:60m}
+    # 写扩散粉丝游标每批批量。TV: feed.fanout.batch=200
+    fanout-batch: ${FEED_FANOUT_BATCH:200}
+    # 重建时"逐作者最近 K"的 SQL 批尺寸。TV: feed.rebuild.authorBatch=50
+    rebuild-author-batch: ${FEED_REBUILD_AUTHOR_BATCH:50}
+    # 大V批量判定的 IN 列表分块尺寸（执行参数，非判定输入）。TV: feed.bigv.queryBatch=200
+    bigv-query-batch: ${FEED_BIGV_QUERY_BATCH:200}
+    # 重建请求去抖窗口（per-user 尾沿合并）。TV: feed.rebuild.debounceMillis=1000。0 = 显式关闭去抖。
+    rebuild-debounce: ${FEED_REBUILD_DEBOUNCE:1s}
+    # 死信队列消息 TTL（证据窗口有界）。TV: feed.dlq.ttlMillis=604800000（7 天）。
+    # ⚠️ TTL 是队列声明参数，改值须先删旧 feed.dlq 队列（broker 拒绝同名不同参声明 406）。
+    dlq-ttl: ${FEED_DLQ_TTL:7d}
 
 # ----------------------------------------------------------------------------
 # 日志：本阶段保持 Boot 默认。TV 的 LOG_CONVENTION（定栈/脱敏/级别判据 163 行）
