@@ -50,8 +50,11 @@ public class GlobalExceptionHandler {
             log.warn("业务码 {} 不是合法 HTTP 状态，回落 400: {} {}", code, req.getMethod(), req.getRequestURI());
             status = HttpStatus.BAD_REQUEST;
         }
-        // 可预期的业务拒绝：只记结论，不记堆栈（沿袭 TV LOG_CONVENTION「包装点即源头」）
-        log.info("业务异常 {} {} -> code={}, msg={}", req.getMethod(), req.getRequestURI(), code, ex.getMessage());
+        // 可预期的业务拒绝：**WARN + 只记结论，不记堆栈**（沿袭 TV LOG_CONVENTION「包装点即源头」）。
+        // ⚠️ 级别是 WARN 而非 INFO/ERROR：这是 T2 的显式口径——"预期拒绝走 WARN，不进 ERROR"。
+        //    INFO 会让"正常成功"与"被拒绝"在级别上不可分；ERROR 会让可预期拒绝混进 error.log
+        //    并把无需介入的输入错误报成运维事故。WARN 恰好是"业务层判断过、无需人工介入"的位置。
+        log.warn("业务异常 {} {} -> code={}, msg={}", req.getMethod(), req.getRequestURI(), code, ex.getMessage());
         return ResponseEntity.status(status).body(ApiResponse.error(code, ex.getMessage()));
     }
 
@@ -62,7 +65,7 @@ public class GlobalExceptionHandler {
         String detail = ex.getBindingResult().getFieldErrors().stream()
                 .map(fe -> fe.getField() + ": " + defaultMessage(fe))
                 .collect(Collectors.joining("; "));
-        log.info("参数校验失败 {} {} -> {}", req.getMethod(), req.getRequestURI(), detail);
+        log.warn("参数校验失败 {} {} -> {}", req.getMethod(), req.getRequestURI(), detail);
         return ResponseEntity.badRequest()
                 .body(ApiResponse.error(ErrorCode.PARAM_ERROR.getCode(), detail));
     }
@@ -82,7 +85,10 @@ public class GlobalExceptionHandler {
             MissingServletRequestPartException.class
     })
     public ResponseEntity<ApiResponse<Void>> handleBadRequest(Exception ex, HttpServletRequest req) {
-        log.info("请求参数错误 {} {} -> {}", req.getMethod(), req.getRequestURI(), ex.getMessage());
+        // ⚠️ 本条消息会**回显被拒的参数值**（如 MethodArgumentTypeMismatch 的 "for value [xxx]"）——
+        // 它正是 PII 进日志的一条真实路径。出口脱敏（logback 的 %maskedMsg）负责把它按形态掩掉，
+        // 故此处**不**在调用点手写脱敏（否则就是两套机制、两处要维护）。
+        log.warn("请求参数错误 {} {} -> {}", req.getMethod(), req.getRequestURI(), ex.getMessage());
         return ResponseEntity.badRequest()
                 .body(ApiResponse.error(ErrorCode.PARAM_ERROR.getCode(), ErrorCode.PARAM_ERROR.getMessage()));
     }
