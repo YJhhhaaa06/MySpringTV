@@ -67,6 +67,10 @@ Thumbs.db
 /.workbuddy
 /.docs/temp
 
+# Python 脚本的字节码缓存（tools/*.py 被 import 时会生成；勿入库）
+__pycache__/
+*.pyc
+
 # ⚠️ 2026-10-03 移除 /.docs/archive —— 它是个陷阱，不是保护。
 # 原有规则只阻止"新增归档"，而已有的三份归档**早已被跟踪**（ignore 对已跟踪文件无效）
 # ⇒ 后果是：每次新归档都要记得 `git add -f`，忘了就得到一个"正文指针指向仓库里不存在
