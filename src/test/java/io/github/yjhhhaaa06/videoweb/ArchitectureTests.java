@@ -46,8 +46,13 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
  */
 class ArchitectureTests {
 
-    /** 业务模块名（与包名一致）。{@code upload} 由 S7 新增，一并纳入边界约束。 */
-    private static final String[] DOMAINS = {"user", "content", "comment", "like", "follow", "coupon", "upload"};
+    /**
+     * 业务模块名（与包名一致）。
+     * {@code upload} 由 S7 新增、{@code admin} 由 S8 新增，一并纳入边界约束
+     * （否则新域会成为**没有任何规则约束的空洞**）。
+     */
+    private static final String[] DOMAINS = {"user", "content", "comment", "like", "follow", "coupon",
+            "upload", "admin"};
 
     private static final String BASE = "io.github.yjhhhaaa06.videoweb";
 

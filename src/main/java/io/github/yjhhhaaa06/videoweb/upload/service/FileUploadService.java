@@ -121,7 +121,27 @@ public class FileUploadService {
         deleteFileQuietly(path);
     }
 
-    private String resolveAbsolutePath(String url) {
+    /**
+     * 上传 URL（{@code /upload/{video|image|cover}/{文件名}}）→ **磁盘绝对路径**；
+     * URL 非法（形状不匹配 / 含 {@code ..} 逃逸）时返回 {@code null}。
+     *
+     * <h2>★ 为什么是 {@code public}（S8 起）</h2>
+     * 媒体审计（{@code admin.service.MediaAuditService}）的扫描与恢复都要做同一件事：
+     * 把 DB 里的 url 反解成磁盘路径。TV 在两处**各写了一份同款正则**
+     * （{@code FileUploadService} + {@code MediaAuditService.MEDIA_URL_PATTERN}）。
+     * 而 {@code /upload/{dir}/{file}} 的形状是**上传域的所有物**——{@code saveFile} 造它、
+     * 本方法解它、{@code WebMvcConfig} 挂它——两份正则必然漂移，且 {@code ".."} 逃逸守卫
+     * 只该有一处。故 S8 把它提为 public 供跨域复用（《决策留痕表》B-19）。
+     *
+     * <p>它是**纯函数**（只读配置、不触盘），复用无副作用。
+     *
+     * @param url 应用内相对 URL（如 {@code /upload/video/x.mp4}）
+     * @return 磁盘绝对路径；非法 URL ⇒ {@code null}（调用方据此判"无法定位文件"）
+     */
+    public String resolveAbsolutePath(String url) {
+        if (url == null) {
+            return null;
+        }
         Matcher matcher = UPLOAD_URL_PATTERN.matcher(url);
         if (!matcher.matches()) {
             return null;

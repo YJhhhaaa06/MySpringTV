@@ -2,6 +2,7 @@ package io.github.yjhhhaaa06.videoweb.content.dao;
 
 import io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO;
 import io.github.yjhhhaaa06.videoweb.content.model.entity.Content;
+import io.github.yjhhhaaa06.videoweb.content.model.vo.AdminContentVO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -15,11 +16,12 @@ import java.util.List;
  * <ul>
  *   <li><b>S2 的 content-thin</b>（3 方法）：只搬下游**必需**的（存在性 / 评论数联动 / 评论区开关），
  *       避免 content 成为所有下游切片的阻塞源。</li>
- *   <li><b>S5</b>（本切片，+11 方法）：读路径 / 搜索 / 作者写路径。
- *       至此 content 模块除 upload（{@code addContent}）与 admin（{@code getContentStatus} /
- *       {@code updateContentDeletedState} / {@code findContentForAdmin}）与 feed（
- *       {@code findContentIdsByUsers} / {@code findRecentContentIdsByUsers…} / {@code countContentByUsers}）
- *       之外的方法都到位——见《事务边界决策表》§二·G 盘点 B。</li>
+ *   <li><b>S5</b>（本切片，+11 方法）：读路径 / 搜索 / 作者写路径。</li>
+ *   <li><b>S7</b>（+2 方法）：发布写路径（{@code addContent} / {@code updateFileExists}）。</li>
+ *   <li><b>S8</b>（+3 方法）：admin 内容运维（{@code getContentStatus} /
+ *       {@code updateContentDeletedState} / {@code findContentForAdmin}）。至此本类只剩
+ *       feed 用的三个方法（{@code findContentIdsByUsers} / {@code findRecentContentIdsByUsers…} /
+ *       {@code countContentByUsers}）未搬——见《事务边界决策表》§二·G 盘点 B。</li>
  * </ul>
  *
  * <h2>迁移口径</h2>
@@ -241,5 +243,45 @@ public interface ContentDao {
     int updateFileExists(@Param("contentId") long contentId,
                          @Param("exists") boolean exists,
                          @Param("lastVerifyTime") java.sql.Timestamp lastVerifyTime);
+
+    // ========================================================================
+    // S8：admin（内容运维）
+    // ========================================================================
+
+    /**
+     * 读内容当前 {@code is_deleted} 状态（A2 下架/恢复的前置校验）。
+     *
+     * <p>TV: {@code SELECT is_deleted FROM content WHERE id = ?}
+     * ——**不带 {@code is_deleted = 0} 过滤**（就是要看它当前是几）。
+     * 语义：{@code 0} 正常 / {@code 1} 作者删除 / {@code 2} 管理员下架。
+     *
+     * <p>⚠️ 返回类型是**包装类型** {@code Integer}：无行 ⇒ {@code null}（"不存在"）。
+     * TV 用 {@code -1} 哨兵表达同一件事；改用 {@code null} 是为了避免魔法值，
+     * 也**必须**是包装类型——若声明成 {@code int}，MyBatis 在无行时返回 null 会 NPE（实测 500）。
+     * 调用方（{@code ContentService.checkHideable/checkUnhideable}）判 {@code null} ⇒ 404。
+     */
+    Integer getContentStatus(@Param("contentId") long contentId);
+
+    /**
+     * 设置内容 {@code is_deleted} 状态（A2）：{@code 0} 正常 / {@code 1} 作者删除 / {@code 2} 管理员下架。
+     *
+     * <p>TV: {@code UPDATE content SET is_deleted = ? WHERE id = ?}
+     *
+     * <p>只改状态，**不动**评论/点赞/媒体记录与物理文件（TV 原注释）——"隐藏≠删除"。
+     */
+    int updateContentDeletedState(@Param("contentId") long contentId, @Param("state") int state);
+
+    /**
+     * 管理端内容清单（A2）：**含正常与已下架，不含已删除(1)的内容**。
+     *
+     * <p>TV: {@code SELECT c.id, c.title, c.type, c.is_deleted, u.username AS author_name
+     * FROM content c JOIN users u ON c.user_id = u.id WHERE c.is_deleted IN (0, 2)
+     * ORDER BY c.create_time DESC, c.id DESC}——SQL 逐字保留（含 {@code IN (0,2)} 与排序）。
+     *
+     * <p>⚠️ 别被 {@code hidden} 的映射绕进去：查询已把 {@code is_deleted} 限定为 0/2，
+     * 故 resultMap 里 {@code is_deleted → boolean hidden} 的 {@code != 0} 语义
+     * 与 TV 的 {@code rs.getInt("is_deleted") == 2} **完全等价**。
+     */
+    List<AdminContentVO> findContentForAdmin();
 }
 

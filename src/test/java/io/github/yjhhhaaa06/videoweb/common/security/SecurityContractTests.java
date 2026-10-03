@@ -129,6 +129,22 @@ class SecurityContractTests extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("S8：admin 8 端点判为需登录（TV 的 `/api/admin` 是**前缀**保护项 ⇒ 类级注解）")
+    void admin类级注解覆盖全部端点() {
+        // ⚠️ 本组断言是 401/403 契约的**机制级**保证：
+        //   缺了类级 @RequiresLogin，匿名请求会掉到 isAdminPath 判成 403（而非契约要求的 401）。
+        //   端到端侧由 AdminSecurityTests 断言状态码，两者不可互相替代（SOP §2.5）。
+        assertThat(requiresLogin("GET", "/api/admin/content/list")).isTrue();
+        assertThat(requiresLogin("POST", "/api/admin/content/hide")).isTrue();
+        assertThat(requiresLogin("POST", "/api/admin/content/unhide")).isTrue();
+        assertThat(requiresLogin("POST", "/api/admin/comment/delete")).isTrue();
+        assertThat(requiresLogin("GET", "/api/admin/media/me")).isTrue();
+        assertThat(requiresLogin("GET", "/api/admin/media/list")).isTrue();
+        assertThat(requiresLogin("POST", "/api/admin/media/scan")).isTrue();
+        assertThat(requiresLogin("POST", "/api/admin/media/restore")).isTrue();
+    }
+
+    @Test
     @DisplayName("未映射的路径返回 false：真正的 404 由 DispatcherServlet 产生，本机制不越权处理路由")
     void 未映射路径不需登录() {
         assertThat(requiresLogin("GET", "/no/such/endpoint")).isFalse();

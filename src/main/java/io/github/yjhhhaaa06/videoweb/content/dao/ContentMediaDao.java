@@ -20,13 +20,13 @@ import java.util.List;
  *
  * <p><b>不搬</b>（各有归属）：
  * <ul>
- *   <li>{@code updateFileExists} — admin/媒体审计批次（文件校验状态回写；换源路径用的是
- *       {@link #updateMediaUrl} 自带的 file_exists 参数，不经过它）</li>
- *   <li>{@code deleteMediaById} — admin/运维（按媒体 id 删）</li>
- *   <li>{@code findAllMedia} / {@code findMediaById} — 运维扫描/恢复（无端点）</li>
+ *   <li>{@code deleteMediaById} — **无消费者**：全量实测无一端点/服务调用它（TV 的死代码），
+ *       按"不搬无主代码"丢弃</li>
  * </ul>
  *
- * <p>（S7 起 {@code addMedia} / {@code updateMediaUrl} 已由 upload 批次补搬，见文末。）
+ * <p>（S7 起 {@code addMedia} / {@code updateMediaUrl} 已由 upload 批次补搬；
+ * S8 起 {@code findAllMedia} / {@code findMediaById} / {@code updateFileExists}
+ * 已由 admin 媒体审计批次补搬——见文末。）
  *
  * <h2>一处与原实现的形态差异（等价，非行为改动）</h2>
  * TV 的 {@code findMedia} 直接在 DAO 内把行按 {@code type} 分组返回
@@ -110,4 +110,38 @@ public interface ContentMediaDao {
                        @Param("url") String url,
                        @Param("exists") boolean exists,
                        @Param("lastVerifyTime") java.sql.Timestamp lastVerifyTime);
+
+    // ========================================================================
+    // S8：admin（媒体审计）
+    // ========================================================================
+
+    /**
+     * **全部**媒体行，按 {@code id} 升序（运维全量扫描的装载源）。
+     *
+     * <p>TV: {@code select id,content_id,url,type,sort from content_media order by id}
+     *
+     * <p>⚠️ 这是**无上限**全表查询（TV 原样）——它只被 {@code /api/admin/media/list} 与
+     * {@code /scan} 触发（管理员手工运维动作，非热路径）。
+     */
+    List<ContentMedia> findAllMedia();
+
+    /**
+     * 按 media id 查单条媒体行（运维恢复的前置：据此拿到 {@code url} 反解磁盘路径）。
+     * 查不到返回 {@code null} ⇒ 调用方抛 404「媒体资源不存在: mediaId=…」。
+     *
+     * <p>TV: {@code select id,content_id,url,type,sort from content_media where id=?}
+     */
+    ContentMedia findMediaById(@Param("mediaId") long mediaId);
+
+    /**
+     * 回写单条媒体的"文件存在"状态（扫描 / 恢复后）。
+     *
+     * <p>TV: {@code update content_media set file_exists=?, last_verify_time=? where id=?}
+     *
+     * <p>⚠️ 与 {@link #updateMediaUrl} 的区别：后者**同时改 url**（换源），本方法**只改校验列**。
+     * 两者都写 {@code file_exists}，别合并——换源语义与"扫描回写"是两件事。
+     */
+    int updateFileExists(@Param("mediaId") long mediaId,
+                         @Param("exists") boolean exists,
+                         @Param("lastVerifyTime") java.sql.Timestamp lastVerifyTime);
 }

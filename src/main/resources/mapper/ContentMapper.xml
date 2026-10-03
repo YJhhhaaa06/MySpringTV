@@ -220,4 +220,47 @@
         update content set file_exists=#{exists}, last_verify_time=#{lastVerifyTime} where id=#{contentId}
     </update>
 
+    <!-- ============================ S8：admin（内容运维） ============================ -->
+
+    <!-- TV: SELECT is_deleted FROM content WHERE id = ?
+         ★ 原样不带 `is_deleted = 0` 过滤——前置校验就是要看它当前是几（0 正常 / 1 作者删 / 2 下架）。
+         ⚠️ 与 TV 的**唯一差异**：TV 用 rs.next() 落 -1 作"不存在"哨兵；此处让 MyBatis 在无行时
+            返回 null（resultType 用包装类型 Integer），由 Service 判 null → 404。语义等价，
+            且免掉一个魔法值（见 ContentService.checkContentState 的说明）。 -->
+    <select id="getContentStatus" resultType="java.lang.Integer">
+        SELECT is_deleted FROM content WHERE id = #{contentId}
+    </select>
+
+    <!-- TV: UPDATE content SET is_deleted = ? WHERE id = ?
+         只改状态，不动评论/点赞/媒体记录与物理文件（"隐藏≠删除"）。 -->
+    <update id="updateContentDeletedState">
+        UPDATE content SET is_deleted = #{state} WHERE id = #{contentId}
+    </update>
+
+    <!--
+      TV: findContentForAdmin —— SQL 逐字保留（含 `is_deleted IN (0,2)` 与排序）：
+        SELECT c.id, c.title, c.type, c.is_deleted, u.username AS author_name
+        FROM content c JOIN users u ON c.user_id = u.id
+        WHERE c.is_deleted IN (0, 2)
+        ORDER BY c.create_time DESC, c.id DESC
+      ⚠️ hidden 的映射：TV 在 Java 侧算 `rs.getInt("is_deleted") == 2`。
+         这里让 is_deleted 直接映射成 boolean（BooleanTypeHandler → 数值列取 != 0）；
+         因查询已限定 IN (0,2)，`!= 0` 与 `== 2` **等价**。
+    -->
+    <resultMap id="adminContentMap" type="io.github.yjhhhaaa06.videoweb.content.model.vo.AdminContentVO">
+        <id property="id" column="id"/>
+        <result property="title" column="title"/>
+        <result property="type" column="type"/>
+        <result property="authorName" column="author_name"/>
+        <result property="hidden" column="is_deleted"/>
+    </resultMap>
+
+    <select id="findContentForAdmin" resultMap="adminContentMap">
+        SELECT c.id, c.title, c.type, c.is_deleted, u.username AS author_name
+        FROM content c
+        JOIN users u ON c.user_id = u.id
+        WHERE c.is_deleted IN (0, 2)
+        ORDER BY c.create_time DESC, c.id DESC
+    </select>
+
 </mapper>

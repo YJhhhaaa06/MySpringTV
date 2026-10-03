@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.content.service;
 
+import io.github.yjhhhaaa06.videoweb.common.exception.ConflictException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ForbiddenException;
 import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
@@ -12,6 +13,7 @@ import io.github.yjhhhaaa06.videoweb.content.model.ContentType;
 import io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO;
 import io.github.yjhhhaaa06.videoweb.content.model.entity.Content;
 import io.github.yjhhhaaa06.videoweb.content.model.entity.ContentMedia;
+import io.github.yjhhhaaa06.videoweb.content.model.vo.AdminContentVO;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentDetailVO;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentVO;
 import io.github.yjhhhaaa06.videoweb.comment.dao.CommentDao;
@@ -51,6 +53,10 @@ import java.util.Map;
  *   <tr><td>{@code POST /api/upload/video}</td><td>{@link #addVideo}</td><td>{@code @Transactional}（S7）</td></tr>
  *   <tr><td>{@code POST /api/upload/post}</td><td>{@link #addPost}</td><td>{@code @Transactional}（S7）</td></tr>
  *   <tr><td>{@code POST /api/upload/replace}</td><td>{@link #replaceMedia}</td><td>{@code @Transactional}（S7）</td></tr>
+ *   <tr><td>{@code GET /api/admin/content/list}</td><td>{@link #listContentForAdmin}</td>
+ *       <td>无（纯读，S8 去事务）</td></tr>
+ *   <tr><td>{@code POST /api/admin/content/hide}</td><td>{@link #hideContent}</td><td>{@code @Transactional}（S8）</td></tr>
+ *   <tr><td>{@code POST /api/admin/content/unhide}</td><td>{@link #unhideContent}</td><td>{@code @Transactional}（S8）</td></tr>
  * </table>
  *
  * <h2>提交后副作用统一走事件（G-3）</h2>
@@ -496,5 +502,114 @@ public class ContentService {
             byType.computeIfAbsent(media.getType(), key -> new ArrayList<>()).add(media);
         }
         return byType;
+    }
+
+    // ========================================================================
+    // S8：admin 内容运维（决策表 §四·S8）
+    // ========================================================================
+
+    /**
+     * 管理端内容清单（{@code GET /api/admin/content/list}）：含正常与已下架，
+     * **不含已删除(1)** 的内容（TV 的 {@code WHERE is_deleted IN (0,2)}）。
+     *
+     * <h2>★ 决策表 §四·S8：⚠️ 有意改进——去掉事务</h2>
+     * TV 用 {@code transactionTemplate.execute} 包了一条纯 SELECT，其事务只承担"取连接"的作用
+     * （旧模型每次 DAO 调用都要一个 conn）。单条读无原子性语义，去掉后**对外行为逐字不变**，
+     * 与 G-2（search）/ G-5（profile）同款处置。
+     *
+     * <p>权限（{@code role == 1}）由 {@code JwtAuthFilter} 在 {@code /api/admin/*} 统一校验，
+     * 本方法不再重复判权（TV 原样）。
+     */
+    public List<AdminContentVO> listContentForAdmin() {
+        return contentDao.findContentForAdmin();
+    }
+
+    /**
+     * 管理员下架内容（{@code POST /api/admin/content/hide}）：{@code is_deleted} 0→2。
+     *
+     * <h2>★ 决策表 §四·S8：✅ 保持单事务</h2>
+     * 一个事务里两件事：① 前置校验（404 / 409，见 {@link #checkHideable}）
+     * ② {@code updateContentDeletedState(2)}。校验与写必须同进同退——否则并发下
+     * "校验通过但状态已被别人改掉"会静默写入错误状态。
+     *
+     * <h2>★ 提交后：三条失效由**既有订阅方**承接（A10 闭合，零新代码）</h2>
+     * TV 下架后依次调三行：{@code contentCache.removeContent} +
+     * {@code commentCache.invalidateComments} + {@code likeService.deleteContentLike}。
+     * S6-B2 起这三件事已改由「内容域发事件、评论域与点赞域各自订阅」承担：
+     * <pre>
+     *   events.publishEvent(remove(contentId))        // 本行
+     *     ├─ ContentCacheChangedListener      → removeContent（DEL 内容 key + 从**全部**索引剔除）
+     *     ├─ ContentRemovedCommentListener    → invalidateComments（评论两键组整组失效）
+     *     └─ ContentRemovedLikeListener       → deleteContentLike（点赞计数 key 失效）
+     * </pre>
+     * 三者都在本事务**提交后**执行（AFTER_COMMIT）；事务回滚 ⇒ 一条都不执行。
+     * 这既与 TV 的三行**逐条等价**，又让内容域不必知道评论域/点赞域有缓存。
+     *
+     * <p>下架只改 {@code is_deleted}，**不动**评论/点赞/媒体记录与物理文件——"隐藏≠删除"，
+     * 恢复后数据完好（旧 pytest {@code test_hide_content.py} 对此有逐字断言）。
+     */
+    @Transactional
+    public void hideContent(long contentId) {
+        checkHideable(contentId);
+        contentDao.updateContentDeletedState(contentId, CONTENT_STATE_HIDDEN);
+        events.publishEvent(ContentCacheChangedEvent.remove(contentId));
+    }
+
+    /**
+     * 管理员恢复内容（{@code POST /api/admin/content/unhide}）：{@code is_deleted} 2→0。
+     *
+     * <p>决策同 {@link #hideContent}（✅ 保持单事务）。
+     *
+     * <h2>提交后：只发 {@code REFRESH}（与 TV 逐字对齐）</h2>
+     * TV 恢复后只调 {@code contentCache.refreshContent(contentId)}——**不碰**评论/点赞缓存
+     * （它们在**下架时**已整组失效，恢复时按需自愈回填）。故这里只发
+     * {@code refresh}：重载内容 key + 刷新索引，前台立即重新可见。
+     */
+    @Transactional
+    public void unhideContent(long contentId) {
+        checkUnhideable(contentId);
+        contentDao.updateContentDeletedState(contentId, CONTENT_STATE_NORMAL);
+        events.publishEvent(ContentCacheChangedEvent.refresh(contentId));
+    }
+
+    /** {@code content.is_deleted}：正常。 */
+    private static final int CONTENT_STATE_NORMAL = 0;
+    /** {@code content.is_deleted}：作者删除。 */
+    private static final int CONTENT_STATE_DELETED = 1;
+    /** {@code content.is_deleted}：管理员下架。 */
+    private static final int CONTENT_STATE_HIDDEN = 2;
+
+    /**
+     * 下架前置校验：存在且未被删除、未处于下架态。
+     *
+     * <p>⚠️ 与 TV 的**唯一差异**：TV 的 {@code getContentStatus} 用 {@code -1} 作"不存在"哨兵，
+     * 这里让 DAO 返回 {@code Integer}（无行 ⇒ {@code null}）并判 {@code null} ⇒ 404。
+     * 三条分支的**异常类型与文案逐字保留**（决定 404 / 409 / 409）。
+     */
+    private void checkHideable(long contentId) {
+        Integer state = contentDao.getContentStatus(contentId);
+        if (state == null) {
+            throw new NotFoundException("内容不存在");
+        }
+        if (state == CONTENT_STATE_DELETED) {
+            throw new ConflictException("内容已删除，无法下架");
+        }
+        if (state == CONTENT_STATE_HIDDEN) {
+            throw new ConflictException("内容已下架");
+        }
+    }
+
+    /** 恢复前置校验：存在且未被删除、当前**处于**下架态（否则 409「内容未下架」）。 */
+    private void checkUnhideable(long contentId) {
+        Integer state = contentDao.getContentStatus(contentId);
+        if (state == null) {
+            throw new NotFoundException("内容不存在");
+        }
+        if (state == CONTENT_STATE_DELETED) {
+            throw new ConflictException("内容已删除，无法恢复");
+        }
+        if (state == CONTENT_STATE_NORMAL) {
+            throw new ConflictException("内容未下架");
+        }
     }
 }

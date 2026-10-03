@@ -71,4 +71,25 @@
         where id=#{mediaId}
     </update>
 
+    <!-- ============================ S8：admin（媒体审计） ============================ -->
+
+    <!-- TV: findAllMedia —— `select id,content_id,url,type,sort from content_media order by id`
+         （运维全量扫描的装载源；无上限，仅管理员手工动作触发）。 -->
+    <select id="findAllMedia" resultMap="contentMediaMap">
+        select id,content_id,url,type,sort from content_media order by id
+    </select>
+
+    <!-- TV: findMediaById —— `select id,content_id,url,type,sort from content_media where id=?`
+         （恢复前置：据 url 反解磁盘路径）。无行 → MyBatis 返回 null ⇒ 调用方 404。 -->
+    <select id="findMediaById" resultMap="contentMediaMap">
+        select id,content_id,url,type,sort from content_media where id=#{mediaId}
+    </select>
+
+    <!-- TV: updateFileExists —— `update content_media set file_exists=?, last_verify_time=? where id=?`
+         （扫描/恢复后回写"文件存在"校验列；**不改 url**——与 updateMediaUrl 是两件事）。 -->
+    <update id="updateFileExists">
+        update content_media set file_exists=#{exists}, last_verify_time=#{lastVerifyTime}
+        where id=#{mediaId}
+    </update>
+
 </mapper>
