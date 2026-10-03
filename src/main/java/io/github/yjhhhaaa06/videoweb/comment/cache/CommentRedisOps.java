@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.comment.cache;
 
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheKeys;
+import io.github.yjhhhaaa06.videoweb.common.cache.RedisCircuitBreaker;
 import io.github.yjhhhaaa06.videoweb.common.cache.RedisOps;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
@@ -35,8 +36,8 @@ import java.util.Map;
 @Component
 public class CommentRedisOps extends RedisOps {
 
-    public CommentRedisOps(StringRedisTemplate redis) {
-        super(redis);
+    public CommentRedisOps(StringRedisTemplate redis, RedisCircuitBreaker breaker) {
+        super(redis, breaker);
     }
 
     // ==================== 空标记 ====================
@@ -142,12 +143,15 @@ public class CommentRedisOps extends RedisOps {
         if (fieldValues.isEmpty()) {
             return;
         }
-        guardedVoid(() -> pipeline(p -> {
+        // pipeline 内部已走 guarded（含异常归一化与熔断计数）——**不要再包一层**：
+        // 嵌套会让同一逻辑被计两次，且在 HALF_OPEN 下外层占用唯一探针许可后内层被拒，
+        // 反被外层误记为失败（B4 评审发现的坑）。
+        pipeline(p -> {
             for (Map.Entry<String, String> entry : fieldValues.entrySet()) {
                 p.opsForHash().put(repliesKey, entry.getKey(), entry.getValue());
             }
             p.expire(repliesKey, ttl);
-        }));
+        });
     }
 
     /** 定向删一个 field（HDEL）：回复增删 / 评论点赞后让它"回到未装载"，下次读懒载刷新。 */

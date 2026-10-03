@@ -67,8 +67,9 @@ public class CacheAside extends RedisOps {
     /** 打点（B3）：六类事件与 TV {@code CacheStats} 同名，见 {@link CacheMetrics}。 */
     private final CacheMetrics metrics;
 
-    public CacheAside(StringRedisTemplate redis, JsonCodec codec, CacheMetrics metrics) {
-        super(redis);
+    public CacheAside(StringRedisTemplate redis, JsonCodec codec, CacheMetrics metrics,
+                      RedisCircuitBreaker breaker) {
+        super(redis, breaker);
         this.codec = codec;
         this.metrics = metrics;
     }

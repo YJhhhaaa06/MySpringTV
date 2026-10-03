@@ -54,6 +54,20 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
+
+        <!-- ==================== 韧性：Redis 熔断（第三批 T3 / 账 B4） ====================
+             TV 自研 cache/RedisCircuitBreaker（CLOSED→OPEN→HALF_OPEN 状态机）随 cache 包一起被裁，
+             《迁移参照系》§三 的处置依据是"Resilience4j 接管"——但**从未接管** ⇒ 登记为 B4。
+             本依赖只引**核心库**（不引 resilience4j-spring-boot3）：
+               * 核心库是纯 Java、无 Spring 版本耦合，避免 starter 对 Boot 4.x 的适配风险；
+               * 熔断器以 @Bean 手工装配（见 RedisBreakerConfig），接在协议层 RedisOps.guarded 外层。
+             版本需显式声明（Boot 父 POM 不托管 resilience4j）。 -->
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-circuitbreaker</artifactId>
+            <version>2.3.0</version>
+        </dependency>
+
         <!-- 声明式参数校验：承接 TV 散落各 Controller 的手写校验（踩坑清单 §8【隐患】） -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.like.cache;
 
+import io.github.yjhhhaaa06.videoweb.common.cache.RedisCircuitBreaker;
 import io.github.yjhhhaaa06.videoweb.common.cache.RedisOps;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -74,8 +75,8 @@ public class LikeRedisOps extends RedisOps {
     private static final DefaultRedisScript<Long> BACKFILL_SET_SCRIPT =
             new DefaultRedisScript<>(BACKFILL_SET_LUA, Long.class);
 
-    public LikeRedisOps(StringRedisTemplate redis) {
-        super(redis);
+    public LikeRedisOps(StringRedisTemplate redis, RedisCircuitBreaker breaker) {
+        super(redis, breaker);
     }
 
     // ==================== 读 ====================

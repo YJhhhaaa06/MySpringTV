@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.content.cache;
 
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheKeys;
+import io.github.yjhhhaaa06.videoweb.common.cache.RedisCircuitBreaker;
 import io.github.yjhhhaaa06.videoweb.common.cache.RedisOps;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
@@ -33,8 +34,8 @@ import java.util.List;
 @Component
 public class ContentRedisOps extends RedisOps {
 
-    public ContentRedisOps(StringRedisTemplate redis) {
-        super(redis);
+    public ContentRedisOps(StringRedisTemplate redis, RedisCircuitBreaker breaker) {
+        super(redis, breaker);
     }
 
     /**

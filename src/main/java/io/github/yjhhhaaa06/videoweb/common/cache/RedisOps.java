@@ -57,8 +57,15 @@ public abstract class RedisOps {
     /** 子类命令层直接用（如 {@code redis.opsForSet()}）；子类不再各自声明字段与构造。 */
     protected final StringRedisTemplate redis;
 
-    public RedisOps(StringRedisTemplate redis) {
+    /**
+     * Redis 全局熔断器（第三批 T3 / 账 B4）。所有命令经 {@link #guarded} 收口，
+     * 熔断即在那一处生效——与 TV"从 {@code RedisAccess.execute} 收口"同构。
+     */
+    protected final RedisCircuitBreaker breaker;
+
+    public RedisOps(StringRedisTemplate redis, RedisCircuitBreaker breaker) {
         this.redis = redis;
+        this.breaker = breaker;
     }
 
     // ========================================================================
@@ -159,16 +166,34 @@ public abstract class RedisOps {
     }
 
     // ========================================================================
-    // 异常归一化
+    // 异常归一化 + 熔断
     // ========================================================================
 
-    /** 把任意 Redis 层异常归一化为 {@link CacheUnavailableException}（子类命令层复用）。 */
+    /**
+     * 把任意 Redis 层异常归一化为 {@link CacheUnavailableException}（子类命令层复用），
+     * 并在**外层**施加全局熔断（B4）：
+     *
+     * <pre>
+     * 熔断打开 → 立即抛 CacheUnavailableException（**不访问 Redis**，不再等 Jedis 超时）
+     * 放行     → 执行命令 → 成功记 success / 失败记 failure（Resilience4j 据此开闭状态机）
+     * </pre>
+     *
+     * <p>注意失败计数只发生在**真正访问过 Redis**的调用上：被熔断拦下的调用不计数
+     * （否则会不断续期熔断窗口，永不进入 HALF_OPEN 探针）。
+     */
     protected <T> T guarded(Supplier<T> action) {
+        if (!breaker.tryAcquire()) {
+            throw new CacheUnavailableException("Redis 熔断开启中，快速失败（未访问 Redis）");
+        }
         try {
-            return action.get();
+            T result = action.get();
+            breaker.recordSuccess();
+            return result;
         } catch (CacheUnavailableException e) {
+            breaker.recordFailure();
             throw e;
         } catch (RuntimeException e) {
+            breaker.recordFailure();
             throw new CacheUnavailableException("Redis 访问失败: " + e.getMessage(), e);
         }
     }

@@ -56,7 +56,7 @@ spring:
   # --------------------------------------------------------------------------
   # Redis（决策⑤）：Jedis 客户端（Lettuce 已在 pom 中排除）
   # 超时口径沿用 TV：connect/so 各 1000ms，池 maxWait 1000ms。
-  # 熔断（redis.breaker.*）由 Resilience4j 承接，本阶段未接入。
+  # 熔断由 Resilience4j 承接（第三批 T3 / 账 B4），配置见 video.cache.redis-breaker。
   # 注意 Boot 4 前缀为 spring.data.redis.*（旧教程的 spring.redis.* 已废）。
   # --------------------------------------------------------------------------
   data:
@@ -185,6 +185,22 @@ video:
     # ⚠️ 0 = 关闭退避（与 TV 同口径，"测试注入大值即等效关闭"）。
     # ⚠️ 必须带单位后缀，写裸数字会被解析成秒级。
     content-index-rebuild-cooldown: ${CONTENT_INDEX_REBUILD_COOLDOWN:10s}
+    # ------------------------------------------------------------------------
+    # Redis 熔断器（第三批 T3 / 账 B4）。对应 TV app.properties 的 redis.breaker.*
+    # （failureThreshold / cooldownMillis），并补齐 Resilience4j 滑动窗口参数。
+    # 粒度：全局单熔断（TV 执行定稿——单 Redis 宕机影响所有域，按域熔断只增加探针流量）。
+    # 接在协议层 RedisOps.guarded：熔断打开时**不访问 Redis**、立即降级走 DB，
+    # 不再每请求等 Jedis 的 1000ms 超时。
+    # ⚠️ minimum-number-of-calls 必须 ≤ sliding-window-size（RedisBreakerProperties 绑定期校验）。
+    # ------------------------------------------------------------------------
+    redis-breaker:
+      failure-rate-threshold: ${REDIS_BREAKER_FAILURE_RATE:50}
+      sliding-window-size: ${REDIS_BREAKER_WINDOW_SIZE:10}
+      minimum-number-of-calls: ${REDIS_BREAKER_MIN_CALLS:5}
+      # OPEN 冷却时长（期满放行单个探针）。TV: redis.breaker.cooldownMillis=10000。
+      # ⚠️ Duration 必须带单位后缀（10s），写裸数字会解析成秒级。
+      wait-duration-in-open-state: ${REDIS_BREAKER_OPEN_WAIT:10s}
+      permitted-number-of-calls-in-half-open-state: ${REDIS_BREAKER_HALF_OPEN_CALLS:1}
     # 评论缓存（S5 切片）。口径对齐 TV AppConfig.getCommentTtlSeconds()
     # ← app.properties 的 cache.comment.ttlMinutes=10。
     # TV 理由（原注释）："comment 10min（命中 38%~42%，新鲜度敏感：评论增删/点赞失效驱动，

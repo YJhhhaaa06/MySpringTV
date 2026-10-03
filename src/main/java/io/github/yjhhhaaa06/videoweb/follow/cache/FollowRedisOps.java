@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.follow.cache;
 
+import io.github.yjhhhaaa06.videoweb.common.cache.RedisCircuitBreaker;
 import io.github.yjhhhaaa06.videoweb.common.cache.RedisOps;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -147,8 +148,8 @@ public class FollowRedisOps extends RedisOps {
     private static final DefaultRedisScript<Long> COUNT_CONDITIONAL_SCRIPT =
             new DefaultRedisScript<>(COUNT_CONDITIONAL_LUA, Long.class);
 
-    public FollowRedisOps(StringRedisTemplate redis) {
-        super(redis);
+    public FollowRedisOps(StringRedisTemplate redis, RedisCircuitBreaker breaker) {
+        super(redis, breaker);
     }
 
     // ==================== 读 ====================

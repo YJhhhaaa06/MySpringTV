@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.feed.cache;
 
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheKeys;
+import io.github.yjhhhaaa06.videoweb.common.cache.RedisCircuitBreaker;
 import io.github.yjhhhaaa06.videoweb.common.cache.RedisOps;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -76,8 +77,8 @@ public class FeedRedisOps extends RedisOps {
     private static final DefaultRedisScript<Long> BACKFILL_ZSET_SCRIPT =
             new DefaultRedisScript<>(BACKFILL_ZSET_LUA, Long.class);
 
-    public FeedRedisOps(StringRedisTemplate redis) {
-        super(redis);
+    public FeedRedisOps(StringRedisTemplate redis, RedisCircuitBreaker breaker) {
+        super(redis, breaker);
     }
 
     // ==================== 读 ====================
