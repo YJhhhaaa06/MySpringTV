@@ -2,6 +2,7 @@ package io.github.yjhhhaaa06.videoweb.follow.cache;
 
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheKeys;
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheUnavailableException;
+import io.github.yjhhhaaa06.videoweb.common.cache.SingleFlight;
 import io.github.yjhhhaaa06.videoweb.common.config.FollowCacheProperties;
 import io.github.yjhhhaaa06.videoweb.follow.dao.FollowDao;
 import io.github.yjhhhaaa06.videoweb.user.dao.UserDao;
@@ -53,9 +54,9 @@ import java.util.Set;
  * <h2>相对 TV 的有意精简（逐条记录在决策表 F-7，此处只列要点）</h2>
  * <b>保留</b>：条件双写防残缺缓存（Lua 原子）、失败降级、TTL 与命中续期、有序窗口读、
  * 批量状态（一趟 pipeline）、三态读、空标记。
- * <b>去掉</b>：**单飞**（并发 miss 各打一次 DB，正确性不变）、**{@code partial} 标记**
- * （T11-C 的前缀窗口装载 ⇒ 本切片回到"key 存在即完整"的 T7 口径；影响与补回位置见 F-7）、
- * 打点、熔断、TV 的通用 {@code CacheAside}/{@code ZSetCache} 框架层。
+ * <b>单飞</b>（B1）已由第三批 T3 收回：miss 全量装载经 {@link SingleFlight}，同 key 并发只回源一次。
+ * 去掉：**{@code partial} 标记**（T11-C 的前缀窗口装载 ⇒ 本切片回到"key 存在即完整"的 T7 口径；
+ * 影响与补回位置见 F-7）、打点、熔断、TV 的通用 {@code CacheAside}/{@code ZSetCache} 框架层。
  *
  * <h2>★ 计数缓存：S4 去掉、S5 补回（决策表 G-8）</h2>
  * S4 曾去掉 {@code user:followCount} / {@code user:followerCount}（理由：去掉 {@code partial} 后
@@ -102,12 +103,16 @@ public class FollowCache {
     private final FollowDao followDao;
     private final UserDao userDao;
     private final FollowCacheProperties props;
+    /** 单飞（B1）：同 key 并发 miss 只回源一次。 */
+    private final SingleFlight singleFlight;
 
-    public FollowCache(FollowRedisOps ops, FollowDao followDao, UserDao userDao, FollowCacheProperties props) {
+    public FollowCache(FollowRedisOps ops, FollowDao followDao, UserDao userDao,
+                       FollowCacheProperties props, SingleFlight singleFlight) {
         this.ops = ops;
         this.followDao = followDao;
         this.userDao = userDao;
         this.props = props;
+        this.singleFlight = singleFlight;
     }
 
     // ========================================================================
@@ -220,13 +225,16 @@ public class FollowCache {
             log.warn("关注计数缓存值非法，按 miss 处理并清除: key={}", countKey);
             invalidateQuietly(countKey);
         }
-        int value = dbLoader.getAsInt();
-        try {
-            ops.setString(countKey, String.valueOf(value), props.followTtl());
-        } catch (CacheUnavailableException e) {
-            log.warn("关注计数回填失败（不影响本次读结果，下次读重试）: key={}", countKey);
-        }
-        return value;
+        // miss：DB 是真理源，回填；单飞（B1）让同 key 并发只回源一次
+        return singleFlight.get(countKey, () -> {
+            int loaded = dbLoader.getAsInt();
+            try {
+                ops.setString(countKey, String.valueOf(loaded), props.followTtl());
+            } catch (CacheUnavailableException e) {
+                log.warn("关注计数回填失败（不影响本次读结果，下次读重试）: key={}", countKey);
+            }
+            return loaded;
+        });
     }
 
     // ========================================================================
@@ -292,9 +300,13 @@ public class FollowCache {
             // DB 失败必须上抛（不被此 catch 吞掉）：loader 在本 catch 块内执行，异常直接冒泡
             return sortedAsc(followDao.findAllFollowedUserIds(userId));
         }
-        List<Long> all = sortedAsc(followDao.findAllFollowedUserIds(userId));
-        backfillQuietly(dataKey, emptyKey, all);
-        return all;
+        List<Long> all = singleFlight.get(dataKey, () -> {
+            List<Long> loaded = sortedAsc(followDao.findAllFollowedUserIds(userId));
+            backfillQuietly(dataKey, emptyKey, loaded);
+            return loaded;
+        });
+        // 防御性拷贝：单飞让并发者共享同一 List，调用方（feed 等）若原地改动会互相影响（TV 同样 new ArrayList）
+        return new ArrayList<>(all);
     }
 
     private Window window(String dataKey, long offset, int count,
@@ -317,9 +329,12 @@ public class FollowCache {
             // DB 失败必须上抛（不被此 catch 吞掉）：loader 在本 catch 块内执行，异常直接冒泡
             return new Window(dbWindowLoader.load(), dbCountLoader.count());
         }
-        // miss：DB 是真理源，顺带回填（回填失败不影响本次结果）
-        List<Long> all = sortedAsc(fullLoader.load());
-        backfillQuietly(dataKey, emptyKey, all);
+        // miss：DB 是真理源，回填；单飞（B1）让同 key 并发只回源一次（回填失败不影响本次结果）
+        List<Long> all = singleFlight.get(dataKey, () -> {
+            List<Long> loaded = sortedAsc(fullLoader.load());
+            backfillQuietly(dataKey, emptyKey, loaded);
+            return loaded;
+        });
         return new Window(slice(all, offset, count), (long) all.size());
     }
 
@@ -362,8 +377,12 @@ public class FollowCache {
             log.warn("批量关注状态缓存读失败，降级 DB: key={}", dataKey, e);
             return toResultMap(followedUserIds, followDao.findFollowedIdsIn(userId, followedUserIds));
         }
-        List<Long> all = sortedAsc(followDao.findAllFollowedUserIds(userId));
-        backfillQuietly(dataKey, emptyKey, all);
+        // miss：单飞（B1）——同一关注集的并发批量读只回源一次（负载是全量，与请求 id 子集无关）
+        List<Long> all = singleFlight.get(dataKey, () -> {
+            List<Long> loaded = sortedAsc(followDao.findAllFollowedUserIds(userId));
+            backfillQuietly(dataKey, emptyKey, loaded);
+            return loaded;
+        });
         return toResultMap(followedUserIds, new HashSet<>(all));
     }
 
@@ -398,8 +417,12 @@ public class FollowCache {
             // DB 失败必须上抛（不被此 catch 吞掉）：loader 在本 catch 块内执行，异常直接冒泡
             return followDao.isFollowing(userId, followedUserId);
         }
-        List<Long> all = sortedAsc(followDao.findAllFollowedUserIds(userId));
-        backfillQuietly(dataKey, emptyKey, all);
+        // miss：单飞（B1）——同一关注集的并发单条判定只回源一次
+        List<Long> all = singleFlight.get(dataKey, () -> {
+            List<Long> loaded = sortedAsc(followDao.findAllFollowedUserIds(userId));
+            backfillQuietly(dataKey, emptyKey, loaded);
+            return loaded;
+        });
         return all.contains(followedUserId);
     }
 

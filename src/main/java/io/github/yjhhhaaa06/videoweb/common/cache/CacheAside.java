@@ -38,11 +38,13 @@ import java.util.function.Supplier;
  * 这是 S3/S4 定下的纪律，S5 沿用：**降级成空值会把"读不到"伪装成"没有"**。
  *
  * <h2>相对 TV 有意去掉的（逐条记在决策表 G-6，此处只列要点）</h2>
- * <b>去掉</b>：单飞 {@code SingleFlight}（并发 miss 各打一次 DB，正确性不变）、
- * {@code CacheResult}/{@code CacheStatus} 三态枚举（本类只暴露"值或 null"，够用）、
+ * <b>去掉</b>：{@code CacheResult}/{@code CacheStatus} 三态枚举（本类只暴露"值或 null"，够用）、
  * {@code writeBatch}（它只服务 TV 的启动全量重建，而 {@code init()} 本切片不搬）。
  * <b>保留</b>：三态读、空标记（含"数据 key 已存在则不写空标记"的守卫）、写失败 DEL 自愈、
  * TTL 抖动、读命中续期（**空标记从不续期**）、批量读（含批量装载器）、降级不写回。
+ *
+ * <p><b>单飞（B1，2026-10-03 收回）</b>：原"去掉 {@code SingleFlight}"那一项已由第三批 T3 兑现
+ * （见 {@link SingleFlight}）——miss 回填与降级装载都经单飞，同 key 并发只打一次 DB。
  *
  * <p><b>打点（B3，2026-10-03 收回）</b>：原"去掉 {@code CacheStats} 打点"那一项已由 T2 兑现，
  * 但不是搬回 TV 的摘要日志，而是接入 Micrometer（{@link CacheMetrics}，六事件同名）——
@@ -67,11 +69,15 @@ public class CacheAside extends RedisOps {
     /** 打点（B3）：六类事件与 TV {@code CacheStats} 同名，见 {@link CacheMetrics}。 */
     private final CacheMetrics metrics;
 
+    /** 单飞（B1）：同 key 并发 miss / 降级只打一次 DB。 */
+    private final SingleFlight singleFlight;
+
     public CacheAside(StringRedisTemplate redis, JsonCodec codec, CacheMetrics metrics,
-                      RedisCircuitBreaker breaker) {
+                      RedisCircuitBreaker breaker, SingleFlight singleFlight) {
         super(redis, breaker);
         this.codec = codec;
         this.metrics = metrics;
+        this.singleFlight = singleFlight;
     }
 
     // ========================================================================
@@ -92,7 +98,8 @@ public class CacheAside extends RedisOps {
         } catch (CacheUnavailableException e) {
             metrics.record(CacheMetrics.Event.DEGRADE);
             log.warn("缓存读异常，降级直查 DB: key={}", dataKey, e);
-            return loader.get();
+            // 降级也经单飞（B1）：同 key 并发降级只打一次 DB；仅装载、不写回（D4）
+            return singleFlight.get(dataKey, loader::get);
         }
         if (probe.emptyMarker()) {
             metrics.record(CacheMetrics.Event.HIT_EMPTY);
@@ -106,19 +113,22 @@ public class CacheAside extends RedisOps {
             } catch (CacheUnavailableException e) {
                 metrics.record(CacheMetrics.Event.DEGRADE);
                 log.warn("缓存值不可信（脏 JSON），本次降级直查 DB（不回填）: key={}", dataKey);
-                return loader.get();
+                return singleFlight.get(dataKey, loader::get);
             }
         }
         // miss：回源 + 回填（loader 的 DB 异常原样上抛，见类注释）
         metrics.record(CacheMetrics.Event.MISS);
-        T value = loader.get();
-        metrics.record(CacheMetrics.Event.LOAD);
-        if (value != null) {
-            writeOrInvalidate(dataKey, value, ttl);
-        } else {
-            markEmpty(dataKey);
-        }
-        return value;
+        // 单飞（B1）：同 key 并发 miss 只由一个 leader 回源并回填，其余线程共享结果（LOAD 只记一次）
+        return singleFlight.get(dataKey, () -> {
+            T value = loader.get();
+            metrics.record(CacheMetrics.Event.LOAD);
+            if (value != null) {
+                writeOrInvalidate(dataKey, value, ttl);
+            } else {
+                markEmpty(dataKey);
+            }
+            return value;
+        });
     }
 
     // ========================================================================

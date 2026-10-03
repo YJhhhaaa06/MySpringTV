@@ -2,6 +2,7 @@ package io.github.yjhhhaaa06.videoweb.resilience;
 
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheAside;
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheUnavailableException;
+import io.github.yjhhhaaa06.videoweb.common.cache.SingleFlight;
 import io.github.yjhhhaaa06.videoweb.common.config.ContentCacheProperties;
 import io.github.yjhhhaaa06.videoweb.common.config.MediaProperties;
 import io.github.yjhhhaaa06.videoweb.content.cache.ContentCache;
@@ -56,7 +57,8 @@ class ContentIndexCooldownTests {
         CacheAside cacheAside = mock(CacheAside.class);
         indexOps = mock(ContentRedisOps.class);
         return new ContentCache(contentDao, contentMediaDao, cacheAside, indexOps,
-                new ContentCacheProperties(Duration.ofMinutes(30), cooldown), new MediaProperties(""));
+                new ContentCacheProperties(Duration.ofMinutes(30), cooldown), new MediaProperties(""),
+                new SingleFlight());
     }
 
     /** 前置：索引 key 不存在（触发懒重建），且 DB 装载失败（模拟 DB 故障）。 */

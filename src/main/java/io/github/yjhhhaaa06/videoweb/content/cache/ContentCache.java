@@ -3,6 +3,7 @@ package io.github.yjhhhaaa06.videoweb.content.cache;
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheAside;
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheKeys;
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheUnavailableException;
+import io.github.yjhhhaaa06.videoweb.common.cache.SingleFlight;
 import io.github.yjhhhaaa06.videoweb.common.config.ContentCacheProperties;
 import io.github.yjhhhaaa06.videoweb.common.config.MediaProperties;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
@@ -78,6 +79,13 @@ public class ContentCache {
     private final ContentRedisOps indexOps;
     private final ContentCacheProperties props;
     private final MediaProperties mediaProps;
+    /** 单飞（B1）：并发索引缺失时只由一个线程重建（防惊群），与 {@link #inIndexRebuildCooldown} 互补。 */
+    private final SingleFlight singleFlight;
+
+    /**
+     * 索引懒重建单飞 key（进程内，非 Redis key；TV 同名字面量）。
+     */
+    private static final String INDEX_REBUILD_KEY = "content:index:rebuild";
 
     /**
      * 上次索引懒重建失败时刻（毫秒）；0 = 从未失败 / 已恢复。进程内退避记录（TV T5/N1，账 B6）。
@@ -90,13 +98,15 @@ public class ContentCache {
                         CacheAside cacheAside,
                         ContentRedisOps indexOps,
                         ContentCacheProperties props,
-                        MediaProperties mediaProps) {
+                        MediaProperties mediaProps,
+                        SingleFlight singleFlight) {
         this.contentDao = contentDao;
         this.contentMediaDao = contentMediaDao;
         this.cacheAside = cacheAside;
         this.indexOps = indexOps;
         this.props = props;
         this.mediaProps = mediaProps;
+        this.singleFlight = singleFlight;
     }
 
     // ========================================================================
@@ -480,19 +490,27 @@ public class ContentCache {
         } catch (CacheUnavailableException e) {
             log.warn("索引检查失败（视为无索引，尝试重建）: key={}", indexKey, e);
         }
-        List<ContentCacheDTO> all;
-        try {
-            all = contentDao.findAllContent();
-        } catch (DataAccessException e) {
-            lastFailedRebuildAtMillis = System.currentTimeMillis();
-            log.warn("索引重建装载失败（跳过重建，保留旧索引；进入冷却退避）", e);
-            return;
-        }
-        if (rebuildIndexes(all)) {
-            lastFailedRebuildAtMillis = 0; // 重建成功即恢复正常，冷却清除
-        } else {
-            lastFailedRebuildAtMillis = System.currentTimeMillis();
-        }
+        // 单飞（B1）：同 key 并发缺失只由一个线程重建，其余等待——防惊群。
+        // 与冷却退避互补：退避治"串行重复"（停机期间每请求一次），单飞治"并发重叠"（惊群）。
+        singleFlight.get(INDEX_REBUILD_KEY, () -> {
+            if (inIndexRebuildCooldown()) {
+                return null; // 双检：并发线程在"通过入口冷却判定"与"抢到 leader"之间，可能已有他者失败进入冷却
+            }
+            List<ContentCacheDTO> loaded;
+            try {
+                loaded = contentDao.findAllContent();
+            } catch (DataAccessException e) {
+                lastFailedRebuildAtMillis = System.currentTimeMillis();
+                log.warn("索引重建装载失败（跳过重建，保留旧索引；进入冷却退避）", e);
+                return null;
+            }
+            if (rebuildIndexes(loaded)) {
+                lastFailedRebuildAtMillis = 0; // 重建成功即恢复正常，冷却清除
+            } else {
+                lastFailedRebuildAtMillis = System.currentTimeMillis();
+            }
+            return null;
+        });
     }
 
     /** 冷却窗口判定：存在失败记录且未过窗口 → true（跳过重建）。冷却过期后自然重试完整链路。 */

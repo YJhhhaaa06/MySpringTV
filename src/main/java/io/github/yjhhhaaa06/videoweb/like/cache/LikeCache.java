@@ -2,6 +2,7 @@ package io.github.yjhhhaaa06.videoweb.like.cache;
 
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheKeys;
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheUnavailableException;
+import io.github.yjhhhaaa06.videoweb.common.cache.SingleFlight;
 import io.github.yjhhhaaa06.videoweb.common.config.LikeCacheProperties;
 import io.github.yjhhhaaa06.videoweb.like.dao.CommentLikeDao;
 import io.github.yjhhhaaa06.videoweb.like.dao.ContentLikeDao;
@@ -49,12 +50,13 @@ import java.util.function.LongPredicate;
  *
  * <h2>相对 TV 的有意精简（逐条记录在决策表 L-7，此处只列要点）</h2>
  * 保留：条件写防残缺缓存（Lua 原子）、失败降级、TTL 与命中续期、批量状态、三态读。
- * 去掉：**单飞**（并发 miss 会各打一次 DB，正确性不变）、**空标记**（从未点赞的用户每次读都回源 DB——
- * 读放大最明显的一条）、打点、熔断、TV 的通用 CacheAside/SetCache 框架层。
+ * 去掉：**空标记**（从未点赞的用户每次读都回源 DB——读放大最明显的一条）、
+ * TV 的通用 CacheAside/SetCache 框架层。
+ * <b>单飞</b>（B1）已由第三批 T3 收回：miss 回填经 {@link SingleFlight}，同 key 并发只打一次 DB。
  *
  * <p>另有一处**顺带的改进**（非偷懒，见 L-7 末段）：降级路径用**单条查询**作答，
- * 不把该用户的全量点赞史拉进内存（TV 用全量是为了配合单飞共享；精简版没有单飞，
- * 单条查询更省）。
+ * 不把该用户的全量点赞史拉进内存——降级**不经单飞**（按请求 id 的批量子集作答，
+ * 用单一数据 key 做单飞 key 会让不同 id 子集串结果），单条/按需查询更省。
  */
 @Slf4j
 @Component
@@ -86,15 +88,19 @@ public class LikeCache {
     private final ContentLikeDao contentLikeDao;
     private final CommentLikeDao commentLikeDao;
     private final LikeCacheProperties props;
+    /** 单飞（B1）：同 key 并发 miss 只回源一次。 */
+    private final SingleFlight singleFlight;
 
     public LikeCache(LikeRedisOps ops,
                      ContentLikeDao contentLikeDao,
                      CommentLikeDao commentLikeDao,
-                     LikeCacheProperties props) {
+                     LikeCacheProperties props,
+                     SingleFlight singleFlight) {
         this.ops = ops;
         this.contentLikeDao = contentLikeDao;
         this.commentLikeDao = commentLikeDao;
         this.props = props;
+        this.singleFlight = singleFlight;
     }
 
     // ========================================================================
@@ -243,9 +249,12 @@ public class LikeCache {
             log.warn("点赞状态缓存读失败，降级 DB: key={}", setKey, e);
             return checker.check();
         }
-        // miss：DB 是真理源，顺带回填（回填失败不影响本次结果）
-        Set<Long> all = fullLoader.load();
-        backfillQuietly(setKey, all);
+        // miss：DB 是真理源，顺带回填（回填失败不影响本次结果）；单飞（B1）让同 key 并发只回源一次
+        Set<Long> all = singleFlight.get(setKey, () -> {
+            Set<Long> loaded = fullLoader.load();
+            backfillQuietly(setKey, loaded);
+            return loaded;
+        });
         return all.contains(targetId);
     }
 
@@ -268,9 +277,12 @@ public class LikeCache {
             log.warn("点赞数缓存值非法，按 miss 处理并清除: key={}", countKey);
             invalidateQuietly(countKey);
         }
-        int count = dbLoader.get();
-        backfillCountQuietly(countKey, count);
-        return count;
+        // miss：DB 是真理源，顺带回填；单飞（B1）让同 key 并发只回源一次
+        return singleFlight.get(countKey, () -> {
+            int count = dbLoader.get();
+            backfillCountQuietly(countKey, count);
+            return count;
+        });
     }
 
     /**
@@ -305,8 +317,12 @@ public class LikeCache {
             log.warn("批量点赞状态缓存读失败，降级 DB: key={}", setKey, e);
             return toResultMap(targetIds, degradeLoader.load(targetIds));
         }
-        Set<Long> all = fullLoader.load();
-        backfillQuietly(setKey, all);
+        // miss：单飞（B1）——同一 set 的并发批量读只回源一次（负载是"该用户全量"，与 targetIds 无关）
+        Set<Long> all = singleFlight.get(setKey, () -> {
+            Set<Long> loaded = fullLoader.load();
+            backfillQuietly(setKey, loaded);
+            return loaded;
+        });
         return toResultMap(targetIds, all);
     }
 
