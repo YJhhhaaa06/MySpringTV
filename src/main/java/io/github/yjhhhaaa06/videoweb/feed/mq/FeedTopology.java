@@ -1,0 +1,70 @@
+package io.github.yjhhhaaa06.videoweb.feed.mq;
+
+/**
+ * RabbitMQ 拓扑与路由命名的**唯一源**（承接 TV {@code mq.MqTopology}）。
+ *
+ * <p>口径对齐 {@code common.cache.CacheKeys}（"命名唯一源"）：交换机 / 队列 / 路由键 / 绑定模式
+ * 一律从这里取，业务侧不得另造字符串字面量。
+ *
+ * <h2>拓扑（TV 一期拍板，2026-09-26，逐字保留）</h2>
+ * push / rebuild 各用一条 **topic** 交换机 + 一条队列（队列以 {@code feed.push.#} /
+ * {@code feed.rebuild.#} **通配**绑定，将来加消息子类型免重声明绑定）；
+ * 死信走独立 **direct** 交换机 {@link #EXCHANGE_DLX} + 独立队列 {@link #QUEUE_DLQ}，
+ * 源队列以 {@code x-dead-letter-routing-key} 固定死信路由键（不沿用原 key，避免 DLX 路由不确定）。
+ *
+ * <p>命名前缀 {@code feed.} 为"通知等接入同一 MQ 基建"预留同构扩展位（TV 原注释）。
+ *
+ * <h2>与 TV 的唯一差异：{@code dlqArgs} 的载体</h2>
+ * TV 的 {@code MqTopology.dlqArgs(long)} 是"形态唯一源"，值由 {@code MqTopologyDeclarer} 从
+ * {@code AppConfig} 注入。本实现把 TTL 值下沉到 {@link FeedRabbitConfig}（读 {@code FeedProperties}），
+ * 本类**只留命名常量**——"命名与形态唯一源"的职责不变，只是不再有静态 {@code AppConfig} 可读。
+ */
+public final class FeedTopology {
+
+    private FeedTopology() {
+    }
+
+    // ==================== 交换机 ====================
+
+    /** 写扩散（fanout）交换机：博主发布内容 → 投递到各粉丝收件箱。 */
+    public static final String EXCHANGE_PUSH = "feed.push.exchange";
+
+    /** 重建交换机：收件箱全量重建（关注 / 取关联动、兜底修复）。 */
+    public static final String EXCHANGE_REBUILD = "feed.rebuild.exchange";
+
+    /** 死信交换机（DLX）：消费失败的消息一次性转出，不做重入队（重试已在消费容器内完成）。 */
+    public static final String EXCHANGE_DLX = "feed.dlx";
+
+    // ==================== 队列 ====================
+
+    public static final String QUEUE_PUSH = "feed.push.queue";
+
+    public static final String QUEUE_REBUILD = "feed.rebuild.queue";
+
+    /** 死信队列：自身不设死信参数（防环）；设**消息 TTL**，到期自动删除（证据窗口有界）。 */
+    public static final String QUEUE_DLQ = "feed.dlq";
+
+    // ==================== 路由键 ====================
+
+    /** 内容发布事件路由键。 */
+    public static final String RK_PUSH_CONTENT = "feed.push.content";
+
+    /**
+     * 降级补推任务路由键：作者由大V降为普通（滞回 edge）⇒ 补推其最近 K 条内容到现任粉丝收件箱。
+     * **走 push 家族**（"非必要不入配置"口径）：{@code feed.push.#} 通配绑定已覆盖本键，
+     * **无需新增交换机 / 队列 / 绑定**。
+     */
+    public static final String RK_PUSH_BACKFILL = "feed.push.backfill";
+
+    /** 收件箱重建任务路由键。 */
+    public static final String RK_REBUILD_INBOX = "feed.rebuild.inbox";
+
+    /** 死信路由键（由源队列的 x-dead-letter-routing-key 固定）。 */
+    public static final String RK_DLQ = "feed.dlq";
+
+    // ==================== 绑定模式 ====================
+
+    public static final String BIND_PUSH_ALL = "feed.push.#";
+
+    public static final String BIND_REBUILD_ALL = "feed.rebuild.#";
+}
