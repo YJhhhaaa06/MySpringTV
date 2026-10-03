@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ============================================================================
+  MySpringTV — 日志配置（第三批 T2 / 账 B12）
+
+  这个文件**此前根本不存在**（项目里只有 application.yaml 的 logging.level 两行），
+  正是《迁移参照系》§三"不迁移清单"里 `LogUtil`/`LogFormatter` 那一行写的
+  "收敛为 logback 配置"——那次收敛从未发生。本文件把它兑现。
+
+  ## 四个输出端（沿用 TV 的分流口径，名字逐字相同）
+
+    system  根 logger，INFO+        —— 全量应用日志（含里程碑）
+    error   根 logger，ERROR+       —— 便于排障速览；SEVERE 同时留在 system（TV 同款）
+    access  logger=access，INFO     —— 访问日志，additive=false（**不进 system、不进控制台**）
+    audit   logger=audit，INFO      —— 审计留痕，additive=false，阈值固定不受级别配置影响
+
+  ## 单行结构化 pattern（TV LogFormatter 的等价物）
+
+    ts=<ISO 3 位毫秒 + 带冒号时区> level=<级别> logger=<logger 名> [req=<16 位 hex> ]msg=<…>
+
+  * `%reqid`      —— 自定义转换字：**有值才输出** ` req=…`（无值整段不出现，TV 同款）
+  * `%maskedMsg`  —— 自定义转换字：消息 + 异常堆栈**一起**出口脱敏（手机号）并单行化
+  * `%nopex`      —— 必须保留：它告诉 PatternLayout"异常已由 %maskedMsg 处理"，
+                     否则 logback 会自动再追加**一份未脱敏的**堆栈
+
+  改动本文件后必须同步跑 `LogbackConfigTests`：它直接对 appender/logger/pattern 断言，
+  是这条隐性契约的守门人。
+  ============================================================================
+-->
+<configuration>
+
+    <!-- 自定义转换字：脱敏出口与请求标识（缺了它们 pattern 直接启动失败，属有意 fail-fast） -->
+    <conversionRule conversionWord="reqid"
+                    converterClass="io.github.yjhhhaaa06.videoweb.common.log.RequestIdConverter"/>
+    <conversionRule conversionWord="maskedMsg"
+                    converterClass="io.github.yjhhhaaa06.videoweb.common.log.SensitiveDataConverter"/>
+
+    <!-- 日志目录：唯一消费者是 logback（应用代码不读它，见 LogProperties 类注释）。
+         缺省 logs/；测试由 AbstractObservabilityTest 的静态块注入 LOG_DIR 系统属性重定向。 -->
+    <springProperty scope="context" name="LOG_DIR" source="video.log.dir" defaultValue="logs"/>
+
+    <property name="STRUCTURED_PATTERN"
+              value="ts=%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} level=%level logger=%logger%reqid msg=%maskedMsg%nopex%n"/>
+
+    <!-- 控制台：**不指定 charset**，沿用 JVM 平台默认编码（Windows 上即 ANSI 代码页）。
+         这是与 tools/run_tests.py 的约定：它按 GetACP() 解码子进程控制台输出；
+         这里写死 UTF-8 会让中文日志在报告里变成一片 "?" 式乱码。 -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${STRUCTURED_PATTERN}</pattern>
+        </encoder>
+    </appender>
+
+    <!-- 文件输出端共用：UTF-8 显式钉死（跨环境一致），按大小+日期轮转，当前文件恒为固定名 -->
+    <appender name="SYSTEM" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/system.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/archive/system.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>10MB</maxFileSize>
+            <maxHistory>7</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${STRUCTURED_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- error 端：只收 ERROR 及以上（ThresholdFilter 语义 = "低于该级别的拒绝"，不是"只等于"）。
+         它挂 root ⇒ ERROR 记录**同时**留在 system.log 与 error.log（TV 同款，老 pytest 依赖它）。 -->
+    <appender name="ERROR" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/error.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/archive/error.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>10MB</maxFileSize>
+            <maxHistory>7</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+        </rollingPolicy>
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>ERROR</level>
+        </filter>
+        <encoder>
+            <pattern>${STRUCTURED_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <appender name="ACCESS" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/access.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/archive/access.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>10MB</maxFileSize>
+            <maxHistory>7</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${STRUCTURED_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <appender name="AUDIT" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/audit.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/archive/audit.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>10MB</maxFileSize>
+            <maxHistory>7</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${STRUCTURED_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- 专属 logger：additive=false 是"输出端互不污染"的机制本身（不是靠过滤兜）。
+         阈值**固定 INFO**：审计是合规留痕，不得被 logging.level.* 静默掉（TV 同款纪律）。 -->
+    <logger name="access" level="INFO" additivity="false">
+        <appender-ref ref="ACCESS"/>
+    </logger>
+    <logger name="audit" level="INFO" additivity="false">
+        <appender-ref ref="AUDIT"/>
+    </logger>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="SYSTEM"/>
+        <appender-ref ref="ERROR"/>
+    </root>
+
+</configuration>
