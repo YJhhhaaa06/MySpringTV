@@ -9,6 +9,7 @@ import io.github.yjhhhaaa06.videoweb.content.cache.ContentCache;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentMediaDao;
 import io.github.yjhhhaaa06.videoweb.content.event.ContentCacheChangedEvent;
+import io.github.yjhhhaaa06.videoweb.content.event.ContentMilestoneEvent;
 import io.github.yjhhhaaa06.videoweb.content.event.ContentPublishedEvent;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentType;
 import io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO;
@@ -403,6 +404,10 @@ public class ContentService {
         contentMediaDao.deleteByContentId(contentId);
 
         events.publishEvent(ContentCacheChangedEvent.remove(contentId));
+        // T2 里程碑（B12）：作者删除 —— 提交后由 ContentMilestoneListener 记 "删除内容成功"。
+        // ⚠️ 不复用 ContentCacheChangedEvent.remove：管理端 hide 也会发 REMOVE，
+        //    复用会让"下架"被误记成"作者删除"（行为改动，坚决不要）。
+        events.publishEvent(new ContentMilestoneEvent(contentId, ContentMilestoneEvent.Action.DELETED));
         return mediaUrls;
     }
 
@@ -452,6 +457,9 @@ public class ContentService {
         //   （content 只声明自己发生了什么）——消掉 content⇄feed 环（《决策留痕表》C-9）。
         events.publishEvent(new ContentPublishedEvent(contentId, userId));
         events.publishEvent(ContentCacheChangedEvent.refresh(contentId));
+        // T2 里程碑（B12）：提交后由 ContentMilestoneListener 记 "添加视频成功" ——
+        // 事务内只**声明事实**，避免"提交失败却留下成功日志"（见 ContentMilestoneEvent 类注释）。
+        events.publishEvent(new ContentMilestoneEvent(contentId, ContentMilestoneEvent.Action.VIDEO_ADDED));
         return contentId;
     }
 
@@ -479,6 +487,8 @@ public class ContentService {
         // S9 补回（原 TODO(feed 切片)）：口径同 addVideo（《遗留台账》A3 → 已闭合）。
         events.publishEvent(new ContentPublishedEvent(contentId, userId));
         events.publishEvent(ContentCacheChangedEvent.refresh(contentId));
+        // T2 里程碑（B12）：口径同 addVideo（AFTER_COMMIT 才落 "添加动态成功"）。
+        events.publishEvent(new ContentMilestoneEvent(contentId, ContentMilestoneEvent.Action.POST_ADDED));
         return contentId;
     }
 

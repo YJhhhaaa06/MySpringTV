@@ -64,6 +64,11 @@ public class UserService implements AdminChecker {
      */
     public LoginVO registerAndLogin(RegisterRequest request) {
         long id = registerAsUser(request);
+        // T2 里程碑（B12）：注册成功。**放在这里而不是 registerAsUser 内**——
+        // 本方法刻意无事务（U-1），故这一行执行时内层插入已提交/落库 ⇒ 不会"未提交先宣告成功"。
+        // 将来若 U-2 被拍板修好（registerAsUser 成为真事务），本行仍在其**之外**，语义不变。
+        // 只记 userId：账号（手机号）与密码一律不落盘（TV LOG_CONVENTION）。
+        log.info("用户注册成功, userId={}", id);
         try {
             return login(id, request.password());
         } catch (BusinessException e) {
