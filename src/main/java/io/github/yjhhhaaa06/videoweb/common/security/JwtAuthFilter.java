@@ -2,6 +2,7 @@ package io.github.yjhhhaaa06.videoweb.common.security;
 
 import io.github.yjhhhaaa06.videoweb.common.exception.BusinessException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
+import io.github.yjhhhaaa06.videoweb.common.log.AccessLogFilter;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import tools.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
@@ -81,7 +82,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             } catch (BusinessException e) {
                 // 令牌非法/过期。仅在需要登录时拒绝；否则按匿名处理（不要因坏 token 阻断公开接口）
                 if (loginRequired) {
-                    writeError(response, e.getCode(), e.getMessage());
+                    writeError(request, response, e.getCode(), e.getMessage());
                     return;
                 }
                 log.debug("公开端点收到非法令牌，按匿名处理: {} {}", request.getMethod(), request.getRequestURI());
@@ -90,7 +91,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         // 2) 需要登录却无身份 ⇒ 401
         if (loginRequired && request.getAttribute(ATTR_USER_ID) == null) {
-            writeError(response, ErrorCode.UNAUTHORIZED.getCode(), ErrorCode.UNAUTHORIZED.getMessage());
+            writeError(request, response, ErrorCode.UNAUTHORIZED.getCode(), ErrorCode.UNAUTHORIZED.getMessage());
             return;
         }
 
@@ -99,7 +100,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         if (isAdminPath(request)) {
             Long userId = (Long) request.getAttribute(ATTR_USER_ID);
             if (userId == null || !adminChecker.isAdmin(userId)) {
-                writeError(response, ErrorCode.FORBIDDEN.getCode(), ErrorCode.FORBIDDEN.getMessage());
+                writeError(request, response, ErrorCode.FORBIDDEN.getCode(), ErrorCode.FORBIDDEN.getMessage());
                 return;
             }
         }
@@ -134,7 +135,18 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         return request.getRequestURI().substring(request.getContextPath().length());
     }
 
-    private void writeError(HttpServletResponse response, int code, String msg) throws IOException {
+    /**
+     * 写错误信封。
+     *
+     * <p><b>为什么要顺手记业务码</b>（第三批 T2）：访问日志的 {@code code} 字段来自
+     * {@code BusinessCodeAdvice}，而 advice 只对**经过 DispatcherServlet** 的响应生效——
+     * 本过滤器在 DispatcherServlet **之前**短路（401/403 根本到不了控制器）。若不在此处补记，
+     * 鉴权拒绝的访问行会记成 {@code code=0}，与"静态资源"混为一谈，访问日志的三态就塌成两态。
+     * 这与 TV 把 {@code code} 写在统一出口、且 AuthFilter 也走该出口是同一回事。
+     */
+    private void writeError(HttpServletRequest request, HttpServletResponse response, int code, String msg)
+            throws IOException {
+        request.setAttribute(AccessLogFilter.ATTR_BUSINESS_CODE, code);
         HttpStatus status = HttpStatus.resolve(code);
         response.setStatus((status == null ? HttpStatus.UNAUTHORIZED : status).value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
