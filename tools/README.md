@@ -80,6 +80,7 @@ ROOT = Path(__file__).resolve().parent.parent   # tools/ 的上一级
 | 脚本 | 作用 | 只读？ |
 |------|------|--------|
 | `doc_stats.py` | 度量 `.docs` 体量，按文件与 H2 章节归因，找出膨胀源 | ✅ 只读 |
+| `doc_links.py` | **校验 `.docs` 交叉引用是否指得到**（悬空指针 / 改名遗留 / 旧章节引用） | ✅ 只读 |
 | `doc_archive.py` | 把已完成阶段的历史明细从正文抽到 `.docs/archive/`，正文留指针 | ❌ 会写（**默认只预演**，加 `--apply` 才落盘） |
 | `endpoint_matrix.py` | 复算老项目 43 端点 × 新项目实现状态，校验《端点对照表》 | ✅ 只读 |
 
@@ -88,6 +89,8 @@ ROOT = Path(__file__).resolve().parent.parent   # tools/ 的上一级
 ```bash
 python tools/doc_stats.py                  # 文档体量报告
 python tools/doc_stats.py --top 6          # 对最大的 6 份做章节拆解
+python tools/doc_links.py                  # 校验文档交叉引用（归档后必跑）
+python tools/doc_links.py --strict         # 把"尚未创建"也计为失败
 python tools/doc_archive.py --plan temp-script/doc-plan.json            # 归档预演（不落盘）
 python tools/doc_archive.py --plan temp-script/doc-plan.json --apply     # 归档落盘
 python tools/endpoint_matrix.py            # 复算端点对照
@@ -95,6 +98,9 @@ python tools/endpoint_matrix.py            # 复算端点对照
 
 > `doc_archive.py` 的计划格式见脚本头部 docstring：`extract`（按标题抽节，`levels` 可指定 H2/H3）
 > 与 `move`（整份移入归档）两种操作。
+>
+> ⚠️ **`doc_archive.py` 之后必跑 `doc_links.py`**：归档会把章节搬走，正文里指向它的引用就悬空了
+> ——「**归档要连同引用修复一起做**」（INDEX §五.3）。悬空指针比不引用更坏，它让人以为查过了。
 
 > 注：本项目**没有** `tv.py` 那样的统一入口——脚本少，直接调即可。
 > 脚本多了再考虑加（rule of three）。
