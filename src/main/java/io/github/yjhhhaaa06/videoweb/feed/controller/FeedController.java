@@ -26,8 +26,10 @@ import org.springframework.web.bind.annotation.RestController;
  * </table>
  *
  * <h2>鉴权：类级 {@code @RequiresLogin}</h2>
- * 依据 TV {@code AuthFilter} 的 {@code PROTECTED_EXACT}（**精确匹配**清单，非前缀）——它含
- * <b>{@code "/feed"}</b>。故本端点需登录，用**类级**注解声明（与 {@code /follow}、{@code /like} 同款；
+ * 依据 TV {@code AuthFilter} 的 {@code PROTECTED_PREFIXES}（**前缀**清单，见
+ * {@code old-project/.../filter/AuthFilter.java:25}）——它含 <b>{@code "/feed"}</b>。
+ * （2026-10-03 更正：此处原写 {@code PROTECTED_EXACT}，属误记；单端点场景下两种口径行为等价，
+ * 故无契约差异，仅依据写错。）故本端点需登录，用**类级**注解声明（与 {@code /follow}、{@code /like} 同款；
  * 未来若 {@code /feed/**} 加子路径，类级声明自动覆盖，不会漏）。
  *
  * <h2>分页契约（域级上限/信封均 100，与 follow/search/profile 同口径）</h2>

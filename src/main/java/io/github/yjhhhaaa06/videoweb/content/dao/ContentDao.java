@@ -20,9 +20,12 @@ import java.util.List;
  *   <li><b>S5</b>（本切片，+11 方法）：读路径 / 搜索 / 作者写路径。</li>
  *   <li><b>S7</b>（+2 方法）：发布写路径（{@code addContent} / {@code updateFileExists}）。</li>
  *   <li><b>S8</b>（+3 方法）：admin 内容运维（{@code getContentStatus} /
- *       {@code updateContentDeletedState} / {@code findContentForAdmin}）。至此本类只剩
- *       feed 用的三个方法（{@code findContentIdsByUsers} / {@code findRecentContentIdsByUsers…} /
- *       {@code countContentByUsers}）未搬——见《事务边界决策表》§二·G 盘点 B。</li>
+ *       {@code updateContentDeletedState} / {@code findContentForAdmin}）。</li>
+ *   <li><b>S9</b>（+4 方法）：feed 读路径（{@code findContentIdsByUsers} /
+ *       {@code countContentByUsers} / {@code findRecentContentIdsByUsers} /
+ *       {@code findRecentContentIdsByAuthor}，见 {@code :308} 起）。<b>至此本类方法全数搬完。</b>
+ *       （2026-10-03 更正：此处原写"S8 后只剩 feed 用的三个方法未搬"，S9 已搬入，
+ *       叙述未回填——被复算者读到时会把已搬的方法当成欠账。）</li>
  * </ul>
  *
  * <h2>迁移口径</h2>

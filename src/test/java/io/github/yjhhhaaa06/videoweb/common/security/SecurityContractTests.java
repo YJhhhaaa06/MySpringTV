@@ -145,9 +145,12 @@ class SecurityContractTests extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("S9：feed 端点判为需登录（TV 的 `/feed` 是 PROTECTED_EXACT **精确**保护项）")
+    @DisplayName("S9：feed 端点判为需登录（TV 的 `/feed` 是 PROTECTED_**PREFIXES** 前缀保护项）")
     void feed端点需登录() {
-        // TV AuthFilter.PROTECTED_EXACT 含 "/feed"（精确，非前缀）⇒ 类级 @RequiresLogin 与之对应。
+        // TV AuthFilter.PROTECTED_PREFIXES 含 "/feed"（前缀，见 AuthFilter.java:25）
+        // ⇒ 类级 @RequiresLogin 与之对应。
+        // 2026-10-03 更正：原来写 PROTECTED_EXACT（"精确，非前缀"）是误记——会被复算者当成事实依据，
+        // 故一并改正。行为无差异：单端点时前缀与精确两种口径等价。
         assertThat(requiresLogin("GET", "/feed")).isTrue();
     }
 
