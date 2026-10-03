@@ -385,7 +385,8 @@ def effective_excluded_groups(args: argparse.Namespace) -> list[str]:
     """
     groups = set(args.group or [])
     requested = list(DEFAULT_EXCLUDED_GROUPS) + list(args.exclude_group or [])
-    return [tag for tag in requested if tag not in groups]
+    # 去重且保序（显式 --exclude-group 与默认集可能重名），并剔除显式 --group 的 tag
+    return list(dict.fromkeys(tag for tag in requested if tag not in groups))
 
 
 def build_command(args: argparse.Namespace) -> tuple[list[str], list[str]]:
