@@ -9,6 +9,7 @@ import io.github.yjhhhaaa06.videoweb.content.cache.ContentCache;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentMediaDao;
 import io.github.yjhhhaaa06.videoweb.content.event.ContentCacheChangedEvent;
+import io.github.yjhhhaaa06.videoweb.content.event.ContentPublishedEvent;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentType;
 import io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO;
 import io.github.yjhhhaaa06.videoweb.content.model.entity.Content;
@@ -139,6 +140,35 @@ public class ContentService {
             contentStatusFiller.fillLikeAndFollowBatch(result, userId);
         }
         return new PageResult<>(result, total, page, pageSize);
+    }
+
+    /**
+     * 按 id 批量装载内容 VO（feed 的 {@code renderPage} 用）——**跨域只走 Service 契约**。
+     *
+     * <h2>为什么要开这个方法（S6-B2a 同款）</h2>
+     * feed 域需要"该页 id → ContentVO 列表"，但按 ArchUnit 规则 2，feed **不得触碰
+     * {@code content.cache.ContentCache}**。故把这条窄查询提升为 {@code ContentService} 的公开方法，
+     * feed 依赖本 Service 而非内容域的缓存实现。
+     *
+     * <p>语义与 {@code recall} 的装载段逐字一致：一趟批量读（含 miss 装载），按入参 {@code contentIds}
+     * 的**原序**输出，取不到的条目（已删 / 媒体损坏）**跳过**——于是返回条数可能少于入参。
+     *
+     * @param contentIds 该页内容 id（可为空 → 空列表）
+     */
+    public List<ContentVO> loadContentVOs(List<Long> contentIds) {
+        List<ContentVO> result = new ArrayList<>();
+        if (contentIds == null || contentIds.isEmpty()) {
+            return result;
+        }
+        Map<Long, ContentCacheDTO> byId = contentCache.getContentsBatch(contentIds);
+        for (Long contentId : contentIds) {
+            ContentCacheDTO dto = byId.get(contentId);
+            if (dto == null) {
+                continue;   // 已删 / 媒体损坏 ⇒ 跳过（total 不变——与 search/profile 同款语义）
+            }
+            result.add(contentCache.toContentVO(dto));
+        }
+        return result;
     }
 
     // ========================================================================
@@ -395,14 +425,17 @@ public class ContentService {
      * **语义已核对等价**：新 {@code ContentCache.refreshContent} = 装载 → 写 key → 进索引，
      * 与旧 {@code addContent} 逐字相同（两者在新实现里其实是同一段代码）。
      *
-     * <h2>⚠️ 两处有意留后</h2>
+     * <h2>提交后副作用（S9 起共两个事件）</h2>
      * <ol>
-     *   <li><b>feed 投递</b>：TV 在此处调 {@code feedPushNotifier.publishContentPublished(videoId, userId)}
-     *       （提交后、失败只降级）。订阅方（feed）尚不存在 ⇒ 留 {@code TODO(feed 切片)} + 台账 A3，
-     *       不预埋抽象（沿 S4 的先例）。</li>
-     *   <li><b>文件落盘与 DB 无法原子</b>：由 Controller 在失败时删除已落盘文件补偿
-     *       （见 {@code UploadController}）。</li>
+     *   <li><b>feed 投递</b>：TV 在此处直调 {@code feedPushNotifier.publishContentPublished(videoId, userId)}
+     *       （提交后、失败只降级）。**S9 已兑现**（原 {@code TODO(feed 切片)} / 台账 A3 闭合）：
+     *       本类只发 {@code ContentPublishedEvent}，由 {@code feed.event.ContentPublishedFeedListener}
+     *       订阅后投 MQ —— 于是 **content 不依赖 feed**（消掉 TV 的 {@code content ⇄ feed} 环）。</li>
+     *   <li><b>内容缓存刷新</b>：发 {@code ContentCacheChangedEvent.refresh(contentId)}（AFTER_COMMIT）。</li>
      * </ol>
+     *
+     * <h2>⚠️ 一处有意留后</h2>
+     * <b>文件落盘与 DB 无法原子</b>：由 Controller 在失败时删除已落盘文件补偿（见 {@code UploadController}）。
      *
      * @param videoUrl 已落盘视频的**应用内相对 URL**
      * @param coverUrl 已落盘封面的应用内相对 URL
@@ -414,8 +447,10 @@ public class ContentService {
         long contentId = doAddContent(userId, ContentType.VIDEO, title, description, categoryId);
         contentMediaDao.addMedia(contentId, videoUrl, UploadType.VIDEO.getMediaType(), 1);
         contentMediaDao.addMedia(contentId, coverUrl, UploadType.COVER.getMediaType(), 1);
-        // TODO(feed 切片)：补回 FeedPushNotifier.publishContentPublished(contentId, userId)
-        //   （提交后投递、失败只降级）。位置与理由见《遗留台账》A3、《决策留痕表》B-7。
+        // S9 补回（原 TODO(feed 切片)）：声明"内容已发布"，由 feed 域订阅后投递写扩散消息。
+        // ★ 与 TV 的差异：TV 直调 feedPushNotifier（content→feed 编译期依赖），此处改发事件
+        //   （content 只声明自己发生了什么）——消掉 content⇄feed 环（《决策留痕表》C-9）。
+        events.publishEvent(new ContentPublishedEvent(contentId, userId));
         events.publishEvent(ContentCacheChangedEvent.refresh(contentId));
         return contentId;
     }
@@ -441,7 +476,8 @@ public class ContentService {
         for (String imageUrl : imageUrls) {
             contentMediaDao.addMedia(contentId, imageUrl, UploadType.IMAGE.getMediaType(), sort++);
         }
-        // TODO(feed 切片)：口径同 addVideo（《遗留台账》A3）。
+        // S9 补回（原 TODO(feed 切片)）：口径同 addVideo（《遗留台账》A3 → 已闭合）。
+        events.publishEvent(new ContentPublishedEvent(contentId, userId));
         events.publishEvent(ContentCacheChangedEvent.refresh(contentId));
         return contentId;
     }

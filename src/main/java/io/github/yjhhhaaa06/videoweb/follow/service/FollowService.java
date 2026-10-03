@@ -234,6 +234,19 @@ public class FollowService {
     }
 
     /**
+     * 全量关注集（升序）——feed 两路读与纯拉降级都要"我关注的全体"（S9 补入）。
+     *
+     * <p>与上面 4 个查询同族：把 feed 真正需要的能力提升为 {@code FollowService} 的公开方法，
+     * 下游依赖**本 Service**（域的服务契约）而非 {@code FollowCache}（域实现细节）——
+     * ArchUnit 规则 2 禁止 feed 触碰 {@code follow.cache}。
+     *
+     * @return 用户关注的全部博主 id（升序）；无关注 → 空列表
+     */
+    public List<Long> getFollowingIds(long userId) {
+        return followCache.getFollowingIds(userId);
+    }
+
+    /**
      * 批量判关注态后按 DB 返回序组装用户视图。
      *
      * <p>判重口径与 TV 一致：仍按传入的**该页 ids** 批量查缓存（**不因 {@code users} 为空而跳过**）

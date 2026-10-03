@@ -33,21 +33,13 @@ import org.springframework.transaction.event.TransactionalEventListener;
  *       若将来出现，必须显式打开并在此说明理由（而不是默默打开）。</li>
  * </ol>
  *
- * <h2>⚠️ 两处裁剪（补回位置；对应《切片计划》§四 要求记录的裁剪风险）</h2>
- * TV 在这里还有两个**下游投递**，本批不搬（它们依赖 {@code mq} 包，且 feed 域本批明确不做）：
- * <ul>
- *   <li>{@code inboxRebuildNotifier.publishInboxRebuild(userId)} —— 关注改变了"我关注的博主集合"，
- *       我自己的收件箱快照失效 ⇒ 投递重建消息。
- *       <b>影响</b>：关注关系变化**不会触达 feed 重建**。当前无 feed ⇒ 无可观察差异。
- *       <b>补回位置</b>：feed 切片时在本监听器内补这一行（{@code userId} 即 {@code event.userId()}）。</li>
- *   <li>{@code authorBackfillNotifier.publishAuthorBackfill(followedUserId)}（**仅 {@code DOWNGRADED} 时**）
- *       —— 作者脱离大V ⇒ 把其存量内容补进现任粉丝收件箱。
- *       <b>影响</b>：降级 edge 不触发补推。注意 {@code auto_bigv} 状态行仍被**正确删除**
- *       （F-6 保留了 {@code evaluate}），只是没人消费该信号——所以这不是"状态没维护"，
- *       而是"信号没有订阅者"。
- *       <b>补回位置</b>：同上。</li>
- * </ul>
- * 与 S2/CM-3、S3/L-6 的裁剪**同性质同纪律**：不为尚不存在的下游预埋投递逻辑。
+ * <h2>✅ S9 闭合：原两处 feed 投递裁剪已兑现（不再由本类承担）</h2>
+ * S4 时本类曾留两处 {@code TODO(feed 切片)}（{@code inboxRebuildNotifier} / {@code authorBackfillNotifier}），
+ * 并在类注释里写明"补回位置"。**S9 已兑现，但落点不在本类**——而是新增
+ * {@code feed.event.FollowChangedFeedListener}（feed 域的 {@code event} 包）订阅
+ * {@link FollowChangedEvent} 后投递。理由：跨域事件只能由自己的 {@code event} 包消费（ArchUnit 规则 3），
+ * 且这样 **follow 域不必依赖 feed**（本域只声明"关注关系变了"这个事实）。
+ * 本类的职责收敛为：里程碑日志 → 状态迁移日志 → 缓存双写（三者都在提交后）。
  */
 @Slf4j
 @Component
@@ -68,12 +60,14 @@ public class FollowChangedListener {
             log.info("取关成功, userId={}, followedUserId={}", event.userId(), event.followedUserId());
         }
 
-        // ② 自动大V状态迁移的提交后副作用（记日志；降级补推见类注释的裁剪说明）。
+        // ② 自动大V状态迁移的提交后副作用（记日志）。
         //    NONE 是绝大多数请求（带内 / 状态本就一致）⇒ 不记，保持 INFO 稀疏（TV 原注释口径）。
         AutoBigVStateService.Transition transition = event.transition();
         if (transition != AutoBigVStateService.Transition.NONE) {
             log.info("自动大V状态迁移, followedUserId={}, transition={}", event.followedUserId(), transition);
-            // TODO(feed 切片)：transition == DOWNGRADED 时补 authorBackfillNotifier.publishAuthorBackfill(followedUserId)
+            // S9 已兑现（原 TODO(feed 切片)）：transition == DOWNGRADED 的降级补推投递，
+            // 由 **feed 自己的订阅方** 承接 —— 见 feed.event.FollowChangedFeedListener。
+            // 本域不必依赖 feed（它只声明"关注关系变了"这个事实）。
         }
 
         // ③ DB 提交后缓存双写（NEEDS 4.10：条件双写 + 失败失效自愈，不影响主流程）
@@ -83,6 +77,6 @@ public class FollowChangedListener {
             followCache.cacheUnfollow(event.userId(), event.followedUserId());
         }
 
-        // TODO(feed 切片)：补 inboxRebuildNotifier.publishInboxRebuild(event.userId())
+        // S9 已兑现（原 TODO(feed 切片)）：收件箱重建投递，同样由 feed.event.FollowChangedFeedListener 承接。
     }
 }

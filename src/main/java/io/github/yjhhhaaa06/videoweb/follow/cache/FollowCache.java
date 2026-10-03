@@ -263,6 +263,40 @@ public class FollowCache {
                 () -> getFollowerCount(userId));
     }
 
+    /**
+     * 全量关注 id（升序）——**S9 补入**（feed 两路读 / 纯拉都要"我关注的全体"）。
+     *
+     * <pre>
+     * 空标记命中 → 空列表（已确认无关注）
+     * 数据 key 命中 → ZRANGE 0 -1（升序）
+     * miss         → 回源 DB 全量 → 原子回填 → 作答
+     * Redis 失败   → 降级：DB 全量直查（不装载、不写回）
+     * </pre>
+     *
+     * <p>类注释原写"S4 不搬它（调用方全是 feed 域）"——S9 交付 feed 后它**有主了**，
+     * 按"不搬无主代码"的纪律回收（与 {@code FollowDao.getFollowerUserIdsAfter} 同一处置）。
+     */
+    public List<Long> getFollowingIds(long userId) {
+        String dataKey = followingKey(userId);
+        String emptyKey = emptyKey(dataKey);
+        try {
+            Set<String> existing = ops.existingOf(dataKey, emptyKey);
+            if (existing.contains(emptyKey)) {
+                return List.of();
+            }
+            if (existing.contains(dataKey)) {
+                return ops.zWindow(dataKey, 0, -1, props.followTtl()).ids();
+            }
+        } catch (CacheUnavailableException e) {
+            log.warn("全量关注集缓存读失败，降级 DB: key={}", dataKey, e);
+            // DB 失败必须上抛（不被此 catch 吞掉）：loader 在本 catch 块内执行，异常直接冒泡
+            return sortedAsc(followDao.findAllFollowedUserIds(userId));
+        }
+        List<Long> all = sortedAsc(followDao.findAllFollowedUserIds(userId));
+        backfillQuietly(dataKey, emptyKey, all);
+        return all;
+    }
+
     private Window window(String dataKey, long offset, int count,
                           FullLoader fullLoader, WindowLoader dbWindowLoader, CountLoader dbCountLoader) {
         if (count <= 0 || offset < 0) {
