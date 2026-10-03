@@ -192,6 +192,16 @@ video:
   media:
     base-url: ${MEDIA_BASE_URL:}
 
+  # 可观测面（第三批 T2）。
+  log:
+    # 日志目录（唯一消费者是 logback-spring.xml 的 <springProperty source="video.log.dir">，
+    # **应用代码不读它**，故没有对应的 Java 字段——见 LogProperties 类注释）。
+    # 相对路径按进程 cwd 解析；logs/ 已在 .gitignore。
+    dir: ${LOG_DIR:logs}
+    # 访问日志的慢请求阈值（毫秒）。达到即把访问行的 slow 打为 1（不另起一行，TV D7 口径）。
+    # ⚠️ 本键是纯数字毫秒（名字已含 ms），**不是** Duration——别写成 1s。
+    slow-request-ms: ${LOG_SLOW_REQUEST_MS:1000}
+
   # 上传媒体**磁盘根目录**（S7）。⚠️ 与上面 media.base-url（URL 前缀）**严格分家**：
   #   本键 = 落盘 + /upload/** 静态服务共用**同一物理根**（TV 侧是 app.properties + context.xml
   #   两份配置 + 启动一致性校验；本项目一处配置，校验对象消失——B-12）。
@@ -247,9 +257,23 @@ video:
     dlq-ttl: ${FEED_DLQ_TTL:7d}
 
 # ----------------------------------------------------------------------------
-# 日志：本阶段保持 Boot 默认。TV 的 LOG_CONVENTION（定栈/脱敏/级别判据 163 行）
-# 按 P2 处置下沉为框架配置，待接入业务代码时再定，不提前搬。
+# 可观测（第三批 T2 / 账 B3）：Actuator 端点暴露
+# 只开 health 与 metrics —— 观测面要"看得见"，但不该顺手把 env/beans/heapdump
+# 这类**能读到配置与内存**的端点在无认证的情况下开出去（本项目尚无 Security 链，C3/C4）。
+# 日志侧的口径在 src/main/resources/logback-spring.xml（那里是本项目唯一的日志配置源）。
+# ----------------------------------------------------------------------------
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics
+
+# ----------------------------------------------------------------------------
+# 日志级别（应用日志的**输出端、格式、分流**全在 logback-spring.xml）
+# 注意：`access` / `audit` 两个专属 logger 的阈值在 logback 里**固定 INFO**，
+#       不随这里的配置变化（审计不得被运维级别开关静默，TV 同款纪律）。
 # ----------------------------------------------------------------------------
 logging:
   level:
     root: INFO
+

@@ -42,6 +42,18 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc</artifactId>
         </dependency>
+        <!-- ==================== 可观测（第三批 T2 / 账 B3） ====================
+             TV 自研 CacheStats 打点（六类事件计数 + 摘要日志）随缓存框架一起被裁掉，
+             《迁移参照系》§三的原计划是"收敛为 Actuator"，但从未发生 ⇒ 登记为 B3。
+             这里补上 Actuator（内含 micrometer-core）：
+               * /actuator/metrics 暴露指标（CacheMetrics 记 cache.events{event=…}）；
+               * /actuator/health 顺带获得（Testcontainers 的依赖就绪探测也能用）。
+             版本由 Boot 父 POM 托管，勿手写。只引 starter，不引额外 registry
+             （Prometheus 等抓取端点属部署形态，见决策⑨留后项）。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
         <!-- 声明式参数校验：承接 TV 散落各 Controller 的手写校验（踩坑清单 §8【隐患】） -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -188,6 +200,22 @@
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- T2：把日志目录钉到 target/ 内（`video.log.dir` ← 环境/系统属性 LOG_DIR），
+                         于是测试运行产生的 system/error/access/audit 四个文件都落
+                         target/test-logs/，`mvn clean` 即回收，不往仓库根的 logs/ 写。
+
+                         为什么走 surefire 而不是测试类的 static 块：日志系统由 Boot 在
+                         **上下文启动时**初始化并读这把键，而"哪个测试类先被加载"不确定；
+                         surefire 的系统属性在 fork 出 JVM 时就位，无竞态。 -->
+                    <systemPropertyVariables>
+                        <LOG_DIR>${project.build.directory}/test-logs</LOG_DIR>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
