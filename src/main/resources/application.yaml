@@ -178,6 +178,13 @@ video:
     #    自愈路径，只是预热；代价是启动期一次无上限全表查询）⇒ 首读会 miss 并回源 DB，
     #    TTL 值本身不变。接压测/真实数据时回补 init()。
     content-ttl: ${CONTENT_CACHE_TTL:30m}
+    # 索引懒重建失败的**进程内冷却退避**窗口（第三批 T3 / 账 B6）。口径对齐 TV
+    # AppConfig.getContentIndexRebuildCooldownMillis() ← app.properties 的
+    # cache.content.indexRebuildCooldownMillis=10000（10s）。
+    # 含义：DB 故障 + 索引缺失时，把"每请求一次全表重建（findAllContent）"收敛为"每冷却窗口一次"。
+    # ⚠️ 0 = 关闭退避（与 TV 同口径，"测试注入大值即等效关闭"）。
+    # ⚠️ 必须带单位后缀，写裸数字会被解析成秒级。
+    content-index-rebuild-cooldown: ${CONTENT_INDEX_REBUILD_COOLDOWN:10s}
     # 评论缓存（S5 切片）。口径对齐 TV AppConfig.getCommentTtlSeconds()
     # ← app.properties 的 cache.comment.ttlMinutes=10。
     # TV 理由（原注释）："comment 10min（命中 38%~42%，新鲜度敏感：评论增删/点赞失效驱动，

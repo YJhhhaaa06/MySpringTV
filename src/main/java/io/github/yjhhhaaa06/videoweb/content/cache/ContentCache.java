@@ -55,8 +55,9 @@ import java.util.Map;
  * <h2>相对 TV 有意去掉的（逐条记在决策表 G-6）</h2>
  * <b>不搬 {@code init()}</b>（启动全量重建）：其产物（内容 key、索引）**两条都有自愈路径**
  * （miss 回填 / 懒重建），只是预热；代价是启动期一次无上限全表查询。
- * <b>去掉索引重建的进程内冷却退避</b>（TV 10 秒）：当前无规模压力，收益为 0；
- * 补回位置见 G-6（{@code ensureIndex} 内加 {@code lastFailedAtMillis} + 窗口判定）。
+ * <b>索引重建的进程内冷却退避</b>（TV 10 秒）已由第三批 T3 / 账 B6 **补回**
+ * （见 {@link #ensureIndex} 与 {@link #inIndexRebuildCooldown}）：它**有**正确性含义——
+ * DB 故障 + 索引缺失时，把"每请求一次全表重建"收敛为"每冷却窗口一次"。
  */
 @Slf4j
 @Component
@@ -77,6 +78,12 @@ public class ContentCache {
     private final ContentRedisOps indexOps;
     private final ContentCacheProperties props;
     private final MediaProperties mediaProps;
+
+    /**
+     * 上次索引懒重建失败时刻（毫秒）；0 = 从未失败 / 已恢复。进程内退避记录（TV T5/N1，账 B6）。
+     * {@code volatile}：写发生在请求线程，读跨线程（下次请求可能是另一线程）——与 TV 同口径。
+     */
+    private volatile long lastFailedRebuildAtMillis;
 
     public ContentCache(ContentDao contentDao,
                         ContentMediaDao contentMediaDao,
@@ -456,11 +463,16 @@ public class ContentCache {
      * （**不清** {@code content:index:*}，既有索引原样保留供其它索引键继续服务），
      * 不把 DB 瞬时故障放大成"全站索引归零"。
      *
-     * <p>⚠️ 与 TV 的差异：TV 还有 10 秒**进程内冷却退避**，把"停机期间每请求一次全表重建"
-     * 收敛为"每冷却窗口一次"。本切片去掉（G-6：无规模压力时收益为 0）——
-     * 但这条**有**正确性含义，补回位置见 G-6。
+     * <p><b>进程内冷却退避</b>（TV T5/N1，第三批 T3 / 账 B6 补回）：重建失败后进入冷却窗口
+     * （{@link ContentCacheProperties#contentIndexRebuildCooldown()}），窗口内**直接跳过**探测与重建，
+     * {@link #readIndex} 照常降级为空推荐。意义：**每次请求**触发全表重建（{@code findAllContent()}）
+     * 是 O(全表) 的代价——DB 故障 + 索引缺失时，冷却把"每请求一次"收敛为"每冷却窗口一次"。
+     * 重建成功即清除冷却（{@code lastFailedRebuildAtMillis = 0}）。
      */
     private void ensureIndex(String indexKey) {
+        if (inIndexRebuildCooldown()) {
+            return; // 冷却窗口内跳过探测与重建，readIndex 走既有降级空推荐（U-11 语义不变）
+        }
         try {
             if (indexOps.keyExists(indexKey)) {
                 return;
@@ -472,10 +484,22 @@ public class ContentCache {
         try {
             all = contentDao.findAllContent();
         } catch (DataAccessException e) {
-            log.warn("索引重建装载失败（跳过重建，保留旧索引）", e);
+            lastFailedRebuildAtMillis = System.currentTimeMillis();
+            log.warn("索引重建装载失败（跳过重建，保留旧索引；进入冷却退避）", e);
             return;
         }
-        rebuildIndexes(all);
+        if (rebuildIndexes(all)) {
+            lastFailedRebuildAtMillis = 0; // 重建成功即恢复正常，冷却清除
+        } else {
+            lastFailedRebuildAtMillis = System.currentTimeMillis();
+        }
+    }
+
+    /** 冷却窗口判定：存在失败记录且未过窗口 → true（跳过重建）。冷却过期后自然重试完整链路。 */
+    private boolean inIndexRebuildCooldown() {
+        long failedAt = lastFailedRebuildAtMillis;
+        return failedAt != 0
+                && System.currentTimeMillis() - failedAt < props.contentIndexRebuildCooldown().toMillis();
     }
 
     private List<Long> readIndex(String indexKey) {
@@ -487,15 +511,18 @@ public class ContentCache {
         }
     }
 
-    private void rebuildIndexes(List<ContentCacheDTO> all) {
+    /** @return {@code true} = 重建成功；{@code false} = Redis 不可用（调用方据此进入冷却退避） */
+    private boolean rebuildIndexes(List<ContentCacheDTO> all) {
         List<ContentRedisOps.IndexEntry> entries = new ArrayList<>(all.size());
         for (ContentCacheDTO dto : all) {
             entries.add(new ContentRedisOps.IndexEntry(dto.getId(), dto.getType(), dto.getCategoryId()));
         }
         try {
             indexOps.rebuildIndexes(indexOps.indexKeys(), entries);
+            return true;
         } catch (CacheUnavailableException e) {
-            log.warn("索引重建失败（降级为空推荐）", e);
+            log.warn("索引重建失败（降级为空推荐；进入冷却退避）", e);
+            return false;
         }
     }
 
