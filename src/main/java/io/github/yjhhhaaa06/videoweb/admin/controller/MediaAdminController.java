@@ -3,6 +3,8 @@ package io.github.yjhhhaaa06.videoweb.admin.controller;
 import io.github.yjhhhaaa06.videoweb.admin.model.audit.MediaAuditResult;
 import io.github.yjhhhaaa06.videoweb.admin.model.audit.RestoreResult;
 import io.github.yjhhhaaa06.videoweb.admin.service.MediaAuditService;
+import io.github.yjhhhaaa06.videoweb.common.log.AuditLog;
+import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,7 +27,9 @@ import org.springframework.web.multipart.MultipartFile;
  *   <tr><td>{@code req.getPart("file")}</td><td>{@code @RequestPart(value="file", required=false) MultipartFile}</td></tr>
  *   <tr><td>{@code parseMediaId(req)} 抛 {@code ParamException("mediaId 格式错误")}</td>
  *       <td>{@code @RequestParam long mediaId}（缺参 / 非数字 → 全局 400，见《决策留痕表》D-12）</td></tr>
- *   <tr><td>{@code AuditLog.success("admin.media.restore", …)}</td><td>**不搬**（《决策留痕表》B-18）</td></tr>
+ *   <tr><td>{@code AuditLog.success("admin.media.restore", …)}</td>
+ *       <td>**T2 已补**（2026-10-03）：{@code common.log.AuditLog}（原记"不搬"随之作废，
+ *           见《遗留台账》B12）</td></tr>
  * </table>
  *
  * <h2>★ 为什么 {@code file} 是 {@code required=false}</h2>
@@ -81,10 +85,16 @@ public class MediaAdminController {
      *
      * <p>缺 {@code mediaId} → 400；缺文件 / 空文件 → 400「请选择要恢复的文件」；
      * 媒体不存在 → 404；URL 非法或扩展名不匹配 → 400。
+     *
+     * <p><b>T2 审计（B12）</b>：审计行在服务方法返回（= 写入已提交）之后写，
+     * 口径与理由见 {@code AdminContentController#hide}。
      */
     @PostMapping("/restore")
-    public ApiResponse<RestoreResult> restore(@RequestParam long mediaId,
+    public ApiResponse<RestoreResult> restore(@CurrentUserId long adminId,
+                                             @RequestParam long mediaId,
                                              @RequestPart(value = "file", required = false) MultipartFile file) {
-        return ApiResponse.success(mediaAuditService.restoreMedia(mediaId, file));
+        RestoreResult result = mediaAuditService.restoreMedia(mediaId, file);
+        AuditLog.success("admin.media.restore", adminId, "mediaId:" + mediaId);
+        return ApiResponse.success(result);
     }
 }

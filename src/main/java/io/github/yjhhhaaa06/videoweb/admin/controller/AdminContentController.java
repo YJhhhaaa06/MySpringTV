@@ -1,5 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.admin.controller;
 
+import io.github.yjhhhaaa06.videoweb.common.log.AuditLog;
+import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.AdminContentVO;
@@ -24,7 +26,8 @@ import java.util.List;
  *   <tr><td>{@code parseContentId(req, resp)}：手工空判 / parseLong / 手写错误响应</td>
  *       <td>{@code @RequestParam long contentId}（缺参 / 非数字由全局出口 → 400，见《决策留痕表》D-12）</td></tr>
  *   <tr><td>{@code AuditLog.success("admin.content.hide", …)}</td>
- *       <td>**不搬**——《迁移参照系》§三「不迁移清单」（《决策留痕表》B-18）</td></tr>
+ *       <td>**T2 已补**（2026-10-03）：{@code common.log.AuditLog}（原记"不搬"随之作废——
+ *           那正是《遗留台账》B12 说的"只写了动作没写后果"）</td></tr>
  *   <tr><td>{@code AuthFilter} 对 {@code /api/admin} 判 non-null + {@code role==1}</td>
  *       <td>**类级** {@link RequiresLogin}（登录）+ 既有 {@code JwtAuthFilter.isAdminPath}（角色）</td></tr>
  * </table>
@@ -70,10 +73,15 @@ public class AdminContentController {
      * <p>不存在 → 404「内容不存在」；已删除 → 409「内容已删除，无法下架」；
      * 已下架 → 409「内容已下架」；缺 {@code contentId} → 400。
      * 提交后内容/评论/点赞三处缓存失效（由既有订阅方承接，见 {@code ContentService.hideContent}）。
+     *
+     * <p><b>T2 审计（B12）</b>：审计行写在 `contentService.hideContent` **返回之后**——
+     * 服务方法是 {@code @Transactional}，调用返回即已提交 ⇒ 审计记录**不会**先于事实产生
+     * （若把审计写进事务方法体内，提交失败会留下一条"改过"的假留痕，那比没有留痕更坏）。
      */
     @PostMapping("/hide")
-    public ApiResponse<String> hide(@RequestParam long contentId) {
+    public ApiResponse<String> hide(@CurrentUserId long adminId, @RequestParam long contentId) {
         contentService.hideContent(contentId);
+        AuditLog.success("admin.content.hide", adminId, "contentId:" + contentId);
         return ApiResponse.success("下架成功");
     }
 
@@ -84,8 +92,9 @@ public class AdminContentController {
      * 缺 {@code contentId} → 400。提交后重载内容缓存 + 索引（前台立即重新可见）。
      */
     @PostMapping("/unhide")
-    public ApiResponse<String> unhide(@RequestParam long contentId) {
+    public ApiResponse<String> unhide(@CurrentUserId long adminId, @RequestParam long contentId) {
         contentService.unhideContent(contentId);
+        AuditLog.success("admin.content.unhide", adminId, "contentId:" + contentId);
         return ApiResponse.success("恢复成功");
     }
 }

@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.user.controller;
 
+import io.github.yjhhhaaa06.videoweb.common.log.AuditLog;
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
@@ -64,21 +65,36 @@ public class UserController {
         return ApiResponse.success(userService.login(request.phone(), request.password()));
     }
 
-    /** 修改密码。TV 中该路径在受保护精确清单内。 */
+    /**
+     * 修改密码。TV 中该路径在受保护精确清单内。
+     *
+     * <p><b>T2 审计（B12）</b>：审计行在服务方法返回（= 事务已提交）之后写。
+     * 放在控制器而不是服务方法体内是有意的——服务方法标了 {@code @Transactional}，
+     * 在方法体内写审计会在**提交之前**留下"改过密码"的记录；提交失败就变成假留痕。
+     * 控制器在事务之外，服务调用返回即已提交，故此处是"事实之后"。
+     * {@code target} 只记对象标识 {@code userId:N}——旧密码 / 新密码 / 手机号一律不落盘。
+     */
     @RequiresLogin
     @PostMapping("/changePassword")
     public ApiResponse<Void> changePassword(@CurrentUserId long userId,
                                            @RequestBody @Valid ChangePasswordRequest request) {
         userService.changePassword(userId, request);
+        AuditLog.success("user.changePassword", userId, "userId:" + userId);
         return ApiResponse.success();
     }
 
-    /** 修改用户名。TV 中该路径在受保护精确清单内。 */
+    /**
+     * 修改用户名。TV 中该路径在受保护精确清单内。
+     *
+     * <p>审计口径同 {@link #changePassword}（{@code UserService.changeUserName} 亦为
+     * {@code @Transactional}）。{@code target} 只记 {@code userId:N}，**不记新用户名**。
+     */
     @RequiresLogin
     @PostMapping("/changeUserName")
     public ApiResponse<Void> changeUserName(@CurrentUserId long userId,
                                            @RequestParam @NotBlank String userName) {
         userService.changeUserName(userId, userName);
+        AuditLog.success("user.changeUserName", userId, "userId:" + userId);
         return ApiResponse.success();
     }
 

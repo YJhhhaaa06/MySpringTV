@@ -1,6 +1,8 @@
 package io.github.yjhhhaaa06.videoweb.admin.controller;
 
 import io.github.yjhhhaaa06.videoweb.comment.service.CommentService;
+import io.github.yjhhhaaa06.videoweb.common.log.AuditLog;
+import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -39,10 +41,14 @@ public class AdminCommentController {
      * 管理员删除评论（{@code POST /api/admin/comment/delete?commentId=X}）：软删除 + 计数回减 + 缓存失效。
      *
      * <p>评论不存在 → 404；缺 {@code commentId} → 400。
+     *
+     * <p><b>T2 审计（B12）</b>：审计行在服务方法返回（= 事务已提交）之后写，
+     * 口径与理由见 {@code AdminContentController#hide}。
      */
     @PostMapping("/delete")
-    public ApiResponse<String> delete(@RequestParam long commentId) {
+    public ApiResponse<String> delete(@CurrentUserId long adminId, @RequestParam long commentId) {
         commentService.deleteCommentByAdmin(commentId);
+        AuditLog.success("admin.comment.delete", adminId, "commentId:" + commentId);
         return ApiResponse.success("删除成功");
     }
 }
