@@ -48,11 +48,29 @@ import java.util.function.LongPredicate;
  * 实现上靠**只 catch 自己的异常类型**来保证：{@link CacheUnavailableException} 只从
  * {@link LikeRedisOps} 冒出，DB 异常不经过它。
  *
+ * <h2>★ 空标记：S3 去掉、T4 补回（账 B2）</h2>
+ * S3 曾整条去掉空标记（L-7 记的影响："从未点赞的用户每次读都回源 DB——读放大最明显的一条"），
+ * 于是四域里**只有 like 没有负缓存**：content（经 {@code CacheAside} 的三态读）/ comment / follow
+ * 都有各自的 {@code empty:} 断言。T4 按"四域统一"把 TV 口径搬回来
+ * （{@code empty:user:likeSet:{userId}} / {@code empty:user:commentLikeSet:{userId}}，短 TTL 60s）。
+ * <p>三态读因此变成：<b>空标记命中 → false / 全 false</b>；数据 set 命中 → {@code SISMEMBER}；
+ * 两者皆无 → miss 回源（空结果写空标记）。
+ * <p>⚠️ **读路径必须先看空标记、再看数据 key**（{@code existingOf} 一趟返回两者，
+ * 判定顺序与 follow 侧一致）；写路径的点赞脚本会清掉空标记
+ * （见 {@link LikeRedisOps#LIKE_LUA}），回填非空集合时也清（见 {@link LikeRedisOps#BACKFILL_SET_LUA}）
+ * ——不清就是"真数据被 60 秒假否定挡住"。写失败的自愈路径同样把空标记纳入失效集
+ * （见 {@link #conditionalWrite}）。
+ * <p>⚠️ **残余竞态（照 TV 接受，如实登记）**："读 miss 回填的空集"与"并发点赞已提交"之间存在
+ * 一个 milliseconds 级窗口：{@code markEmptyIfAbsent} 的守卫只查数据 key，而点赞脚本对**冷 set**
+ * 只 {@code DEL} 空标记**不建 set** ⇒ 空标记可能盖在刚提交的赞上，表现为最长 60s 的假否定。
+ * 与 TV {@code CacheAside.markEmpty} 同款权衡（靠空标记 60s 过期 + 下次业务写清标记自愈），
+ * **不是本次改动引入、也未在此消除**。
+ *
  * <h2>相对 TV 的有意精简（逐条记录在决策表 L-7，此处只列要点）</h2>
- * 保留：条件写防残缺缓存（Lua 原子）、失败降级、TTL 与命中续期、批量状态、三态读。
- * 去掉：**空标记**（从未点赞的用户每次读都回源 DB——读放大最明显的一条）、
- * TV 的通用 CacheAside/SetCache 框架层。
+ * 保留：条件写防残缺缓存（Lua 原子）、失败降级、TTL 与命中续期、批量状态、三态读、空标记。
+ * 去掉：TV 的通用 CacheAside/SetCache 框架层。
  * <b>单飞</b>（B1）已由第三批 T3 收回：miss 回填经 {@link SingleFlight}，同 key 并发只打一次 DB。
+ * <b>空标记</b>（B2）已由第三批 T4 收回：见上。
  *
  * <p>另有一处**顺带的改进**（非偷懒，见 L-7 末段）：降级路径用**单条查询**作答，
  * 不把该用户的全量点赞史拉进内存——降级**不经单飞**（按请求 id 的批量子集作答，
@@ -83,6 +101,13 @@ public class LikeCache {
     static String userCommentLikeSetKey(long userId) {
         return CacheKeys.userCommentLikeSet(userId);
     }
+
+    /**
+     * 空标记的短 TTL，60 秒（口径见 {@link CacheKeys#EMPTY_MARKER_TTL_SECONDS}）。
+     * 刻意比成员 key 的 TTL（{@code video.cache.like-ttl}）短得多：它是"高置信度但短时效"的结论。
+     * 命中读**不续期**空标记（与 content/follow/comment 同口径）。
+     */
+    static final Duration EMPTY_MARKER_TTL = Duration.ofSeconds(CacheKeys.EMPTY_MARKER_TTL_SECONDS);
 
     private final LikeRedisOps ops;
     private final ContentLikeDao contentLikeDao;
@@ -134,13 +159,17 @@ public class LikeCache {
     private void conditionalWrite(String setKey, String countKey, long memberId, boolean liked) {
         try {
             if (liked) {
-                ops.applyLikeConditionalWrite(setKey, countKey, memberId);
+                ops.applyLikeConditionalWrite(setKey, countKey, CacheKeys.empty(setKey), memberId);
             } else {
                 ops.applyUnlikeConditionalWrite(setKey, countKey, memberId);
             }
         } catch (CacheUnavailableException e) {
             log.warn("点赞缓存写失败，失效 key 让读自愈: setKey={}, countKey={}", setKey, countKey, e);
-            invalidateQuietly(setKey, countKey);
+            // ⚠️ 空标记**必须一起失效**：它是读路径的第一判定，残留会让"刚写的赞"在 60s 内
+            //    读回 false 且**不回源 DB 自愈**——那正是本类要消除的假否定，
+            //    也正是"写失败 ⇒ 失效让读自愈"这条纪律在空标记这一半的落点
+            //    （对照 FollowCache.invalidateQuietly 的 dataKeyAndEmptyMarker）。
+            invalidateQuietly(setKey, countKey, CacheKeys.empty(setKey));
         }
     }
 
@@ -231,16 +260,23 @@ public class LikeCache {
      * 三态读单条点赞状态。
      *
      * <pre>
+     * 空标记命中 → false（已确认"该用户无点赞"，**不回源 DB**）
      * key 存在   → SISMEMBER 作答（并续期）
-     * key 不存在 → miss：回源全量 → 原子回填 → 作答
+     * key 不存在 → miss：回源全量 → 原子回填 → 作答（空集写空标记）
      * Redis 失败 → 降级：单条直查 DB（不影响结果）
      * </pre>
+     *
+     * <p>判定顺序：**先空标记、后数据 key**（同 follow 侧）——空标记断言"什么都没有"，
+     * 数据 key 断言"有什么"，前者更强。
      */
     private boolean isLiked(String setKey, long targetId, FullLoader fullLoader, SingleChecker checker) {
-        boolean cacheHit;
+        String emptyKey = CacheKeys.empty(setKey);
         try {
-            cacheHit = ops.keyExists(setKey);
-            if (cacheHit) {
+            Set<String> existing = ops.existingOf(setKey, emptyKey);
+            if (existing.contains(emptyKey)) {
+                return false;                                  // hit-empty：已确认该用户无点赞
+            }
+            if (existing.contains(setKey)) {
                 boolean liked = ops.setIsMember(setKey, targetId);
                 ops.expire(setKey, props.likeTtl());
                 return liked;
@@ -252,7 +288,7 @@ public class LikeCache {
         // miss：DB 是真理源，顺带回填（回填失败不影响本次结果）；单飞（B1）让同 key 并发只回源一次
         Set<Long> all = singleFlight.get(setKey, () -> {
             Set<Long> loaded = fullLoader.load();
-            backfillQuietly(setKey, loaded);
+            backfillQuietly(setKey, emptyKey, loaded);
             return loaded;
         });
         return all.contains(targetId);
@@ -289,8 +325,9 @@ public class LikeCache {
      * 三态读批量点赞状态。
      *
      * <pre>
+     * 空标记命中 → 全 false（已确认该用户无点赞，**不回源 DB**）
      * key 存在   → 一趟 pipeline 做 N×SISMEMBER（保持 TV T4"命令数与装载量双降"的性质）
-     * key 不存在 → miss：回源全量 → 原子回填 → 作答
+     * key 不存在 → miss：回源全量 → 原子回填 → 作答（空集写空标记）
      * Redis 失败 → 降级：按请求 id 批量 DB 作答（IN + {@code <foreach>}）
      * </pre>
      *
@@ -303,8 +340,13 @@ public class LikeCache {
         if (targetIds == null || targetIds.isEmpty()) {
             return Map.of();
         }
+        String emptyKey = CacheKeys.empty(setKey);
         try {
-            if (ops.keyExists(setKey)) {
+            Set<String> existing = ops.existingOf(setKey, emptyKey);
+            if (existing.contains(emptyKey)) {
+                return toResultMap(targetIds, Set.of());       // hit-empty：全 false
+            }
+            if (existing.contains(setKey)) {
                 List<Boolean> hits = ops.setIsMemberBatch(setKey, targetIds);
                 ops.expire(setKey, props.likeTtl());
                 Map<Long, Boolean> result = new LinkedHashMap<>();
@@ -320,7 +362,7 @@ public class LikeCache {
         // miss：单飞（B1）——同一 set 的并发批量读只回源一次（负载是"该用户全量"，与 targetIds 无关）
         Set<Long> all = singleFlight.get(setKey, () -> {
             Set<Long> loaded = fullLoader.load();
-            backfillQuietly(setKey, loaded);
+            backfillQuietly(setKey, emptyKey, loaded);
             return loaded;
         });
         return toResultMap(targetIds, all);
@@ -336,9 +378,20 @@ public class LikeCache {
 
     // ==================== 回填（best-effort：失败不影响本次读结果） ====================
 
-    private void backfillQuietly(String setKey, Set<Long> members) {
+    /**
+     * 回填（best-effort：失败不影响本次读结果）。
+     *
+     * <p>空集**不建数据 key**（Redis 里空集合不存在），改写空标记——这是防穿透的落点（T4 / 账 B2）；
+     * 非空集走原子替换（{@code DEL + SADD×N + EXPIRE}）并**清空标记**
+     * （不清会让刚回填的真集合被 60s 假否定挡住，见 {@link LikeRedisOps#BACKFILL_SET_LUA}）。
+     */
+    private void backfillQuietly(String setKey, String emptyKey, Set<Long> members) {
         try {
-            ops.backfillSet(setKey, members, props.likeTtl());
+            if (members.isEmpty()) {
+                ops.markEmptyIfAbsent(setKey, emptyKey, EMPTY_MARKER_TTL);
+            } else {
+                ops.backfillSet(setKey, emptyKey, members, props.likeTtl());
+            }
         } catch (CacheUnavailableException e) {
             log.warn("点赞成员回填失败（不影响本次读结果，下次读重试）: key={}", setKey);
         }
