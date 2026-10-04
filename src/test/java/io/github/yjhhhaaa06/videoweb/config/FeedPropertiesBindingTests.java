@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.config;
 
+import io.github.yjhhhaaa06.videoweb.common.config.FeedCompensateProperties;
 import io.github.yjhhhaaa06.videoweb.common.config.FeedDeliveryProperties;
 import io.github.yjhhhaaa06.videoweb.common.config.FeedProperties;
 import io.github.yjhhhaaa06.videoweb.support.AbstractIntegrationTest;
@@ -33,6 +34,10 @@ class FeedPropertiesBindingTests extends AbstractIntegrationTest {
     /** 投递线程池参数（第三批 T5 / 账 B8）：独立前缀 {@code video.feed.delivery}。 */
     @Autowired
     private FeedDeliveryProperties deliveryProperties;
+
+    /** 补偿缓冲参数（第三批 T5 / 账 B9）：独立前缀 {@code video.feed.compensate}。 */
+    @Autowired
+    private FeedCompensateProperties compensateProperties;
 
     @Test
     @DisplayName("★Duration 必须带单位后缀：inbox-ttl=60m / rebuild-debounce=1s / dlq-ttl=7d")
@@ -112,5 +117,27 @@ class FeedPropertiesBindingTests extends AbstractIntegrationTest {
                 .as("容量非正会让投递永远无法入队").isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new FeedDeliveryProperties(1000, Duration.ZERO))
                 .as("drain 上界为 0 = 关停等待无上界").isInstanceOf(IllegalArgumentException.class);
+    }
+
+    // ==================== video.feed.compensate.*（第三批 T5 / 账 B9） ====================
+
+    @Test
+    @DisplayName("★补偿缓冲：嵌套键 {@code video.feed.compensate.*} 绑到独立 record")
+    void 补偿缓冲参数绑定正确() {
+        assertThat(compensateProperties.bufferCapacity())
+                .as("待重放队列容量默认 10000（TV feed.compensate.bufferCapacity）")
+                .isEqualTo(10000);
+        assertThat(compensateProperties.probeInterval())
+                .as("探测周期默认 30 秒（TV MqDeliveryBuffer.PROBE_INTERVAL_MILLIS=30000）")
+                .isEqualTo(Duration.ofSeconds(30));
+    }
+
+    @Test
+    @DisplayName("补偿缓冲：非正容量 / 非正探测周期拒绝启动")
+    void 补偿缓冲参数非正即拒() {
+        assertThatThrownBy(() -> new FeedCompensateProperties(0, Duration.ofSeconds(30)))
+                .as("容量非正会让缓冲永远无法入队").isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new FeedCompensateProperties(10000, Duration.ZERO))
+                .as("探测周期为 0 = 从不探测（补偿永不重放）").isInstanceOf(IllegalArgumentException.class);
     }
 }
