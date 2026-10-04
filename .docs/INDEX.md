@@ -17,7 +17,7 @@ Flyway + Testcontainers。
 | 现状（2026-10-04） | 值 |
 |---|---|
 | 老端点迁移 | **43 / 43 / 0**（100%） |
-| 回归基线 | `python tools/run_tests.py` → **318 例全绿**（默认排除 `resilience`）；`--group resilience` → **32 例全绿**（T3 16 + T5 的 B8 9 + B9 7）；合计 **350 例** + BUILD SUCCESS（2026-10-04 第三批 T5 后；`mvnw.cmd -B clean verify` 同 318 全绿） |
+| 回归基线 | `python tools/run_tests.py` → **318 例全绿**（默认排除 `resilience`）；`--group resilience` → **34 例全绿**（T3 16 + T5 的 B8 9 + B9 9）；合计 **352 例** + BUILD SUCCESS（2026-10-04 第三批 T5 后；`mvnw.cmd -B clean verify` 同 318 全绿） |
 | 事务边界 | **66 处全部表态**，无 🔴 |
 | 未结的账 | 《遗留台账》**B 类 1 项待认领**（**B5 预热**）+ **B10 前端 / B11 未用依赖 / B13 DLQ 溢出**；**C3/C4**（Security 链待认领）。已闭合：B3/B12（T2，D19/D20）；B1/B4/B6（T3，D21/D22/D23）；**B2/B7（T4，D24/D25）**；**B8/B9（T5，D26/D27）** |
 
