@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.config;
 
+import io.github.yjhhhaaa06.videoweb.common.config.FeedDeliveryProperties;
 import io.github.yjhhhaaa06.videoweb.common.config.FeedProperties;
 import io.github.yjhhhaaa06.videoweb.support.AbstractIntegrationTest;
 import org.junit.jupiter.api.DisplayName;
@@ -28,6 +29,10 @@ class FeedPropertiesBindingTests extends AbstractIntegrationTest {
 
     @Autowired
     private FeedProperties feedProperties;
+
+    /** 投递线程池参数（第三批 T5 / 账 B8）：独立前缀 {@code video.feed.delivery}。 */
+    @Autowired
+    private FeedDeliveryProperties deliveryProperties;
 
     @Test
     @DisplayName("★Duration 必须带单位后缀：inbox-ttl=60m / rebuild-debounce=1s / dlq-ttl=7d")
@@ -81,5 +86,31 @@ class FeedPropertiesBindingTests extends AbstractIntegrationTest {
         FeedProperties props = new FeedProperties(ttl, 20, 200, 300, 20, ttl, 200, 50, 200,
                 Duration.ZERO, ttl);
         assertThat(props.rebuildDebounce()).isZero();
+    }
+
+    // ==================== video.feed.delivery.*（第三批 T5 / 账 B8） ====================
+
+    @Test
+    @DisplayName("★投递线程池：嵌套键 {@code video.feed.delivery.queue-capacity} 真的绑到了独立 record")
+    void 投递线程池参数绑定正确() {
+        // 这条用例的真正价值：record 只认**自身前缀下的扁平键**，把 delivery 那段塞进
+        // video.feed 的扁平记录里会被 ignoreUnknownFields 静默忽略并绑成 0 —— 于是
+        // requirePositive 在启动期才炸（且报错点是"必须为正数: 0"，离病因很远）。
+        // 这里把"嵌套键确实被独立 record 接住"钉死。
+        assertThat(deliveryProperties.queueCapacity())
+                .as("异步投递队列容量默认 1000（TV feed.delivery.queueCapacity）")
+                .isEqualTo(1000);
+        assertThat(deliveryProperties.drainTimeout())
+                .as("投递 drain 上界默认 5 秒（TV feed.delivery.drainTimeoutMillis=5000）")
+                .isEqualTo(Duration.ofSeconds(5));
+    }
+
+    @Test
+    @DisplayName("投递线程池：非正容量 / 非正 drain 上界拒绝启动")
+    void 投递线程池参数非正即拒() {
+        assertThatThrownBy(() -> new FeedDeliveryProperties(0, Duration.ofSeconds(5)))
+                .as("容量非正会让投递永远无法入队").isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new FeedDeliveryProperties(1000, Duration.ZERO))
+                .as("drain 上界为 0 = 关停等待无上界").isInstanceOf(IllegalArgumentException.class);
     }
 }
