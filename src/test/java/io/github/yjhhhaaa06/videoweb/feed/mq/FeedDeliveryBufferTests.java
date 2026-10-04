@@ -4,6 +4,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -38,7 +40,9 @@ import static org.mockito.Mockito.when;
  *   <li>RV-B9-b：把 {@code probe()} 改成直接 return（不调用 {@code flush}）
  *       ⇒ 同上一条用例的"恢复后重放"段变红（pending 恒为 2）；</li>
  *   <li>RV-B9-c：删掉 {@code allowAttempt()} 判定（不可达窗口内仍去撞 broker）
- *       ⇒ {@link #不可达窗口内后续消息零IO暂存()} 变红。</li>
+ *       ⇒ {@link #不可达窗口内后续消息零IO暂存()} 变红；</li>
+ *   <li>RV-B9-d：把 {@code start()} 里的 {@code scheduleWithFixedDelay} 注掉
+ *       ⇒ {@link #定时探测自动重放()} 变红（积压永远停着）。</li>
  * </ul>
  */
 @Tag("resilience")
@@ -131,7 +135,36 @@ class FeedDeliveryBufferTests {
     }
 
     @Test
-    @DisplayName("缓冲满 ⇒ 丢弃新消息 + 节流告警（不抛，不覆盖已有积压）")
+    @DisplayName("★定时探测会自动重放（start() 真的起了调度——不靠手动 probe）")
+    void 定时探测自动重放() {
+        FeedPublisher publisher = mock(FeedPublisher.class);
+        AtomicBoolean up = new AtomicBoolean(false);
+        when(publisher.publish(anyString(), anyString(), any(), anyString()))
+                .thenAnswer(invocation -> up.get() ? DeliveryOutcome.SENT : DeliveryOutcome.UNAVAILABLE);
+        FeedDeliveryBuffer buffer = new FeedDeliveryBuffer(publisher, 8, 50L);
+
+        assertThat(buffer.publish(EX, RK, 1L, "d1")).isFalse();
+        assertThat(buffer.pendingCount()).isEqualTo(1);
+
+        buffer.start();     // 生产里由 @PostConstruct 调用
+        up.set(true);       // broker 恢复 ⇒ 接下来某个探测周期应把积压投出去
+
+        long deadline = System.currentTimeMillis() + 5_000;
+        while (System.currentTimeMillis() < deadline && buffer.pendingCount() > 0) {
+            try {
+                Thread.sleep(20);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        assertThat(buffer.pendingCount())
+                .as("定时探测必须能自动重放（若 start() 没起调度，这里会一直停在 1）").isZero();
+        buffer.destroy();
+    }
+
+    @Test
+    @DisplayName("缓冲满 ⇒ 丢弃新消息（不覆盖已有积压、不抛）")
     void 缓冲满即丢弃() {
         FeedPublisher publisher = mock(FeedPublisher.class);
         when(publisher.publish(anyString(), anyString(), any(), anyString()))
@@ -144,6 +177,18 @@ class FeedDeliveryBufferTests {
         buffer.publish(EX, RK, 4L, "d4");   // 仍溢出（此后不再逐条告警）
 
         assertThat(buffer.pendingCount()).as("容量 2 ⇒ 只保留最早两条，不抛").isEqualTo(2);
+        buffer.destroy();
+    }
+
+    @Test
+    @DisplayName("载荷为空 ⇒ 跳过（与 TV 同款早退，不投出去白占 DLQ）")
+    void 载荷为空即跳过() {
+        FeedPublisher publisher = mock(FeedPublisher.class);
+        FeedDeliveryBuffer buffer = new FeedDeliveryBuffer(publisher, 8, LONG_WINDOW);
+
+        assertThat(buffer.publish(EX, RK, null, "d1")).isFalse();
+        assertThat(buffer.pendingCount()).isZero();
+        verify(publisher, times(0)).publish(anyString(), anyString(), any(), anyString());
         buffer.destroy();
     }
 

@@ -35,8 +35,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 一次 MQ 故障会让后台单 worker 每 2s 才吞下一条消息 ⇒ 有界队列很快被灌满 ⇒ 补偿反而失效。
  * 故本类自持一个极小的**不可达窗口**状态：一次 {@code UNAVAILABLE} 后进入"不可达"，
  * 窗口内新消息**直接暂存、不触达 broker**；窗口期满后放行一次真实投递作为探针。
- * （这与 TV 的 {@code MqConnectionManager.ensureConnected()} 同构——TV 用它做同样的"不空转"，
- * 本仓不搬它的连接管理，只保留这层判定。）
+ * （与 TV 的 {@code MqConnectionManager.ensureConnected()} **只在"不空转"这一点上**同构——
+ * TV 那层还兼作"惰性重连的唯一触发点"，本仓不搬它的连接管理，重连由真实发送自身承担。）
  *
  * <h2>重放触发 = 定时探测（主通道）</h2>
  * 缓冲非空时，探测线程每 {@code video.feed.compensate.probe-interval}（默认 30s）尝试重放；
@@ -44,6 +44,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <br>⚠️ **与 TV 的差异（登记）**：TV 还有一条"连接回调 onConnected 立即重放"的加速通道，
  * 本仓**不搬**——Spring AMQP 的连接自动恢复不暴露等价的业务可见钩子。本仓的探针**会真的尝试投递**
  * （而非 TV 那样只读本地状态），因此"启动时 broker 不可达"这一 TV 的已知窄路径在本仓**能自驱恢复**。
+ * <br>⚠️ **代价（登记）**：探针不受"不可达窗口"约束（它就是窗口的触发器），故 broker 持续不可达
+ * 且缓冲非空时，**每个探测周期会付一次连接超时**（dev 2s，占调度线程）。一个周期内热路径与
+ * 探针叠加时最多 2 次。上界简单可证，故不做额外裁剪。
  *
  * <h2>失败与容量口径</h2>
  * 缓冲**有界**（{@code video.feed.compensate.buffer-capacity}，默认 10000）——满则丢弃新消息，
@@ -87,9 +90,13 @@ public class FeedDeliveryBuffer {
     /** 关停标志：之后不再缓冲、不再重放（关停期丢失 = 残余②口径）。 */
     private final AtomicBoolean shuttingDown = new AtomicBoolean();
 
-    /** 不可达窗口状态：{@code down} 时窗口内新消息零 I/O 暂存。 */
-    private volatile boolean down;
-
+    /**
+     * 不可达窗口状态：**{@code 0} = 可用**，否则是"最近一次判定不可达"的时刻。
+     *
+     * <p>刻意用**单个 volatile long**（而不是 {@code boolean + long} 两个 volatile）：
+     * 两个字段无法原子快照，跨线程（投递 worker 与探测线程）读者可能读到"新 down 配旧时刻"
+     * ⇒ {@link #allowAttempt()} 提前放行，破坏"窗口内不空转"。
+     */
     private volatile long downSinceMillis;
 
     /** Spring 注入构造：容量与探测周期取自 {@code video.feed.compensate.*}。 */
@@ -126,6 +133,11 @@ public class FeedDeliveryBuffer {
         if (shuttingDown.get()) {
             return false;   // 关停期不再缓冲（缓冲也无从重放）
         }
+        if (payload == null) {
+            // 与 TV MqDeliveryBuffer 同款早退：空载荷投出去只会让消费侧解析失败 → 白占 DLQ
+            log.warn("MQ 投递跳过（载荷为空，不影响业务）: {}", desc);
+            return false;
+        }
         Pending message = new Pending(exchange, routingKey, payload, desc);
         if (!allowAttempt()) {
             // 不可达窗口内：零 I/O 暂存，不撞连接超时（否则后台 worker 会每 2s 才吞一条）
@@ -155,14 +167,16 @@ public class FeedDeliveryBuffer {
 
     /** 是否处于"不可达窗口"（诊断 / 单测断言用）。 */
     boolean isDown() {
-        return down;
+        return downSinceMillis != 0L;
     }
 
     // ==================== 生命周期 ====================
 
     /**
-     * 启动定时探测（主通道）。**绝不抛**（启动期异常会阻断应用启动）：失败只记 WARNING，
-     * 降级为"只靠下一次业务投递触发重放"。
+     * 启动定时探测（**唯一的重放触发**）。**绝不抛**（启动期异常会阻断应用启动）：失败只记 WARNING，
+     * ⚠️ 后果是**彻底失去自动重放**（本仓不搬 TV 的 onConnected 加速通道，也没有"靠下一次业务投递
+     * 触发重放"这条路——业务投递只投新消息）。故失败必须显式告警；积压等同于丢失（内存态本就
+     * 重启即丢，残余①）。
      */
     @PostConstruct
     void start() {
@@ -170,7 +184,7 @@ public class FeedDeliveryBuffer {
             scheduler.scheduleWithFixedDelay(this::probe,
                     probeIntervalMillis, probeIntervalMillis, TimeUnit.MILLISECONDS);
         } catch (RuntimeException e) {
-            log.warn("MQ 投递补偿：定时探测启动失败（降级，仅靠下一次业务投递触发重放）", e);
+            log.warn("MQ 投递补偿：定时探测启动失败 ⇒ 不再自动重放（积压等同丢失，残余①已登记）", e);
         }
     }
 
@@ -193,8 +207,10 @@ public class FeedDeliveryBuffer {
     // ==================== 内部实现 ====================
 
     /**
-     * 定时探测（主通道）：缓冲非空才动作（为空时零 I/O）。**任何异常都吞掉**——任务体抛出会让
-     * {@code scheduleWithFixedDelay} 永久停摆。包级可见：单测可直接驱动，不依赖真实计时。
+     * 定时探测（**唯一的重放触发**）：缓冲非空才动作（为空时零 I/O）。**任何异常都吞掉**——任务体
+     * 抛出会让 {@code scheduleWithFixedDelay} 永久停摆。**刻意不受 {@link #allowAttempt()} 约束**
+     * （它就是窗口的触发器，且要能自驱恢复）；代价见类注释"代价（登记）"。
+     * 包级可见：单测可直接驱动，不依赖真实计时。
      */
     void probe() {
         try {
@@ -232,7 +248,10 @@ public class FeedDeliveryBuffer {
                 if (outcome == DeliveryOutcome.UNAVAILABLE) {
                     // 仍未恢复：放回队尾（顺序微调无妨——消费侧幂等）并结束本轮，避免坏状态下空转
                     markDown();
-                    pending.offer(message);
+                    if (!pending.offer(message)) {
+                        // 极端窄路径（poll 与 offer 之间被并发投递填满）：丢这一条，但**不静默**
+                        log.warn("MQ 投递补偿：放回队列时缓冲已满，该条被丢弃（降级）: {}", message.desc());
+                    }
                     break;
                 }
                 log.warn("MQ 投递补偿：放弃重放（载荷不可序列化，重放必然同样失败）: {}", message.desc());
@@ -265,23 +284,23 @@ public class FeedDeliveryBuffer {
     }
 
     /**
-     * 此刻能否真的去撞 broker：正常时恒真；进入"不可达"后**只在窗口期满时放行一次**
-     * （既是探针，也保证"一次故障期间每个周期最多一次连接超时"）。
+     * 此刻能否真的去撞 broker（**只约束热路径**，见 {@link #probe()} 不查它）：正常时恒真；
+     * 进入"不可达"后只在窗口期满时放行一次——保证热路径在故障期间**每周期最多一次连接超时**。
      */
     private boolean allowAttempt() {
-        if (!down) {
+        long since = downSinceMillis;
+        if (since == 0L) {
             return true;
         }
-        return System.currentTimeMillis() - downSinceMillis >= probeIntervalMillis;
+        return System.currentTimeMillis() - since >= probeIntervalMillis;
     }
 
     private void markDown() {
-        down = true;
         downSinceMillis = System.currentTimeMillis();
     }
 
     private void markUp() {
-        down = false;
+        downSinceMillis = 0L;
     }
 
     private static ScheduledExecutorService newScheduler() {
