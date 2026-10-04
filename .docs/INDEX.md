@@ -19,10 +19,13 @@ Flyway + Testcontainers。
 | 老端点迁移 | **43 / 43 / 0**（100%） |
 | 回归基线 | `python tools/run_tests.py` → **318 例全绿**（默认排除 `resilience`）；`--group resilience` → **34 例全绿**（T3 16 + T5 的 B8 9 + B9 9）；合计 **352 例** + BUILD SUCCESS（2026-10-04 第三批 T5 后；`mvnw.cmd -B clean verify` 同 318 全绿） |
 | 事务边界 | **66 处全部表态**，无 🔴 |
-| 未结的账 | 《遗留台账》**B 类 1 项待认领**（**B5 预热**）+ **B10 前端 / B11 未用依赖 / B13 DLQ 溢出**；**C3/C4**（Security 链待认领）。已闭合：B3/B12（T2，D19/D20）；B1/B4/B6（T3，D21/D22/D23）；**B2/B7（T4，D24/D25）**；**B8/B9（T5，D26/D27）** |
+| 未结的账 | 《遗留台账》**B 类 1 项待认领**（**B5 预热**）+ **B11 未用依赖 / B13 DLQ 溢出**；**C3/C4**（Security 链待认领）。已闭合：B3/B12（T2，D19/D20）；B1/B4/B6（T3，D21/D22/D23）；**B2/B7（T4，D24/D25）**；**B8/B9（T5，D26/D27）**；**B10 前端（T6，D28）** |
 
 > ⚠️ **两条必须知道的边界**：
-> ① **"43/43 迁移完成"只覆盖 HTTP 后端面**——老项目自制前端（20 文件 / 184.5 KB）**整体未迁**（台账 B10）。
+> ① **前端已随 T6 迁入** `src/main/resources/static/`（18 文件；契约差异见《决策留痕表》**D-13~D-15** 与
+> `archive/T6-前端补迁-契约差异对照.md`）。⚠️ 注意：老前端对着 TV 的"协议层恒 200 + 自定义 `token` 头 +
+> `account` 字段"写，本项目已改为 **HTTP 状态码与 code 对齐 + `Authorization: Bearer` + `phone` 字段**，
+> 前端已适配这三点；后续若再动 HTTP 层，须同步 `static/js/api.js`。
 > ② 鉴权**还没迁 Spring Security**，当前是自研 `JwtAuthFilter` + `@RequiresLogin`，
 > `SecurityPassthroughConfig` 是**临时态**（台账 C3/C4）。
 
