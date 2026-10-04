@@ -15,6 +15,7 @@ import org.springframework.web.client.RestClient;
 import java.sql.PreparedStatement;
 import java.sql.Types;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -45,6 +46,9 @@ abstract class AbstractLikeIntegrationTest extends AbstractHttpIntegrationTest {
     protected static final String COMMENT_LIKE_COUNT_KEY = "comment:likeCount:";
     protected static final String USER_LIKE_SET_KEY = "user:likeSet:";
     protected static final String USER_COMMENT_LIKE_SET_KEY = "user:commentLikeSet:";
+
+    /** 空标记前缀（第三批 T4 / 账 B2 补回后 like 域也有负缓存）。 */
+    protected static final String EMPTY_PREFIX = "empty:";
 
     @Autowired
     protected StringRedisTemplate redis;
@@ -90,6 +94,15 @@ abstract class AbstractLikeIntegrationTest extends AbstractHttpIntegrationTest {
     protected boolean userCommentLikeSetContains(long userId, long commentId) {
         return Boolean.TRUE.equals(
                 redis.opsForSet().isMember(USER_COMMENT_LIKE_SET_KEY + userId, String.valueOf(commentId)));
+    }
+
+    protected boolean hasKey(String key) {
+        return Boolean.TRUE.equals(redis.hasKey(key));
+    }
+
+    /** key 的剩余 TTL（秒）。用于验证"空标记是**短** TTL"（TTL=-1 表示永不过期 ⇒ 是缺陷）。 */
+    protected Long ttlSecondsOf(String key) {
+        return redis.getExpire(key, TimeUnit.SECONDS);
     }
 
     // ==================== 造数据 ====================

@@ -16,6 +16,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -23,6 +24,8 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 /**
  * 切片 S3 的**缓存语义与时序**测试 —— 本切片最有价值的测试（决策表 L-6 / L-7 的固化）。
@@ -46,7 +49,9 @@ import static org.mockito.Mockito.doThrow;
  * <h2>其余不变式</h2>
  * <ul>
  *   <li>{@link #冷key点赞不创建半套缓存()} —— 条件写（防残缺缓存）</li>
- *   <li>{@link #缓存miss时回源DB并回填()} / {@link #计数为0是合法值而非空标记()} —— 三态读与回填</li>
+ *   <li>{@link #缓存miss时回源DB并回填()} —— 三态读的 miss 分支</li>
+ *   <li>{@link #计数为0是合法值而空标记承载无点赞()} / {@link #点赞必须清掉空标记()} /
+ *       {@link #写失败时空标记一并失效()} / {@link #非空回填清掉空标记()} —— ★账 B2：空标记（T4 补回）</li>
  *   <li>{@link #Redis不可用时降级DB且不抛()} —— Redis 失败 ⇒ 降级，接口不 500</li>
  *   <li>{@link #DB失败不被降级吞掉()} —— ★ DB 失败 ⇒ **上抛**（两种失败的区分）</li>
  *   <li>{@link #批量查询冷miss回源并回填()} —— 批量路径（S5 的 /comment/replies 依赖它）</li>
@@ -190,15 +195,18 @@ class LikeCacheTests extends AbstractLikeIntegrationTest {
     }
 
     /**
-     * {@code 0} 是**合法计数**，必须与"key 不存在"区分开（靠 {@code GET} 返回 null 而非 {@code "0"}）。
+     * ★ <b>账 B2（第三批 T4）：空标记</b>——四域口径统一后的 like 侧边界。
      *
-     * <p>同时记录一个**有意的设计后果**：精简版不做"空标记"，
-     * 而"该用户一个赞都没有"在 Redis 里无法表达（空集合不存在）⇒
-     * **从未点赞的用户每次读状态都会回源 DB**。这是 L-7 里记的影响最明显的一条简化。
+     * <p>{@code 0} 是**合法计数**，必须与"key 不存在"区分开（靠 {@code GET} 返回 null 而非 {@code "0"}）；
+     * 而"该用户一个赞都没有"这一事实由**空标记**承载（Redis 里空集合不存在）。
+     *
+     * <p>⚠️ 本用例的前身（S3）断言的是"只应有计数 key，没有成员 set"——那是 L-7"有意不做空标记"
+     * 的产物：**从未点赞的用户每次读状态都回源 DB**。T4 按"四域统一"把 TV 口径搬回来后，
+     * 断言随之改为"空标记必须落盘，且第二次读不再回源"（这就是负缓存的存在证明）。
      */
     @Test
-    @DisplayName("计数 0 是合法值（不是空标记）；从未点赞的用户其成员 set 不会被缓存（L-7 记录的后果）")
-    void 计数为0是合法值而非空标记() {
+    @DisplayName("★空标记：从未点赞的用户不再每次回源 DB；且不建空成员 set（账 B2）")
+    void 计数为0是合法值而空标记承载无点赞() {
         long userId = 9005L;
         long contentId = insertContent(9005L);
 
@@ -207,11 +215,99 @@ class LikeCacheTests extends AbstractLikeIntegrationTest {
                 .as("0 应被回填为字符串 \"0\"，而不是当成 miss 不写")
                 .isEqualTo("0");
 
-        // 该用户没有点赞 ⇒ 读状态返回 false，且成员 set 不会被建立（空集合无法表达）
+        // 该用户没有点赞 ⇒ 读状态返回 false，且成员 set 不会被建立（空集合无法表达）⇒ 改由空标记承载
         assertThat(likeService.isContentLiked(userId, contentId)).isFalse();
+        String emptyKey = EMPTY_PREFIX + USER_LIKE_SET_KEY + userId;
         assertThat(redisKeys())
-                .as("空集合无法在 Redis 中存在 ⇒ 只应有计数 key，没有成员 set")
-                .containsExactly(CONTENT_LIKE_COUNT_KEY + contentId);
+                .as("空集不建数据 key，改写空标记（T4 / 账 B2 补回）")
+                .containsExactlyInAnyOrder(CONTENT_LIKE_COUNT_KEY + contentId, emptyKey);
+        assertThat(ttlSecondsOf(emptyKey))
+                .as("空标记是**短 TTL**（口径 60s，与成员 key 的 15m 不同）").isBetween(1L, 60L);
+
+        // ★ 命中空标记 ⇒ 不再回源 DB（单条与批量两条读路径都要覆盖）
+        Mockito.clearInvocations(contentLikeDao);
+        assertThat(likeService.isContentLiked(userId, contentId)).isFalse();
+        assertThat(likeService.batchIsContentLiked(userId, List.of(contentId)))
+                .containsEntry(contentId, false);
+        verify(contentLikeDao, never()).findLikedContentIdsByUser(anyLong());
+    }
+
+    /**
+     * ★ <b>账 B2：点赞条件写必须清掉空标记</b>。
+     *
+     * <p>场面：先读一次"没点赞"把空标记立住，再点赞。若不 {@code DEL empty:}，读路径**先看空标记**
+     * ⇒ 刚点的赞在 60 秒内会被答案"未点赞"挡回去（**假否定**，比回源 DB 更坏）。
+     * 这条用例就是那个 `DEL KEYS[3]` 的存在证明。
+     */
+    @Test
+    @DisplayName("★点赞条件写清空标记：'从未点赞'的结论不得把刚点的赞挡成 60s 假否定（账 B2）")
+    void 点赞必须清掉空标记() {
+        long userId = 9010L;
+        long contentId = insertContent(9010L);
+
+        assertThat(likeService.isContentLiked(userId, contentId)).isFalse();   // 立起空标记
+        String emptyKey = EMPTY_PREFIX + USER_LIKE_SET_KEY + userId;
+        assertThat(hasKey(emptyKey)).as("前置：空标记已建立").isTrue();
+
+        likeService.likeContent(userId, contentId);
+
+        assertThat(hasKey(emptyKey))
+                .as("条件写必须清空标记，否则 60s 内读会给出假的 false").isFalse();
+        assertThat(likeService.isContentLiked(userId, contentId)).isTrue();
+    }
+
+    /**
+     * ★ <b>账 B2：写失败的自愈必须把空标记一起失效</b>。
+     *
+     * <p>Redis 写失败时按纪律"失效 key 让读自愈"；若只失效数据 key 与计数 key 而留下空标记，
+     * 读路径会**先命中空标记**给出 false 且**不回源 DB** ⇒ 刚提交的赞在 60s 内不可见。
+     * 这条用例是 {@code LikeCache.conditionalWrite} 的 catch 块里那个
+     * {@code CacheKeys.empty(setKey)} 的存在证明。
+     */
+    @Test
+    @DisplayName("★写失败自愈必须连空标记一起失效（否则刚写的赞被 60s 假否定挡住，账 B2）")
+    void 写失败时空标记一并失效() {
+        long userId = 9012L;
+        long contentId = insertContent(9012L);
+
+        assertThat(likeService.isContentLiked(userId, contentId)).isFalse();   // 立起空标记
+        String emptyKey = EMPTY_PREFIX + USER_LIKE_SET_KEY + userId;
+        assertThat(hasKey(emptyKey)).as("前置：空标记已建立").isTrue();
+
+        doThrow(new CacheUnavailableException("模拟 Redis 故障"))
+                .when(likeRedisOps).applyLikeConditionalWrite(anyString(), anyString(), anyString(), anyLong());
+
+        likeService.likeContent(userId, contentId);        // 业务提交成功，缓存写失败 → 走自愈
+
+        assertThat(hasKey(emptyKey))
+                .as("写失败后空标记必须被失效，否则读路径 60s 内无法自愈").isFalse();
+        assertThat(likeService.isContentLiked(userId, contentId))
+                .as("失效后读 miss → 回源 DB → 得到真实答案").isTrue();
+    }
+
+    /**
+     * ★ <b>账 B2：非空回填必须清掉空标记</b>（ops 级用例）。
+     *
+     * <p>为什么必须是 ops 级：上面两条端到端用例都构造不出"**非空回填与空标记共存**"的场面
+     * （点赞那条约路径已先由 {@code LIKE_LUA} 删掉标记；空集那条约根本不走非空回填）。
+     * 而这一行是必需的：读路径**先看空标记**，若回填真集合时不清它，真数据会被挡在 60s 内 ⇒ 假否定。
+     * ⇒ 本用例是 {@code BACKFILL_SET_LUA} 里 {@code DEL KEYS[2]} 的存在证明（去掉它则变红）。
+     */
+    @Test
+    @DisplayName("★非空回填清空标记（BACKFILL_SET_LUA 的 DEL KEYS[2] 的存在证明，账 B2）")
+    void 非空回填清掉空标记() {
+        long userId = 9011L;
+        String setKey = USER_LIKE_SET_KEY + userId;
+        String emptyKey = EMPTY_PREFIX + setKey;
+
+        redis.opsForValue().set(emptyKey, "1", Duration.ofSeconds(60));   // 先立空标记
+        assertThat(hasKey(emptyKey)).as("前置：空标记已建立").isTrue();
+
+        likeRedisOps.backfillSet(setKey, emptyKey, Set.of(123L), Duration.ofMinutes(15));
+
+        assertThat(hasKey(setKey)).as("回填写入成员").isTrue();
+        assertThat(hasKey(emptyKey))
+                .as("非空回填必须清空标记，否则读路径会命中它给出 60s 假否定").isFalse();
     }
 
     // ==================== ★ 两种失败的区分 ====================
@@ -229,8 +325,8 @@ class LikeCacheTests extends AbstractLikeIntegrationTest {
         long contentId = insertContent(9006L);
         likeService.likeContent(userId, contentId);      // Redis 正常时先写好 DB
 
-        // 让所有 Redis 入口都失败
-        doThrow(new CacheUnavailableException("模拟 Redis 故障")).when(likeRedisOps).keyExists(anyString());
+        // 让所有 Redis 入口都失败（三态读的探测入口 = existingOf；计数读 = getString）
+        doThrow(new CacheUnavailableException("模拟 Redis 故障")).when(likeRedisOps).existingOf(anyString(), anyString());
         doThrow(new CacheUnavailableException("模拟 Redis 故障")).when(likeRedisOps).getString(anyString());
         doThrow(new CacheUnavailableException("模拟 Redis 故障"))
                 .when(likeRedisOps).applyUnlikeConditionalWrite(anyString(), anyString(), anyLong());
