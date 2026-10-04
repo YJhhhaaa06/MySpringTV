@@ -29,10 +29,10 @@ import java.nio.charset.StandardCharsets;
  * <ol>
  *   <li><b>不等 publisher-confirm</b>：TV 单 channel + confirmLock + {@code waitForConfirms(5s)}，
  *       并为之建了异步投递线程池（{@code MqDeliveryDispatcher}）把等待挪离 Web 线程（治 N8）。
- *       本实现**不启用 confirm** ⇒ {@code send} 写完 socket 即返回，**天然不阻塞 Web 线程**
- *       ⇒ 那套异步投递线程池的必要性消失（登记为 B8 裁剪）。代价：broker 不可达时，
- *       {@code send} 会等一次连接超时（{@code spring.rabbitmq.connection-timeout}，dev 2s）——
- *       这是本档**已登记的代价**。</li>
+ *       本实现**不启用 confirm** ⇒ {@code send} 写完 socket 即返回。⚠️ **但"天然不阻塞"只在 broker
+ *       可达时成立**：broker 不可达时会等一次连接超时（{@code spring.rabbitmq.connection-timeout}，
+ *       dev 2s）⇒ **该代价已由第三批 T5（账 B8）用 {@code FeedDeliveryDispatcher} 收掉**
+ *       （publish 现在由后台单 worker 执行，Web 线程不再等这笔超时）。</li>
  *   <li><b>无应用层补偿缓冲</b>：TV 的 {@code MqDeliveryBuffer} 在"连接确定不可用"时把消息暂存
  *       内存、恢复后重放。本实现不做（登记为 B9）——该机制 TV 自己标注为"内存态、重启即丢"，
  *       且系统本就靠"未同步 ⇒ 回退纯拉 + 下次发布 / 重建"自愈。</li>

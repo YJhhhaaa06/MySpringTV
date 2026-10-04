@@ -16,16 +16,16 @@ import org.springframework.stereotype.Component;
  * <p><b>投递点</b>：{@code feed/event/FollowChangedFeedListener} 在 {@code AFTER_COMMIT} 阶段、
  * 且**仅当** {@code transition == DOWNGRADED} 时调用。edge 天然唯一 ⇒ **无需去抖**。
  *
- * <p><b>红线</b>：任何情况下都不抛异常（委托 {@link FeedPublisher}）。
+ * <p><b>红线</b>：任何情况下都不抛异常（委托 {@link FeedDelivery}）。
  */
 @Slf4j
 @Component
 public class AuthorBackfillNotifier {
 
-    private final FeedPublisher publisher;
+    private final FeedDelivery delivery;
 
-    public AuthorBackfillNotifier(FeedPublisher publisher) {
-        this.publisher = publisher;
+    public AuthorBackfillNotifier(FeedDelivery delivery) {
+        this.delivery = delivery;
     }
 
     /**
@@ -37,7 +37,7 @@ public class AuthorBackfillNotifier {
      * @param authorId 降级的作者（= 关注 / 取关的**被关注者**，不是操作者）
      */
     public void publishAuthorBackfill(long authorId) {
-        publisher.publish(FeedTopology.EXCHANGE_PUSH, FeedTopology.RK_PUSH_BACKFILL,
+        delivery.deliver(FeedTopology.EXCHANGE_PUSH, FeedTopology.RK_PUSH_BACKFILL,
                 new AuthorBackfillMessage(authorId), "backfill authorId=" + authorId);
     }
 }

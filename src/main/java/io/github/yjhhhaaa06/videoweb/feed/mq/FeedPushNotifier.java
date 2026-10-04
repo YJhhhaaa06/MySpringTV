@@ -8,8 +8,11 @@ import org.springframework.stereotype.Component;
  * 写扩散投递封装（承接 TV {@code feed.service.FeedPushNotifier}）：内容发布 → 投递 push 消息，
  * 交由消费者写各粉丝收件箱。
  *
- * <p><b>红线</b>：本类**任何情况下都不抛异常**（委托 {@link FeedPublisher}，其"绝不抛"契约见类注释）
+ * <p><b>红线</b>：本类**任何情况下都不抛异常**（委托 {@link FeedDelivery}，其"绝不抛"契约见类注释）
  * ——投递失败只降级（消息缺失至下次重建），不影响发布接口的响应与语义。
+ *
+ * <p><b>异步</b>：自第三批 T5（账 B8）起经 {@link FeedDelivery} → {@code FeedDeliveryDispatcher}
+ * 在**后台单 worker** 投递，发布接口 RT 不再等 broker 连接超时。
  *
  * <p><b>投递点</b>：由订阅方 {@code feed/event/ContentPublishedFeedListener} 在
  * {@code ContentPublishedEvent} 的 {@code AFTER_COMMIT} 阶段调用——"提交后副作用"由框架保证，
@@ -19,10 +22,10 @@ import org.springframework.stereotype.Component;
 @Component
 public class FeedPushNotifier {
 
-    private final FeedPublisher publisher;
+    private final FeedDelivery delivery;
 
-    public FeedPushNotifier(FeedPublisher publisher) {
-        this.publisher = publisher;
+    public FeedPushNotifier(FeedDelivery delivery) {
+        this.delivery = delivery;
     }
 
     /**
@@ -35,7 +38,7 @@ public class FeedPushNotifier {
      * @param authorId  作者 id（接收侧据此取粉丝列表）
      */
     public void publishContentPublished(long contentId, long authorId) {
-        publisher.publish(FeedTopology.EXCHANGE_PUSH, FeedTopology.RK_PUSH_CONTENT,
+        delivery.deliver(FeedTopology.EXCHANGE_PUSH, FeedTopology.RK_PUSH_CONTENT,
                 new FeedPushMessage(contentId, authorId), "push contentId=" + contentId);
     }
 }

@@ -38,12 +38,17 @@ import java.time.Duration;
  *       <td>死信队列消息保留时长（证据窗口有界）</td></tr>
  * </table>
  *
- * <h2>不搬的键（无 owner / 已由框架替代）</h2>
+ * <h2>不搬的键（无 owner / 已由框架替代 / 已在别处承接）</h2>
  * <ul>
  *   <li>{@code feed.bigv.configFile} / {@code feed.bigv.refreshMillis} —— 外置文件热更，本批裁剪（B 类，见《决策留痕表》C-8）；</li>
- *   <li>{@code feed.delivery.queueCapacity} / {@code feed.delivery.drainTimeoutMillis} —— 属被裁剪的
- *       "异步投递线程池"（B8）；</li>
- *   <li>{@code feed.compensate.bufferCapacity} —— 属被裁剪的"内存补偿缓冲"（B9）；</li>
+ *   <li>{@code feed.delivery.queueCapacity} / {@code feed.delivery.drainTimeoutMillis} ——
+ *       **第三批 T5（账 B8）已兑现**，但键的**载体**不在这里：它们归 {@link FeedDeliveryProperties}
+ *       （前缀 {@code video.feed.delivery}）。本记录与它**刻意分家**——同一个 record 里既放
+ *       "feed 业务窗口"又放"投递线程池参数"会让人误以为它们同属一个关注点；而前缀分家后，
+ *       YAML 里可以写成嵌套的 {@code video.feed.delivery.queue-capacity}（可读性更好，
+ *       口径与 {@code video.cache.redis-breaker} 一致）。</li>
+ *   <li>{@code feed.compensate.bufferCapacity} —— 属**仍开着的**"内存补偿缓冲"（B9）；
+ *       第三批 T5 的 B9 落地时归独立前缀 {@code video.feed.compensate}（与 delivery 分家同理由）；</li>
  *   <li>{@code feed.consume.retry.maxRetries} / {@code feed.consume.retry.backoffMillis} ——
  *       <b>改由 Spring AMQP 承接</b>（{@code spring.rabbitmq.listener.simple.retry.*}），不再进本记录，
  *       避免"同一事实两处配置"（两处改了以哪处为准会变成新的坑）。</li>

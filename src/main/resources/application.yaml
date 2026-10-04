@@ -278,6 +278,16 @@ video:
     # 死信队列消息 TTL（证据窗口有界）。TV: feed.dlq.ttlMillis=604800000（7 天）。
     # ⚠️ TTL 是队列声明参数，改值须先删旧 feed.dlq 队列（broker 拒绝同名不同参声明 406）。
     dlq-ttl: ${FEED_DLQ_TTL:7d}
+    # 异步投递线程池（第三批 T5 / 账 B8）：把「序列化 + publish」挪离 Web 线程——
+    # 发布不等 publisher-confirm，但 broker 不可达时会等一次连接超时（dev 2s），
+    # 那笔等待在 Web 线程上就是 RT 阻塞。TV: feed.delivery.queueCapacity / drainTimeoutMillis。
+    # ⚠️ 这段是**嵌套键**：它绑到独立的 FeedDeliveryProperties（前缀 video.feed.delivery）——
+    #    不能塞进 video.feed 的扁平记录（record 只认本前缀下的扁平键，嵌套会被静默忽略并绑成 0）。
+    delivery:
+      # 有界队列容量（满则丢弃 + WARNING；不得改 CallerRunsPolicy，否则 RT 解耦白做）。TV=1000
+      queue-capacity: ${FEED_DELIVERY_QUEUE_CAPACITY:1000}
+      # 关停时等待队列存量投完的上界（超时丢弃剩余，不挂住应用关停）。TV=5000ms
+      drain-timeout: ${FEED_DELIVERY_DRAIN_TIMEOUT:5s}
 
 # ----------------------------------------------------------------------------
 # 可观测（第三批 T2 / 账 B3）：Actuator 端点暴露

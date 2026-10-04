@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
  * "关注者内容快照"失效 ⇒ 投一条 {@link InboxRebuildMessage}，由 {@code feed.rebuild.queue} 的消费者
  * 执行**窗口重建**（单事务整窗替换 {@code feed_inbox} + 写 {@code feed_inbox_sync}，随后失效读缓存）。
  *
- * <p><b>红线</b>：任何情况下都不抛异常（委托 {@link FeedPublisher}；投递失败只降级——该次重建缺失，
+ * <p><b>红线</b>：任何情况下都不抛异常（委托 {@link FeedDelivery}；投递失败只降级——该次重建缺失，
  * 由下次关注 / 取关或读侧"未同步 ⇒ 回退纯拉"兜底），关注 / 取关接口的响应与语义一概不变。
  *
  * <h2>去抖（承接 TV {@code InboxRebuildDebouncer}）</h2>
@@ -27,11 +27,11 @@ import org.springframework.stereotype.Component;
 @Component
 public class InboxRebuildNotifier {
 
-    private final FeedPublisher publisher;
+    private final FeedDelivery delivery;
     private final InboxRebuildDebouncer debouncer;
 
-    public InboxRebuildNotifier(FeedPublisher publisher, InboxRebuildDebouncer debouncer) {
-        this.publisher = publisher;
+    public InboxRebuildNotifier(FeedDelivery delivery, InboxRebuildDebouncer debouncer) {
+        this.delivery = delivery;
         this.debouncer = debouncer;
     }
 
@@ -41,7 +41,7 @@ public class InboxRebuildNotifier {
      * @param userId 收件箱归属者（= 关注 / 取关的**发起方**，不是被关注的博主）
      */
     public void publishInboxRebuild(long userId) {
-        debouncer.schedule(userId, () -> publisher.publish(
+        debouncer.schedule(userId, () -> delivery.deliver(
                 FeedTopology.EXCHANGE_REBUILD, FeedTopology.RK_REBUILD_INBOX,
                 new InboxRebuildMessage(userId), "rebuild userId=" + userId));
     }
