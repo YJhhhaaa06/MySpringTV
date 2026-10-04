@@ -33,7 +33,9 @@
     </select>
 
     <!-- TV: getFollowerUserIds —— SELECT user_id FROM follow WHERE followed_user_id = ?
-         （T11-C 后在 TV 里已零调用；本切片回到 T7「key 存在 ⇒ 完整」口径后重新需要它，见 DAO Javadoc） -->
+         ⚠️ 零调用遗留（与 TV 同形）：TV 的 T11-C 起粉丝方向只走窗口读（无"全量粉丝"语义需求），
+         本仓 T4 搬回 T11-C 后同样如此；保留 SQL 是为了与 TV 的 SQL 集逐字对齐、且"回退到
+         T7『key 存在 ⇒ 完整』口径"时无需重建。见 DAO Javadoc 末段。 -->
     <select id="findAllFollowerUserIds" resultType="long">
         SELECT user_id FROM follow WHERE followed_user_id = #{followedUserId}
     </select>

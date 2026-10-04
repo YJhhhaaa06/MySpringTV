@@ -199,6 +199,8 @@ class FollowCacheTests extends AbstractFollowIntegrationTest {
         Mockito.clearInvocations(followDao);
         assertThat(Envelope.code(getFollowing(a.id(), a.token()))).isEqualTo(200);
         verify(followDao, never()).findAllFollowedUserIds(anyLong());
+        // 窗口读的 loader 也必须没被调用（T4 起 miss 走的是这条）
+        verify(followDao, never()).findFollowedUserIdsWindow(anyLong(), anyLong(), anyInt());
     }
 
     @Test
@@ -269,7 +271,7 @@ class FollowCacheTests extends AbstractFollowIntegrationTest {
         TestUser b = register(PHONE_B, "cache-b");
         insertFollowRow(b.id(), a.id());
 
-        doThrow(new CacheUnavailableException("模拟 Redis 故障")).when(followRedisOps).existingOf(anyString(), anyString());
+        doThrow(new CacheUnavailableException("模拟 Redis 故障")).when(followRedisOps).existingOf(anyString(), anyString(), anyString());
 
         var resp = getFollowing(b.id(), b.token());
 
@@ -292,7 +294,7 @@ class FollowCacheTests extends AbstractFollowIntegrationTest {
         TestUser a = register(PHONE_A, "cache-a");
         TestUser b = register(PHONE_B, "cache-b");
 
-        doThrow(new CacheUnavailableException("模拟 Redis 故障")).when(followRedisOps).existingOf(anyString(), anyString());
+        doThrow(new CacheUnavailableException("模拟 Redis 故障")).when(followRedisOps).existingOf(anyString(), anyString(), anyString());
         doThrow(new DataAccessException("模拟 DB 故障") {
         }).when(followDao).findFollowedUserIdsWindow(anyLong(), anyLong(), anyInt());
 

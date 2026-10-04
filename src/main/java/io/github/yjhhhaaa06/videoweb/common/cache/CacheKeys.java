@@ -22,6 +22,9 @@ public final class CacheKeys {
     /** 空标记的固定值（仅需 EXISTS 判断，值语义不重要）。TV 原样。 */
     public static final String EMPTY_MARKER_VALUE = "1";
 
+    /** 部分装载标记的固定值（仅需 EXISTS 判断）。TV 原样。 */
+    public static final String PARTIAL_MARKER_VALUE = "1";
+
     /** 空标记短 TTL（秒）：TV NEEDS 4.4 约定约 30s~5min，取 60s。 */
     public static final long EMPTY_MARKER_TTL_SECONDS = 60;
 
@@ -84,6 +87,34 @@ public final class CacheKeys {
      */
     public static String empty(String dataKey) {
         return "empty:" + dataKey;
+    }
+
+    /**
+     * 部分装载标记：{@code partial:{dataKey}}（String），与数据 key 一一对应，TTL **与数据 key 同步**。
+     *
+     * <h2>它断言什么（T11-C 的"集合不变量")</h2>
+     * 没有本标记 ⇒ 数据 key（若存在）**就是全集**（T7 口径，成员集 = DB 全部）；
+     * 有本标记 ⇒ 数据 key 只是 DB 按序的**前缀** {@code [0, W)}（{@code W = ZCARD}）。
+     * 于是"分页读一个百万粉丝的博主"才不会在冷 key 上退化成"任何一页都装载百万行"。
+     *
+     * <h2>★ 本仓的来去（第三批 T4 / 账 B7）</h2>
+     * S4 曾按 F-7 回到 T7 口径（"数据 key 存在 ⇒ 完整"）并**整条去掉**本标记与配套的四处特判；
+     * T4 按工单把 T11-C 口径**搬回来**（改动理由与代价见《决策留痕表》I 类）。
+     * <p>⚠️ 与它配套的四处必须一起存在，缺一处就是**静默错答案**（不是性能退化）：
+     * ① 判定（{@code isFollowing}/{@code batchIsFollowing}）在部分态下**未命中必须回落 DB**
+     * （前缀里查不到 ≠ 不是成员）；
+     * ② 全量读（{@code getFollowingIds}）遇部分态**必须先补齐**（调用方依赖"返回全部"）；
+     * ③ 写路径任一侧部分态 ⇒ **整体失效**（取关会在前缀里留"洞"、关注会插入非前缀成员，
+     * 两者都破坏 {@code ZRANGE offset} 语义）；
+     * ④ 部分态 / 降级态的 {@code total} 走**域级计数口径**（ZCARD 只是已知前缀大小，会低估）。
+     *
+     * <p>⚠️ 目前**只有 follow 域**用它：feed 的收件箱键写者只有读路径（fanout/重建只 DEL 不写）
+     * ⇒ 永不产生前缀态，保持"两件套"（《决策留痕表》C-9）。
+     *
+     * @param dataKey 数据 key（如 {@link #userFollowing(long)}）
+     */
+    public static String partial(String dataKey) {
+        return "partial:" + dataKey;
     }
 
     // ==================== 点赞（LikeCache） ====================
@@ -155,9 +186,10 @@ public final class CacheKeys {
      * 写后失效 + 读 miss 回源回填）。故本键**不产生"前缀态"**——"全量读即等于完整集合"成立。
      *
      * <p><b>失效集 = 两件套</b>（数据 key + {@code empty:}）：TV 的 {@code feedInboxCacheKeys} 是
-     * **三件套**（多一个 {@code partial:} 前缀窗口标记）。本仓 S4 起已不再使用 {@code partial:}
-     * （F-7：回到"key 存在即完整"的 T7 口径）——本键的写者只有读路径 ⇒ {@code partial:} 永不产生，
-     * 失效集随之降为两件套（《决策留痕表》C-10）。
+     * **三件套**（多一个 {@code partial:} 前缀窗口标记）。{@code partial:} 只在"窗口装载"型读路径
+     * 才产生（follow 域，见 {@link #partial(String)}），而本键的写者**只有读路径**（fanout/重建只 DEL
+     * 不写、读路径也不做前缀装载）⇒ {@code partial:} 永不产生，留它反而制造"残留 partial 把完整集
+     * 误判成前缀"的风险，故失效集降为两件套（《决策留痕表》C-9）。
      */
     public static String feedInbox(long userId) {
         return "feed:inbox:" + userId;

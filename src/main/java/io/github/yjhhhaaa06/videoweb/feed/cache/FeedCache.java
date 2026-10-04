@@ -43,7 +43,8 @@ import java.util.function.Supplier;
  *
  * <h2>有意精简（相对 TV）</h2>
  * <b>去掉</b>：单飞、{@code CacheStats} 打点、{@code ZSetCache}/{@code CacheAside} 通用框架层、
- * {@code partial:} 前缀标记（本仓 S4 起不再使用，见 {@link CacheKeys#feedInbox}）。
+ * {@code partial:} 前缀标记（★ 本键的写者只有读路径 ⇒ 永不产生前缀态；**follow 域自 T4 起用回
+ * {@code partial:}**，本键仍不涉及，见 {@link CacheKeys#feedInbox} 与《决策留痕表》C-9）。
  * <b>保留</b>：三态读、空标记（含"数据 key 在则不写"守卫）、写失败失效自愈、TTL 滑动续期、
  * 一趟 pipeline 批量、降级路径的"不写回"。
  */

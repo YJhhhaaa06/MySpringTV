@@ -25,15 +25,21 @@ import java.util.Set;
  * TV 的 {@code FollowDao} 共 9 个方法，**未搬**：
  * <ul>
  *   <li>{@code getFollowerUserIdsAfter}（游标 keyset 迭代）—— 唯一调用方是
- *       {@code feed.service.FeedInboxWriter}（feed 域，本批明确不做）⇒ **无主代码，不搬**。</li>
+ *       {@code feed.service.FeedInboxWriter}（feed 域，本批明确不做）⇒ **无主代码，不搬**。
+ *       ⚠️ S9 交付 feed 后按同一纪律**回收**（见方法注释）。</li>
  * </ul>
  * 见《事务边界决策表》§二·E 盘点 B / F-7 末段。
  *
- * <h2>⚠️ 关于 {@link #findAllFollowedUserIds} 与 {@link #findAllFollowerUserIds} 为什么在</h2>
- * 关注方向的**全量** loader 一直在用；粉丝方向的全量 loader 在 TV 里被 **T11-C**（前缀窗口装载）
- * 判为"已无主代码"并在缓存层删除，DAO 方法 {@code getFollowerUserIds} 成了零调用遗留。
- * 本切片**回到 T11-C 之前的口径**（数据 key 存在 ⇒ 完整），于是它又被需要了——
- * 两个全量方法都是**缓存 miss 时的回填 loader**。取舍与影响逐条记在 F-7。
+ * <h2>⚠️ 两条"全量 loader"的在用状态（T4 起已分叉，勿照旧注释推断）</h2>
+ * <ul>
+ *   <li>{@link #findAllFollowedUserIds}（关注方向）——**在用**：判定 miss 与全量读
+ *       （{@code getFollowingIds}）都靠它回填；部分态**补齐**时也走它（T11-C 口径下
+ *       "补齐"本身就是全量读）。</li>
+ *   <li>{@link #findAllFollowerUserIds}（粉丝方向）——★ **自 T4 起零调用**：T11-C 口径下
+ *       粉丝方向只经**窗口**读（{@link #findFollowerUserIdsWindow}），没有"全量粉丝"的语义需求
+ *       （TV 自 T11-C 起同样如此）。保留它是**与 TV 的 SQL 集逐字对齐** + 让"回退到 T7 口径"
+ *       无需重建 SQL；已在 mapper 注释与本类注释显式标注为"零调用遗留"。</li>
+ * </ul>
  */
 @Mapper
 public interface FollowDao {
@@ -95,9 +101,16 @@ public interface FollowDao {
     List<Long> findAllFollowedUserIds(@Param("userId") long userId);
 
     /**
-     * 用户的**全部**粉丝 id（缓存 miss 时的回填 loader）。
+     * 用户的**全部**粉丝 id。
      *
      * <p>TV: {@code getFollowerUserIds} —— {@code SELECT user_id FROM follow WHERE followed_user_id = ?}
+     *
+     * <p>⚠️ <b>自 T4（账 B7 搬回 T11-C）起零调用</b>：粉丝方向只经窗口读
+     * （{@link #findFollowerUserIdsWindow}）——"取第 N 页粉丝"不需要先把百万粉丝拉进内存，
+     * 也就不存在"全量粉丝"这个语义需求（TV 自 T11-C 起同样零调用）。
+     * 保留而非删除的理由：① 与 TV 的 SQL 集逐字对齐（本仓 SQL 是**复制**的产物）；
+     * ② "回退到 T7『key 存在 ⇒ 完整』口径"时不必重建 SQL（那次回退在 F-7 里被写明是可能的）。
+     * 若将来确认永不回退，应当连 mapper 条目一并删除并**登记为裁剪**。
      */
     List<Long> findAllFollowerUserIds(@Param("followedUserId") long followedUserId);
 
