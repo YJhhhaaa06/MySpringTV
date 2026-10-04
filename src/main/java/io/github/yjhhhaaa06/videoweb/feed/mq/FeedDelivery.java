@@ -15,7 +15,8 @@ import org.springframework.stereotype.Component;
  *   Web 线程 / 去抖线程
  *     └─ {@link #deliver} ──────────────► 立即返回（不等 broker）
  *          └─ {@link FeedDeliveryDispatcher#submit} 单 worker + 有界队列（账 B8）
- *               └─ worker 线程 ─► {@link FeedPublisher#publish}（"绝不抛"，失败只降级）
+ *               └─ worker 线程 ─► {@link FeedDeliveryBuffer#publish}（账 B9：不可达时暂存）
+ *                    └─ {@link FeedPublisher#publish}（"绝不抛"，失败只降级）
  * </pre>
  *
  * <p><b>红线</b>：{@link #deliver} **任何情况下都不抛异常**（提交被拒也只记日志）。
@@ -29,11 +30,11 @@ import org.springframework.stereotype.Component;
 public class FeedDelivery {
 
     private final FeedDeliveryDispatcher dispatcher;
-    private final FeedPublisher publisher;
+    private final FeedDeliveryBuffer buffer;
 
-    public FeedDelivery(FeedDeliveryDispatcher dispatcher, FeedPublisher publisher) {
+    public FeedDelivery(FeedDeliveryDispatcher dispatcher, FeedDeliveryBuffer buffer) {
         this.dispatcher = dispatcher;
-        this.publisher = publisher;
+        this.buffer = buffer;
     }
 
     /**
@@ -45,6 +46,6 @@ public class FeedDelivery {
      * @param desc       一句业务标识（进降级日志，便于定位丢的是哪条）
      */
     public void deliver(String exchange, String routingKey, Object payload, String desc) {
-        dispatcher.submit(() -> publisher.publish(exchange, routingKey, payload, desc), desc);
+        dispatcher.submit(() -> buffer.publish(exchange, routingKey, payload, desc), desc);
     }
 }

@@ -19,11 +19,17 @@ import java.nio.charset.StandardCharsets;
  * （发布作品 / 关注 / 取关）的响应与语义。失败面：
  * <ul>
  *   <li><b>序列化失败</b>（{@link CacheUnavailableException}，来自 {@link JsonCodec}）：
- *       该链唯一捕获点 → WARNING <b>持栈</b>；</li>
+ *       该链唯一捕获点 → WARNING <b>持栈</b> → 返回 {@link DeliveryOutcome#UNSENDABLE}；</li>
  *   <li><b>broker 不可达</b>（{@link AmqpException}）：连接级故障 → WARNING 结论行（不持栈——
- *       {@code RabbitTemplate} 内部已记一次异常；一条故障只留一条诊断）；</li>
- *   <li>其余运行时异常 → WARNING 兜底。</li>
+ *       {@code RabbitTemplate} 内部已记一次异常；一条故障只留一条诊断）→ 返回
+ *       {@link DeliveryOutcome#UNAVAILABLE}；</li>
+ *   <li>其余运行时异常 → WARNING 兜底 → 也按 {@link DeliveryOutcome#UNAVAILABLE} 处理
+ *       （状态不明 ⇒ 交补偿缓冲按"至少一次"重放，靠消费侧幂等对冲）。</li>
  * </ul>
+ *
+ * <p><b>为什么返回值是三态而不是 boolean（第三批 T5 / 账 B9）</b>：补偿缓冲必须区分
+ * "重放有意义"与"重放必然同样失败"——二态会把不可序列化的载荷也塞进缓冲，永久占位。
+ * 三态语义见 {@link DeliveryOutcome}。</p>
  *
  * <h2>与 TV {@code MqPublisher} 的两处**有意差异**（《决策留痕表》C-7，保真度档 A）</h2>
  * <ol>
@@ -34,8 +40,9 @@ import java.nio.charset.StandardCharsets;
  *       dev 2s）⇒ **该代价已由第三批 T5（账 B8）用 {@code FeedDeliveryDispatcher} 收掉**
  *       （publish 现在由后台单 worker 执行，Web 线程不再等这笔超时）。</li>
  *   <li><b>无应用层补偿缓冲</b>：TV 的 {@code MqDeliveryBuffer} 在"连接确定不可用"时把消息暂存
- *       内存、恢复后重放。本实现不做（登记为 B9）——该机制 TV 自己标注为"内存态、重启即丢"，
- *       且系统本就靠"未同步 ⇒ 回退纯拉 + 下次发布 / 重建"自愈。</li>
+ *       内存、恢复后重放。本实现由第三批 T5（账 B9）以 {@link FeedDeliveryBuffer} 补回——
+ *       判据即本方法的三态返回值；消费侧幂等（{@code INSERT IGNORE} / 整窗替换）使"至少一次"
+ *       重放零副作用。该机制 TV 自己标注为"内存态、重启即丢"，本仓同口径（残余如实登记）。</li>
  * </ol>
  */
 @Slf4j
@@ -57,30 +64,31 @@ public class FeedPublisher {
      * @param routingKey 路由键（{@link FeedTopology} 常量）
      * @param payload    载荷对象（JSON 序列化；record 即可）
      * @param desc       一句业务标识（进降级日志，便于定位丢的是哪条，如 {@code push contentId=42}）
-     * @return {@code true} = 已交给客户端发送；{@code false} = 序列化失败 / broker 不可达（已降级记录）
+     * @return {@link DeliveryOutcome#SENT} = 已交给客户端发送；{@code UNAVAILABLE} = broker 不可达
+     *         （可入补偿缓冲重放）；{@code UNSENDABLE} = 载荷不可序列化（重放无意义，已降级记录）
      */
-    public boolean publish(String exchange, String routingKey, Object payload, String desc) {
+    public DeliveryOutcome publish(String exchange, String routingKey, Object payload, String desc) {
         byte[] body;
         try {
             body = codec.toJson(payload).getBytes(StandardCharsets.UTF_8);
         } catch (CacheUnavailableException e) {
             // 该链唯一捕获点 → 持栈（§3.1 附加纪律 2）
             log.warn("MQ 投递跳过（载荷序列化失败，不影响业务）: {}", desc, e);
-            return false;
+            return DeliveryOutcome.UNSENDABLE;
         }
         try {
             MessageProperties props = new MessageProperties();
             props.setContentType(MessageProperties.CONTENT_TYPE_JSON);
             props.setContentEncoding(StandardCharsets.UTF_8.name());
             rabbitTemplate.send(exchange, routingKey, new Message(body, props));
-            return true;
+            return DeliveryOutcome.SENT;
         } catch (AmqpException e) {
             // 连接级故障：结论行不持栈（一条故障只留一条诊断）；业务照常返回
             log.warn("MQ 投递失败（broker 不可达，已降级，不影响业务）: {}", desc);
-            return false;
+            return DeliveryOutcome.UNAVAILABLE;
         } catch (RuntimeException e) {
             log.warn("MQ 投递异常（已兜底，不影响业务）: {}", desc, e);
-            return false;
+            return DeliveryOutcome.UNAVAILABLE;
         }
     }
 }

@@ -47,7 +47,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *       {@link MDC#getCopyOfContextMap()} 捕获、worker 内恢复、执行完还原 worker 原上下文
  *       ——否则异步段的日志丢 {@code req=}（{@code RequestIdFilter} 类注释的"已知边界"）。</li>
  *   <li><b>任务体根捕获在本类</b>（TV 放在 Notifier 任务体）：本类的调用方 {@link FeedDelivery}
- *       → {@link FeedPublisher#publish} 全链契约"绝不抛"，此处兜底只为"意外运行时异常不得静默"
+ *       → {@link FeedDeliveryBuffer#publish} → {@link FeedPublisher#publish} 全链契约"绝不抛"，
+ *       此处兜底只为"意外运行时异常不得静默"
  *       （{@code Error} 仍按 JVM 语义冒泡、不在此吞——吞掉 OOM 这类错误比让池换线程更坏）。</li>
  *   <li><b>关停钩子用 {@code @PreDestroy}</b>（TV 实现自研 {@code Disposable.destroy()}）。</li>
  * </ol>

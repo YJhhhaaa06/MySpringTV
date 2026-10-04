@@ -288,6 +288,14 @@ video:
       queue-capacity: ${FEED_DELIVERY_QUEUE_CAPACITY:1000}
       # 关停时等待队列存量投完的上界（超时丢弃剩余，不挂住应用关停）。TV=5000ms
       drain-timeout: ${FEED_DELIVERY_DRAIN_TIMEOUT:5s}
+    # 内存补偿缓冲（第三批 T5 / 账 B9）：broker 不可用窗口内投不出去的消息暂存内存、恢复后重放
+    # （消费侧幂等 ⇒ 至少一次零副作用）。TV: feed.compensate.bufferCapacity。
+    # ⚠️ 同为**嵌套键**：绑到独立的 FeedCompensateProperties（前缀 video.feed.compensate）。
+    compensate:
+      # 待重放队列容量（满则丢弃 + 首次告警后节流）。TV=10000
+      buffer-capacity: ${FEED_COMPENSATE_BUFFER_CAPACITY:10000}
+      # 恢复探测周期（= 不可达窗口长度 = 恢复补偿时延上界）。TV 是包内常量 30s，本仓入配置以便驱动
+      probe-interval: ${FEED_COMPENSATE_PROBE_INTERVAL:30s}
 
 # ----------------------------------------------------------------------------
 # 可观测（第三批 T2 / 账 B3）：Actuator 端点暴露

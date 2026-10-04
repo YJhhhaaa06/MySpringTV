@@ -47,8 +47,8 @@ import java.time.Duration;
  *       "feed 业务窗口"又放"投递线程池参数"会让人误以为它们同属一个关注点；而前缀分家后，
  *       YAML 里可以写成嵌套的 {@code video.feed.delivery.queue-capacity}（可读性更好，
  *       口径与 {@code video.cache.redis-breaker} 一致）。</li>
- *   <li>{@code feed.compensate.bufferCapacity} —— 属**仍开着的**"内存补偿缓冲"（B9）；
- *       第三批 T5 的 B9 落地时归独立前缀 {@code video.feed.compensate}（与 delivery 分家同理由）；</li>
+ *   <li>{@code feed.compensate.bufferCapacity} —— 归 {@link FeedCompensateProperties}
+ *       （前缀 {@code video.feed.compensate}），同为第三批 T5 兑现（账 B9）；</li>
  *   <li>{@code feed.consume.retry.maxRetries} / {@code feed.consume.retry.backoffMillis} ——
  *       <b>改由 Spring AMQP 承接</b>（{@code spring.rabbitmq.listener.simple.retry.*}），不再进本记录，
  *       避免"同一事实两处配置"（两处改了以哪处为准会变成新的坑）。</li>
