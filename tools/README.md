@@ -85,7 +85,8 @@ ROOT = Path(__file__).resolve().parent.parent   # tools/ 的上一级
 | `endpoint_matrix.py` | 复算老项目 43 端点 × 新项目实现状态，校验《端点对照表》 | ✅ 只读 |
 | `migration_matrix.py` | ★ **反面盘点**（第四批 T7-0）：老项目 `src/main` 每个资产的**去向**（声明覆盖 → 未表态 = 0）+ 10 个域级对账（含**配置逐键对照**） | ✅ 只读 |
 | `flyway_parity.py` | ★ **结构连续性**（第四批 T7-0）：活库列集 vs `V1__baseline_tv_schema.sql` 列集，差异非空即退出非 0 | ✅ 只读 |
-| `tvconf.py` | **共用小工具**（非可执行脚本，无 CLI）：强制 UTF-8 / 仓库根 / 极简 YAML 扁平化 / 调 mysql 客户端。上面两个脚本 import 它 | ✅ 只读 |
+| `realdata_probe.py` | ★ **真数据通路探针**（第四批 T7-1）：只读检查存量库/媒体根（域约束 / 媒体匹配 / 计数列对账 / feed 孤儿 / 可选 HTTP 读接口探活），**双趟**产出三张清单（① 代码缺口 / ② 存量脏数据 E 类 / ③ 口径未定） | ✅ 只读（`--apply` 只写 `target/realdata_probe/`） |
+| `tvconf.py` | **共用小工具**（非可执行脚本，无 CLI）：强制 UTF-8 / 仓库根 / 极简 YAML 扁平化 / 调 mysql 客户端。上面三个脚本 import 它 | ✅ 只读 |
 | `run_tests.py` | **一键跑测试**：全量 `clean verify` / `--group` 选跑 / `--test` 单类；完整输出落盘 + 摘要回显 | ✅ 只读（仅写 `target/test-reports/`） |
 
 ## 五、常用命令
@@ -104,6 +105,9 @@ python tools/migration_matrix.py --domain config   # 只看某一域（--list-do
 python tools/migration_matrix.py --strict          # 把「未登记的口径差异」也计入退出码
 python tools/flyway_parity.py              # 结构连续性：活库 vs V1（差异非空 ⇒ 退出非 0）
 python tools/flyway_parity.py --v1 target/x.sql    # 换一份 baseline（演示"能变红"用）
+python tools/realdata_probe.py --baseline --apply  # 真数据探针：基线趟（★ 唯一一次机会，须先备份库）
+python tools/realdata_probe.py                     # 当前趟（读 baseline.json 做差 → 三张清单；默认只预演）
+python tools/realdata_probe.py --base-url http://localhost:8080   # 追加第 5 项 HTTP 读接口探活
 python tools/run_tests.py                  # 默认回归（mvnw -B clean verify，排除 @Tag("resilience")）
 python tools/run_tests.py --group resilience           # 只跑 @Tag("resilience")
 python tools/run_tests.py --group a --group b          # 多组（并集）
