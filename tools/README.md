@@ -83,6 +83,9 @@ ROOT = Path(__file__).resolve().parent.parent   # tools/ 的上一级
 | `doc_links.py` | **校验 `.docs` 交叉引用是否指得到**（悬空指针 / 改名遗留 / 旧章节引用） | ✅ 只读 |
 | `doc_archive.py` | 把已完成阶段的历史明细从正文抽到 `.docs/archive/`，正文留指针 | ❌ 会写（**默认只预演**，加 `--apply` 才落盘） |
 | `endpoint_matrix.py` | 复算老项目 43 端点 × 新项目实现状态，校验《端点对照表》 | ✅ 只读 |
+| `migration_matrix.py` | ★ **反面盘点**（第四批 T7-0）：老项目 `src/main` 每个资产的**去向**（声明覆盖 → 未表态 = 0）+ 10 个域级对账（含**配置逐键对照**） | ✅ 只读 |
+| `flyway_parity.py` | ★ **结构连续性**（第四批 T7-0）：活库列集 vs `V1__baseline_tv_schema.sql` 列集，差异非空即退出非 0 | ✅ 只读 |
+| `tvconf.py` | **共用小工具**（非可执行脚本，无 CLI）：强制 UTF-8 / 仓库根 / 极简 YAML 扁平化 / 调 mysql 客户端。上面两个脚本 import 它 | ✅ 只读 |
 | `run_tests.py` | **一键跑测试**：全量 `clean verify` / `--group` 选跑 / `--test` 单类；完整输出落盘 + 摘要回显 | ✅ 只读（仅写 `target/test-reports/`） |
 
 ## 五、常用命令
@@ -95,6 +98,12 @@ python tools/doc_links.py --strict         # 把"尚未创建"也计为失败
 python tools/doc_archive.py --plan temp-script/doc-plan.json            # 归档预演（不落盘）
 python tools/doc_archive.py --plan temp-script/doc-plan.json --apply     # 归档落盘
 python tools/endpoint_matrix.py            # 复算端点对照
+python tools/migration_matrix.py           # 反面盘点：未表态 = 0（含 11 个域对账）
+python tools/migration_matrix.py --coverage        # 只看覆盖率与未表态项
+python tools/migration_matrix.py --domain config   # 只看某一域（--list-domains 列出）
+python tools/migration_matrix.py --strict          # 把「未登记的口径差异」也计入退出码
+python tools/flyway_parity.py              # 结构连续性：活库 vs V1（差异非空 ⇒ 退出非 0）
+python tools/flyway_parity.py --v1 target/x.sql    # 换一份 baseline（演示"能变红"用）
 python tools/run_tests.py                  # 默认回归（mvnw -B clean verify，排除 @Tag("resilience")）
 python tools/run_tests.py --group resilience           # 只跑 @Tag("resilience")
 python tools/run_tests.py --group a --group b          # 多组（并集）
@@ -124,3 +133,18 @@ python tools/run_tests.py --test SecurityContractTests # 只跑一个测试类
 
 > 注：本项目**没有** `tv.py` 那样的统一入口——脚本少，直接调即可。
 > 脚本多了再考虑加（rule of three）。
+
+---
+
+## 六、`migration_matrix.py` / `flyway_parity.py` 的两个前提（**读代码前先读这段**）
+
+1. **老仓没有任何 mapper XML**：老项目 SQL 是 DAO 里的**内联字符串**（`String sql = "..."`，9 个 DAO / 89 条）。
+   新仓的 9 个 mapper XML / 102 条是**语义重写**，与老侧**不是 1:1** ——
+   **语句数下降不是缺口**（连接参数与事务管道本就要删掉）。
+2. **`flyway_parity.py` 需要 mysql 客户端**：本机它在
+   `C:\Program Files\MySQL\MySQL Server 8.0\bin\`（**不在 PATH**），`tvconf.mysql_exe()` 会自动探测，
+   也可用 `--exe` 或 `MYSQL_EXE` 指定。连接参数默认取自 `application.yaml` 的 dev 默认值。
+   ⚠️ 它**只读**，但会连**真库**（`TVDatabase`）——任何 schema 变更前先读《决策留痕表》K-1。
+3. **子集运行不会给整体结论**：`--coverage` / `--domain` 只跑一部分，结论句会写明本次跑了几个域；
+   "腿 2 成立"只在**全量跑**时给出。默认退出码不含「发现项」（未登记的口径差异）——
+   **收口时要用 `--strict` 跑一次**，否则那些差异会一直躺在报告里没人认领。
