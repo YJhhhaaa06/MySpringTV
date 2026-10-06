@@ -261,15 +261,11 @@ class Finding:
     detail: str
 
 
-FINDINGS: list[Finding] = [
-    Finding(
-        "`StringUtil.phoneCheck` = 11 位全数字且首位为 1（`isAllDigit` + 长度 11 + `charAt(0)=='1'`）",
-        "`RegisterRequest.phone` = `@Pattern(regexp = \"^1[3-9]\\\\d{9}$\")`",
-        "**新仓更严**（第二位限 3-9）。老侧 `10000000001` 这类号在老仓注册可通过、在新仓被拒 —— "
-        "属对外可观察行为差异；《决策留痕表》D 类**未见登记**"
-        "（D-15 讲的是登录体字段 `{account}`→`{phone}`，不是校验正则）",
-    ),
-]
+# 曾记于此的唯一一条 FINDINGS-1（老 `phoneCheck` 宽口径 vs 新 `RegisterRequest` 严正则）
+# 已于第四批 T7-3（2026-10-06）**表态并登记**：见《决策留痕表》**D-16**（注册收紧）与
+# **D-17**（脱敏采用真实号段口径、有意窄于老侧）。登记完必须从这里删掉，
+# 否则文档说"已登记"而脚本仍判"未登记" ⇒ 又一处"没有任何测试会变红"的事实错。
+FINDINGS: list[Finding] = []
 
 
 # B-7 过滤器 / 监听器 / 启动守卫：老侧每一项的"能力由谁承担"
@@ -295,7 +291,8 @@ UTIL_MAP: list[tuple[str, str, str]] = [
     ("RequestContext", "video.media.base-url（替代上下文路径 ThreadLocal）", "B-11"),
     ("ResultUtil", "common/web/ApiResponse", "迁移参照系 §三"),
     ("StringUtil", "拆分：校验类内联到参数/DAO；脱敏 maskPhone/maskForLog → common/log/LogMasker。"
-                   "★ 手机号正则口径收紧（见 FINDINGS-1）", "G 类"),
+                   "★ 手机号口径有意收紧（已登记《决策留痕表》**D-16**；"
+                   "脱敏侧口径见 **D-17**）", "G 类"),
     ("TimeUtil", "不迁移（**死代码**：老侧 0 调用；且返回 `yyyy_MM-dd HH:mm:ss` 格式化串，新仓无语义等价物）", "迁移参照系 §三"),
     ("TransactionTemplate", "Spring @Transactional（手写事务管道删掉）", "SOP / 事务边界决策表"),
 ]
