@@ -39,6 +39,8 @@ import org.springframework.context.annotation.Configuration;
  * <h2>⚠️ DLQ 的 TTL 是**队列声明参数**</h2>
  * broker 拒绝同名不同参的重复声明（{@code 406 PRECONDITION_FAILED}）——调整
  * {@code video.feed.dlq-ttl} 后必须**先删除既有 {@code feed.dlq} 队列**（TV 原注记，逐字保留）。
+ * <br>另：TTL 经 {@link Math#toIntExact(long)} 转换，**上界 {@code Integer.MAX_VALUE} 毫秒
+ * （约 24.86 天）**——超界在本 bean 创建期即失败（《遗留台账》B13 → D31），不会静默溢出为负 TTL。
  */
 @Configuration
 public class FeedRabbitConfig {
@@ -64,8 +66,13 @@ public class FeedRabbitConfig {
                 .build();
         // DLQ 自身不设死信参数（防环）；设消息 TTL（证据保留窗口有界，不无限堆积）。
         // ⚠️ TTL 是队列声明参数，改值须先删旧队列（见类注释）。
+        // ⚠️ Math.toIntExact（《遗留台账》B13 → D31）：x-message-ttl 是 32 位整型，
+        //    原 (int) 强转在 dlq-ttl > Integer.MAX_VALUE 毫秒（约 24.86 天）时**静默溢出成负 TTL**，
+        //    症状是 broker 406 PRECONDITION_FAILED / 消息立即过期——**报错点离病因很远**。
+        //    改为溢出即抛 ArithmeticException（本 bean 创建期 ⇒ 启动即拒），
+        //    与 B-12「空白值 fail-fast」同一纪律。当前默认 7d 安全，属"改配置才会踩"的潜伏项。
         Queue dlq = QueueBuilder.durable(FeedTopology.QUEUE_DLQ)
-                .ttl((int) props.dlqTtl().toMillis())
+                .ttl(Math.toIntExact(props.dlqTtl().toMillis()))
                 .build();
 
         return new Declarables(
