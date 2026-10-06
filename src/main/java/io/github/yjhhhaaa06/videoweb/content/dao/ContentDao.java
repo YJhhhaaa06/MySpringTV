@@ -142,8 +142,11 @@ public interface ContentDao {
      * 全表未删内容（JOIN users），按 {@code create_time DESC, id DESC}。
      *
      * <p>它服务**索引懒重建**（{@code content:index:*} 缺失时从 DB 重建）。
-     * ⚠️ 这是**无上限**查询（TV 原样）——TV 还有启动期 `init()` 全量预热，本切片不搬（决策表 G-6），
-     * 故它只在"索引 key 缺失"时被触发。接压测/真实数据时应与冷却退避一起回补。
+     * ⚠️ 这是**无上限**查询（TV 原样）。TV 另有启动期 `init()` 全量预热，本切片不搬（决策表 G-6），
+     *    **第四批 T7-2 已定为"永不补"**（《遗留台账》B5 → D29）⇒ 本方法只在索引 key 缺失时被
+     *    懒重建触发（且受冷却退避与单飞收敛）。
+     * ⚠️ 它**不是死代码**：{@code ContentCache.ensureIndex} 与 {@code MediaAuditService.scanAll}
+     *    都在用——B5 关闭不会让它变孤。
      */
     List<ContentCacheDTO> findAllContent();
 

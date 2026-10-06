@@ -176,7 +176,10 @@ video:
     # 滑动续期后热点常驻，miss≈0 无穿透风险）"。
     # ⚠️ 但本切片**不搬** ContentCache.init() 的启动全量重建（决策表 G-6：其产物两条都有
     #    自愈路径，只是预热；代价是启动期一次无上限全表查询）⇒ 首读会 miss 并回源 DB，
-    #    TTL 值本身不变。接压测/真实数据时回补 init()。
+    #    TTL 值本身不变。
+    # ★ 第四批 T7-2：**已由"暂不搬"定为"永不补"**（《遗留台账》B5 → D29）——
+    #    当初挂的补回条件是"接入压测或真实规模"，到第四批收口时该前提仍未成立，
+    #    继续挂着只是把"无 owner"伪装成"待办"。**不要再写"接压测时回补"了。**
     content-ttl: ${CONTENT_CACHE_TTL:30m}
     # 索引懒重建失败的**进程内冷却退避**窗口（第三批 T3 / 账 B6）。口径对齐 TV
     # AppConfig.getContentIndexRebuildCooldownMillis() ← app.properties 的

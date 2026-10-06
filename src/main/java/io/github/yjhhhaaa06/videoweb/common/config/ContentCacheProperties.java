@@ -13,6 +13,8 @@ import java.time.Duration;
  *
  * <p>⚠️ TV 的理由里有一半依赖"**启动全量重建**"（{@code ContentCache.init()}），而本切片**不搬**
  * 该重建（决策表 G-6 有专门说明与补回位置）⇒ 首读会 miss 并回源 DB。TTL 值本身不变（30 分钟）。
+ * ★ 第四批 T7-2：{@code init()} 已由"暂不搬"定为"**永不补**"（《遗留台账》B5 → **D29**）——
+ * 挂着的补回条件"接入压测或真实规模"到收口时仍未成立。
  *
  * <p>{@code AppConfig}（847 行多级覆盖链）是《迁移参照系》§三的整体退役项，故改为标准配置绑定。
  * 位置约定同 {@link LikeCacheProperties}。

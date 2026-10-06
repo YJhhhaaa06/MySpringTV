@@ -39,7 +39,8 @@ import java.util.function.Supplier;
  *
  * <h2>相对 TV 有意去掉的（逐条记在决策表 G-6，此处只列要点）</h2>
  * <b>去掉</b>：{@code CacheResult}/{@code CacheStatus} 三态枚举（本类只暴露"值或 null"，够用）、
- * {@code writeBatch}（它只服务 TV 的启动全量重建，而 {@code init()} 本切片不搬）。
+ * {@code writeBatch}（它只服务 TV 的启动全量重建，而 {@code init()} 本切片不搬——
+ * ★ 第四批 T7-2 已定为"**永不补**"，见《遗留台账》B5 → D29 ⇒ 本方法永不实现）。
  * <b>保留</b>：三态读、空标记（含"数据 key 已存在则不写空标记"的守卫）、写失败 DEL 自愈、
  * TTL 抖动、读命中续期（**空标记从不续期**）、批量读（含批量装载器）、降级不写回。
  *
