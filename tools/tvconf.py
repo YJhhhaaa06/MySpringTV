@@ -89,7 +89,7 @@ class Conn:
     port: int = 3306
     user: str = "root"
     password: str = "MySQL"
-    database: str = "TVDatabase"
+    database: str = "spring_tv"
     exe: str = ""
 
     def args(self, sql: str) -> list[str]:
@@ -116,12 +116,12 @@ def conn_from_yaml(exe: str = "") -> Conn:
     url = (
         os.environ.get("DB_URL")
         or yaml_value(flat, "spring.datasource.url")
-        or "jdbc:mysql://localhost:3306/TVDatabase"
+        or "jdbc:mysql://localhost:3306/spring_tv"
     )
     m = re.search(r"//([^:/]+):(\d+)/([^?]+)", url)
     host = m.group(1) if m else "localhost"
     port = int(m.group(2)) if m else 3306
-    database = m.group(3) if m else "TVDatabase"
+    database = m.group(3) if m else "spring_tv"
     return Conn(
         host=os.environ.get("DB_HOST", host),
         port=int(os.environ.get("DB_PORT", port)),

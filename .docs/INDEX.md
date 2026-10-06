@@ -28,9 +28,12 @@ Flyway + Testcontainers。
 > ② 鉴权**还没迁 Spring Security**，当前是自研 `JwtAuthFilter` + `@RequiresLogin`，
 > `SecurityPassthroughConfig` 是**临时态**（台账 C3/C4）。★ **按口径①它不阻塞"迁移完成"**，
 > 已移入"上线准备度"（K-2）。
-> ③ ★ **老项目已停用、只读留存**（**K-1**）：新项目是 `TVDatabase` 与 `stone` 的**唯一写方**，
-> 两边**共享** `flyway_schema_history` ⇒ **V1 baseline 就此冻结，不要改**
-> （改了会让测试库与活库分叉）。⚠️ 同时 **老项目禁止删除**——它是判据腿②的唯一事实源（**K-4**）。
+> ③ ★ **老项目已停用、只读留存**（**K-1** / **K-4**）：原口径下新项目是 `TVDatabase` 与 `stone` 的
+> **唯一写方**、两边**共享** `flyway_schema_history`；★ **2026-10-06 起已分家**（**K-7**）——
+> 新项目改用**自己的** `spring_tv` 库与 `D:/data/projects/MySpringTV/media` 媒体根，
+> 老项目那两份自此是**只读来源快照**。⚠️ **V1 baseline 依旧冻结，不要改**
+> （`spring_tv` 已带 V1 记录，改了仍会让测试库与活库分叉）。
+> ⚠️ 同时 **老项目禁止删除**——它是判据腿②的唯一事实源（**K-4**）。
 
 ---
 
@@ -97,8 +100,9 @@ python tools/doc_archive.py --plan <计划.json>   # 归档已完成批次明细
 **环境前置**：Docker 必须在跑（Testcontainers 自起 mysql/redis/rabbitmq，**不需要**手工起容器）；
 测试媒体素材在外部目录 `D:\dev\WorkSpace\VideoPlatform\TestResource`（`TV_TEST_RESOURCE_DIR` 可覆盖，
 **缺失即显式失败**，这是有意设计）。
-⚠️ **dev 直连库**是宿主原生 `TVDatabase`@3306（**与老项目同一个库**），媒体根
-`D:/data/projects/VideoPlatform/stone`（**同一个目录**）——**任何 schema 变更前先读 K-1 与 K-3**。
+⚠️ **dev 直连库**是宿主原生 `spring_tv`@3306（**新项目自己的库**；2026-10-06 由老项目
+`TVDatabase` 一次性复制而来），媒体根 `D:/data/projects/MySpringTV/media`（同样已从老项目
+`stone` 独立）——**两处均见 K-7**。**任何 schema 变更前先读 K-1、K-3 与 K-7**。
 
 ---
 

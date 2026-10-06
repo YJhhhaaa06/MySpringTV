@@ -20,12 +20,14 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * {@code video.media.base-url} 是**对外 URL 前缀**（默认空串，等价 TV 的空 context path）；
  * 本属性是**磁盘根**。两者语义不同、取值互不影响，**不要混为一谈**（《切片计划》§一 特别警告）。
  *
- * <h2>换目录 = 改一行（"两个项目分家"路线，B-11）</h2>
+ * <h2>★ 分家已完成（2026-10-06，B-11"改一行"路线兑现）</h2>
  * DB 里存的是应用内相对 URL（{@code /upload/video/xxx.mp4}），目录结构
  * （{@code video/ image/ cover/}）不变时：**拷贝目录 → 改本属性**即可完成迁移，DB 无需改动。
  * ⚠️ 顺序必须是先拷贝后翻配置——反过来会让存量行在切换窗口里全部呈现为"文件缺失"。
+ * 本次即按此顺序执行：源 {@code …/VideoPlatform/stone} → 新根
+ * {@code D:/data/projects/MySpringTV/media}（96 文件 / 488,982,223 字节，逐字节一致）。
  *
- * @param root 媒体磁盘根目录（绝对路径；dev 默认沿用老项目 stone，见 {@code application.yaml}）
+ * @param root 媒体磁盘根目录（绝对路径；dev 默认指向本项目自己的 {@code MySpringTV/media}，见 {@code application.yaml}）
  */
 @ConfigurationProperties(prefix = "video.upload")
 public record UploadProperties(String root) {

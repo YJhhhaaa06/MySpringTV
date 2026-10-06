@@ -23,9 +23,14 @@ spring:
   #          maxSize→maximum-pool-size, timeoutMs→connection-timeout）。
   # CAUTION: 本机 3306 是**宿主原生 mysqld 8.0.45**，不是 Docker 的 mysql8.4
   #          （那个映射在 3307，当前未启动）。旧配置与真库口径一致。
+  # ★ 分家（2026-10-06）：dev 库已从老项目的 `TVDatabase` 独立为 `spring_tv`
+  #   —— TVDatabase 的一次性副本（16 表 / 100 列逐列一致 / 每表 COUNT(*) 相等），
+  #   含 flyway_schema_history 的 baseline 0 + V1。此后本项目**只写 spring_tv**。
+  #   ⚠️ 这也作废了《决策留痕表》K-1 的前提："新项目与老项目共享同一个库
+  #      ⇒ 共享 flyway_schema_history"——自此两边各写各的，V1 仍冻结不改。
   # --------------------------------------------------------------------------
   datasource:
-    url: ${DB_URL:jdbc:mysql://localhost:3306/TVDatabase?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai&characterEncoding=utf8}
+    url: ${DB_URL:jdbc:mysql://localhost:3306/spring_tv?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai&characterEncoding=utf8}
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD:MySQL}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -231,12 +236,15 @@ video:
   # 上传媒体**磁盘根目录**（S7）。⚠️ 与上面 media.base-url（URL 前缀）**严格分家**：
   #   本键 = 落盘 + /upload/** 静态服务共用**同一物理根**（TV 侧是 app.properties + context.xml
   #   两份配置 + 启动一致性校验；本项目一处配置，校验对象消失——B-12）。
-  # dev 默认沿用老项目 stone：本项目 dev 库与老项目同为 TVDatabase，存量 content_media 行
-  #   都指向该目录——不拷贝、不迁移（B-11）。将来"分家"= 拷目录（保持 video|image|cover
-  #   子结构）+ 改这一行（或设环境变量 UPLOAD_ROOT），DB 存相对 URL，无需改动。
+  # ★ 分家（2026-10-06）：dev 媒体根已从老项目 stone 独立为
+  #   `D:/data/projects/MySpringTV/media` —— B-11 那条"将来分家"路线的兑现。
+  #   已按 B-11 要求的**先拷贝后翻配置**顺序执行：video|image|cover 三个子目录共 96 个
+  #   文件 / 488,982,223 字节，与源**逐文件逐字节一致**；DB 存相对 URL ⇒ 未改一行数据。
+  #   ⚠️ 源 stone 的 `temp/`（1274 文件 / 95MB；stage8-target、test-reports、
+  #      tomcat-test-18080）是历史构建/测试产物**非媒体资源**，**有意不拷**。
   # ⚠️ 空值拒绝启动（沿袭 TV AppShutDownListener 的 "upload.path 未配置或为空，拒绝启动"）。
   upload:
-    root: ${UPLOAD_ROOT:D:/data/projects/VideoPlatform/stone}
+    root: ${UPLOAD_ROOT:D:/data/projects/MySpringTV/media}
 
   # 自动大V滞回判定（S4 切片，user 域但由 follow 事务内调用；见决策表 F-6）。
   # 口径对齐 TV app.properties 的 feed.bigv.threshold / feed.bigv.downgradeRatio。

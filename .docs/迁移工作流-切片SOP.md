@@ -16,7 +16,8 @@
 | JDK | 25（`JAVA_HOME=D:\dev\DevTools\jdk\openjdk-25.0.2`，**不在 PATH**，用 wrapper 即可） |
 | 老项目（只读参照） | `old-project\TVhomework1`（**已 gitignore**，仅本地；不在 git 里） |
 | 测容器 | Docker 必须运行。测试**自带** mysql/rabbitmq/redis 容器，**不需要**本机手工起容器 |
-| 开发库 | 宿主原生 mysqld **8.0.45 @ 3306**，库 `TVDatabase`，root/MySQL |
+| 开发库 | 宿主原生 mysqld **8.0.45 @ 3306**，库 `spring_tv`，root/MySQL（★ 2026-10-06 分家后；此前为老项目 `TVDatabase`，见《决策留痕表》**K-7**） |
+| 开发媒体根 | `D:/data/projects/MySpringTV/media`（★ 同上；此前为老项目 `D:/data/projects/VideoPlatform/stone`） |
 
 **铁律**：老项目是**行为规格书**，不是源码来源。所有移植都按"读旧代码 → 用新写法实现"进行，
 不做整份复制（详见《迁移参照系》§二）。

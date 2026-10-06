@@ -193,7 +193,13 @@ CONFIG_MAP: list[Cfg] = [
     Cfg("jwt.secret", "video.jwt.secret", "none", "值有意改：STONE → dev-only-change-me（部署前必换）",
         "application.yaml 注释（D 类无此条）"),
     Cfg("jwt.expireHours", "video.jwt.expire-hours", "hours"),
-    Cfg("upload.path", "video.upload.root", "str", "落盘根；与 media.base-url 严格分家", "B-11 / B-12"),
+    # ★ 2026-10-06 起 cmp 由 "str" 改 "none"：老侧 `upload.path` 与新侧 `video.upload.root`
+    #   原本**同值**（dev 复用老项目 stone，B-11），故可逐字比。**分家后同值前提消失**——
+    #   比值的断言等价于"别分家"，与目标冲突。改按"口径不同/有意"处理（与 db.url 同款），
+    #   evidence 指向 K-7 供人核。⚠️ 键**非空**仍由 UploadProperties 绑定期校验兜住（不靠本脚本）。
+    Cfg("upload.path", "video.upload.root", "none",
+        "★ 值有意不同：2026-10-06 已分家（老 stone → 新 MySpringTV/media）",
+        "K-7（原 B-11 / B-12）"),
     Cfg("upload.maxSize", None, "none", "死配置（无消费者）——有意不搬；限额改 spring.servlet.multipart", "B-13"),
     Cfg("cache.content.ttlMinutes", "video.cache.content-ttl", "minutes"),
     Cfg("cache.comment.ttlMinutes", "video.cache.comment-ttl", "minutes"),

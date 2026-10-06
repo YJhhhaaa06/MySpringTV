@@ -33,7 +33,7 @@ public final class Containers {
 
     public static final MySQLContainer<?> MYSQL =
             new MySQLContainer<>(DockerImageName.parse("mysql:8.4"))
-                    .withDatabaseName("tvdatabase")
+                    .withDatabaseName("spring_tv")
                     .withUsername("test")
                     .withPassword("test");
 

@@ -43,9 +43,11 @@ class InfrastructureConnectivityTests extends AbstractIntegrationTest {
 
             // ⚠️ 防误连：证明读写的是容器实例，而不是 application.yaml 默认指向的宿主 3306 开发库。
             // 连错库不会报错，只会静默读写真实数据——所以这条断言必须存在。
+            // 断言写成 `:3306/`（宿主的那个端口）而非旧库名：库名会随"分家"再变（2026-10-06 已
+            // 由 TVDatabase 改为 spring_tv），而"宿主开发库在 3306"是不变的事实。
             String url = conn.getMetaData().getURL();
             Containers.assertConnectedToContainer(url);
-            assertThat(url).doesNotContain(":3306/tvdatabase");
+            assertThat(url).doesNotContain(":3306/");
         }
     }
 

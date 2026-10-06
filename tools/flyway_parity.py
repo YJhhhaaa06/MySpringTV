@@ -264,7 +264,7 @@ def main(argv: list[str] | None = None) -> int:
         return report(args.v1, conn)
     except RuntimeError as exc:
         print(f"✗ 连库/查询失败：{exc}", file=sys.stderr)
-        print("  提示：确认 TVDatabase 在跑、mysql 客户端可执行（--exe 可指定）。", file=sys.stderr)
+        print("  提示：确认 dev 活库(spring_tv)在跑、mysql 客户端可执行（--exe 可指定）。", file=sys.stderr)
         return 2
 
 
