@@ -143,9 +143,10 @@ DECLARATIONS: list[Decl] = [
     Decl("src/main/resources/app.properties", "配置（老档）", "逐键对照",
          "src/main/resources/application.yaml", "B-13 / C-8；本脚本 §B-6 逐键"),
     Decl("pom.xml", "依赖清单", "替代物",
-         "本仓 pom.xml（23 条：Boot 托管 19 + 显式版本 4）", "决策②③④⑤⑥ / B-11",
+         "本仓 pom.xml（22 条：Boot 托管 18 + 显式版本 4）", "决策②③④⑤⑥ / B-11",
          "老仓 16 条依赖；新仓显式版本 = resilience4j / java-jwt / mybatis-starter / archunit，"
-         "amqp-client 与 jedis 走 Boot 托管"),
+         "amqp-client 与 jedis 走 Boot 托管。"
+         "⚠️ 原 23 条中的 spring-rabbit-test 已删（第四批 T7-2 / 账 B11 → D30：声明而未启用）"),
 ]
 
 

@@ -183,12 +183,10 @@
             <artifactId>testcontainers-rabbitmq</artifactId>
             <scope>test</scope>
         </dependency>
-        <!-- MQ 断言工具（@RabbitListenerTest / RabbitListenerTestHarness），版本由 spring-amqp BOM 托管 -->
-        <dependency>
-            <groupId>org.springframework.amqp</groupId>
-            <artifactId>spring-rabbit-test</artifactId>
-            <scope>test</scope>
-        </dependency>
+        <!-- ❌ 原 spring-rabbit-test（含 RabbitListenerTestHarness）已删除（第四批 T7-2 / 账 B11 → D30）：
+             它自 S9 起**声明而未启用**——MQ 断言实际走 RabbitTemplate + 轮询（FeedMqTests），
+             RabbitListenerTestHarness 与 @RabbitListenerTest 全仓零引用。留着只是噪声。
+             ⚠️ 若将来真要用 RabbitListenerTestHarness，加回本块即可（版本由 spring-amqp BOM 托管）。 -->
 
         <!-- ==================== 架构约束测试（S6-B3，决策：ArchUnit） ====================
              目的：把"模块边界"从文档约定变成**会失败的测试**。S6 实测到的三个跨模块环
