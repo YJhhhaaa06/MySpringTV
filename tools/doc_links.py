@@ -57,7 +57,14 @@ for _stream in (sys.stdout, sys.stderr):
 
 ROOT = Path(__file__).resolve().parent.parent
 DOCS = ROOT / ".docs"
-SEARCH_DIRS = (DOCS, DOCS / "report", DOCS / "archive")
+# ⚠️ 这份清单编码了"被引用的文档可能在哪"这一**事实**——目录布局变了就必须同步，
+#    否则会把"搬家"误报成"悬空"（2026-10-06 迁移文档归档到 archive/migration/ 时正是如此）。
+SEARCH_DIRS = (
+    DOCS,
+    DOCS / "archive" / "migration",
+    DOCS / "archive" / "migration" / "report",
+    DOCS / "archive",
+)
 LEGACY_ROOT = ROOT / "old-project" / "TVhomework1"
 PLACEHOLDER = re.compile(r"(xxx|Xxx|\.\.\.|<[^>]*>)")
 SECTION_REF = re.compile(r"《[^》]+》§[二三四五][·、][A-Za-z0-9]+|(?<![\w.])§[二四][·、][A-Za-z0-9]+")
@@ -148,8 +155,14 @@ def check(doc: Path) -> list[tuple[int, str, str, bool]]:
                 for m in SECTION_REF.finditer(line):
                     bad.append((lineno, m.group(0), "章节引用可能已归档（本段无 archive/ 路径）", False))
 
-            # 4) 行内反引号里的仓库路径
-            for m in re.finditer(r"`((?:tools|src|\.mvn)/[^\s`]+\.(?:py|java|xml|yaml|cmd|sh))`", line):
+            # 4) 仓库路径（`tools/` `src/` `.mvn/`）
+            #    ⚠️ 2026-10-06 修：原正则**只认反引号包裹、且要求 `tools/` 紧贴反引号** ⇒
+            #    `python tools/xxx.py`（代码块与命令清单里最常见的形态）**一律漏检**。
+            #    实测代价：脚本归档后 4 处命令已失效，却报"悬空 0 处"（门禁假绿的同一族）。
+            #    现改为**不限反引号**；前置负向断言只为避免在长路径中途重复匹配。
+            for m in re.finditer(
+                r"(?<![\w/.-])((?:tools|src|\.mvn)/[^\s`）)、]+\.(?:py|java|xml|yaml|cmd|sh))", line
+            ):
                 if not resolve_repo_path(m.group(1), legacy) and not PLACEHOLDER.search(m.group(1)):
                     bad.append((lineno, m.group(1), "仓库路径不存在", True))
     return bad

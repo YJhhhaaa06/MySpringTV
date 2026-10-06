@@ -11,6 +11,7 @@
 |------|------|---------|
 | **可复用**（会反复跑、别人也会跑） | `tools/` | ✅ 入库 |
 | **一次性**（本次任务用完即弃） | `temp-script/` | ❌ 已在 `.gitignore` / `.git/info/exclude` |
+| ★ **已归档**（迁移期专用，2026-10-06 随迁移文档迁出） | `.docs/archive/migration/tools/` | ✅ 入库（在 `.docs` 下） |
 
 判据：**"下一个切片还会跑它吗？"** 会 ⇒ `tools/`；不会 ⇒ `temp-script/`。
 
@@ -82,11 +83,7 @@ ROOT = Path(__file__).resolve().parent.parent   # tools/ 的上一级
 | `doc_stats.py` | 度量 `.docs` 体量，按文件与 H2 章节归因，找出膨胀源 | ✅ 只读 |
 | `doc_links.py` | **校验 `.docs` 交叉引用是否指得到**（悬空指针 / 改名遗留 / 旧章节引用） | ✅ 只读 |
 | `doc_archive.py` | 把已完成阶段的历史明细从正文抽到 `.docs/archive/`，正文留指针 | ❌ 会写（**默认只预演**，加 `--apply` 才落盘） |
-| `endpoint_matrix.py` | 复算老项目 43 端点 × 新项目实现状态，校验《端点对照表》 | ✅ 只读 |
-| `migration_matrix.py` | ★ **反面盘点**（第四批 T7-0）：老项目 `src/main` 每个资产的**去向**（声明覆盖 → 未表态 = 0）+ 10 个域级对账（含**配置逐键对照**） | ✅ 只读 |
-| `flyway_parity.py` | ★ **结构连续性**（第四批 T7-0）：活库列集 vs `V1__baseline_tv_schema.sql` 列集，差异非空即退出非 0 | ✅ 只读 |
-| `realdata_probe.py` | ★ **真数据通路探针**（第四批 T7-1）：只读检查存量库/媒体根（域约束 / 媒体匹配 / 计数列对账 / feed 孤儿 / 可选 HTTP 读接口探活），**双趟**产出三张清单（① 代码缺口 / ② 存量脏数据 E 类 / ③ 口径未定） | ✅ 只读（`--apply` 只写 `target/realdata_probe/`） |
-| `tvconf.py` | **共用小工具**（非可执行脚本，无 CLI）：强制 UTF-8 / 仓库根 / 极简 YAML 扁平化 / 调 mysql 客户端。上面三个脚本 import 它 | ✅ 只读 |
+| ★ **迁移期 5 个**（`endpoint_matrix` / `migration_matrix` / `flyway_parity` / `realdata_probe` / `tvconf`） | **已归档**到 `.docs/archive/migration/tools/`（2026-10-06）——用途见 §六；**需要复算迁移结论时才去那里跑** | ✅ 只读 |
 | `run_tests.py` | **一键跑测试**：全量 `clean verify` / `--group` 选跑 / `--test` 单类；完整输出落盘 + 摘要回显 | ✅ 只读（仅写 `target/test-reports/`） |
 
 ## 五、常用命令
@@ -98,16 +95,10 @@ python tools/doc_links.py                  # 校验文档交叉引用（归档�
 python tools/doc_links.py --strict         # 把"尚未创建"也计为失败
 python tools/doc_archive.py --plan temp-script/doc-plan.json            # 归档预演（不落盘）
 python tools/doc_archive.py --plan temp-script/doc-plan.json --apply     # 归档落盘
-python tools/endpoint_matrix.py            # 复算端点对照
-python tools/migration_matrix.py           # 反面盘点：未表态 = 0（含 11 个域对账）
-python tools/migration_matrix.py --coverage        # 只看覆盖率与未表态项
-python tools/migration_matrix.py --domain config   # 只看某一域（--list-domains 列出）
-python tools/migration_matrix.py --strict          # 把「未登记的口径差异」也计入退出码
-python tools/flyway_parity.py              # 结构连续性：活库 vs V1（差异非空 ⇒ 退出非 0）
-python tools/flyway_parity.py --v1 target/x.sql    # 换一份 baseline（演示"能变红"用）
-python tools/realdata_probe.py --baseline --apply  # 真数据探针：基线趟（★ 唯一一次机会，须先备份库）
-python tools/realdata_probe.py                     # 当前趟（读 baseline.json 做差 → 三张清单；默认只预演）
-python tools/realdata_probe.py --base-url http://localhost:8080   # 追加第 5 项 HTTP 读接口探活
+# ★ 迁移期的复算命令（endpoint_matrix / migration_matrix / flyway_parity / realdata_probe）
+#   已随脚本归档，改从归档目录跑、**用法不变**。例（其余选项见 §六）：
+python .docs/archive/migration/tools/migration_matrix.py      # 反面盘点：未表态 = 0
+python .docs/archive/migration/tools/flyway_parity.py         # 结构连续性：活库 vs V1
 python tools/run_tests.py                  # 默认回归（mvnw -B clean verify，排除 @Tag("resilience")）
 python tools/run_tests.py --group resilience           # 只跑 @Tag("resilience")
 python tools/run_tests.py --group a --group b          # 多组（并集）
@@ -140,7 +131,14 @@ python tools/run_tests.py --test SecurityContractTests # 只跑一个测试类
 
 ---
 
-## 六、`migration_matrix.py` / `flyway_parity.py` 的两个前提（**读代码前先读这段**）
+## 六、已归档的迁移脚本的前提（**追溯时才读这段**）
+
+> 本节讲的 4 个脚本（`endpoint_matrix` / `migration_matrix` / `flyway_parity` / `realdata_probe`）
+> 已在 2026-10-06 随迁移文档**归档到 `.docs/archive/migration/tools/`**。日常开发用不到它们；
+> 只有**复算迁移期的结论**（"43 端点搬完了吗""每个老资产都有去向吗""活库结构与 V1 还一致吗"）时才需要。
+> ⚠️ 归档时它们的"仓库根"推导已从**固定层级**改为**向上找 `pom.xml`** ——
+> 所以从归档目录直接跑即可，不需要 cd 或改路径。
+
 
 1. **老仓没有任何 mapper XML**：老项目 SQL 是 DAO 里的**内联字符串**（`String sql = "..."`，9 个 DAO / 89 条）。
    新仓的 9 个 mapper XML / 102 条是**语义重写**，与老侧**不是 1:1** ——

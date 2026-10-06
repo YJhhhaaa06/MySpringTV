@@ -46,7 +46,9 @@ for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
-ROOT = Path(__file__).resolve().parent.parent
+# ★ 已归档到 `.docs/archive/migration/tools/`：向上找含 `pom.xml` 的目录，不用固定层级
+#   （归档后层级已变；固定 parent 链会在下次搬家时静默取错根）。找不到即 StopIteration。
+ROOT = next(p for p in Path(__file__).resolve().parents if (p / "pom.xml").is_file())
 
 OLD_SRC = ROOT / "old-project" / "TVhomework1" / "src" / "main" / "java" / "com" / "itheima"
 NEW_SRC = ROOT / "src" / "main" / "java" / "io" / "github" / "yjhhhaaa06" / "videoweb"

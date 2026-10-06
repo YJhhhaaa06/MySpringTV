@@ -28,7 +28,10 @@ for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
-ROOT = Path(__file__).resolve().parent.parent
+# ★ 本文件已随迁移脚本归档到 `.docs/archive/migration/tools/`：**不再用固定 parent 层级**
+#   反推仓库根（固定层数在归档/再搬家时必然失效，2026-10-06 归档时就踩到），
+#   改为向上找含 `pom.xml` 的目录。找不到会抛 StopIteration（响亮失败，不静默取错根）。
+ROOT = next(p for p in Path(__file__).resolve().parents if (p / "pom.xml").is_file())
 OLD_ROOT = ROOT / "old-project" / "TVhomework1"
 OLD_SRC_MAIN = OLD_ROOT / "src" / "main"
 NEW_YAML = ROOT / "src" / "main" / "resources" / "application.yaml"

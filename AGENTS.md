@@ -8,6 +8,7 @@
 1. **老项目是行为规格书，不是源码来源**：`old-project/TVhomework1` 是**只读**参照
    （它有自己的 `AGENTS.md` 与"禁用 Spring"的约束）。迁移口径是
    **SQL 复制、语义重写、管道删掉**——不做整份复制。
+   ★ **迁移已收口**（2026-10-06，端点 43/43/0）；⚠️ **老项目禁止删除**——它是迁移判据的唯一事实源。
 2. **本仓文档有单一事实源**：还剩多少端点 / 欠什么 / 为什么这么定，分别看
    《端点对照表》《遗留台账》《决策留痕表》，**不要从散落叙述里推断**。
 3. **状态结论必须可复算**：凡"还剩 N 个/已完成/已闭合"的说法，都要能由一条命令
@@ -21,6 +22,11 @@
 
 ```bash
 .\mvnw.cmd -B clean verify         # 回归基线（必须带 clean）
-python tools/endpoint_matrix.py    # 端点完整性复算
 python tools/doc_stats.py          # 文档体量（防膨胀）
+python tools/doc_links.py          # 文档交叉引用（归档后必跑）
 ```
+
+> ★ **迁移期的文档与脚本已归档**（2026-10-06）到 `.docs/archive/migration/`
+> ——含端点对照表、各批次工单、切片计划/SOP、三份调研报告，以及 4 个复算脚本
+> （`endpoint_matrix` / `migration_matrix` / `flyway_parity` / `realdata_probe`）。
+> "下一步做什么"看《遗留台账》C3/C4（上线准备度）。
