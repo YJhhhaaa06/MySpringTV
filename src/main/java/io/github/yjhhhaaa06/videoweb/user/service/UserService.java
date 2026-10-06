@@ -3,6 +3,8 @@ package io.github.yjhhhaaa06.videoweb.user.service;
 import io.github.yjhhhaaa06.videoweb.common.exception.BusinessException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ConflictException;
 import io.github.yjhhhaaa06.videoweb.common.exception.DuplicatePhoneException;
+import io.github.yjhhhaaa06.videoweb.common.exception.InvalidPasswordException;
+import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.common.exception.PasswordIncorrectException;
 import io.github.yjhhhaaa06.videoweb.common.exception.UserNotFoundException;
 import io.github.yjhhhaaa06.videoweb.common.security.AdminChecker;
@@ -91,7 +93,7 @@ public class UserService implements AdminChecker {
         String phone = request.phone();
 
         if (!isPasswordLegal(request.password())) {
-            throw new io.github.yjhhhaaa06.videoweb.common.exception.InvalidPasswordException();
+            throw new InvalidPasswordException();
         }
         if (userDao.isPhoneUsed(phone)) {
             throw new DuplicatePhoneException();
@@ -166,7 +168,16 @@ public class UserService implements AdminChecker {
     /**
      * 修改密码。
      *
-     * <p>校验口径沿袭 TV：先查用户存在 → 再校验原密码 → 再校验新密码合法性 → 落库。
+     * <p>校验口径沿袭 TV：先查用户存在 → 再校验手机号是否**本人** → 再校验原密码 → 再校验新密码合法性 → 落库。
+     *
+     * <p>⭐ **校验顺序不是随意的**：TV 的 {@code doChangePassword} 里，"手机号比对"**严格先于**"旧密码比对"
+     * （{@code UserService.java:188} 早于 {@code :193}）。这意味着"错手机号 + 错旧密码"只会回 400（手机号不匹配），
+     * 不会回 401。本顺序由 {@code UserFlowTests.手机号比对先于旧密码_错号且错密码回400} 钉住。
+     *
+     * <p>⭐ **手机号比对只判"是否等于本人"，不判格式**：老侧口径在这两级上本来就不同
+     * （格式在 {@code CommandConverter} 用**宽** {@code phoneCheck}，本处只比对）。
+     * 若在此加严到注册的 {@code ^1[3-9]\d{9}$}，库里存在的宽口径历史号（《遗留台账》E-6）
+     * 将**连自己的密码都改不了**。详见 {@link ChangePasswordRequest} 的类注释。
      */
     @Transactional
     public void changePassword(long userId, ChangePasswordRequest request) {
@@ -174,11 +185,15 @@ public class UserService implements AdminChecker {
         if (user == null) {
             throw new UserNotFoundException();
         }
+        if (!request.phone().equals(user.getPhone())) {
+            // TV 同位置抛 ParamException("手机号不匹配") ⇒ 400（先于旧密码判定，顺序即冻结契约）
+            throw new ParamException("手机号不匹配");
+        }
         if (!isPasswordCorrect(request.oldPassword(), user.getHashedPassword())) {
             throw new PasswordIncorrectException();
         }
         if (!isPasswordLegal(request.newPassword())) {
-            throw new io.github.yjhhhaaa06.videoweb.common.exception.InvalidPasswordException();
+            throw new InvalidPasswordException();
         }
         userDao.updatePassword(userId, passwordEncoder.encode(request.newPassword()));
     }
