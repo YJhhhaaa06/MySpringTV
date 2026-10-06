@@ -13,6 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -38,6 +39,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SensitiveDataTests extends AbstractObservabilityTest {
 
     private static final Duration AWAIT = Duration.ofSeconds(3);
+
+    /**
+     * 长度 ≥16 的连续十六进制串（Docker 容器 id 64 位、 Testcontainers 打印各种 32/64 位 id）。
+     * 它们不是 PII，但**包含的十进制子串会偶发命中手机号形态** ⇒ 扫描前必须先剥掉，
+     * 否则这条安全不变式变成随机红（见本类不变式用例的注释）。
+     */
+    private static final Pattern LONG_HEX = Pattern.compile("(?i)[0-9a-f]{16,}");
 
     @Test
     @DisplayName("★ 日志出口把手机号掩码，消息与异常堆栈都不放过")
@@ -94,8 +102,15 @@ class SensitiveDataTests extends AbstractObservabilityTest {
         // 等访问行一并落盘，保证下面扫到的是"本请求写完之后"的快照
         awaitAccessLine("/user/register", "status=200");
 
-        // 扫描前先剥掉 req=<16hex>：请求标识是十六进制随机串，天然会偶发命中 1[3-9]\d{9}
-        // （老用例的注释记着实测 26 行假阳性）。剥离后剩下的命中才是真嫌疑行。
+        // 扫描前先剥掉两类**随机串**，否则它们会偶发命中手机号形态 ⇒ 把"安全不变式"变成看运气的测试
+        // （这不是"放宽标准"：随机串不是 PII；把假警报当泄漏，等于训练大家忽略这条不变式）。
+        //   ① req=<16hex>：请求标识（老用例注释记着实测 26 行假阳性）；
+        //   ② <16+hex>：Testcontainers 的容器 id（64 位），例如
+        //      `Container redis:7-alpine is starting: 0530…16959153928…`，
+        //      中间恰好含有长度 11 的纯数字段。2026-10-06 全量回归就是这样红的（与本批改动无关，
+        //      id 每次随机 ⇒ 偶发）。
+        // 判据：长度 ≥16 的连续十六进制串不可能是手机号（手机号是 11 位十进制，且此处是 id 位置），
+        // 剥离后剩下的命中才是真嫌疑行。
         //
         // system / access 两个文件必然已有内容（本轮刚写过）；error / audit 允许本轮尚未产生
         // （它们的产生依赖"是否发生过 ERROR / 审计动作"），缺文件即跳过，但**存在就必须干净**。
@@ -107,6 +122,7 @@ class SensitiveDataTests extends AbstractObservabilityTest {
             }
             List<String> offenders = readLines(file).stream()
                     .map(line -> REQ_PATTERN.matcher(line).replaceAll("req=<id>"))
+                    .map(line -> LONG_HEX.matcher(line).replaceAll("<hex>"))
                     .filter(line -> line.matches(".*1[3-9]\\d{9}.*"))
                     .toList();
             assertThat(offenders)
