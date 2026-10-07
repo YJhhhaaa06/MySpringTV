@@ -7,7 +7,7 @@
 SOP §七.2 的纪律是"**正文只留当前有效结论**，被推翻/已兑现的历史交给 git 或 archive"。
 但手工搬 1,400 行是高风险动作（容易漏一段、错位一行），所以做成工具。
 
-实测背景：`.docs/事务边界决策表.md` 1,637 行里 **1,491 行（91%）是已完成切片的明细**
+实测背景：`.docs/archive/migration/事务边界决策表.md` 1,637 行里 **1,491 行（91%）是已完成切片的明细**
 （U/C/CM/L/F/G 六个系列），而它们的价值已经被
 「代码 + 测试 + 《决策留痕表》+《遗留台账》+《端点对照表》」吸收掉了。
 正文真正还需要留的只有：硬约束、图例、模式库、状态表 —— 约 150 行。
@@ -25,9 +25,9 @@ SOP §七.2 的纪律是"**正文只留当前有效结论**，被推翻/已兑�
 [
   {
     "op": "extract",
-    "from": ".docs/事务边界决策表.md",
+    "from": ".docs/archive/migration/事务边界决策表.md",
     "match": "^二[、·]",
-    "to": ".docs/archive/事务边界明细-S1-S5.md",
+    "to": ".docs/archive/migration/事务边界明细-S1-S5.md",
     "archive_title": "事务边界明细（S1–S5 已完成切片）",
     "archive_note": "从《事务边界决策表》正文抽出……",
     "pointer": "> 各已完成切片的**逐条明细**（U/C/CM/L/F/G 六个系列）已归档："
@@ -167,7 +167,8 @@ def do_extract(op: dict, apply: bool, force: bool) -> bool:
         f"> 归档时间：{op.get('archived_at', '')}\n",
         "> **这是历史存档，不是当前事实源。** 它记录的是当时的论证过程，\n",
         "> 其中的状态/计数**可能已经过期**，不要据此判断当前进度。\n",
-        "> 当前结论看：《决策留痕表.md》《遗留台账.md》《端点对照表.md》。\n",
+        "> 当前结论看：《决策留痕表.md》《遗留台账.md》《端点对照表.md》（**均已归档于**\n",
+        "> `.docs/archive/migration/`）；当前进度一律以 `.docs/INDEX.md` 为准。\n",
     ]
     if note := op.get("archive_note"):
         header.append(f">\n> {note}\n")

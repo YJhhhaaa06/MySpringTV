@@ -147,7 +147,8 @@ python tools/run_tests.py --test SecurityContractTests # 只跑一个测试类
    `C:\Program Files\MySQL\MySQL Server 8.0\bin\`（**不在 PATH**），`tvconf.mysql_exe()` 会自动探测，
    也可用 `--exe` 或 `MYSQL_EXE` 指定。连接参数默认取自 `application.yaml` 的 dev 默认值。
    ⚠️ 它**只读**，但会连**dev 活库**（`spring_tv`——2026-10-06 分家后新项目自己的库，
-   见《决策留痕表》**K-7**）——任何 schema 变更前先读 K-1 与 K-7。
+   见 `.docs/archive/migration/决策留痕表.md` **K-7**）——任何 schema 变更前先读
+   `.docs/architecture/tech/数据与Schema演进.md`（V1 冻结，演进走 V2）。
 3. **子集运行不会给整体结论**：`--coverage` / `--domain` 只跑一部分，结论句会写明本次跑了几个域；
    "腿 2 成立"只在**全量跑**时给出。默认退出码不含「发现项」（未登记的口径差异）——
    **收口时要用 `--strict` 跑一次**，否则那些差异会一直躺在报告里没人认领。
