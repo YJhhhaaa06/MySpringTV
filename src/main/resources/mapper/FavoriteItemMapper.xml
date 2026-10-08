@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  收藏记录 Mapper（表 favorite_item，V2 建）。
+
+  T2 只落"删夹一并删条目"这一条（R-02）；收藏 / 移出 / 移动 / 状态 / 计数 / 夹内分页
+  归 T4~T6 —— 本仓纪律是**不提前写无主 SQL**。
+
+  ⚠️ 全局 `map-underscore-to-camel-case: false`；本文件目前只有一条 DELETE，无列映射需求。
+-->
+<mapper namespace="io.github.yjhhhaaa06.videoweb.favorite.dao.FavoriteItemDao">
+
+    <!-- 删夹时清空该夹的收藏记录（R-02：删夹一并删条目）。
+         ⚠️ 只按 folder_id 删（归属已由 service 先校验，单一判据，见 DAO Javadoc）；
+         命中 idx_folder_time(folder_id, create_time) 的前导列。
+         ⚠️ 不得改成"迁进默认夹"——那是一次数据搬迁，还要处理撞 uk_folder_content（R-02 已否决）。 -->
+    <delete id="deleteByFolderId">
+        DELETE FROM favorite_item WHERE folder_id = #{folderId}
+    </delete>
+
+</mapper>

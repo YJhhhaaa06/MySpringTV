@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  收藏夹 Mapper（表 favorite_folder，V2 建）—— 收藏一期 T2 的夹 CRUD 四条路径。
+
+  与 TV 无关（老项目没有收藏功能）：本仓**第一份没有"TV 原 SQL 对照"的 mapper**，
+  故每条 SQL 的注释写的是"为什么这么写"而不是"对应 TV 的哪条"。
+
+  ⚠️ 全局 `map-underscore-to-camel-case: false`（见 application.yaml）⇒ 列→属性**必须**
+     经 resultMap 显式映射，别指望下划线自动转换。
+
+  ⚠️ 两条 SQL 里都**没有** `default_uniq`：它是 VIRTUAL 生成列（唯一键 uk_user_default 的挂载点），
+     不承载业务语义（理由见 CURRENT_NEEDS.md R-09）；INSERT 时由 MySQL 自己算。
+-->
+<mapper namespace="io.github.yjhhhaaa06.videoweb.favorite.dao.FavoriteFolderDao">
+
+    <!-- 行映射：夹的"归属 + 类别"。⚠️ 只映射 FavoriteFolder 实体声明的列
+         （description / create_time / update_time 一期无消费方，见实体注释）。 -->
+    <resultMap id="favoriteFolderMap" type="io.github.yjhhhaaa06.videoweb.favorite.model.entity.FavoriteFolder">
+        <id property="id" column="id"/>
+        <result property="userId" column="user_id"/>
+        <result property="name" column="name"/>
+        <result property="isPrivate" column="is_private"/>
+        <result property="isDefault" column="is_default"/>
+    </resultMap>
+
+    <!-- 列表行映射（FavoriteFolderVO）：比上一行多一个聚合列 item_count。 -->
+    <resultMap id="favoriteFolderVoMap" type="io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteFolderVO">
+        <id property="id" column="id"/>
+        <result property="name" column="name"/>
+        <result property="isDefault" column="is_default"/>
+        <result property="isPrivate" column="is_private"/>
+        <result property="itemCount" column="item_count"/>
+    </resultMap>
+
+    <!-- 新建自建夹。刻意**不写 is_default**（走列默认 0）：
+         默认夹由"首次收藏"懒建（T4，走 uk_user_default 兜并发），本路径不碰那个键。
+         也不写 is_private（走列默认 0 = 公开，R-05「默认公开」）。 -->
+    <insert id="insertFolder">
+        INSERT INTO favorite_folder (user_id, name) VALUES (#{userId}, #{name})
+    </insert>
+
+    <!-- 按 id 取夹（改名 / 删除前校验：在不在 → 是不是我的 → 是不是默认夹）。
+         列清单与 resultMap 一一对应，不写 SELECT *（新增列时不会静默流进实体）。 -->
+    <select id="findById" resultMap="favoriteFolderMap">
+        SELECT id, user_id, name, is_private, is_default
+        FROM favorite_folder
+        WHERE id = #{id}
+    </select>
+
+    <!-- 我的夹列表 + 每夹条目数。
+         ★ LEFT JOIN：空夹得 0 行也**保留**（INNER JOIN 会让空夹整行消失，用户以为夹没了）。
+         ★ COUNT(i.id) 数的是收藏**记录**行 ⇒ 失效内容（is_deleted != 0）的记录照样计入（R-07）；
+           本 SQL 不访问 content 表，也就不存在"排除已删内容"的分支可被误加。
+         ★ GROUP BY 列写全（ONLY_FULL_GROUP_BY 下无歧义），ORDER BY 默认夹置顶 + id 升序。
+         ⚠️ is_default DESC 用列而不是表达式，保持可用 uk_user_default 前导列做等值定位。 -->
+    <select id="findByUserIdWithItemCount" resultMap="favoriteFolderVoMap">
+        SELECT f.id, f.name, f.is_private, f.is_default, COUNT(i.id) AS item_count
+        FROM favorite_folder f
+        LEFT JOIN favorite_item i ON i.folder_id = f.id
+        WHERE f.user_id = #{userId}
+        GROUP BY f.id, f.name, f.is_private, f.is_default
+        ORDER BY f.is_default DESC, f.id ASC
+    </select>
+
+    <!-- 改名。⚠️ 不带 user_id 条件（归属校验已在 service 先做）；
+         也不判 is_default（默认夹可改名）。同值改名 ⇒ 受影响 0 行，属正常，调用方不据此判失败。 -->
+    <update id="updateName">
+        UPDATE favorite_folder SET name = #{name} WHERE id = #{id}
+    </update>
+
+    <!-- 删夹行。⚠️ 条目由 FavoriteItemDao.deleteByFolderId 在**同一事务**里先删（R-02），
+         调用方是 FavoriteService.deleteFolder（@Transactional）。 -->
+    <delete id="deleteById">
+        DELETE FROM favorite_folder WHERE id = #{id}
+    </delete>
+
+</mapper>
