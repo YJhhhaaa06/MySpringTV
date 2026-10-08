@@ -8,6 +8,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -52,25 +55,34 @@ class InfrastructureConnectivityTests extends AbstractIntegrationTest {
     }
 
     @Test
-    void Flyway_在空库上跑V1建出全部15张业务表() throws Exception {
+    void Flyway_在空库上跑V1与V2建出全部17张业务表() throws Exception {
         try (var conn = dataSource.getConnection();
              var st = conn.createStatement();
              var rs = st.executeQuery(
                      "SELECT COUNT(*) FROM information_schema.tables "
                              + "WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE'")) {
             assertThat(rs.next()).isTrue();
-            // 15 张业务表 + flyway_schema_history
-            assertThat(rs.getInt(1)).isEqualTo(16);
+            // 17 张业务表（V1 的 15 张 + V2 的 favorite_folder / favorite_item）+ flyway_schema_history
+            assertThat(rs.getInt(1)).isEqualTo(18);
         }
-        // Flyway 元数据：空库路径应当**直接应用 V1**（baseline-on-migrate 只对非空 schema 生效）
+        // Flyway 元数据：空库路径按版本号顺序应用**全部**脚本（baseline-on-migrate 只对非空 schema 生效）。
+        // ⚠️ 断言全部版本而非只看首行：只看首行时，"新增的 V2 没被应用"是**察觉不到的**
+        //（首行永远是 V1）—— 那正是这条锚点最该拦住的情形。
         try (var conn = dataSource.getConnection();
              var st = conn.createStatement();
              var rs = st.executeQuery(
                      "SELECT version, type, success FROM flyway_schema_history ORDER BY installed_rank")) {
-            assertThat(rs.next()).isTrue();
-            assertThat(rs.getString("version")).isEqualTo("1");
-            assertThat(rs.getString("type")).isEqualTo("SQL");
-            assertThat(rs.getBoolean("success")).isTrue();
+            List<String> versions = new ArrayList<>();
+            List<String> types = new ArrayList<>();
+            List<Boolean> successes = new ArrayList<>();
+            while (rs.next()) {
+                versions.add(rs.getString("version"));
+                types.add(rs.getString("type"));
+                successes.add(rs.getBoolean("success"));
+            }
+            assertThat(versions).as("脚本清单（每加一个 V<n> 都要在这里显式认账）").containsExactly("1", "2");
+            assertThat(types).containsOnly("SQL");
+            assertThat(successes).containsOnly(true);
         }
     }
 
