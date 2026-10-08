@@ -95,7 +95,8 @@
 * **回写**：落地夹 CRUD **四端点**（`POST /favorite/folder/{add,update,remove}` + `GET /favorite/folder/list`；
   写 = POST + form、读 = GET + query，**逐端点** `@RequiresLogin` —— 收藏域**不能**用类级，见
   `SecurityContractTests.favorite夹CRUD端点需登录`）。新增 `model/entity/FavoriteFolder` + `model/vo/FavoriteFolderVO`
-  + 两 DAO 共五条 SQL；列表一条 `LEFT JOIN favorite_item` + `COUNT(i.id)`（空夹留行、**失效记录照算**）。
+  + 两 DAO 共**六**条 SQL（`FavoriteFolderDao` 5 条 + `FavoriteItemDao` 1 条）；
+  列表一条 `LEFT JOIN favorite_item` + `COUNT(i.id)`（空夹留行、**失效记录照算**）。
   ★ 关键口径：**默认夹拒删 409**（判 `is_default`、不判名字）、**删夹一并删条目同事务**（R-02）、
   **空态返回 `[]` 而非报错**（R-01 懒建的自洽性论证写在 `FavoriteService` 类注释）、
   404/403 归属口径、名称空白/超长 400（且 **400 判在 403 之前**，顺序已写进用例钉死）。
@@ -105,6 +106,13 @@
   重名与容量不限制 → 新增 **F-11**；`static/js/api.js` **未动**（新端点尚无前端消费方，T7 统一接）。
   执行期自查：**懒建 + 空列表自洽**（"读时补建"会让 GET 带副作用、还把公开读能力绑死在写权限上 ⇒ 不采纳）；
   默认夹的前提只能用 DB 夹具造（一期没有"建默认夹"的端点，懒建落点在 T4）。
+  ★ **收尾派了独立 subagent 审查**，它查出两处**自我声明不成立**并已修正：① 测试类注释原写
+  "`COUNT(DISTINCT content_id)` 是有效注入点" —— 错，同一夹内它**恒等于** `COUNT(*)`（唯一键
+  `uk_folder_content`），真注入点应为 `COUNT(DISTINCT user_id)`；② 原写"删掉 `@RequiresLogin` ⇒
+  未登录用例变红" —— 错，四个端点都收 `@CurrentUserId`（取不到即 401），该 HTTP 用例对机制是**假绿**，
+  判别力只在 `SecurityContractTests`。同时补两处缺口：VO 布尔键的**正向断言**（`path().asBoolean()`
+  对**缺失键**恒 false ⇒ 只断 `isFalse()` 证明不了键名）+ "默认夹**改名后**仍拒删"（把"判列不判名"钉死）；
+  删夹事务的判别力缺口登记为 **I-04** 交 T8。三条注入点已**实测变红并还原**（见 commit message）。
 
 ### T3 私密开关 + 他人公开夹端点（来源 R-05 / R-08 / 能力 一期-3）【待执行】
 
@@ -114,6 +122,13 @@
 * **目标**：`is_private` 可改；他人视角只返回公开夹 —— **这就是"私密"一期的可观察落点**。
 * **红线边界**：**"我的"与"他人的"必须两个端点**（R-08）；**`/profile` 不动**（避免 `content → favorite` 新依赖边）。
 * **强制探索**：鉴权口径（见 `architecture/tech/安全与鉴权.md`）；默认夹能否设为私密（若 B 站允许则允许）。
+* **⚠️ T2 交接（执行期发现，2026-10-08）**：
+  ① `POST /favorite/folder/update` 在 T2 是「`name` **必填**」，而分期篇 §3.3 把它定义成**部分更新** ⇒
+  本任务要把它改成"给了才改"，`name` 一并变可选（否则"文档说可部分更新、实现要求 name"会长期漂移）；
+  ② 改名的错误码顺序已在 T2 钉死并写进用例（**400 判在 403 之前**），加可选字段时别打乱；
+  ③ ★ **别新增探测面**：`rename`/`remove` 现按既有口径对"他人的夹"返回 **403**、对"不存在"返回 404
+  （沿用 `CommentService`/`ContentService`，T2 有意不改成一律 404）⇒ 公开端点不得让"私密与否"影响错误码，
+  否则等于给"这个夹存不存在/是不是私密"开了个探测口。
 * **验收**：★ **反向验证 —— 去掉 `is_private = 0` 过滤，测试必须变红**；不变红就是假绿，重写。
 * **回写**：
 
@@ -180,6 +195,12 @@
 * **红线边界**：★ **注入后不变红的测试一律删掉** —— 假绿比没有测试更坏。
 * **强制探索**：重点验四条 —— 私密过滤（T3）、失效条目脱敏（T6）、按人去重（T5）、默认夹不可删（T2）；
   可参照 `skills/reverse-validation` 的做法。
+  ⚠️ **另加两条（T2 执行/审查期登记）**：
+  ① **`deleteFolder` 的事务边界**（`CURRENT_ISSUES.md` **I-04**）—— R-02「删夹一并删条目」的
+  "同进同退"目前**零判别力**（两条顺序 DELETE 都成功 ⇒ 去掉 `@Transactional` 仍绿）；
+  ② ⚠️ **不要拿 `COUNT(DISTINCT content_id)` 当夹内计数的注入点** —— 同一夹内同一内容至多一条
+  （唯一键 `uk_folder_content`）⇒ 它与 `COUNT(*)` **恒等**，注入后不变红，会得出"测试没判别力"的**假结论**；
+  该注入点应换成 **`COUNT(DISTINCT user_id)`**（夹具里 3 条记录同属一人 ⇒ 3 → 1 才红）。
 * **验收**：逐条记录「注入 X → 变红 → 还原 → 绿」；通不过的写明删除理由。
 * **回写**：
 
