@@ -112,7 +112,13 @@
   未登录用例变红" —— 错，四个端点都收 `@CurrentUserId`（取不到即 401），该 HTTP 用例对机制是**假绿**，
   判别力只在 `SecurityContractTests`。同时补两处缺口：VO 布尔键的**正向断言**（`path().asBoolean()`
   对**缺失键**恒 false ⇒ 只断 `isFalse()` 证明不了键名）+ "默认夹**改名后**仍拒删"（把"判列不判名"钉死）；
-  删夹事务的判别力缺口登记为 **I-04** 交 T8。三条注入点已**实测变红并还原**（见 commit message）。
+  删夹事务的判别力缺口登记为 **I-04** 交 T8。★ **反向验证已实测（`temp-script/t2_injections.sh`，逐条注入→跑用例→`git checkout` 还原）**：
+  ① 去掉 `deleteFolder` 的 `is_default` 判断 ⇒ **1 例红**（默认夹拒绝删除）；
+  ② `LEFT JOIN` → `INNER JOIN` ⇒ **4 例红**（凡有"0 条记录的夹"的列表用例都红）；
+  ③ `COUNT(i.id)` → `COUNT(DISTINCT i.user_id)` ⇒ **1 例红**（每夹条目数 3→1）；
+  ④ 删掉四个端点的 `@RequiresLogin` ⇒ `SecurityContractTests` **1 例红**、而
+  `FavoriteFolderCrudTests` **12 例全绿** —— 这条实测正好证实审查的结论：**那个 HTTP 用例对机制是假绿**。
+  四轮结束后还原、两根全绿（14 + 12 例）。
 
 ### T3 私密开关 + 他人公开夹端点（来源 R-05 / R-08 / 能力 一期-3）【待执行】
 
