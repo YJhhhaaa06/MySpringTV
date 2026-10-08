@@ -80,7 +80,7 @@
   ★ 执行期发现骨架里缺"每用户至多一个默认夹"的唯一键（**正是 T2 红线所依赖的那个键**），
   已落地生成列 `default_uniq` + `uk_user_default`（**R-09** / **I-01**），分期篇 §3.1 同步回填。
 
-### T2 收藏夹 CRUD（来源 R-01 / R-02 / 能力 一期-2）【待执行】
+### T2 收藏夹 CRUD（来源 R-01 / R-02 / 能力 一期-2）【已完成】
 
 * **入口线索**：`/like/*` 的 controller 风格作参照。
   ⚠️ **前提可被质疑**：默认夹"懒建"与"列表返回空态"是否自洽？执行期若发现更稳的做法（如读时补建）可自行决断，
@@ -92,7 +92,19 @@
   列表在无夹时的空态形态。
 * **验收**：删默认夹返回明确错误；无夹时列表返回空**而非报错**；每夹视频数用
   **独立 oracle**（`SELECT COUNT(*) FROM favorite_item WHERE folder_id=?`）复算。
-* **回写**：
+* **回写**：落地夹 CRUD **四端点**（`POST /favorite/folder/{add,update,remove}` + `GET /favorite/folder/list`；
+  写 = POST + form、读 = GET + query，**逐端点** `@RequiresLogin` —— 收藏域**不能**用类级，见
+  `SecurityContractTests.favorite夹CRUD端点需登录`）。新增 `model/entity/FavoriteFolder` + `model/vo/FavoriteFolderVO`
+  + 两 DAO 共五条 SQL；列表一条 `LEFT JOIN favorite_item` + `COUNT(i.id)`（空夹留行、**失效记录照算**）。
+  ★ 关键口径：**默认夹拒删 409**（判 `is_default`、不判名字）、**删夹一并删条目同事务**（R-02）、
+  **空态返回 `[]` 而非报错**（R-01 懒建的自洽性论证写在 `FavoriteService` 类注释）、
+  404/403 归属口径、名称空白/超长 400（且 **400 判在 403 之前**，顺序已写进用例钉死）。
+  验证：`FavoriteFolderCrudTests` **12 例** + `SecurityContractTests` 新增 1 例全绿；
+  **回归基线 `run_tests.py` = 341 例全绿**（默认组）。
+  **未做（各有归属）**：`is_private` 开关归 **T3**（T2 只把它读进 VO）、简介在需求篇是「待定」、
+  重名与容量不限制 → 新增 **F-11**；`static/js/api.js` **未动**（新端点尚无前端消费方，T7 统一接）。
+  执行期自查：**懒建 + 空列表自洽**（"读时补建"会让 GET 带副作用、还把公开读能力绑死在写权限上 ⇒ 不采纳）；
+  默认夹的前提只能用 DB 夹具造（一期没有"建默认夹"的端点，懒建落点在 T4）。
 
 ### T3 私密开关 + 他人公开夹端点（来源 R-05 / R-08 / 能力 一期-3）【待执行】
 
