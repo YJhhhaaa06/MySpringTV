@@ -43,12 +43,17 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 空夹留行）出自 R-07/G12（与 T2 同口径）；400 先于 403/404 出自 T2 已钉死的顺序契约；
  * 空态合法出自 R-01。盖住实现，这些断言**照样写得出来**。
  *
- * <h2>★ 反向验证（T3 验收要求；T8 收口复核）—— 结果见 {@code temp-script/t3_injections.sh} 的运行记录</h2>
+ * <h2>★ 反向验证（T3 验收要求；T8 收口复核）—— 四条均**实测**（{@code temp-script/t3_injections.sh}，逐条注入→跑用例→还原）</h2>
  * <ul>
- *   <li><b>去掉公开 SQL 的 {@code AND f.is_private = 0}</b> ⇒ 公开端点用例变红
- *       （这正是 T3 验收点名的注入点）；</li>
- *   <li><b>让 service 把 isPrivate 恒当 null 传下去</b>（等价于"开关没接上"）⇒ 私密开关用例变红；</li>
- *   <li><b>去掉"两个都没给 ⇒ 400"的判断</b> ⇒ 空更新用例变红。</li>
+ *   <li><b>去掉公开 SQL 的 {@code AND f.is_private = 0}</b> ⇒ <b>3 例红</b>
+ *       （只返回公开夹 / 本人视角一致 / 空态）—— 这正是 T3 验收点名的注入点；</li>
+ *   <li><b>让 service 把 isPrivate 恒当 null 传下去</b>（等价于"开关没接上"）⇒ <b>4 例红</b>
+ *       （设为私密 / 部分更新 / 取值与非法格式 / 默认夹可设私密）；</li>
+ *   <li><b>去掉"两个都没给 ⇒ 400"判断</b> ⇒ <b>1 例红</b>（空更新）——该守卫还挡住"空 SET 的
+ *       动态 SQL 直接语法错（500）"，故这条既是契约也是防空转护栏；</li>
+ *   <li><b>给 Controller 加类级 {@code @RequiresLogin}</b> ⇒ {@code SecurityContractTests}
+ *       的新反向断言 <b>1 例红</b> + 本类 5 例红（T2 时代担心的"误拦没人发现"在 T3 有 HTTP
+ *       用例后已有第二道网，机制级断言仍是最先/最精确的那道信号）。</li>
  * </ul>
  *
  * <h2>覆盖不到的机制（诚实声明）</h2>
