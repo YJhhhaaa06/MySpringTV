@@ -168,13 +168,15 @@ class SecurityContractTests extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("收藏一期 T3：他人公开夹端点**不得**判为需登录（匿名可访问；反向对照防「整域放行」假绿）")
+    @DisplayName("收藏一期 T3：他人公开夹端点**不得**判为需登录（匿名可访问；与上一条四端点 true 构成成对断言）")
     void favorite公开端点不得判为需登录() {
         // ★ 与上面那组构成**成对断言**：四端点 true + 公开端点 false。
-        //   缺了这条 false，"有人把整个 /favorite 改成匿名的"与"逐端点声明正确"无法区分；
-        //   而多标了 @RequiresLogin 时（如图省事搬类级注解），此条是**唯一**会红的用例：
-        //   公开端点不收 @CurrentUserId（那是 T3 的有意设计，见 FavoriteController 类注释），
-        //   误标类级注解不会让 HTTP 侧任何既有断言变红。
+        //   它钉住的是"这一条**必须**公开"：若有人图省事给整个类搬上 @RequiresLogin，
+        //   本类是**最先**变红的那条 —— T3 实测：类级误标 ⇒ 本类 1 红 + HTTP 侧 5 红
+        //   （HTTP 侧同样抓得到，别误以为这里是唯一防线；见 FavoritePrivacyTests 的匿名用例）。
+        //   机制级断言的**独立价值**是直接回答"这个 401 是谁要求的"，不依赖 HTTP 用例的覆盖面
+        //   （T2 教训：机制失效时 401 常由参数解析器兜出，端到端看起来全对 —— 只有对
+        //   RequestMappingLookup 直接求值才看得见）。
         assertThat(requiresLogin("GET", "/favorite/folder/public"))
                 .as("分期篇 §3.3 冻结契约：看他人公开夹匿名可访问（T3）")
                 .isFalse();

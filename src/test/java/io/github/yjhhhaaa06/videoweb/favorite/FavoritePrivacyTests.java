@@ -56,11 +56,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       用例后已有第二道网，机制级断言仍是最先/最精确的那道信号）。</li>
  * </ul>
  *
- * <h2>覆盖不到的机制（诚实声明）</h2>
- * 公开端点"无 {@code @RequiresLogin} / 无 {@code @CurrentUserId}"的**机制级**判别力在
- * {@code SecurityContractTests.favorite公开端点不得判为需登录}（HTTP 侧"匿名 200"对
- * '有没有误标 @RequiresLogin' 其实是**弱断言**：本端点不收 {@code @CurrentUserId}，
- * 误标类级注解时才会 401，而"误标"的完整探测交给机制级用例）。
+ * <h2>与机制级用例的分工（别误读"谁守着鉴权"）</h2>
+ * 公开端点"无 {@code @RequiresLogin}"也**有 HTTP 侧判别力**：T3 实测给 Controller 误加类级
+ * 注解 ⇒ 本类 5 例红（匿名 200 变 401）。但 HTTP 侧看到的只是"401"，看不到"401 是谁要求的"——
+ * 机制级契约（{@code SecurityContractTests.favorite公开端点不得判为需登录}，直接对
+ * {@code RequestMappingLookup} 求值）才是**最先、最精确**的信号：它不依赖"HTTP 用例恰好
+ * 覆盖了该端点"，也不受 T2 那个教训的影响（机制失效时 401 常由参数解析器兜出，端到端全绿）。
  */
 class FavoritePrivacyTests extends AbstractHttpIntegrationTest {
 
@@ -146,6 +147,9 @@ class FavoritePrivacyTests extends AbstractHttpIntegrationTest {
                         + "加可选字段后不许打乱（T2 交接②）").isEqualTo(400);
         assertThat(update(999999L, me.token, new LinkedMultiValueMap<>()).getStatusCode().value())
                 .as("对不存在的夹同样是 400（参数校验不碰库）").isEqualTo(400);
+        // 非法 isPrivate 同样"参数形态先于资源归属"：解析在 Controller（进 service 之前）就完成
+        assertThat(update(others, me.token, fields("isPrivate", "maybe")).getStatusCode().value())
+                .as("★ 非法取值对**别人的夹**也必须是 400 而不是 403（与空更新同一条顺序契约）").isEqualTo(400);
 
         // 被拒后 DB 一字未改
         assertThat(nameOf(mine)).isEqualTo("我的夹");
@@ -229,7 +233,11 @@ class FavoritePrivacyTests extends AbstractHttpIntegrationTest {
         assertThat(itemNamed(data, "公开甲").path("itemCount").asLong())
                 .as("2 条记录（含失效内容的记录）—— 与「我的夹列表」同口径（R-07）")
                 .isEqualTo(oracleItemCount(publicA)).isEqualTo(2L);
-        assertThat(itemNamed(data, "空公开夹").path("itemCount").asLong())
+        JsonNode emptyNode = itemNamed(data, "空公开夹");
+        assertThat(emptyNode.has("itemCount"))
+                .as("★ 先断键存在：asLong() 对**缺失键**返回 0 ⇒ 只断 `== 0` 是假绿。")
+                .isTrue();
+        assertThat(emptyNode.path("itemCount").asLong())
                 .as("空公开夹必须留行、计 0（LEFT JOIN 的意义）").isEqualTo(oracleItemCount(emptyPublic)).isZero();
     }
 
