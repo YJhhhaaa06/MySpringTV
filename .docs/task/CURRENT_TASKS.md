@@ -120,7 +120,7 @@
   `FavoriteFolderCrudTests` **12 例全绿** —— 这条实测正好证实审查的结论：**那个 HTTP 用例对机制是假绿**。
   四轮结束后还原、两根全绿（14 + 12 例）。
 
-### T3 私密开关 + 他人公开夹端点（来源 R-05 / R-08 / 能力 一期-3）【待执行】
+### T3 私密开关 + 他人公开夹端点（来源 R-05 / R-08 / 能力 一期-3）【已完成】
 
 * **入口线索**：新增 `GET /favorite/folder/public?userId=X`（他人视角只返回公开夹）。
   ⚠️ **前提可被质疑**：这个端点**要不要允许匿名**？先查 `JwtAuthFilter` 的放行规则与
@@ -136,7 +136,31 @@
   （沿用 `CommentService`/`ContentService`，T2 有意不改成一律 404）⇒ 公开端点不得让"私密与否"影响错误码，
   否则等于给"这个夹存不存在/是不是私密"开了个探测口。
 * **验收**：★ **反向验证 —— 去掉 `is_private = 0` 过滤，测试必须变红**；不变红就是假绿，重写。
-* **回写**：
+* **回写**：落地两条交付 —— ① `POST /favorite/folder/update` 升级为**部分更新**（`name` 变可选 +
+  新增可选 `isPrivate`，`0/1/true/false` 在 Controller 解析、与 `/content/commentEnabled` 同值集；
+  "给了才改"由**一条**动态 `<set>` SQL 完成 ⇒ 单写即原子、不加事务；两个都不给 ⇒ 400，且
+  **400 仍判在 403/404 之前** —— 空更新与非法 `isPrivate` 对"他人的夹"同样 400，已用例钉死（T2 交接①②）；
+  ② 新增 `GET /favorite/folder/public?userId=X` —— 逐端点声明（**无** `@RequiresLogin`、**无** `@CurrentUserId`）
+  ⇒ 匿名 / 坏 token 均 200；SQL 只返回 `is_private = 0`（写 `=0` 而非 `!=1`，将来值域扩了也不泄露）；
+  **不校验 userId 存在性**（空态 `[]` 不 404）；条目**只有 `name` + `itemCount`**（R-08「一期只给名称 + 视频数」，
+  刻意无 id/isPrivate/isDefault，键集由 `propertyNames` 用例钉死）；顺序复用"默认夹置顶 + 创建序"。
+  ★ 执行期决断（G13）：**默认夹也可设私密**（需求篇只禁删除）；**本人视角同款只返回公开**（不加"是本人就显示私密"
+  分支 —— 分支写错即泄露，R-08 也没这需求）；匿名结论 = **允许**（设计篇 §3.3 冻结，端点与登录态完全解耦）。
+  `/profile` 未动、rename/remove 错误码未动（交接③：无新探测面）。拆 **4 个 commit**（T3-1 feat / T3-2~T3-4 test）。
+  验证：`FavoritePrivacyTests` **10 例** + `SecurityContractTests` 15 例（+1 反向断言）+ T2 `FavoriteFolderCrudTests`
+  12 例全绿；**回归基线 `run_tests.py` = 352 例全绿**（默认组）。
+  ★ **反向验证已实测（`temp-script/t3_injections.sh`，逐条注入→跑用例→`git checkout` 还原）**：
+  ① 去掉公开 SQL 的 `AND f.is_private = 0` ⇒ **3 例红**（正是本任务验收点名的注入点）；
+  ② service 把 `isPrivate` 恒当 null 传 ⇒ **4 例红**；③ 去掉"两个都没给 ⇒ 400"守卫 ⇒ **1 例红**
+  （该守卫还挡住空 `<set>` 的 SQL 语法错 500）；④ Controller 误加类级 `@RequiresLogin` ⇒ 机制级 **1 例红**
+  + HTTP **5 例红** —— 实测修正了 T2 时代"HTTP 侧抓不到误标"的表述（那只在公开端点还没有 HTTP 用例时成立）。
+  ★ **收尾派了独立 subagent 审查**，它查出：两处**自我声明不成立**（上述④的注释措辞 / `FavoriteService` 声称
+  "非法 isPrivate 覆盖对他人的夹"而用例未覆盖）+ 一处假绿路径（空夹 `itemCount` 只断 `== 0`，
+  `asLong()` 对缺失键返回 0），均已在 **T3-4** 修正（补断言 + 改注释，并重跑两根全绿）。
+  **未做（各有归属）**：`static/js/api.js` **未动**（新端点尚无前端消费方，T7 统一接）；简介仍未实现（需求篇「待定」）；
+  公开面将来若要加 `id`（如打开他人公开夹），必须同步改键集断言 —— 已写进 `PublicFavoriteFolderVO` 注释。
+  ⚠️ 另记一笔执行期踩的坑（详情见 **I-05**）：`git checkout --` 式注入脚本**必须先提交基线**，
+  否则"还原"会把未提交改动一并抹掉（本任务首跑实测丢过 3 个文件的改动，重做后改为"先 commit 再注入"）。
 
 ### T4 收藏 / 取消 / 移动 / 批量移出（来源 R-07 / 能力 一期-4）【待执行】
 
