@@ -3,7 +3,7 @@
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 
 <!--
-  收藏夹 Mapper（表 favorite_folder，V2 建）—— 收藏一期 T2 的夹 CRUD 四条路径。
+  收藏夹 Mapper（表 favorite_folder，V2 建）—— 收藏一期 T2 的夹 CRUD + T3 的私密/公开路径。
 
   与 TV 无关（老项目没有收藏功能）：本仓**第一份没有"TV 原 SQL 对照"的 mapper**，
   故每条 SQL 的注释写的是"为什么这么写"而不是"对应 TV 的哪条"。
@@ -32,6 +32,15 @@
         <result property="name" column="name"/>
         <result property="isDefault" column="is_default"/>
         <result property="isPrivate" column="is_private"/>
+        <result property="itemCount" column="item_count"/>
+    </resultMap>
+
+    <!-- 他人视角列表行映射（PublicFavoriteFolderVO）：**只有 name + itemCount**
+         （R-08「一期只给名称 + 视频数」；刻意没有 id / isPrivate / isDefault，
+         加字段前先读 PublicFavoriteFolderVO 的类注释与 FavoritePrivacyTests 的键集断言）。 -->
+    <resultMap id="publicFavoriteFolderVoMap"
+               type="io.github.yjhhhaaa06.videoweb.favorite.model.vo.PublicFavoriteFolderVO">
+        <result property="name" column="name"/>
         <result property="itemCount" column="item_count"/>
     </resultMap>
 
@@ -65,10 +74,34 @@
         ORDER BY f.is_default DESC, f.id ASC
     </select>
 
-    <!-- 改名。⚠️ 不带 user_id 条件（归属校验已在 service 先做）；
-         也不判 is_default（默认夹可改名）。同值改名 ⇒ 受影响 0 行，属正常，调用方不据此判失败。 -->
-    <update id="updateName">
-        UPDATE favorite_folder SET name = #{name} WHERE id = #{id}
+    <!-- 他人视角的公开夹列表（T3）。
+         ★ 与"我的夹列表"逐字同款，只多一条 `AND f.is_private = 0` —— 这条过滤就是"私密"的
+           全部可观察行为，故它是 T3 反向验证**唯一的注入点**（去掉它 ⇒ FavoritePrivacyTests 变红）。
+         ★ 用 `= 0`（确认为公开）而非 `!= 1`：将来值域若扩（如 2=草稿），对外默认不泄露。
+         ★ GROUP BY 列写全（ONLY_FULL_GROUP_BY 下无歧义），ORDER BY 与"我的夹列表"复用同一顺序
+           （默认夹置顶 + id 升序）—— 顺序是契约，两处不许各排一半。 -->
+    <select id="findPublicByUserIdWithItemCount" resultMap="publicFavoriteFolderVoMap">
+        SELECT f.name, COUNT(i.id) AS item_count
+        FROM favorite_folder f
+        LEFT JOIN favorite_item i ON i.folder_id = f.id
+        WHERE f.user_id = #{userId} AND f.is_private = 0
+        GROUP BY f.id, f.name, f.is_default
+        ORDER BY f.is_default DESC, f.id ASC
+    </select>
+
+    <!-- 部分更新：改名 / 私密开关（T3，**给了才改**）。
+         ★ 动态 <set>：null = 本次不动该字段；两个都给时仍生成**一条** SQL（单写即原子，
+           不需要 @Transactional；理由见 FavoriteFolderDao.updateNameAndPrivacy）。
+         ★ service 保证"至少给一个"（否则 400）⇒ 生成的 SQL 必然带 ≥1 个赋值，不存在空 SET。
+         ⚠️ 不带 user_id 条件（归属校验已在 service 先做）；也不判 is_default
+           （默认夹可改名、可设私密）。同值更新 ⇒ 受影响 0 行，属正常。 -->
+    <update id="updateNameAndPrivacy">
+        UPDATE favorite_folder
+        <set>
+            <if test="name != null">name = #{name},</if>
+            <if test="isPrivate != null">is_private = #{isPrivate},</if>
+        </set>
+        WHERE id = #{id}
     </update>
 
     <!-- 删夹行。⚠️ 条目由 FavoriteItemDao.deleteByFolderId 在**同一事务**里先删（R-02），

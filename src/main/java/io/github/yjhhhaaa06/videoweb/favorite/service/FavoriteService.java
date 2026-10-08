@@ -8,6 +8,7 @@ import io.github.yjhhhaaa06.videoweb.favorite.dao.FavoriteFolderDao;
 import io.github.yjhhhaaa06.videoweb.favorite.dao.FavoriteItemDao;
 import io.github.yjhhhaaa06.videoweb.favorite.model.entity.FavoriteFolder;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteFolderVO;
+import io.github.yjhhhaaa06.videoweb.favorite.model.vo.PublicFavoriteFolderVO;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,10 +17,10 @@ import java.util.List;
 /**
  * 收藏业务（收藏夹 CRUD / 收藏与移出 / 状态与计数 / 夹内分页）。
  *
- * <h2>分期落点（T1 只落骨架，T2 交付夹 CRUD）</h2>
- * 夹 CRUD = **T2**（本文件当前的全部方法）；私密与公开夹 = T3；写路径（收藏/移出/移动）= T4；
- * 状态与计数 = T5；夹内分页 = T6。本类此刻承担的是**装配关系**
- * （controller → 本类 → 两个 DAO）与**边界声明**，其余方法随任务逐个补。
+ * <h2>分期落点（T1 骨架 / T2 夹 CRUD / T3 私密与公开夹）</h2>
+ * 夹 CRUD = **T2**；私密开关 + 他人公开夹 = **T3**；写路径（收藏/移出/移动）= T4；
+ * 状态与计数 = T5；夹内分页 = T6。本类承担**装配关系**（controller → 本类 → 两个 DAO）
+ * 与**边界声明**，其余方法随任务逐个补。
  *
  * <h2>一期红线（写方法前先读，别让实现把口径吃掉）</h2>
  * <ul>
@@ -45,9 +46,10 @@ import java.util.List;
  * 别标在同类内部调用的私有方法上（自调用绕过代理 ⇒ 静默失效）。
  * <ul>
  *   <li>{@link #deleteFolder} —— **两条写必须同进同退**（删条目 + 删夹）⇒ {@code @Transactional}；</li>
- *   <li>{@link #createFolder} / {@link #renameFolder} —— **各只有一条写**，本身即原子 ⇒ **不加事务**
- *       （§四"纯读/单写不为取连接套事务"）；</li>
- *   <li>{@link #listMyFolders} —— 单条 SELECT ⇒ 不加事务（§四）。</li>
+ *   <li>{@link #createFolder} / {@link #updateFolder} —— **各只有一条写**，本身即原子 ⇒ **不加事务**
+ *       （§四"纯读/单写不为取连接套事务"）。{@code updateFolder} 的两个字段由**一条**动态 SQL
+ *       更新（给了才改），不是两条 ⇒ 不需要事务兜"半改状态"；</li>
+ *   <li>{@link #listMyFolders} / {@link #listPublicFolders} —— 单条 SELECT ⇒ 不加事务（§四）。</li>
  * </ul>
  *
  * <h2>★ 懒建与"列表空态"为什么自洽（T2 前提自审）</h2>
@@ -64,20 +66,38 @@ import java.util.List;
  *
  * <h2>归属与不存在的错误码口径（对齐既有语义，别自创）</h2>
  * <table>
- *   <caption>改名 / 删除的两道校验</caption>
+ *   <caption>更新 / 删除的两道校验</caption>
  *   <tr><th>情形</th><th>异常</th><th>HTTP</th></tr>
  *   <tr><td>夹不存在</td><td>{@link NotFoundException}「收藏夹不存在」</td><td>404</td></tr>
  *   <tr><td>夹存在但不是我的</td><td>{@link ForbiddenException}「只能操作自己的收藏夹」</td><td>403</td></tr>
  *   <tr><td>是默认夹还要删</td><td>{@link ConflictException}「默认收藏夹不可删除」</td><td>409</td></tr>
- *   <tr><td>名称为空 / 超长</td><td>{@link ParamException}</td><td>400</td></tr>
+ *   <tr><td>名称给了但为空 / 超长</td><td>{@link ParamException}</td><td>400</td></tr>
+ *   <tr><td>更新时 name 与 isPrivate <b>一个都没给</b></td><td>{@link ParamException}</td><td>400</td></tr>
  * </table>
  * "不存在 404 / 不是自己的 403"是本仓既有口径（{@code CommentService.deleteCommentByUser}、
  * {@code ContentService} 的作者写路径同款），**刻意不改成"一律 404"**：
  * 与既有端点保持一致比这里多得一点隐私更值。
  *
- * <p>⚠️ <b>改名路径上 400 判在 403/404 之前</b>（"参数形态"先于"资源归属"）。这不影响正常前端
+ * <p>⚠️ <b>更新路径上 400 判在 403/404 之前</b>（"参数形态"先于"资源归属"）。这不影响正常前端
  * （它不会拿非法名字去改别人的夹），但**必须钉死并写进测试**：否则两者都会"看起来对"，
- * 而将来重构时谁先谁后会随手漂移。口径理由见 {@link #renameFolder} 方法体注释。
+ * 而将来重构时谁先谁后会随手漂移。口径理由见 {@link #updateFolder} 方法体注释。
+ *
+ * <h2>★ 私密（{@code is_private}）的语义 —— 它的可观察落点只有一条：他人视角端点</h2>
+ * 自己的夹自己永远看得见（{@code /folder/list} **含私密**），所以"设私密"这个动作
+ * 在本域内部**没有任何可观察差异** —— 它的全部对外行为都发生在
+ * {@code GET /favorite/folder/public?userId=X} 上（R-08）。
+ * <ul>
+ *   <li>公开端点**永远只返回 {@code is_private = 0}**，包括夹主本人来调也一样 ——
+ *       本端点表达的是"他人视角"这条路径，"我的"走 {@code /folder/list} 另一条。
+ *       ⚠️ 刻意**不**注入 {@code @CurrentUserId} 做"是本人就显示私密"的分支：
+ *       分支一写错就是**直接泄露私密夹**，而这条分支一期没有任何需求（R-08 只要"他人视角"）；</li>
+ *   <li>默认夹**可以**设为私密（需求篇只规定"默认夹删不掉"；B 站口径同此），
+ *       不写针对 {@code is_default} 的特判；</li>
+ *   <li>更新路径**不得**因为"私密与否"改变错误码（404/403/400 的口径对公开夹与私密夹一视同仁），
+ *       否则等于给"这个夹是不是私密"开了个探测口（T2 交接红线③）；</li>
+ *   <li>⚠️ {@code is_private} 是**载荷字段**，不参与任何权限判定：私密夹的主人照常能改名 / 改回公开 /
+ *       删除它（判定只用"归属"与"是否默认夹"两条，见 {@link #requireOwnedFolder}）。</li>
+ * </ul>
  */
 @Service
 public class FavoriteService {
@@ -126,7 +146,7 @@ public class FavoriteService {
      * 的 SQL 里；本方法只做透传，不排序（排序要么在 SQL、要么在 Java，**不两处各来一半**）。
      *
      * <p>⚠️ 只能看**自己**的夹：本方法签名里没有"看谁的"参数 —— 他人视角是**另一条端点**
-     * （{@code GET /favorite/folder/public?userId=X}，T3），它有它自己的过滤条件。
+     * （{@link #listPublicFolders}），它有它自己的过滤条件。
      * 让"我的"和"他人的"共用一条 SQL、靠"传没传 userId"分流，正是 R-08 否决的形态。
      */
     public List<FavoriteFolderVO> listMyFolders(long userId) {
@@ -134,26 +154,65 @@ public class FavoriteService {
     }
 
     /**
-     * 改名（默认夹也能改）。
+     * 他人视角的公开夹列表（{@code GET /favorite/folder/public?userId=X}）——
+     * 私密（{@code is_private = 1}）的夹**完全不出现**，这就是"私密"一期的可观察落点（R-08）。
      *
-     * <p>⚠️ <b>T2 只做改名</b>。分期篇 §3.3 把该端点画成"改名 / 简介 / 私密开关（部分更新）"，
-     * 但它们各有归属：<b>私密开关归 T3</b>（那一期的可观察落点是他人视角端点），
-     * <b>简介在需求篇里是「待定」</b>（未纳入一期）。故本方法只收 {@code name} 且**必填**。
-     * T3 加入可选字段时，形态应变为"给了才改"的部分更新——届时 {@code name} 也变可选，
-     * 由 T3 一起调整（本条注释即交接说明）。
+     * <h2>三条口径（写改动前先读）</h2>
+     * <ol>
+     *   <li><b>不校验 userId 存在性</b>：查不到就是空列表（返回 {@code []}，不是 404）。
+     *       404 会给"这个用户存不存在"开探测口，而本端点对"用户不存在"与"用户没有任何公开夹"
+     *       本就给不出不同答案（空态都是合法状态，同 R-01 的懒建口径）；</li>
+     *   <li><b>与当前登录用户无关</b>：本方法签名里没有"当前用户"参数，Controller 也不注入
+     *       {@code @CurrentUserId} —— 夹主本人调这条端点同样只看得到公开夹（"我的"走
+     *       {@link #listMyFolders}）。刻意不加"是本人就显示私密"的分支：分支写错即泄露，
+     *       且一期没有该需求（R-08 只要"他人视角"）；</li>
+     *   <li><b>过滤只在这一条 SQL 上</b>（{@code findPublicByUserIdWithItemCount} 的
+     *       {@code AND f.is_private = 0}）：这条过滤是 T3 反向验证的注入点 ——
+     *       去掉它，{@code FavoritePrivacyTests} 必须变红（T3 验收；T8 复核）。</li>
+     * </ol>
      *
-     * @param name 新夹名；空白或超长 ⇒ 400（同 {@link #createFolder} 的口径，
-     *             不让"新建能建的名字"与"改名能改成的名字"两套规则漂移）
-     *             —— ⚠️ **400 判在 403/404 之前**（见方法体注释与类注释的表注）
+     * <p>顺序与条目数口径同 {@link #listMyFolders}（SQL 里复用同一顺序：默认夹置顶 + 创建序）。
      */
-    public void renameFolder(long userId, long folderId, String name) {
+    public List<PublicFavoriteFolderVO> listPublicFolders(long userId) {
+        return folderDao.findPublicByUserIdWithItemCount(userId);
+    }
+
+    /**
+     * 部分更新：改名 / 私密开关（**给了才改**；T2 的"只改名且 name 必填"在 T3 升级为本形态）。
+     *
+     * <p>分期篇 §3.3 把该端点画成"改名 / 简介 / 私密开关（部分更新）"，三者归属：
+     * <b>私密开关 = T3</b>（本任务落地）；<b>简介在需求篇里是「待定」</b>（未纳入一期，不实现）。
+     * T2 交接①明确要求在此把 {@code name} 一并改成可选 —— 否则"文档说可部分更新、
+     * 实现却要求 name 必填"会长期漂移。
+     *
+     * <h2>参数契约（顺序即契约，见方法体注释）</h2>
+     * <ul>
+     *   <li>{@code name}：{@code null} = 不改名；给了就按 {@link #createFolder} 同一口径校验
+     *       （空白 / 超长 ⇒ 400）——"新建能建的名字"与"改名能改成的名字"不允许两套规则；</li>
+     *   <li>{@code isPrivate}：{@code null} = 不动它；格式（{@code 0/1/true/false} 等）由
+     *       Controller 先行解析，非法格式在**进本方法之前**已是 400；</li>
+     *   <li>两者都 {@code null} ⇒ 400「没有要修改的字段」——空更新多半是调用方漏传字段的 bug，
+     *       静默 200 会让它**永远不被发现**（"改成功了"与"什么都没改"在响应上不可区分）；</li>
+     *   <li>默认夹**可以**改名、也**可以**设私密（需求篇只规定"默认夹删不掉"）。</li>
+     * </ul>
+     * ⚠️ 本方法**不**依 {@code is_private} 做任何权限判定（它是载荷字段，见类注释"私密语义"节）。
+     *
+     * @param name      新夹名或 {@code null}；空白 / 超长 ⇒ 400
+     * @param isPrivate 私密开关或 {@code null}
+     *                  —— ⚠️ **400（含"两个都没给"）判在 403/404 之前**（见方法体注释与类注释的表注）
+     */
+    public void updateFolder(long userId, long folderId, String name, Boolean isPrivate) {
         // ★ 顺序：**参数形态先于资源归属**。两类拒因（400 / 403）互不依赖，谁先谁来定契约，
-        //   故这里钉死并写进测试（改名的错误线用例）。
+        //   故这里钉死并写进测试（改名的错误线用例在 T2；"空更新 400"与
+        //   "非法 isPrivate 400"在 T3 的用例里，且都覆盖"对别人的夹也返回 400"）。
         //   理由：① 参数校验**不碰库**（省一次 SELECT，且不合法输入根本不需要知道夹在不在）；
         //   ② 让"非法输入 ⇒ 400"不随资源状态漂移（同一份非法请求，无论夹是谁的、在不在，都是 400）。
-        String validName = requireValidName(name);
+        if (name == null && isPrivate == null) {
+            throw new ParamException("没有要修改的字段（name / isPrivate 至少提供一个）");
+        }
+        String validName = name == null ? null : requireValidName(name);
         FavoriteFolder folder = requireOwnedFolder(userId, folderId);
-        folderDao.updateName(folder.getId(), validName);
+        folderDao.updateNameAndPrivacy(folder.getId(), validName, isPrivate);
     }
 
     /**

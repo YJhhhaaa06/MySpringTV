@@ -2,6 +2,7 @@ package io.github.yjhhhaaa06.videoweb.favorite.dao;
 
 import io.github.yjhhhaaa06.videoweb.favorite.model.entity.FavoriteFolder;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteFolderVO;
+import io.github.yjhhhaaa06.videoweb.favorite.model.vo.PublicFavoriteFolderVO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -10,12 +11,9 @@ import java.util.List;
 /**
  * 收藏夹数据访问（表 {@code favorite_folder}，V2 建）。
  *
- * <h2>为什么 T1 时是空接口</h2>
- * 本类在 T1 只承担**两件可验证的事**：① 确立 {@code favorite.dao} 包与 mapper 注册路径
- * （{@code @Mapper} 由 Boot 的 mapper 扫描自动注册，与 like/comment 各域同一形态）；
- * ② 让 service 层的装配关系在**编译期**就成立。
- * 具体 SQL 由**使用它的任务**补（T2 夹 CRUD / T3 他人公开夹 / T4 移出与移动），
- * 本仓纪律是**不提前写无主代码/无主 SQL**（口径源自迁移期的"不搬无主代码"）。
+ * <h2>SQL 随使用它的任务逐个补（T1 建骨架时不写无主 SQL）</h2>
+ * T2 补入夹 CRUD 五条；**T3 补入他人公开夹查询与"部分更新"（改名 + 私密开关）**；
+ * 其余归后续任务（T4 移出与移动）。本仓纪律是**不提前写无主代码/无主 SQL**（口径源自迁移期的"不搬无主代码"）。
  *
  * <h2>建表时的三条约束（写 SQL 前先读，别在下游重复推导）</h2>
  * <ul>
@@ -33,14 +31,15 @@ import java.util.List;
  *       （R-05：后补要 V3 + 存量回填）；私密的**可观察落点**不在这里，而在他人视角端点。</li>
  * </ul>
  *
- * <h2>T2 交付的五条 SQL（各端点用哪条）</h2>
+ * <h2>SQL 清单（各端点用哪条；T2 五条 + T3 一条，更新路径在 T3 由 {@code updateName} 升级为部分更新）</h2>
  * <table>
  *   <caption>方法 ↔ 端点</caption>
  *   <tr><th>方法</th><th>服务于</th></tr>
  *   <tr><td>{@link #insertFolder}</td><td>{@code POST /favorite/folder/add}</td></tr>
- *   <tr><td>{@link #findByUserIdWithItemCount}</td><td>{@code GET /favorite/folder/list}</td></tr>
- *   <tr><td>{@link #findById}</td><td>改名 / 删除前的归属与类别校验</td></tr>
- *   <tr><td>{@link #updateName}</td><td>{@code POST /favorite/folder/update}</td></tr>
+ *   <tr><td>{@link #findByUserIdWithItemCount}</td><td>{@code GET /favorite/folder/list}（含私密）</td></tr>
+ *   <tr><td>{@link #findPublicByUserIdWithItemCount}</td><td>{@code GET /favorite/folder/public}（<b>过滤私密</b>）</td></tr>
+ *   <tr><td>{@link #findById}</td><td>改名 / 改私密 / 删除前的归属与类别校验</td></tr>
+ *   <tr><td>{@link #updateNameAndPrivacy}</td><td>{@code POST /favorite/folder/update}（部分更新）</td></tr>
  *   <tr><td>{@link #deleteById}</td><td>{@code POST /favorite/folder/remove}（条目由 {@code FavoriteItemDao} 同事务删）</td></tr>
  * </table>
  *
@@ -95,18 +94,50 @@ public interface FavoriteFolderDao {
     List<FavoriteFolderVO> findByUserIdWithItemCount(@Param("userId") long userId);
 
     /**
-     * 改名。
+     * 他人视角的公开夹列表（{@code GET /favorite/folder/public?userId=X}）——
+     * 与"我的夹列表"**同口径、同顺序**，只多一个过滤：{@code is_private = 0}。
+     *
+     * <h2>★ 为什么与 {@link #findByUserIdWithItemCount} 是两条 SQL，而不是一条带开关的</h2>
+     * R-08 明确否决"给 {@code folder/list} 加可选 {@code userId}、靠传没传分流"的形态：
+     * 分支写错就是**直接泄露私密夹**。两条独立 SQL 让"过滤私密"这件事只存在于**这一条**上，
+     * 从而可以单独给它做"去掉 {@code is_private = 0} ⇒ 测试变红"的反向验证
+     * （T3 验收要求；T8 会复核）。
+     *
+     * <p>⚠️ <b>过滤条件是 {@code is_private = 0}（显式要求"公开"），不是 {@code != 1}</b>：
+     * 列是 {@code tinyint NOT NULL}、当前值域只有 0/1，两种写法今天等价；但 {@code = 0} 表达的是
+     * "只有确认为公开的才出现"——将来若值域扩了（如 2 = 草稿），默认对外**不泄露**。
+     *
+     * <p>顺序、{@code LEFT JOIN}、{@code COUNT(i.id)} 的全部理由同上一方法（空夹留行、
+     * 失效记录照算、默认夹置顶 + 创建序），此处不复制。
+     *
+     * <p>⚠️ <b>不校验 {@code userId} 是否存在</b>：不存在 ⇒ 空列表（空态是合法状态，
+     * 同 R-01 的懒建口径）；返回 404 反而会给"这个用户存不存在"开探测口。
+     *
+     * @param userId 被查看的用户 id（**与当前登录用户无关**；匿名请求也走这条）
+     */
+    List<PublicFavoriteFolderVO> findPublicByUserIdWithItemCount(@Param("userId") long userId);
+
+    /**
+     * 部分更新：改名 / 私密开关（**给了才改**，至少给一个 —— 空更新由 service 拦成 400）。
+     *
+     * <p>★ 两个字段**一并**交给这条动态 SQL，而不是拆成 {@code updateName} + {@code updateIsPrivate}
+     * 两条让 service 挑着调：后者在"两个字段都给"时是**两条 UPDATE**，彼此无原子性
+     * （第一条成功、第二条失败就留下半改状态），还要求 service 里再长出一段"挑哪几条"的分支。
+     * 动态 {@code <set>} 生成的仍是**一条 SQL**——单写即原子，与 T2 的"各只有一条写 ⇒ 不加事务"一致。
      *
      * <p>⚠️ **不带 {@code user_id} 条件**：归属校验在 service 里**先做**（{@code findById} 判 404/403），
      * 再按 id 写。理由：把校验塞进 {@code WHERE user_id = ?} 会让"不是我的夹"与"改了但值没变"
      * 都表现为 0 行，**两种情况分不开**（MySQL 的 UPDATE 对"值未变化"同样返回 0）。
      *
-     * <p>默认夹**可以改名**（B 站如此；需求篇只规定"默认夹删不掉"）。
+     * <p>默认夹**可以改名、也可以设私密**（B 站如此；需求篇只规定"默认夹删不掉"）。
      *
-     * @param name 已由 service 校验
-     * @return 受影响行数（同值改名时为 0，属正常）
+     * @param name      新夹名；{@code null} = 本次不改名（已由 service 校验非空白、≤ 100）
+     * @param isPrivate 私密开关；{@code null} = 本次不动它
+     * @return 受影响行数（值未变化时为 0，属正常，调用方不据此判失败）
      */
-    int updateName(@Param("id") long id, @Param("name") String name);
+    int updateNameAndPrivacy(@Param("id") long id,
+                             @Param("name") String name,
+                             @Param("isPrivate") Boolean isPrivate);
 
     /**
      * 删除夹行（硬删）。
