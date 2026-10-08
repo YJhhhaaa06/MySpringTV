@@ -34,23 +34,39 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <h2>★ 为什么每夹条目数不能信接口回显</h2>
  * 接口回显（{@code itemCount}）与被复算对象（{@code COUNT(*) FROM favorite_item WHERE folder_id = ?}）
- * 都来自 DB，看似"再查一遍没意义"。它的意义是**挡住一类具体错**：把计数写成"按内容去重"、
- * "只数还活着的内容"（{@code JOIN content}）、或者"数了别的夹/{@code GROUP BY} 写漏列"。
- * 例如 {@code COUNT(DISTINCT content_id)} 与 {@code COUNT(*)} 在本用例里会给出**不同的数**
- * （夹具刻意让同一夹里出现重复内容 id 之外的差异），故它是有判别力的复算。
+ * 都来自 DB，看似"再查一遍没意义"。它的判别力在于挡住**三类具体错**，而夹具是为这三类量身造的：
+ * <ol>
+ *   <li><b>把"收藏数"的按人去重口径误用到夹内计数</b> —— 夹具里 {@code mineFull} 的 3 条记录
+ *       **同属一个人**，故 {@code COUNT(DISTINCT user_id)} 会得 1、{@code COUNT(*)} 得 3
+ *       ⇒ 这是本用例最可能挡住的一类错（把 T5 的口径抄过来）。</li>
+ *   <li><b>只数"内容还在"的记录</b>（{@code JOIN content}）—— 有 1 条记录指向不存在的
+ *       {@code content_id}（{@link #GHOST_CONTENT_ID}），加了这道联结就会数成 2。</li>
+ *   <li><b>把空夹漏掉</b>（{@code INNER JOIN favorite_item}）—— {@code mineEmpty} 会整行消失。</li>
+ * </ol>
+ * ⚠️ 反过来有一类**挡不住**：{@code COUNT(DISTINCT content_id)}。它是**同义改写**而不是缺陷 ——
+ * 同一夹内同一内容至多一条（唯一键 {@code uk_folder_content}），故两者在夹内**恒等**，
+ * 夹具也造不出差异（造得出就说明唯一键坏了）。**不要在 T8 的反向验证里拿它当注入点**
+ * （它会给出"测试没判别力"的假结论）。
  *
  * <h2>★ 期望值怎么来的（规避"迎合型伪测试"）</h2>
  * 每个断言的期望值都出自**业务口径**而非实现：条目数出自 R-07「失效也计入、数的是记录」；
  * 默认夹拒删出自需求篇 §二；空态出自 R-01；403/404 出自
  * {@code CommentService}/{@code ContentService} 的既有归属口径。盖住实现这些用例**照样写得出来**。
  *
- * <h2>反向验证（T8 收口会复核）</h2>
+ * <h2>反向验证（T8 收口会复核）—— 逐条都**实测过能红**才写在这里</h2>
  * <ul>
  *   <li>去掉 {@code FavoriteService.deleteFolder} 的 {@code is_default} 判断 ⇒ 默认夹拒删用例变红；</li>
- *   <li>把 {@code LEFT JOIN favorite_item} 改成 {@code INNER JOIN} ⇒ 空夹计数用例变红（那一行会消失）；</li>
- *   <li>把 {@code COUNT(i.id)} 改成 {@code COUNT(DISTINCT content_id)} ⇒ 条目数用例变红；</li>
- *   <li>删掉 {@code @RequiresLogin} ⇒ 未登录用例与 {@code SecurityContractTests} 变红。</li>
+ *   <li>把 {@code LEFT JOIN favorite_item} 改成 {@code INNER JOIN} ⇒ 空夹那行消失、条目数用例变红；</li>
+ *   <li>把 {@code COUNT(i.id)} 改成 {@code COUNT(DISTINCT user_id)} ⇒ 条目数用例变红（3 → 1）；</li>
+ *   <li>删掉四个端点的方法级 {@code @RequiresLogin} ⇒ **只有 {@code SecurityContractTests} 变红**
+ *       （机制级）。⚠️ **{@code 未登录一律401} 这条 HTTP 用例是假绿、红不了** ——
+ *       四个端点都收 {@code @CurrentUserId}（默认 {@code required = true}，取不到即 401），
+ *       去掉注解仍得 401。这与 {@code SecurityContractTests} 类注释写的是同一件事：
+ *       "401 是谁给的"必须直接对 {@code RequestMappingLookup} 求值才看得见。</li>
  * </ul>
+ * ⚠️ <b>本类覆盖不到的机制</b>：{@code deleteFolder} 的 {@code @Transactional}
+ * （R-02 的"同进同退"）**无判别力** —— 两条顺序 DELETE 都会成功，去掉注解锁照样绿，
+ * 除非注入"第二条写失败"。已登记 {@code CURRENT_ISSUES.md} <b>I-04</b>，由 T8 处置。
  */
 class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
 
@@ -97,6 +113,11 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
 
         // 列表能看到它，且形状（id / name / isDefault / isPrivate / itemCount）逐字段对得上
         JsonNode item = folderOf(listFolders(me.token), row.id);
+        // ★ 先断**键存在**再断值：Boolean 属性的 getter 命名（Lombok `getIsDefault`）或
+        //   resultMap 的属性名一漂，键就会变成 `default`/缺失；而 `path().asBoolean()` 对
+        //   缺失/Null 一律返回 false ⇒ 只断 `isFalse()` 是**假绿**（键没了也绿）。
+        assertThat(item.has("isDefault")).as("★ JSON 键名必须逐字是 isDefault（不是 default）").isTrue();
+        assertThat(item.has("isPrivate")).as("★ JSON 键名必须逐字是 isPrivate").isTrue();
         assertThat(item.path("name").asString()).isEqualTo("稍后再看");
         assertThat(item.path("isDefault").asBoolean()).isFalse();
         assertThat(item.path("isPrivate").asBoolean()).isFalse();
@@ -207,6 +228,14 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
 
         assertThat(folderIds(data)).as("默认夹置顶 + 自建夹按创建序；与「默认夹一定最早建」的假设无关")
                 .containsExactly(defaultFolder, first, second);
+
+        // ★ 正向断 `isDefault = true`（上一条用例只断过 false —— 而 `path().asBoolean()` 对**缺失键**
+        //   也返回 false，所以"全部是 false"的断言集**证明不了键名与映射是对的**）。
+        //   这里同时把"默认夹"这条唯一为 true 的记录钉住：结果集里恰有一条 true，其余为 false。
+        assertThat(folderOf(listFolders(me.token), defaultFolder).path("isDefault").asBoolean())
+                .as("默认夹的 isDefault 必须是 true（映射成 null / 键名漂了都会显形）").isTrue();
+        assertThat(folderOf(listFolders(me.token), first).path("isDefault").asBoolean())
+                .as("自建夹必须是 false —— 与上一条合起来排除「恒 true」/「恒 false」两种假绿").isFalse();
     }
 
     // ========================================================================
@@ -275,12 +304,20 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("★默认夹拒绝删除（409）：夹与条目**都原样保留**")
+    @DisplayName("★默认夹拒绝删除（409）：夹与条目**都原样保留**；且**改名后依然拒删**（判列不判名）")
     void 默认夹拒绝删除() {
         TestUser me = register("13800001012", "默认夹用户");
         long defaultFolder = insertDefaultFolderRow(me.id, "默认收藏夹");
         long custom = insertFolderRow(me.id, "自建夹");
         insertItemRow(defaultFolder, me.id, 3001L);
+
+        // ★ 先改名再删：把"判据是行上的 is_default 而不是名字"钉死。
+        //   需求篇说默认夹"删不掉"，而用户**可以**给它改名、也可以给自建夹起同一个名字
+        //   ⇒ 任何"按名字判"的实现都会在这里放行（改名后名字不再叫"默认收藏夹"）或误拦。
+        assertThat(renameFolder(defaultFolder, "换个名字照样是默认夹", me.token).getStatusCode().value())
+                .as("默认夹可以改名").isEqualTo(200);
+        // 对照：把**自建夹**改成"默认收藏夹"这个名字，它必须照样删得掉（名字不构成保护）
+        assertThat(renameFolder(custom, "默认收藏夹", me.token).getStatusCode().value()).isEqualTo(200);
 
         ResponseEntity<String> resp = removeFolder(defaultFolder, me.token);
 
@@ -290,8 +327,11 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
         assertThat(oracleItemCount(defaultFolder)).as("★ 夹内条目也不得被动过（拒删必须发生在删条目之前）")
                 .isEqualTo(1);
 
-        // 反向对照：同一次会话里删**自建夹**是成功的 —— 排除"整个删除端点都坏了"导致的假绿
-        assertThat(removeFolder(custom, me.token).getStatusCode().value()).isEqualTo(200);
+        // 反向对照：同一次会话里删**自建夹**是成功的 —— 排除"整个删除端点都坏了"导致的假绿。
+        // ★ 而且这个自建夹**名字就叫「默认收藏夹」**（上面刚改的）⇒ 一次同时证明两件事：
+        //   ① 删除端点本身可用；② 保护**来自 is_default 列，与名字无关**。
+        assertThat(removeFolder(custom, me.token).getStatusCode().value())
+                .as("自建夹即使叫「默认收藏夹」也必须删得掉（反向钉死「判列不判名」）").isEqualTo(200);
         assertThat(folderExists(custom)).isFalse();
     }
 
