@@ -85,6 +85,15 @@ ROOT = Path(__file__).resolve().parent.parent   # tools/ 的上一级
 | `doc_archive.py` | 把已完成阶段的历史明细从正文抽到 `.docs/archive/`，正文留指针 | ❌ 会写（**默认只预演**，加 `--apply` 才落盘） |
 | ★ **迁移期 5 个**（`endpoint_matrix` / `migration_matrix` / `flyway_parity` / `realdata_probe` / `tvconf`） | **已归档**到 `.docs/archive/migration/tools/`（2026-10-06）——用途见 §六；**需要复算迁移结论时才去那里跑** | ✅ 只读 |
 | `run_tests.py` | **一键跑测试**：全量 `clean verify` / `--group` 选跑 / `--test` 单类；完整输出落盘 + 摘要回显 | ✅ 只读（仅写 `target/test-reports/`） |
+| `backup.py` | **数据库一键备份**（`mysqldump`），产物 = `<时间戳>/db.sql` + `manifest.txt`（含 sha256）；连接参数取自 `application.yaml` 的 dev 默认值 + `DB_*` 覆盖 | ❌ 会写（**纯增量**：只新建 `<时间戳>/` 目录，**绝不覆盖**；故**默认真跑**，`--dry-run` 才预演） |
+
+> ★ **`backup.py` 是对迁移期一处裁剪的收回**（2026-10-08）。迁移收口时它被列为「丢」——
+> `.docs/archive/migration/测试策略与阶段验收.md` §6.3 给的理由是"其功能已被新体系吸收"，
+> 但该处举证的 §6.4 **三条实例没有一条是备份**；而 `application.yaml` 自己写着
+> 「**Flyway 管结构演进，不是备份；业务数据仍靠 dump**」。没有它，`.docs/task/FURTHER_ISSUES.md`
+> F-04~F-09 的第一条处置纪律「**先备份再动**」就没有执行手段。
+> 与老仓 `backup.py` 的 5 处差异（连接参数来源 / 默认目录 / `--out` 解析根 / 口令走 `MYSQL_PWD` / 新增 `--dry-run`）
+> 逐条列在脚本 docstring 里；老仓那份是**只读行为规格书**，不要改它。
 
 ## 五、常用命令
 
@@ -104,7 +113,16 @@ python tools/run_tests.py --group resilience           # 只跑 @Tag("resilience
 python tools/run_tests.py --group a --group b          # 多组（并集）
 python tools/run_tests.py --exclude-group slow         # 排除某组
 python tools/run_tests.py --test SecurityContractTests # 只跑一个测试类
+python tools/backup.py                     # 备份 dev 库 spring_tv -> D:\data\projects\MySpringTV\backups\<时间戳>\
+python tools/backup.py --out backups       # 输出到仓库内 backups/（.gitignore 已排除，沙箱会话友好）
+python tools/backup.py --dry-run           # 只打印连接与将执行的命令，不落盘
 ```
+
+> `backup.py` 的连接参数**只有一处来源**：`src/main/resources/application.yaml` 的
+> `spring.datasource.{url,username,password}`（dev 默认值），环境变量 `DB_URL` / `DB_USERNAME` /
+> `DB_PASSWORD` / `DB_HOST` / `DB_PORT` / `DB_NAME` 优先覆盖（变量名与归档的 `tvconf.py` 一致）。
+> 典型用法：**动库前先跑一遍**留底（媒体另备份，脚本不管）；临时指向别的实例用 `DB_NAME=...` 覆盖。
+> 退出码：`0` 成功 / `1` 其它错误（含 mysqldump 非零退出、超时）/ `2` 无 mysqldump / `3` 产物空或校验失败。
 
 > `doc_archive.py` 的计划格式见脚本头部 docstring：`extract`（按标题抽节，`levels` 可指定 H2/H3）
 > 与 `move`（整份移入归档）两种操作。
