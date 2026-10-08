@@ -155,6 +155,20 @@ class SecurityContractTests extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("收藏一期 T2：夹 CRUD 四端点判为需登录（**方法级**注解 —— 该域将来有匿名端点）")
+    void favorite夹CRUD端点需登录() {
+        // ⚠️ 本组是 T2 鉴权口径的**机制级**保证。收藏域**刻意不用类级** @RequiresLogin：
+        //  分期篇 §3.3 要求 /favorite/folder/public 匿名可访问（T3 落地），类级会把它误拦成 401，
+        //  而"私密夹自己照样看得见"会让这个误拦**长期无人发现**。
+        // ⇒ T3 落地公开端点时必须补一条 assertThat(requiresLogin("GET", "/favorite/folder/public")).isFalse()
+        //   作为反向对照，否则"整个 /favorite 被放行"与"逐端点声明正确"在断言上无法区分。
+        assertThat(requiresLogin("POST", "/favorite/folder/add")).isTrue();
+        assertThat(requiresLogin("POST", "/favorite/folder/update")).isTrue();
+        assertThat(requiresLogin("POST", "/favorite/folder/remove")).isTrue();
+        assertThat(requiresLogin("GET", "/favorite/folder/list")).isTrue();
+    }
+
+    @Test
     @DisplayName("未映射的路径返回 false：真正的 404 由 DispatcherServlet 产生，本机制不越权处理路由")
     void 未映射路径不需登录() {
         assertThat(requiresLogin("GET", "/no/such/endpoint")).isFalse();
