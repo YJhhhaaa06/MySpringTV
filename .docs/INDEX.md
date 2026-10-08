@@ -17,10 +17,10 @@
 Flyway + Testcontainers。**由 `old-project/TVhomework1`（Servlet + 手写连接池/事务/缓存/MQ + 自研 IoC）
 迁移而来**，迁移已收口。
 
-| 现状（2026-10-07） | 值 |
+| 现状（2026-10-08） | 值 |
 |---|---|
 | 迁移 | ✅ **已收口** —— 老端点 **43 / 43 / 0**；判据四条腿复算通过（过程与明细见 `archive/migration/`，判据见 `archive/migration/决策留痕表.md` **K-2**） |
-| 回归基线 | `python tools/run_tests.py` → **323 例全绿**（默认排除 `resilience`）；`--group resilience` → **34 例全绿**（合计 **357**） |
+| 回归基线 | `python tools/run_tests.py` → **328 例全绿**（默认排除 `resilience`）；`--group resilience` → **34 例全绿**（合计 **362**） |
 | 环境 | dev 库 `spring_tv`@3306、媒体根 `D:/data/projects/MySpringTV/media` |
 | 未结的账 | `task/FURTHER_ISSUES.md`：**F-01 / F-02**（Security 链，属"上线准备度"）+ **F-04 ~ F-09**（继承的存量数据债，须逐条表态、不阻塞） |
 

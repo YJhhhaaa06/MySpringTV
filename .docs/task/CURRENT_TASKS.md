@@ -59,7 +59,7 @@
 > 📌 下面的清单是**粗颗粒**（G13）：给方向与红线，不给施工步骤。执行期发现更合理的拆法，
 > 自己拆（G1）并在回写里说一句即可。
 
-### T1 建表 + 域骨架（来源 N1 / 能力 一期-1）【待执行】
+### T1 建表 + 域骨架（来源 N1 / 能力 一期-1）【已完成】
 
 * **入口线索**：`src/main/resources/db/migration/V1__baseline_tv_schema.sql`（V2 从哪起步）；
   `ArchitectureTests.java:54` 的 `DOMAINS`；`like` 域的包结构作参照。
@@ -71,7 +71,14 @@
   `favorite_item` 的 `uk_folder_content` 与 `idx_user_content` 是否都必要（后者服务于"按人去重"）。
 * **验收**：起库通过；**`ArchitectureTests.DOMAINS` 含 `favorite`**（不是"规则通过"—— 那是永远绿的假绿）；
   表结构可 `SHOW CREATE TABLE` 复核。
-* **回写**：
+* **回写**：V2 落地 `favorite_folder` / `favorite_item` / `content.favorite_count`（列**一期只建不用**）
+  + `favorite` 域骨架（controller / service / 2 DAO，**刻意无端点无 SQL** —— 端点归 T2~T6）
+  + `ArchitectureTests.DOMAINS` 登记。验证：活库已到 **v2**（`flyway_schema_history` = `0/1/2`、18 张表）
+  且应用 4.4s 起库（health `DOWN` 仅因本机 Redis/RabbitMQ 未启动）；`run_tests.py` **328 例全绿**
+  + `--group resilience` **34 例全绿**；★ 反向验证两条 —— 唯一键降级为普通索引 + 删 `is_private`
+  ⇒ `FavoriteSchemaTests` 3 例按预期变红（已还原）；藏掉 V2 ⇒ 结构锚点变红（旧写法会全绿，见 **I-02**）。
+  ★ 执行期发现骨架里缺"每用户至多一个默认夹"的唯一键（**正是 T2 红线所依赖的那个键**），
+  已落地生成列 `default_uniq` + `uk_user_default`（**R-09** / **I-01**），分期篇 §3.1 同步回填。
 
 ### T2 收藏夹 CRUD（来源 R-01 / R-02 / 能力 一期-2）【待执行】
 
@@ -79,7 +86,8 @@
   ⚠️ **前提可被质疑**：默认夹"懒建"与"列表返回空态"是否自洽？执行期若发现更稳的做法（如读时补建）可自行决断，
   但**并发重复建夹**必须靠唯一键兜住。
 * **目标**：新建 / 改名 / 删除 / 我的夹列表（含每夹视频数）；**默认夹拒绝删除**。
-* **红线边界**：**不动注册流程**（R-01 懒建）；删夹**一并删条目**（R-02）；一期不做封面。
+* **红线边界**：**不动注册流程**（R-01 懒建）；删夹**一并删条目**（R-02）；一期不做封面；
+  并发重复建夹靠 **`uk_user_default`** 兜住（R-09，V2 已建该键 —— 别退回"先 SELECT 后 INSERT"）。
 * **强制探索**：删除默认夹返回什么错误码（对齐既有 `NotFoundException` / `ConflictException` 语义）；
   列表在无夹时的空态形态。
 * **验收**：删默认夹返回明确错误；无夹时列表返回空**而非报错**；每夹视频数用
