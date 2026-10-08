@@ -35,7 +35,8 @@ io.github.yjhhhaaa06.videoweb
     ├── feed/      关注动态流（唯一异步编排型域）
     ├── coupon/    优惠券
     ├── upload/    文件上传
-    └── admin/     内容管理端
+    ├── admin/     内容管理端
+    └── favorite/  收藏（收藏夹 / 收藏记录；2026-10-08 收藏一期起）
 ```
 
 > 业务域的内部结构**不在本目录统一描述**——只有"有独有架构、讲不清会出事"的域才单独成篇
@@ -52,7 +53,7 @@ io.github.yjhhhaaa06.videoweb
 | MQ | 拓扑/重连/重试+DLQ/预取交框架原生；发布不等 confirm；投递三态 + 补偿缓冲 | [MQ与投递可靠性](tech/MQ与投递可靠性.md) |
 | 可观测 | 日志四输出端 + MDC 请求标识 + 出口一处脱敏 + Micrometer 打点 + 审计 | [可观测](tech/可观测.md) |
 | 安全 | 自研 `JwtAuthFilter` + `@RequiresLogin`（Spring Security **尚未迁**） | [安全与鉴权](tech/安全与鉴权.md) |
-| 数据 | Flyway SQL-first；**V1 baseline 冻结**；下次演进走 V2 | [数据与Schema演进](tech/数据与Schema演进.md) |
+| 数据 | Flyway SQL-first；**V1 baseline 冻结**；下一步演进走 V2（**V2 已落地**：`favorite_*` 两表 + `content.favorite_count`） | [数据与Schema演进](tech/数据与Schema演进.md) |
 | 事务 | 事务边界载体独立成 bean（避免自调用）；纯读去事务 | [事务边界](tech/事务边界.md) |
 
 ---

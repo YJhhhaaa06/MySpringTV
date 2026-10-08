@@ -49,10 +49,14 @@ class ArchitectureTests {
     /**
      * 业务模块名（与包名一致）。
      * {@code upload} 由 S7 新增、{@code admin} 由 S8 新增、{@code feed} 由 S9 新增，
+     * {@code favorite} 由独立开发期的**收藏一期 T1** 新增（迁移收口后的第一个新域），
      * 一并纳入边界约束（否则新域会成为**没有任何规则约束的空洞**）。
+     *
+     * <p>⚠️ 域集合是**这四条规则的唯一作用域**：加域漏登记 ⇒ 规则 1/2/3 对它是**永远绿的假绿**
+     * （"ArchUnit 规则通过"不是有效验收，"{@code DOMAINS} 含它"才是）。
      */
     private static final String[] DOMAINS = {"user", "content", "comment", "like", "follow", "coupon",
-            "upload", "admin", "feed"};
+            "upload", "admin", "feed", "favorite"};
 
     private static final String BASE = "io.github.yjhhhaaa06.videoweb";
 
