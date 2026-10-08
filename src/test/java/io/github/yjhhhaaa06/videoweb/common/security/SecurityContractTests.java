@@ -158,14 +158,26 @@ class SecurityContractTests extends AbstractIntegrationTest {
     @DisplayName("收藏一期 T2：夹 CRUD 四端点判为需登录（**方法级**注解 —— 该域将来有匿名端点）")
     void favorite夹CRUD端点需登录() {
         // ⚠️ 本组是 T2 鉴权口径的**机制级**保证。收藏域**刻意不用类级** @RequiresLogin：
-        //  分期篇 §3.3 要求 /favorite/folder/public 匿名可访问（T3 落地），类级会把它误拦成 401，
+        //  分期篇 §3.3 要求 /favorite/folder/public 匿名可访问（T3 已落地），类级会把它误拦成 401，
         //  而"私密夹自己照样看得见"会让这个误拦**长期无人发现**。
-        // ⇒ T3 落地公开端点时必须补一条 assertThat(requiresLogin("GET", "/favorite/folder/public")).isFalse()
-        //   作为反向对照，否则"整个 /favorite 被放行"与"逐端点声明正确"在断言上无法区分。
+        //  反向对照（isFalse 那条）已在 T3 补入，见 favorite公开端点不得判为需登录。
         assertThat(requiresLogin("POST", "/favorite/folder/add")).isTrue();
         assertThat(requiresLogin("POST", "/favorite/folder/update")).isTrue();
         assertThat(requiresLogin("POST", "/favorite/folder/remove")).isTrue();
         assertThat(requiresLogin("GET", "/favorite/folder/list")).isTrue();
+    }
+
+    @Test
+    @DisplayName("收藏一期 T3：他人公开夹端点**不得**判为需登录（匿名可访问；反向对照防「整域放行」假绿）")
+    void favorite公开端点不得判为需登录() {
+        // ★ 与上面那组构成**成对断言**：四端点 true + 公开端点 false。
+        //   缺了这条 false，"有人把整个 /favorite 改成匿名的"与"逐端点声明正确"无法区分；
+        //   而多标了 @RequiresLogin 时（如图省事搬类级注解），此条是**唯一**会红的用例：
+        //   公开端点不收 @CurrentUserId（那是 T3 的有意设计，见 FavoriteController 类注释），
+        //   误标类级注解不会让 HTTP 侧任何既有断言变红。
+        assertThat(requiresLogin("GET", "/favorite/folder/public"))
+                .as("分期篇 §3.3 冻结契约：看他人公开夹匿名可访问（T3）")
+                .isFalse();
     }
 
     @Test

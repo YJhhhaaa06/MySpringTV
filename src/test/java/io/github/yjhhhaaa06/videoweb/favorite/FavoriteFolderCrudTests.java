@@ -273,7 +273,7 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
                 .as("夹不存在 → 404").isEqualTo(404);
         assertThat(renameFolder(others, "   ", me.token).getStatusCode().value())
                 .as("★ 空白名 → 400，**哪怕这个夹不是我的** —— 「参数形态先于资源归属」的顺序契约"
-                        + "（两类拒因互不依赖，谁先谁后必须钉死；理由见 FavoriteService.renameFolder）")
+                        + "（两类拒因互不依赖，谁先谁后必须钉死；理由见 FavoriteService.updateFolder）")
                 .isEqualTo(400);
 
         assertThat(nameOf(others)).as("三次被拒都必须**不产生任何写入**").isEqualTo("别人的夹");
