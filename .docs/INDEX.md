@@ -39,7 +39,7 @@ Flyway + Testcontainers。**由 `old-project/TVhomework1`（Servlet + 手写连�
 ```
 .docs/
 ├── INDEX.md              ← 本文件（唯一入口）
-├── task/                 ← 新功能：需求/分期（动手前登记）+ **执行登记台**（CURRENT_*/FURTHER_ISSUES）
+├── task/                 ← 新功能：**需求 / 分期与设计**（动手前登记，跨期稳定）+ **执行登记台**（CURRENT_*/FURTHER_ISSUES，随期滚动）
 ├── temp/                 ← 草稿（gitignore）
 └── archive/
     └── migration/        ← ★ **迁移期全部归档**（2026-10-07 收尾迁入；**勿通读**，只用来追溯）
@@ -60,7 +60,7 @@ Flyway + Testcontainers。**由 `old-project/TVhomework1`（Servlet + 手写连�
 |------|--------|---------|
 | ★ **写新代码 / 了解架构** | **`architecture/ARCHITECTURE.md`**（主索引：模块地图 + "写代码前读哪篇" + 写作规范）→ 横切机制见 `architecture/tech/` 各篇、业务域见 `architecture/domain/` | 架构变更时 |
 | ★ **执行中登记（问题 / 需求 / 任务）** | `task/CURRENT_NEEDS.md`（当期需求，决策源 N#/R-##）+ `task/CURRENT_TASKS.md`（当期任务，四要素+回写）+ `task/CURRENT_ISSUES.md`（**本期**问题）+ `task/FURTHER_ISSUES.md`（结转留池） | 每窗开/收时 |
-| ★ **加新功能 / 看分期任务** | **`task/`**：功能需求与分期**分两篇** —— `task/收藏功能-需求.md`（用户视角，唯一事实源）+ `task/收藏功能-分期与任务.md`（分期与切片） | 开工前登记 / 分期变更时 |
+| ★ **加新功能 / 看分期设计** | **`task/`**：`收藏功能-需求.md`（用户视角，唯一事实源）+ `收藏功能-分期与设计.md`（**跨期骨架**：分期预告 + 表 / 端点 / 计数口径）+ `CURRENT_NEEDS.md`（**本期**范围与反面清单） | 开工前登记 / 分期变更时 |
 | **知道下一步做什么** | **"上线准备度"清单**：`task/FURTHER_ISSUES.md` **F-01 / F-02**（Security 链）+ `archive/migration/切片计划.md` §二（Dockerfile / 部署形态 / springdoc / 限流） | 排期/收尾时 |
 | 知道**现在还欠着什么** | `task/FURTHER_ISSUES.md`（结转池 F-##；E 类存量数据债已并入 F-04 ~ F-09） | 每次裁剪**先登记再动代码** |
 | 知道**当初为什么这么定** | `archive/migration/决策留痕表.md`（A 架构 / B 范围 / C 保真度 / D 契约差异 / E 事务指针 / F 选型 / **G 可观测 / H 韧性 / I 一致性 / J MQ** / K 收口判据） | **只读追溯**，新决策不再往里加 |

@@ -71,14 +71,23 @@ SECTION_REF = re.compile(r"《[^》]+》§[二三四五][·、][A-Za-z0-9]+|(?<!
 ARCHIVE_MENTION = re.compile(r"archive/[^\s`）)、]+\.md")
 
 
-def try_resolve(name: str, legacy: bool = False) -> bool:
-    """逐个形态试探：仓库根 / .docs / .docs 的三处子目录；报告类文档再试老项目根。"""
+def try_resolve(name: str, legacy: bool = False, base: Path | None = None) -> bool:
+    """逐个形态试探：引用方所在目录 / .docs / .docs 的三处子目录；报告类文档再试老项目根。
+
+    ⚠️ `base` 是**引用方文档所在目录**（markdown 链接按它相对解析，不是按 `.docs` 根）。
+    2026-10-08 第一版漏了它 ⇒ `.docs/architecture/tech/可观测.md` 里的 `./事务边界.md`
+    被拿去跟 `.docs/事务边界.md` 比，一处不存在的路径报出 **70 处假红**。
+    """
     name = name.strip()
     if not name:
         return False
     if legacy and (LEGACY_ROOT / name).exists():
         return True
     stripped = name[len(".docs/"):] if name.startswith(".docs/") else name
+    if base is not None:
+        rel = stripped[2:] if stripped.startswith("./") else stripped
+        if (base / rel).is_file():
+            return True
     return resolve(stripped) or resolve(name)
 
 
@@ -154,6 +163,20 @@ def check(doc: Path) -> list[tuple[int, str, str, bool]]:
             if not has_archive:
                 for m in SECTION_REF.finditer(line):
                     bad.append((lineno, m.group(0), "章节引用可能已归档（本段无 archive/ 路径）", False))
+
+            # 5) markdown 链接 `[文字](xxx.md)`
+            #    ⚠️ 2026-10-08 补：`task/` 下的新功能文档与登记台**通篇用这种形态互链**
+            #    （`[收藏功能-需求.md](收藏功能-需求.md)`），而旧检测面只认《》/相对路径/仓库路径
+            #    ⇒ 2026-10-08 把 `收藏功能-分期与任务.md` 改名为 `-分期与设计.md` 时，
+            #    6 处引用**全部在检测面外**，门禁照样报"悬空 0 处"（假绿，同 tools/ 那一族）。
+            #    只收 `.md` 结尾且非 URL / 非锚点 / 非示例的链接，避免把 `[x](#锚)` `[x](https://…)`
+            #    误报成悬空。
+            for m in re.finditer(r"\]\(([^)\s]+\.md)\)", line):
+                target = m.group(1)
+                if target.startswith(("http://", "https://", "#", "mailto:")):
+                    continue
+                if not try_resolve(target, legacy, base=doc.parent) and not PLACEHOLDER.search(target):
+                    bad.append((lineno, target, "markdown 链接指不到", False))
 
             # 4) 仓库路径（`tools/` `src/` `.mvn/`）
             #    ⚠️ 2026-10-06 修：原正则**只认反引号包裹、且要求 `tools/` 紧贴反引号** ⇒
