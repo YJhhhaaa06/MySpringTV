@@ -213,6 +213,19 @@ class SecurityContractTests extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("收藏一期 T6：夹内列表判为需登录（**方法级**注解 —— 与三条匿名端点构成成对断言）")
+    void favorite夹内列表需登录() {
+        // 夹内列表是"我的夹里有什么" ⇒ 私有视角，必须登录。
+        // ⚠️ 同样**不能**靠类级 @RequiresLogin 解决：本域已有 /folder/public 与 /count 两条匿名端点
+        // （T3 / T5），类级会一并误拦。故这里断的是**方法级**注解是否落到 /favorite/list 上。
+        // ★ 判别力：本端点的 401 在 HTTP 侧同样可能由 @CurrentUserId 的参数解析器兜出
+        // （T2 教训：机制失效时端到端看起来全对）——"这个 401 是谁要求的"只有本类能回答。
+        assertThat(requiresLogin("GET", "/favorite/list"))
+                .as("夹内列表是'我的'私有视角，必须登录（T6）")
+                .isTrue();
+    }
+
+    @Test
     @DisplayName("未映射的路径返回 false：真正的 404 由 DispatcherServlet 产生，本机制不越权处理路由")
     void 未映射路径不需登录() {
         assertThat(requiresLogin("GET", "/no/such/endpoint")).isFalse();
