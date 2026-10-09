@@ -116,9 +116,12 @@ class FavoriteItemListTests extends AbstractHttpIntegrationTest {
         long oldest = insertContent(me.id, "最早收的", 0);
         long middle = insertContent(me.id, "中间收的", 0);
         long newest = insertContent(me.id, "最近收的", 0);
-        insertItem(folder, me.id, oldest, 3);
-        insertItem(folder, me.id, middle, 2);
+        // ★ 刻意**倒着**插收藏记录：让"最近收的"拿到**最小**的 favorite_item.id。
+        //   否则 id 序与收藏时序同向 ⇒ 实现改成 `ORDER BY i.id DESC` 也照样绿 ——
+        //   本用例就分不出"按收藏时间排"和"按 id 排"（T6 反向验证注入⑤实测到的假绿，已修）。
         insertItem(folder, me.id, newest, 1);
+        insertItem(folder, me.id, middle, 2);
+        insertItem(folder, me.id, oldest, 3);
 
         JsonNode data = Envelope.data(list(me.token, folder, null, null));
         assertThat(data.path("total").asLong()).isEqualTo(3L);
@@ -161,15 +164,14 @@ class FavoriteItemListTests extends AbstractHttpIntegrationTest {
     void 分页不重不漏() {
         TestUser me = register("13800004004", "分页用户");
         long folder = insertFolder(me.id, "分页夹");
-        List<Long> fromOldest = new ArrayList<>();
-        for (int i = 5; i >= 1; i--) {
-            long content = insertContent(me.id, "内容" + i, 0);
-            insertItem(folder, me.id, content, i);   // i 天前 ⇒ 越小越新
-            fromOldest.add(content);
-        }
+        // ★ 从**新到旧**插（i 天前，i 越小越新）：于是 favorite_item.id 也是"新→旧"递增，
+        //   id 序与收藏时序**同向**。这样才与下一条用例形成对照 ——
+        //   见"倒序"用例里倒着插的那条注释（两处合起来才能分出"按时间排"与"按 id 排"）。
         List<Long> expectedNewestFirst = new ArrayList<>();
-        for (int i = fromOldest.size() - 1; i >= 0; i--) {
-            expectedNewestFirst.add(fromOldest.get(i));
+        for (int i = 1; i <= 5; i++) {
+            long content = insertContent(me.id, "内容" + i, 0);
+            insertItem(folder, me.id, content, i);
+            expectedNewestFirst.add(content);
         }
         assertThat(oracleItemCount(folder)).isEqualTo(5L);
 
@@ -232,7 +234,7 @@ class FavoriteItemListTests extends AbstractHttpIntegrationTest {
         JsonNode data = Envelope.data(list(me.token, folder, null, null));
         assertThat(data.path("total").asLong()).as("三条记录都在（含失效）").isEqualTo(3L);
 
-        JsonNode valid = itemByContentId(data.path("list"), alive);
+        JsonNode valid = requireItem(data.path("list"), alive);
         assertThat(valid.path("invalid").asBoolean())
                 .as("★ 正向断 false —— 缺失键时 asBoolean() 恒 false，只有 true/false 成对才能证明键名")
                 .isFalse();
@@ -243,7 +245,7 @@ class FavoriteItemListTests extends AbstractHttpIntegrationTest {
                 .as("★ 正常条目**有**作者（同理，否则'失效无作者'恒 null ⇒ 假绿）").isEqualTo("脱敏用户");
 
         for (long invalidContent : new long[]{softDeleted, GHOST_CONTENT_ID}) {
-            JsonNode item = itemByContentId(data.path("list"), invalidContent);
+            JsonNode item = requireItem(data.path("list"), invalidContent);
             assertThat(item.path("invalid").asBoolean())
                     .as("失效（is_deleted=%d / 行没了）⇒ invalid=true", invalidContent == softDeleted ? 1 : -1)
                     .isTrue();
@@ -282,12 +284,12 @@ class FavoriteItemListTests extends AbstractHttpIntegrationTest {
 
         // ⚠️ 按 contentId 定位而不是按下标 —— 列表是**收藏时间倒序**，下标与插入序无关
         //   （本例下标 0 恰恰是最晚收藏的"管理员下架"那条）。
-        assertThat(itemByContentId(data.path("list"), deleted).path("invalid").asBoolean())
+        assertThat(requireItem(data.path("list"), deleted).path("invalid").asBoolean())
                 .as("is_deleted=1（作者删除）⇒ 失效").isTrue();
-        assertThat(itemByContentId(data.path("list"), hidden).path("invalid").asBoolean())
+        assertThat(requireItem(data.path("list"), hidden).path("invalid").asBoolean())
                 .as("★ is_deleted=2（管理员下架）也算失效 ⇒ 判据必须覆盖三态，别写成 = 1").isTrue();
-        assertThat(itemByContentId(data.path("list"), normal1).path("invalid").asBoolean()).isFalse();
-        assertThat(itemByContentId(data.path("list"), normal2).path("invalid").asBoolean()).isFalse();
+        assertThat(requireItem(data.path("list"), normal1).path("invalid").asBoolean()).isFalse();
+        assertThat(requireItem(data.path("list"), normal2).path("invalid").asBoolean()).isFalse();
     }
 
     @Test
@@ -465,6 +467,22 @@ class FavoriteItemListTests extends AbstractHttpIntegrationTest {
             }
         }
         return null;
+    }
+
+    /**
+     * 取条目，**必须在**（找不到 ⇒ 报出"缺了哪条"，而不是让下游 NPE）。
+     *
+     * <p>★ 为什么不用 {@code assertThat(...).isNotNull()}：注入 INNER JOIN 这类缺陷时，
+     * 条目是**整行消失**，下游直接 NPE —— 失败信息里看不到"少了哪一条"。
+     * 这里把"应当在"显式成一条断言，反向验证时失败原因一眼可见。
+     */
+    private static JsonNode requireItem(JsonNode list, long contentId) {
+        JsonNode item = itemByContentId(list, contentId);
+        if (item == null) {
+            throw new AssertionError("列表里应当有 contentId=" + contentId
+                    + " 的条目，实际只有：" + contentIds(list));
+        }
+        return item;
     }
 
     // ========================================================================
