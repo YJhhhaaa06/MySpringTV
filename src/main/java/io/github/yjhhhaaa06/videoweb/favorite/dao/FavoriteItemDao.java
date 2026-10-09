@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.favorite.dao;
 
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteFolderBriefVO;
+import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteItemVO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -14,8 +15,9 @@ import java.util.List;
  * {@link #deleteByFolderId}（删夹一并删条目，R-02）；**T4 补入收藏与移出** ——
  * {@link #insertItem} / {@link #deleteByFolderAndContentIds}；
  * **T5 补入状态与计数** —— {@link #findFoldersByUserAndContent}（"收在哪些夹"）与
- * {@link #countDistinctUserByContentId}（收藏数，按人去重）。
- * 其余归后续任务：T6 夹内分页。**不提前写无主 SQL**。
+ * {@link #countDistinctUserByContentId}（收藏数，按人去重）；
+ * **T6 补入夹内分页** —— {@link #countByFolderId}（total）+ {@link #findPageByFolderId}（页内行）。
+ * 至此本表的一期读路径齐了；**不提前写无主 SQL**。
  *
  * <h2>写 SQL 前必须先读的四条口径（都是本域特有的坑，别照抄 like）</h2>
  * <ol>
@@ -208,4 +210,83 @@ public interface FavoriteItemDao {
      * @return 收藏人数（同一人进多夹只算 1）；无人收藏 ⇒ {@code 0}
      */
     long countDistinctUserByContentId(@Param("contentId") long contentId);
+
+    // ========================================================================
+    // 夹内分页（T6：GET /favorite/list）
+    // ========================================================================
+
+    /**
+     * 夹内收藏记录总数（T6，{@code GET /favorite/list} 的 {@code total}）——
+     * 数的是 **{@code favorite_item} 行**，不是"还能打开的内容"。
+     *
+     * <h2>★ 为什么 {@code total} 必须<b>包含</b>失效条目</h2>
+     * R-07（用户 B 站实测）：失效视频**算进**收藏夹视频数，分页同理（占一条、返回一条占位）。
+     * 于是 {@code total} 与 {@code /folder/list} 的 {@code itemCount} 必须是同一个数 ——
+     * 两条端点各说一套会让用户看到"夹上写 5 条、进去只有 3 条"。
+     *
+     * <h2>★ 为什么这里<b>不能</b> JOIN content</h2>
+     * 一带 {@code content} 联结就必然要回答"失效的算不算"，而答案是**算** ⇒ 联结只会
+     * 把计数变少（{@code INNER JOIN} 直接丢行；{@code LEFT JOIN + WHERE is_deleted = 0}
+     * 则是把"算"写成了"不算"）。本 SQL **根本不碰 content 表** —— "失效也计入"不是
+     * 特意写出来的分支，而是**数对了对象**的自然结果（同 {@code FavoriteFolderVO.itemCount} 的口径）。
+     * ⚠️ 反向：谁若"顺手"给这条 SQL 加 {@code JOIN content}，两个端点会一起错，
+     * 且错得非常安静（只是数变小）。
+     *
+     * @param folderId 目标夹（调用方保证存在且属于当前用户）
+     * @return 收藏记录条数（**含**失效内容的记录）
+     */
+    int countByFolderId(@Param("folderId") long folderId);
+
+    /**
+     * 夹内一页的收藏记录（T6）—— 按**收藏时间倒序**，失效条目照样占一行返回。
+     *
+     * <h2>★ 四条口径（写改动前先读，每一条都有对应的注入点）</h2>
+     * <ol>
+     *   <li><b>LEFT JOIN content</b>（G12）：联结的**唯一**目的是判"内容还在不在 / 还有效吗"，
+     *       <b>不是</b>筛选。改成 {@code INNER JOIN} 会让失效记录整行消失 ⇒ 分页出**空洞**
+     *       （用户看到第 1 页只有 2 条、总数却写 5）。这是本任务**最重要的**一条；</li>
+     *   <li><b>失效判据 {@code c.id IS NULL OR c.is_deleted != 0}</b>：
+     *       {@code c.id IS NULL} 覆盖"内容行真没了"（本仓目前只有逻辑删除，但 INNER JOIN
+     *       一旦丢行同样造成空洞，两半都要留 —— 别把这一半当多余"优化"掉）；
+     *       {@code != 0} 覆盖三态（0 正常 / 1 作者删除 / 2 管理员下架），**别写成 {@code = 1}**；
+     *       ★ 它与 T4 的 {@code ContentDao.isContentExist}（{@code is_deleted = 0}）是同一判据的两面，
+     *       故"列表说失效的内容"与"{@code add}/{@code move} 拒收的内容"是同一批 ——
+     *       「失效不可移入」由此自然产生（分期篇 §3.5）；</li>
+     *   <li><b>分页单位是 {@code favorite_item} 行</b>（G12）：{@code LIMIT/OFFSET} 直接作用在
+     *       收藏记录上，一整页都是失效条目也**照常返回整页**（不补位、不跳过）——
+     *       跳过的后果是用户看不到 ⇒ 也就**永远清不掉**（R-07 的"可移出"落空）；
+     *       ⚠️ 因此**不要复用 {@code ProfileService} 的填充逻辑**：那处是
+     *       "取不到就 {@code continue}，{@code total} 不变"（{@code ProfileService.java:109}，
+     *       TV 原样语义 ⇒ 分页出空洞），与收藏夹的"占位"是两套口径；</li>
+     *   <li><b>顺序 {@code create_time DESC, id DESC}</b>（需求篇 §三「按收藏时间倒序」）：
+     *       ⚠️ {@code create_time} 是 {@code datetime}（**秒**精度），同一秒收藏多条会并列，
+     *       只按 {@code create_time} 排 ⇒ 页间顺序**不确定**（同一行可能出现在两页、
+     *       或某页漏掉一行 —— 正是"分页边界不重不漏"要防的）。故补 {@code id DESC} 作
+     *       稳定的 tie-breaker（{@code id} 单调递增 ⇒ 同秒内新的在前，与"倒序"同向）。</li>
+     * </ol>
+     *
+     * <h2>★ 返回的是<b>原值</b>，脱敏不在这里做</h2>
+     * 本 SQL 把 {@code title} / {@code coverUrl} / {@code authorName} 照原样查出来
+     * （失效内容也查得到，这正是脱敏**有必要**的原因），
+     * 由 {@code FavoriteService.listFolderItems} 在 Java 侧替换成占位 ——
+     * "判失效"与"失效长什么样"分在两层，各自的注入点也就各自独立（反向验证两条都能红）。
+     *
+     * <h2>⚠️ 封面那一列：本 SQL 持有一份 content 域的封面规则副本（已知债，见 {@code CURRENT_ISSUES.md}）</h2>
+     * {@code coverUrl} 取 {@code content_media} 里 {@code type = 3}（封面）按
+     * {@code sort, id} 排的第一条 URL —— 与 {@code ContentCache.buildContentMedia} 的选取规则同源。
+     * 为什么不走 {@code ContentService.loadContentVOs}（那才是"跨域只走 Service 契约"的写法）：
+     * 它把"媒体损坏 / 未知类型"也按"装载不出来 ⇒ 跳过"处理，而 R-03 的失效口径**只认
+     * {@code is_deleted != 0}**，两者不是同一批内容；混用会让"列表说失效"与
+     * "{@code add} 却收得进"自相矛盾。代价是这份副本若与 content 域的选取规则漂移，
+     * 收藏夹的封面可能与其他列表不一致 —— **属已知且已登记的债**，不在此偷偷扩大。
+     *
+     * @param folderId 目标夹（调用方保证存在且属于当前用户）
+     * @param offset   偏移量（service 由 {@code (page-1) * pageSize} 算出）
+     * @param limit    页大小（已由 Controller 归一到 1..域级上限）
+     * @return 该页的收藏记录（**含**失效占位行，条数 = {@code limit} 除非已到末尾）；
+     *         空夹 ⇒ 空列表（不是 {@code null}）
+     */
+    List<FavoriteItemVO> findPageByFolderId(@Param("folderId") long folderId,
+                                            @Param("offset") int offset,
+                                            @Param("limit") int limit);
 }

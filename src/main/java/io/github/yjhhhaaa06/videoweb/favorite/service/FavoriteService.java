@@ -1,20 +1,24 @@
 package io.github.yjhhhaaa06.videoweb.favorite.service;
 
+import io.github.yjhhhaaa06.videoweb.common.config.MediaProperties;
 import io.github.yjhhhaaa06.videoweb.common.exception.ConflictException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ForbiddenException;
 import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
+import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
 import io.github.yjhhhaaa06.videoweb.favorite.dao.FavoriteFolderDao;
 import io.github.yjhhhaaa06.videoweb.favorite.dao.FavoriteItemDao;
 import io.github.yjhhhaaa06.videoweb.favorite.model.entity.FavoriteFolder;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteFolderBriefVO;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteFolderVO;
+import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteItemVO;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteStatusVO;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.PublicFavoriteFolderVO;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -23,8 +27,8 @@ import java.util.List;
  * <h2>分期落点（T1 骨架 / T2 夹 CRUD / T3 私密与公开夹 / T4 写路径 / T5 状态与计数）</h2>
  * 夹 CRUD = **T2**；私密开关 + 他人公开夹 = **T3**；写路径（收藏/移出/移动）= **T4**；
  * 状态与计数 = **T5**（本类 {@link #getFavoriteStatus} / {@link #getFavoriteCount}）；
- * 夹内分页 = T6。本类承担**装配关系**（controller → 本类 → 两个 DAO）
- * 与**边界声明**，其余方法随任务逐个补。
+ * 夹内分页 = **T6**（本类 {@link #listFolderItems}）。本类承担**装配关系**
+ * （controller → 本类 → 两个 DAO）与**边界声明**，其余方法随任务逐个补。
  *
  * <h2>一期红线（写方法前先读，别让实现把口径吃掉）</h2>
  * <ul>
@@ -59,8 +63,12 @@ import java.util.List;
  *       （§四"纯读/单写不为取连接套事务"）；{@code addItem} 懒建路径虽是两条写，但
  *       "空默认夹"是合法终态、与收藏记录无完整性耦合，见 {@link #addItem} 方法注释；</li>
  *   <li>{@link #listMyFolders} / {@link #listPublicFolders} / {@link #getFavoriteStatus} /
- *       {@link #getFavoriteCount} —— **单条 SELECT ⇒ 不加事务**（§四；状态那条虽有
- *       "查目录 + 推导布尔"，但只是**一趟查询 + 一次 Java 推导**，不是两条写）。</li>
+ *       {@link #getFavoriteCount} / {@link #listFolderItems} —— **纯读 ⇒ 不加事务**（§四）；
+ *       {@link #listFolderItems} 是两条 SELECT（{@code total} + 页内行），但两条纯读
+ *       **没有原子性需求**（与 {@code ProfileService} 的"用户行 + 总数 + 窗口 id"同款）：
+ *       页与总数之间若插入了新收藏，用户看到的是"翻页时刻的快照略有偏移"——
+ *       这是 page/size 分页的固有语义，**不是**靠事务能修的（真要一致得上快照隔离）；
+ *       状态那条虽有"查目录 + 推导布尔"，但只是**一趟查询 + 一次 Java 推导**，不是两条写。</li>
  * </ul>
  *
  * <h2>★ 懒建与"列表空态"为什么自洽（T2 前提自审）</h2>
@@ -120,14 +128,25 @@ public class FavoriteService {
     /** 懒建默认夹的名字（需求篇 §二「默认收藏夹」；用户之后可照常改名，重名不校验——同 {@link #createFolder}）。 */
     private static final String DEFAULT_FOLDER_NAME = "默认收藏夹";
 
+    /**
+     * 失效内容的占位标题（R-03：标题位写「内容已失效」）。
+     *
+     * <p>⚠️ 它是**对外的显示文案**，不是错误提示 —— 与"原标题"互斥：失效条目**任何情况下**
+     * 都不带原标题（否则等于把作者已删的内容重新暴露出去）。
+     */
+    private static final String INVALID_CONTENT_TITLE = "内容已失效";
+
     private final FavoriteFolderDao folderDao;
     private final FavoriteItemDao itemDao;
     private final ContentDao contentDao;
+    private final MediaProperties mediaProps;
 
-    public FavoriteService(FavoriteFolderDao folderDao, FavoriteItemDao itemDao, ContentDao contentDao) {
+    public FavoriteService(FavoriteFolderDao folderDao, FavoriteItemDao itemDao, ContentDao contentDao,
+                           MediaProperties mediaProps) {
         this.folderDao = folderDao;
         this.itemDao = itemDao;
         this.contentDao = contentDao;
+        this.mediaProps = mediaProps;
     }
 
     // ========================================================================
@@ -446,8 +465,104 @@ public class FavoriteService {
     }
 
     // ========================================================================
+    // 夹内列表分页（T6：读路径）
+    // ========================================================================
+
+    /**
+     * 夹内内容分页（{@code GET /favorite/list?folderId=&page=&pageSize=}）——
+     * 需求篇 §三「打开某个夹，按**收藏时间倒序**看里面的内容」。
+     *
+     * <h2>★ 分页单位是<b>收藏记录行</b>，不是"内容"（G12 / R-07）</h2>
+     * 失效条目**占一条、返回一条脱敏占位**，一整页都是失效条目也**照常返回整页**。
+     * ⚠️ 理由不是"顺便"，而是可操作性的前提：跳过的后果是用户**看不到**这些条目，
+     * 看不到 ⇒ 也就**永远清不掉**（R-07 把"可移出"作为失效条目的保留理由）。
+     * 故 {@code total} 与"每夹条目数"（{@link #listMyFolders} 的 {@code itemCount}）
+     * 必须是同一个数 —— 两条端点各说一套，用户就会看到"夹上写 5 条、进去只有 3 条"。
+     *
+     * <h2>★ 脱敏在这里做，判失效在 SQL 里做</h2>
+     * {@code FavoriteItemDao.findPageByFolderId} 把 {@code title} / {@code coverUrl} /
+     * {@code authorName} **照原样**查出来（失效内容也查得到 —— 这正是脱敏有必要的原因），
+     * 本方法再把失效行替换成占位：标题 = 「内容已失效」、封面与作者 = {@code null}。
+     * 两件事分在两层 ⇒ 反向验证时**两个注入点各自独立**（去掉 SQL 的 {@code CASE} 会红、
+     * 去掉本方法的替换分支也会红）。
+     * ⚠️ 别把这段搬去复用 {@code ProfileService} 的填充逻辑：那处是"取不到就跳过"，
+     * 与收藏夹的"占位保留"是两套口径（{@code ProfileService.java:109}）。
+     *
+     * <h2>归属与不存在的口径</h2>
+     * 复用 {@link #requireOwnedFolder}：夹不存在 ⇒ 404、不是我的 ⇒ 403
+     * （与改名 / 删除 / 移出同一口径，见类注释的表）。
+     * ⚠️ 本端点是**"我的"视角**，他人视角一期只有 {@link #listPublicFolders}
+     * （名称 + 视频数，没有夹 id ⇒ 打不开别人的夹，R-08）。
+     *
+     * <h2>刻意不做</h2>
+     * <ul>
+     *   <li><b>不校验内容存在性 / 不过滤失效</b>：那正是"占位"要表达的东西；
+     *       {@code total} 与页内行都由 {@code favorite_item} 决定，与 content 无关；</li>
+     *   <li><b>不加事务</b>：两条纯读（{@code total} + 页内行）无原子性需求（见类注释"事务"节）；</li>
+     *   <li><b>空夹返回 {@code list=[]} + {@code total=0}</b>（不是 404）—— 与 R-01 懒建的
+     *       "空态是合法状态"同款口径。</li>
+     * </ul>
+     *
+     * @param userId   当前登录用户（夹必须属于他）
+     * @param folderId 目标夹；不存在 → 404、不是我的 → 403
+     * @param page     页码（≥1，由 Controller 归一）
+     * @param pageSize 页大小（1..域级上限，由 Controller 归一）
+     */
+    public PageResult<FavoriteItemVO> listFolderItems(long userId, long folderId, int page, int pageSize) {
+        requireOwnedFolder(userId, folderId);
+        int total = itemDao.countByFolderId(folderId);
+        int offset = (page - 1) * pageSize;
+        List<FavoriteItemVO> rows = itemDao.findPageByFolderId(folderId, offset, pageSize);
+        List<FavoriteItemVO> items = new ArrayList<>(rows.size());
+        for (FavoriteItemVO row : rows) {
+            items.add(maskIfInvalid(row));
+        }
+        return new PageResult<>(items, total, page, pageSize);
+    }
+
+    // ========================================================================
     // 私有校验（只写业务，不吃注解 —— 运行在调用方事务里）
     // ========================================================================
+
+    /**
+     * 失效条目**脱敏**：占位标题 + 封面与作者置空（R-03）。
+     *
+     * <h2>★ 这是"不给原标题 / 封面 / 作者"的唯一落点</h2>
+     * 需求篇 §六「失效条目里能看到什么：只有占位…**不返回原标题 / 封面 / 作者信息**」。
+     * 理由不是洁癖：内容被作者删除后，标题与作者仍留在 {@code content} 行上，
+     * 一旦把它们随收藏列表带出去，第三方客户端就能**捞出作者已删的内容** ——
+     * "删了"在语义上就该等于"检索不到了"。
+     *
+     * <p>⚠️ 三件事一起做，缺一件就是泄漏：只换标题不置空作者 ⇒ 作者仍可见；
+     * 只置空封面不换标题 ⇒ 标题仍可见。故这里是**一个分支内的三次赋值**，
+     * 不写成三个各自判断的条件（那会让"漏掉一件"看起来也像对的）。
+     *
+     * <h2>正常条目只做一件事：给封面补 URL 前缀</h2>
+     * {@code content_media.url} 存的是应用内相对路径（如 {@code /upload/cover/x.png}），
+     * 对外要拼 {@code video.media.base-url}（与 {@code ContentCache.jointUrl} 同款）。
+     * 该配置在 {@code common.config.MediaProperties}（公共底座，不是他域的缓存 / 模型）。
+     *
+     * @param row Mapper 查出的原值行（**就地修改**并返回 —— 本 VO 一身两职，见其类注释）
+     */
+    private FavoriteItemVO maskIfInvalid(FavoriteItemVO row) {
+        if (Boolean.TRUE.equals(row.getInvalid())) {
+            row.setTitle(INVALID_CONTENT_TITLE);
+            row.setCoverUrl(null);
+            row.setAuthorName(null);
+            return row;
+        }
+        row.setCoverUrl(jointMediaUrl(row.getCoverUrl()));
+        return row;
+    }
+
+    /** 媒体 URL 前缀拼接（{@code null} 原样返回；默认前缀是空串 ⇒ 恒等）。 */
+    private String jointMediaUrl(String url) {
+        if (url == null) {
+            return null;
+        }
+        String base = mediaProps.baseUrl();
+        return base.isEmpty() ? url : base + url;
+    }
 
     /**
      * 默认夹懒建（R-01）：不存在则建（名字「默认收藏夹」），返回夹 id。

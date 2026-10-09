@@ -3,7 +3,10 @@ package io.github.yjhhhaaa06.videoweb.favorite.controller;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
+import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
+import io.github.yjhhhaaa06.videoweb.common.web.PageParams;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
+import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteItemVO;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteFolderVO;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteStatusVO;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.PublicFavoriteFolderVO;
@@ -31,7 +34,7 @@ import java.util.List;
  *   <tr><td>{@code POST /favorite/move}</td><td>✅ 本任务落地</td></tr>
  *   <tr><td>{@code GET /favorite/status}</td><td rowspan="2">状态与计数 = <b>T5</b></td><td rowspan="2">✅ 本任务落地</td></tr>
  *   <tr><td>{@code GET /favorite/count}</td></tr>
- *   <tr><td>{@code GET /favorite/list}</td><td>T6</td><td>未落地</td></tr>
+ *   <tr><td>{@code GET /favorite/list}</td><td>T6</td><td>✅ 本任务落地（夹内分页，含失效占位）</td></tr>
  * </table>
  *
  * <h2>★ 鉴权：绝不能照抄 {@code LikeController} 的类级 {@code @RequiresLogin}</h2>
@@ -84,6 +87,12 @@ import java.util.List;
 @RestController
 @RequestMapping("/favorite")
 public class FavoriteController {
+
+    /** 收藏夹内列表 pageSize 上限（各域自持常量，见 {@code PageParams}）。 */
+    private static final int FAVORITE_PAGE_SIZE_MAX = 100;
+
+    /** 收藏夹内列表 pageSize 缺省（与内容列表同量级，取 100）。 */
+    private static final int FAVORITE_PAGE_SIZE_DEFAULT = 100;
 
     private final FavoriteService favoriteService;
 
@@ -295,6 +304,44 @@ public class FavoriteController {
     @GetMapping("/count")
     public ApiResponse<Long> contentCount(@RequestParam long contentId) {
         return ApiResponse.success(favoriteService.getFavoriteCount(contentId));
+    }
+
+    // ==================== 夹内列表（T6：读 = GET + query） ====================
+
+    /**
+     * 夹内内容分页（**收藏时间倒序**）——需求篇 §三「打开某个夹看里面的内容」。
+     *
+     * <p>{@code data} 是分页信封 {@code {list,total,page,pageSize,totalPages}}
+     * （全项目唯一的 {@code PageResult}）。★ <b>失效条目返回脱敏占位</b>：
+     * {@code invalid=true}、标题是固定文案「内容已失效」、{@code coverUrl} 与
+     * {@code authorName} 为 {@code null} —— <b>不返回原标题 / 封面 / 作者</b>（R-03）。
+     * 占位条目**保留 {@code contentId}**（移出要它：失效条目必须删得掉，见 G11）。
+     *
+     * <p>★ <b>分页单位是收藏记录行</b>（G12）：{@code total} **包含**失效条目，
+     * 与 {@code /folder/list} 的 {@code itemCount} 是同一个数；一整页都是失效条目
+     * 也照常返回满页（跳过 ⇒ 用户看不到 ⇒ 也就永远清不掉）。
+     *
+     * <p>⚠️ <b>需登录 + 夹必须属于自己</b>（404 不存在 / 403 不是我的）：
+     * 本端点是"我的夹内视角"；他人视角一期只有 {@link #publicFolders}（只给名称 + 视频数，
+     * 没有夹 id ⇒ 打不开别人的夹，R-08）。空夹 ⇒ {@code list=[]} + {@code total=0}（不 404）。
+     *
+     * <p>分页归一：{@code page} 缺省/非数字/≤0 → 1；{@code pageSize} 同上 →
+     * {@value #FAVORITE_PAGE_SIZE_DEFAULT}，且恒 ≤ {@value #FAVORITE_PAGE_SIZE_MAX}
+     * （各域自持常量，见 {@code PageParams} 类注释 —— 收藏夹与内容列表同量级，取 100/100）。
+     * ⚠️ 参数名是 {@code pageSize}（与 {@code PageResult.pageSize} 及全项目其余分页端点一致）；
+     * 任务清单里速记的 {@code size} **不采用** —— 两个名字表达同一件事会让契约分裂。
+     *
+     * @param folderId 目标夹（必传）；他人的夹 → 403、不存在 → 404
+     */
+    @RequiresLogin
+    @GetMapping("/list")
+    public ApiResponse<PageResult<FavoriteItemVO>> listItems(@CurrentUserId long userId,
+                                                             @RequestParam long folderId,
+                                                             @RequestParam(required = false) String page,
+                                                             @RequestParam(required = false) String pageSize) {
+        return ApiResponse.success(favoriteService.listFolderItems(userId, folderId,
+                PageParams.normalizePage(page),
+                PageParams.normalizePageSize(pageSize, FAVORITE_PAGE_SIZE_MAX, FAVORITE_PAGE_SIZE_DEFAULT)));
     }
 
     // ==================== 参数解析 ====================
