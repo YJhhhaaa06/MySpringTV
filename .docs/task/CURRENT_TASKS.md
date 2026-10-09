@@ -212,7 +212,7 @@
   **未做（各有归属）**：`static/js/api.js` 未动（T7 统一接）；`/favorite/status|count` 归 T5、
   `/favorite/list` 归 T6；批量 add / 容量上限按反面清单不做。
 
-### T5 收藏状态 + 收藏数（来源 R-06 / 能力 一期-5 / 一期-6）【待执行】
+### T5 收藏状态 + 收藏数（来源 R-06 / 能力 一期-5 / 一期-6）【已完成】
 
 * **入口线索**：`GET /favorite/status`（含所在夹）+ `GET /favorite/count`。
   ⚠️ **前提可被质疑**：`status` 要不要返回"所在夹列表"？若执行期发现前端用不上，
@@ -224,7 +224,40 @@
   同一内容进两夹时 `status` 的表达形态。
 * **验收**：**独立 oracle 查 `COUNT(DISTINCT user_id)`** 与接口一致；同一人进两夹仍算 1；
   全移出后回 0。
-* **回写**：
+* **回写**：★ 开工前与用户**讨论并拍板了取数形态**（本题的"前提可被质疑"）—— 用户问"收藏状态
+  该独立端点、还是随内容详情一起查？"。结论 **一期走独立端点**；"详情页内联 `isFavorited`"
+  （能把登录用户浏览内容页的收藏域请求从 2 降到 1，与详情页既有 `isLiked`/`isFollowed` 同形）
+  **登记为 `CURRENT_NEEDS.md` R-10 待拍板**（用户 2026-10-09 决定"简单登记、真要排任务时再调查复核"）
+  —— 不采纳理由：收益落在"请求数"而**一期判据 ③ 明写"不看 QPS"**，且它会把 content 域拉进本期。
+  落地两条读端点：
+  ① `GET /favorite/status`（**需登录**，`@RequiresLogin` + `@CurrentUserId`）→
+  `data = {isFavorited, folders:[{id,name}]}`；★ `isFavorited` 由 `folders.isEmpty()` **推导**
+  （收藏必有归属 ⇒ 已收藏 ⟺ 至少落在一个夹里，**结构性成立** ⇒ 无第二处事实源、无漂移余地），
+  不另发 `EXISTS` 查询；`folders` 顺序复用"默认夹置顶 + 创建序"（与夹列表同一契约）；
+  ② `GET /favorite/count`（**匿名可访问** —— 公开展示数，需求篇 §三；★ 与 `/like/content/count`
+  的"需登录"**刻意不同**：那条是 TV `/like` 前缀保护惯性，收藏是新域无此包袱）。
+  **两条端点都不 404**（内容不存在 / 从未被收藏 ⇒ "未收藏 / 0"，不给内容存在性开探测口）。
+  新增 `model/vo/FavoriteStatusVO` + `model/vo/FavoriteFolderBriefVO`（brief **只给 id + name**，
+  刻意不复用 `FavoriteFolderVO` —— 免得把 `itemCount`/`isPrivate` 噪声带进状态端点）；
+  `FavoriteItemDao` 补 2 条 SQL（`findFoldersByUserAndContent` 命中 `idx_user_content` 两列等值；
+  `countDistinctUserByContentId`）；两条读路径均为单 SELECT ⇒ **不加事务**。
+  ✅ **强制探索①（耗时基线）★ 现场纠了一处认知错**：初始假设"无 `content_id` 前导索引 ⇒ 全表扫"
+  被实测**推翻** —— 2 万行 / 目标内容 2000 个不同 user 下 `EXPLAIN` = `type=range`、
+  `key=idx_user_content`、`Extra="Using where; Using index for group-by (scanning)"`（MySQL 8 的
+  **loose index scan / skip scan**，用 `user_id` 前导列满足 `DISTINCT`）；`EXPLAIN ANALYZE` ≈17ms、
+  20 次实测 **best≈14ms / avg≈19ms**。已就地更正 DAO/XML 注释并登记 **I-06**；数字记入分期篇 §3.2。
+  ✅ **强制探索②（进两夹的表达形态）**：`folders` 列出两个夹、`isFavorited=true`、`count` 仍为 **1**
+  —— 由 `同一人进两夹状态含两夹计数仍为一` 钉死（同时断言 DB 里是 2 条记录，故"去 DISTINCT"必红）。
+  验证：`FavoriteStatusAndCountTests` **8 例** + `SecurityContractTests` 新增 1 例全绿；
+  **回归基线 `run_tests.py` = 373 例全绿**（默认组，364 + 9）+ `--group resilience` **34 例全绿**。
+  ★ **反向验证已实测（`temp-script/t5_injections.sh` + `t5_failing.py`；先 commit 再注入，逐条注入→跑→`git checkout` 还原）**：
+  ① 计数 SQL 去掉 `DISTINCT`（`COUNT(DISTINCT user_id)` → `COUNT(*)`）⇒ **`同一人进两夹状态含两夹计数仍为一` 1 例红**；
+  ② `findFoldersByUserAndContent` 去掉 `i.user_id = #{userId}` ⇒ **`两人收藏计数加一且状态互不影响` 1 例红**（别人的夹混进我的状态）；
+  ③ 给 `/favorite/count` 误加 `@RequiresLogin` ⇒ `SecurityContractTests.favorite状态与计数鉴权` + 本类
+  `状态需登录计数匿名可访问` / `参数缺失400与不存在内容不404` **共 3 例红**。三轮还原后两根全绿。
+  拆 **2 个 commit**（T5-1 feat / T5-2 test）。
+  **未做（各有归属）**：`static/js/api.js` **未动**（新端点尚无前端消费方，T7 统一接）；
+  "详情内联 `isFavorited`" 未做 ⇒ **R-10**（待拍板）。
 
 ### T6 夹内列表分页（含失效占位）（来源 R-03 / R-07 / 能力 一期-7）【待执行】
 

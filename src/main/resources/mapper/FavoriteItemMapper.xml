@@ -68,8 +68,10 @@
     <!-- 某内容的收藏数（T5：GET /favorite/count）—— ★ 按人去重：COUNT(DISTINCT user_id)，
          同一人进多夹只算 1（需求篇 §六）。写成 COUNT(*) 会把"一人多夹"重复计数（T5 注入点之一）。
          ★ 一期实时算、不读 content.favorite_count 列（R-06）；这也是二期冗余列验收时的不变式右边。
-         ⚠️ 刻意没有 content_id 前导索引 ⇒ 本条走全表扫（EXPLAIN type=ALL），这是有意的基线，
-           别顺手加索引（先加就把二期"优化前"的对照毁了）；基线见 CURRENT_TASKS.md T5 回写。
+         ⚠️ 刻意没有 content_id 前导索引（有意基线，别顺手加：先加就把二期"优化前"的对照毁了）。
+           ★ T5 实测：本条并未退化成全表扫 —— EXPLAIN = type=range / key=idx_user_content /
+           Extra="Using where; Using index for group-by (scanning)"（MySQL 8 的 loose index scan /
+           skip scan，用 user_id 前导列满足 DISTINCT）。基线数字见 CURRENT_TASKS.md T5 回写。
          COUNT 无匹配行返回 0（不是 null）⇒ 不存在 / 无人收藏都是 0，不 404。 -->
     <select id="countDistinctUserByContentId" resultType="long">
         SELECT COUNT(DISTINCT user_id) FROM favorite_item WHERE content_id = #{contentId}

@@ -36,8 +36,8 @@ import java.util.List;
  *   <li><b>收藏数按人去重</b>（R-06）：{@code SELECT COUNT(DISTINCT user_id) FROM favorite_item
  *       WHERE content_id = ?} —— 同一人进多个夹只算 1。故 {@code user_id} 是本表的**冗余列**，
  *       判定"同一人是否收藏过"必须按 {@code (user_id, content_id)}，**不能按夹判**。
- *       ⚠️ 一期不加 {@code content_id} 前导索引：这个"笨查询"的耗时基线是**二期优化的对照**
- *       （T5 要求记录），先加索引就把基线毁了。</li>
+ *       ⚠️ 一期不加 {@code content_id} 前导索引：这个查询的耗时基线是**二期优化的对照**
+ *       （T5 已实测记录，见 {@link #countDistinctUserByContentId}），先加索引就把基线毁了。</li>
  * </ol>
  *
  * <h2>表上的两个索引（各自服务什么）</h2>
@@ -175,13 +175,19 @@ public interface FavoriteItemDao {
      * {@code content.favorite_count == 本查询}。故一期这条"笨查询"**直接就是二期的验收基准**。
      *
      * <h2>⚠️ 刻意不加 {@code content_id} 前导索引 —— 它的耗时基线是二期的对照</h2>
-     * 表上只有 {@code idx_user_content (user_id, content_id)}（前导列是 {@code user_id}）与
-     * {@code uk_folder_content (folder_id, content_id)}、{@code idx_folder_time (folder_id, create_time)}，
-     * 没有一条能只靠 {@code content_id} 等值定位 ⇒ 本条 SQL 走**全表扫**（{@code EXPLAIN} 的
-     * {@code type=ALL}）。**这是有意的**：先加索引就把"优化前"的基线毁掉了。
-     * T5 已记录基线（N 行 ⇒ 全表扫 + 实测耗时，见 {@code .docs/task/CURRENT_TASKS.md} T5 回写
-     * 与 {@code 收藏功能-分期与设计.md} §3.2）。二期建 {@code content_id} 前导索引 / 冗余列时，
-     * 拿它当对照。
+     * 表上只有 {@code idx_user_content (user_id, content_id)}（前导列是 {@code user_id}）、
+     * {@code uk_folder_content (folder_id, content_id)} 与 {@code idx_folder_time (folder_id, create_time)}，
+     * **没有一条以 {@code content_id} 前导**。这是有意的：先加就把"优化前"的基线毁掉了。
+     *
+     * <p>★ <b>T5 实测基线（一次性探针，非断言；数字见 {@code CURRENT_TASKS.md} T5 回写）</b>：
+     * 2 万行 / 目标 content 2000 个不同 user ⇒ {@code EXPLAIN} 是
+     * {@code type=range, key=idx_user_content, key_len=16, Extra="Using where; Using index for group-by (scanning)"}
+     * —— 即 MySQL 8 **没有**退化成全表扫，而是借 {@code idx_user_content} 做 **loose index scan /
+     * skip scan**（用 {@code user_id} 前导列满足 {@code DISTINCT}、逐段跳扫滤 {@code content_id}）；
+     * {@code EXPLAIN ANALYZE} 实际 ≈ 17ms，20 次实测 best ≈ 14ms / avg ≈ 19ms。
+     * ⚠️ **别照抄"无 {@code content_id} 索引 ⇒ 全表扫"**：这个查询形态
+     * （{@code COUNT(DISTINCT user_id)} + 恰好有 {user_id, content_id} 复合索引）能被 skip scan 接住
+     * —— 这是 T5 实测**推翻**的初始假设。二期建 {@code content_id} 前导索引 / 上冗余列时，拿这组数字当对照。
      *
      * <p>⚠️ 不校验 {@code contentId} 存在性：内容不存在 / 从来没人收藏 ⇒ {@code 0}
      * （{@code COUNT} 无匹配行返回 0，不是 null）；返回 0 而不是 404 —— 内容页对"没人收藏"
