@@ -51,13 +51,26 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>去掉 {@code FavoriteService.maskIfInvalid} 的失效分支 ⇒ 脱敏用例变红（原标题 / 封面 / 作者泄漏）；</li>
  *   <li>{@code findPageByFolderId} 的 {@code LEFT JOIN} 改成 {@code INNER JOIN} ⇒
  *       失效条目从页里消失 ⇒ 脱敏 / total / 满页三条用例变红（**分页出空洞**）；</li>
- *   <li>{@code ORDER BY} 去掉 {@code i.create_time DESC}（改成 {@code i.id DESC}）⇒ 倒序用例变红；</li>
+ *   <li>{@code ORDER BY} 的 {@code i.create_time DESC} 换成 {@code i.id DESC} ⇒ 倒序与分页用例变红；</li>
  *   <li>{@code countByFolderId} 加 {@code JOIN content ... is_deleted = 0} ⇒ total 变小 ⇒
- *       "total 含失效"与分页并集用例变红。</li>
+ *       "total 含失效"与分页并集用例变红；</li>
+ *   <li>{@code c.is_deleted != 0} 写成 {@code = 1} ⇒ 三态覆盖用例变红；</li>
+ *   <li>去掉 {@code /favorite/list} 的 {@code @RequiresLogin} ⇒ {@code SecurityContractTests} 变红
+ *       （而本类 **12 例全绿** —— 又一次证实 T2 教训：HTTP 侧的 401 由 {@code @CurrentUserId}
+ *       的参数解析器兜出，对 {@code @RequiresLogin} 机制是**假绿**）。</li>
  * </ul>
- * ⚠️ 其中"同秒 tie-breaker"那条钉的是**契约**，其判别力依赖优化器在 {@code create_time} 并列时
- * 恰好怎么回行 —— 反向验证时以实测为准（若去掉 {@code , i.id DESC} 不变红，说明该顺序由索引
- * 结构巧合保证，本条降级为"钉契约"，不算判别力）。
+ *
+ * <h2>★ 一次实测到的假绿，已修（T6-2b）</h2>
+ * 首轮注入"把排序键换成 {@code i.id DESC}"得到 **0 红** —— 夹具按"先插最早收的、后插最近收的"
+ * 造数据，于是 {@code favorite_item.id} 序与收藏时间序**同向**，实现改成按 id 排也照样绿。
+ * ★ 教训（可迁移）：**断言"顺序"的用例，必须让排序键序与 id 序反向** ——
+ * 夹具的插入顺序本身就是判别力的一部分，不是中性的实现细节。
+ * 修法：本类"倒序"用例**倒着插**（最近收的拿最小 id）、"分页"用例从新到旧插，两处互为对照。
+ *
+ * <p>同秒 tie-breaker 那条**实测有判别力**（去掉 {@code , i.id DESC} ⇒ 1 红）：
+ * MySQL 在 {@code create_time} 并列时按索引序回行，恰好与 {@code id DESC} 相反。
+ * ⚠️ 但这是"实测成立"而非"规范保证" —— 若将来执行计划变了（如换索引），
+ * 该条可能退化成只钉契约；复核时**重新注入**即可，别把它当成永久判别力。
  *
  * <h2>独立性</h2>
  * 关键计数一律用**独立 oracle** 直查 {@code favorite_item} 复算（{@code COUNT(*)}），不信接口回显；

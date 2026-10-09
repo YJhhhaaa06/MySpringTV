@@ -53,7 +53,50 @@
 * **红线边界**：
 * **强制探索**：
 * **验收**：
-* **回写**：（完成后三句内写清改了什么、验证结果；探索过程不写）
+* **回写**：落地 `GET /favorite/list?folderId=&page=&pageSize=`（逐端点 `@RequiresLogin` +
+  `@CurrentUserId`）。★ **参数名用 `pageSize`**，任务清单速记的 `size` **不采用** ——
+  与 `PageResult.pageSize` 及全项目其余分页端点（`/start` / `/profile` / `/search` / `/feed` /
+  `/comment/*`）一致，两个名字表达同一件事会让契约分裂；分期篇 §3.3 原写"（page/size）"
+  已就地更正为 `page/pageSize`（免得与实现长期矛盾）。新增 `model/vo/FavoriteItemVO`
+  （一身两职：Mapper 行类型 + API 载荷，**7 键**：`id / contentId / favoriteTime / invalid /
+  title / coverUrl / authorName`；刻意不含 `type` / `authorId` —— 键集一旦扩大即契约，
+  T7 若确需先回来改注释与键集断言）+ `FavoriteItemDao` 2 条 SQL（`countByFolderId` /
+  `findPageByFolderId` 含 `LEFT JOIN content`）。
+  ★ 执行期决断（G13）：**数据全部由一条 LEFT JOIN SQL 出**，不走
+  `ContentService.loadContentVOs` —— 后者把"媒体损坏 / 未知类型"也按"装载不出来 ⇒ 跳过"处理，
+  与 R-03「失效 = `is_deleted != 0`」不是同一批内容；混用会让"列表说失效"与
+  `add`/`move` 照收（T4 的 `isContentExist` 带 `is_deleted = 0`）**自相矛盾**，且它依赖 content
+  缓存 ⇒ 测试要清 Redis、直接改 DB 的 `is_deleted` 不会被缓存感知。代价是本域多持有一份
+  封面选取规则副本（`content_media` type=3 首条）+ 自己用 `MediaProperties` 拼 URL 前缀
+  ⇒ 已登记 **I-07**。
+  ★ 分层：**SQL 只判失效**（`CASE ... AS invalid`）、**Java 决定失效长什么样**
+  （`maskIfInvalid`：标题 = 「内容已失效」、封面与作者置 null）—— 两件事不在一层做，
+  反向验证两个注入点各自独立。**不复用 `ProfileService` 的"跳过 null、total 不变"口径**
+  （`ProfileService.java:109`，那会让分页出空洞）。顺序 `create_time DESC, id DESC`：
+  `create_time` 是秒精度，同秒并列只按它排会让页间顺序不确定（重漏）⇒ 补 `id DESC` 兜底。
+  验证：`FavoriteItemListTests` **12 例** + `SecurityContractTests` 新增 1 例全绿；
+  **回归基线 `run_tests.py` = 386 例全绿**（默认组，373 + 13）。
+  ★ **反向验证已实测（`temp-script/t6_injections.sh` + `t6_injections2.sh`；先 commit 再注入，
+  逐条注入→跑→`git checkout` 还原）**：
+  ① 去掉 `maskIfInvalid` 的失效分支 ⇒ **2 红**（脱敏两条：原标题 / 封面 / 作者泄漏）；
+  ② SQL 的 `invalid` 恒为 0 ⇒ **3 红**（判失效在 SQL 侧这一半也有判别力）；
+  ③ `LEFT JOIN` → `INNER JOIN` ⇒ **1 红 + 1 错**（条目整行消失 ⇒ 分页空洞，正是 G12 防的）；
+  ④ `c.is_deleted != 0` 写成 `= 1` ⇒ **2 红**（三态覆盖）；
+  ⑤ `ORDER BY` 把 `i.create_time DESC` 换成 `i.id DESC` ⇒ **首跑 0 红 —— 假绿**（见下）⇒
+     修夹具后 **2 红**；⑥ 去掉 `, i.id DESC` ⇒ **1 红**（同秒 tie-breaker 有判别力，
+     实测 MySQL 并列时按索引序回行、恰与 `id DESC` 相反；⚠️ 属"实测成立"非"规范保证"）；
+  ⑦ `countByFolderId` 加 `JOIN content ... is_deleted = 0` ⇒ **4 红**（total 变小）；
+  ⑧ 去掉 `/favorite/list` 的 `@RequiresLogin` ⇒ `SecurityContractTests` **1 红**、而
+  `FavoriteItemListTests` **12 例全绿** —— 又一次证实 T2 教训：HTTP 侧 401 由
+  `@CurrentUserId` 参数解析器兜出，对 `@RequiresLogin` 机制是**假绿**。
+  ★ **⑤ 的教训（可迁移）**：断言"顺序"的用例必须让**排序键序与 id 序反向** ——
+  首轮夹具按"先插最早收的"造数据 ⇒ id 序与收藏时序同向 ⇒ 实现改成按 id 排也照样绿。
+  **夹具的插入顺序本身就是判别力的一部分，不是中性的实现细节**（已修：倒序用例倒着插、
+  分页用例从新到旧插，两处互为对照）。另加 `requireItem()`：注入 INNER JOIN 时条目整行消失，
+  原写法下游直接 NPE、失败信息里看不到"少了哪一条"。
+  **未做（各有归属）**：`static/js/api.js` **未动**（新端点尚无前端消费方，T7 统一接）；
+  封面规则副本 ⇒ **I-07**；他人夹内列表一期不做（R-08 只给名称 + 视频数，
+  `PublicFavoriteFolderVO` 无 id ⇒ 打不开别人的夹，故 `/favorite/list` 恒为"我的"视角）。
 ```
 
 > 📌 下面的清单是**粗颗粒**（G13）：给方向与红线，不给施工步骤。执行期发现更合理的拆法，
@@ -269,7 +312,7 @@
   **未做（各有归属）**：`static/js/api.js` **未动**（新端点尚无前端消费方，T7 统一接）；
   "详情内联 `isFavorited`" 未做 ⇒ **R-10**（待拍板）。
 
-### T6 夹内列表分页（含失效占位）（来源 R-03 / R-07 / 能力 一期-7）【待执行】
+### T6 夹内列表分页（含失效占位）（来源 R-03 / R-07 / 能力 一期-7）【已完成】
 
 * **入口线索**：`GET /favorite/list?folderId=&page=&size=`；失效判据 = `c.id IS NULL OR c.is_deleted != 0`。
   ⚠️ **前提可被质疑**：本仓目前只有逻辑删除，`c.id IS NULL` 这一半是不是多余？
