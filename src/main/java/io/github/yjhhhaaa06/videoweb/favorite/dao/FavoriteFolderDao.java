@@ -31,16 +31,18 @@ import java.util.List;
  *       （R-05：后补要 V3 + 存量回填）；私密的**可观察落点**不在这里，而在他人视角端点。</li>
  * </ul>
  *
- * <h2>SQL 清单（各端点用哪条；T2 五条 + T3 一条，更新路径在 T3 由 {@code updateName} 升级为部分更新）</h2>
+ * <h2>SQL 清单（各端点用哪条；T2 五条 + T3 一条 + T4 两条，更新路径在 T3 由 {@code updateName} 升级为部分更新）</h2>
  * <table>
  *   <caption>方法 ↔ 端点</caption>
  *   <tr><th>方法</th><th>服务于</th></tr>
  *   <tr><td>{@link #insertFolder}</td><td>{@code POST /favorite/folder/add}</td></tr>
  *   <tr><td>{@link #findByUserIdWithItemCount}</td><td>{@code GET /favorite/folder/list}（含私密）</td></tr>
  *   <tr><td>{@link #findPublicByUserIdWithItemCount}</td><td>{@code GET /favorite/folder/public}（<b>过滤私密</b>）</td></tr>
- *   <tr><td>{@link #findById}</td><td>改名 / 改私密 / 删除前的归属与类别校验</td></tr>
+ *   <tr><td>{@link #findById}</td><td>改名 / 改私密 / 删除 / 收藏与移动前的归属与类别校验</td></tr>
  *   <tr><td>{@link #updateNameAndPrivacy}</td><td>{@code POST /favorite/folder/update}（部分更新）</td></tr>
  *   <tr><td>{@link #deleteById}</td><td>{@code POST /favorite/folder/remove}（条目由 {@code FavoriteItemDao} 同事务删）</td></tr>
+ *   <tr><td>{@link #insertDefaultFolderIfAbsent} + {@link #findDefaultFolderId}</td>
+ *       <td>{@code POST /favorite/add} 未带 {@code folderId} 时的默认夹懒建（R-01，T4）</td></tr>
  * </table>
  *
  * <p>⚠️ 删除自建夹要**一并删条目**（R-02）；删夹与删条目必须同事务
@@ -150,4 +152,36 @@ public interface FavoriteFolderDao {
      * @return 受影响行数（正常恒为 1）
      */
     int deleteById(@Param("id") long id);
+
+    /**
+     * 默认夹懒建的"存在才跳过"插入（T4，R-01）：默认夹不存在则建，已存在则**原样不动**。
+     *
+     * <h2>★ 为什么必须是 {@code ON DUPLICATE KEY UPDATE}，不能"先 SELECT 后 INSERT"</h2>
+     * R-01 懒建 = 「首次收藏时建默认夹」。两个并发的首次收藏都能 SELECT 到"不存在"，
+     * 随后各自 INSERT ⇒ 重复建夹——兜住它的**唯一手段**是唯一键
+     * {@code uk_user_default (user_id, default_uniq)}（R-09；生成列 {@code default_uniq}
+     * 让"同一用户多条自建夹、至多一条默认夹"能用一个键表达）。
+     * 本语句撞上该键时走 {@code id = id} 的**无变化赋值**（MySQL 要求 ON DUPLICATE KEY
+     * 必须带赋值；对自身赋值不改动任何列），效果即"已存在则跳过"——**不抛异常**，
+     * 调用方随后用 {@link #findDefaultFolderId} 取回夹 id，两个并发请求都拿到同一条。
+     *
+     * <p>⚠️ 本语句建成的是**默认夹**（{@code is_default = 1}），与
+     * {@link #insertFolder}（永远自建夹）是两条路径，别混用。
+     *
+     * @param userId 归属用户（唯一键的判别主体）
+     * @param name   默认夹名（service 常量「默认收藏夹」；用户之后可照常改名）
+     */
+    void insertDefaultFolderIfAbsent(@Param("userId") long userId, @Param("name") String name);
+
+    /**
+     * 取默认夹 id（懒建的第二步：先 {@link #insertDefaultFolderIfAbsent} 再查）。
+     *
+     * <p>★ 按业务键查（{@code user_id + is_default = 1}）而非连接状态（{@code LAST_INSERT_ID}）：
+     * 两条 mapper 调用在不加事务时可能各借各的连接，连接级函数会取到别人的值；
+     * 业务键查询与连接无关，服务层的懒建序列因此**不需要**为它套事务。
+     *
+     * @return 默认夹 id；该用户没有默认夹时为 {@code null}
+     *        （懒建序列里正常不会发生——插入要么新建要么撞键跳过；service 对此有守卫）
+     */
+    Long findDefaultFolderId(@Param("userId") long userId);
 }

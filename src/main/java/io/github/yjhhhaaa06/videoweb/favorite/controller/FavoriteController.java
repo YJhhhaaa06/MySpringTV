@@ -25,7 +25,9 @@ import java.util.List;
  *   <tr><td>{@code POST /favorite/folder/add|update|remove}</td><td rowspan="2">夹 CRUD = <b>T2</b></td><td rowspan="2">✅ 本任务落地</td></tr>
  *   <tr><td>{@code GET /favorite/folder/list}</td></tr>
  *   <tr><td>{@code GET /favorite/folder/public?userId=X}</td><td>T3</td><td>✅ 本任务落地（匿名可访问）</td></tr>
- *   <tr><td>{@code POST /favorite/add|remove|move}</td><td>T4</td><td>未落地</td></tr>
+ *   <tr><td>{@code POST /favorite/add}</td><td rowspan="3">收藏写路径 = <b>T4</b></td><td>✅ 本任务落地</td></tr>
+ *   <tr><td>{@code POST /favorite/remove}（批量）</td><td>✅ 本任务落地</td></tr>
+ *   <tr><td>{@code POST /favorite/move}</td><td>✅ 本任务落地</td></tr>
  *   <tr><td>{@code GET /favorite/status|count}</td><td>T5</td><td>未落地</td></tr>
  *   <tr><td>{@code GET /favorite/list}</td><td>T6</td><td>未落地</td></tr>
  * </table>
@@ -60,8 +62,9 @@ import java.util.List;
  * {@code FavoriteFolderVO} 的类注释。
  *
  * <h2>错误码</h2>
- * 404 夹不存在 · 403 不是自己的夹 · 409 默认夹不可删 · 400 夹名为空或超长 /
- * 更新时一个字段都没给 / {@code isPrivate} 格式非法 · 401 未登录
+ * 404 夹不存在 / 内容不存在或已失效（add / move） · 403 不是自己的夹 ·
+ * 409 默认夹不可删 / 重复收藏 · 400 夹名为空或超长 / 更新时一个字段都没给 /
+ * {@code isPrivate} 格式非法 / 移出内容列表为空 · 401 未登录
  * —— 分界线与理由见 {@code FavoriteService} 的类注释。
  */
 @RestController
@@ -171,6 +174,73 @@ public class FavoriteController {
     @GetMapping("/folder/public")
     public ApiResponse<List<PublicFavoriteFolderVO>> publicFolders(@RequestParam long userId) {
         return ApiResponse.success(favoriteService.listPublicFolders(userId));
+    }
+
+    // ==================== 收藏写路径（T4：写 = POST + form） ====================
+
+    /**
+     * 收藏内容到指定夹。成功响应 {@code data} 是字符串「收藏成功」。
+     *
+     * <p>★ <b>{@code folderId} 可不传 = 收进默认夹</b>（需求篇 §二「没选夹自动进默认收藏夹」）；
+     * 默认夹不存在时**就地懒建**（R-01，全系统唯一建默认夹的路径 —— 新用户拿不到
+     * 默认夹 id，夹列表对他是空态）。口径：失效内容 404（不可移入）、
+     * 重复收藏 409（撞 {@code uk_folder_content} 的幂等拒绝）、他人的夹 403。
+     * 详见 {@code FavoriteService.addItem}。
+     *
+     * @param contentId 内容 id（必传）
+     * @param folderId  目标夹；缺省 = 默认夹（必要时懒建）；夹不存在 → 404、不是我的 → 403
+     */
+    @RequiresLogin
+    @PostMapping("/add")
+    public ApiResponse<String> addItem(@CurrentUserId long userId,
+                                       @RequestParam long contentId,
+                                       @RequestParam(required = false) Long folderId) {
+        favoriteService.addItem(userId, folderId, contentId);
+        return ApiResponse.success("收藏成功");
+    }
+
+    /**
+     * 从指定夹移出收藏（**批量**：夹内勾选多条一次移出）。成功响应 {@code data} 是字符串「移出成功」。
+     *
+     * <p>★ <b>本端点不校验内容存在性</b>（G11 红线 —— 失效条目必须删得掉），
+     * 且幂等：记录已不存在（陈旧页面）也照常 200、删除 0 行不算错。
+     * ⚠️ 只动 {@code folderId} 这一个夹：同内容在别的夹的记录**不受影响**（需求篇 §三）。
+     * 详见 {@code FavoriteService.removeItems}。
+     *
+     * @param folderId   从哪个夹移出；夹不存在 → 404、不是我的 → 403
+     * @param contentIds 要移出的内容 id 集合；逗号分隔（{@code contentIds=1,2}）与
+     *                   重复参数（{@code contentIds=1&contentIds=2}）两种形态 Spring 都绑定；
+     *                   空 / 缺参 → 400
+     */
+    @RequiresLogin
+    @PostMapping("/remove")
+    public ApiResponse<String> removeItems(@CurrentUserId long userId,
+                                           @RequestParam long folderId,
+                                           @RequestParam List<Long> contentIds) {
+        favoriteService.removeItems(userId, folderId, contentIds);
+        return ApiResponse.success("移出成功");
+    }
+
+    /**
+     * 把一条收藏从源夹挪到目标夹。成功响应 {@code data} 是字符串「移动成功」。
+     *
+     * <p>独立端点而非前端的 remove + add 两连击：两次调用之间没有原子性，
+     * add 失败会让条目从源夹消失（失效内容本该"不可移动但**保留原位**"，R-07）。
+     * 口径：失效内容 404、目标夹已有同内容 409（源夹保留）、from == to 也是 409；
+     * 两条写在同一事务（{@code FavoriteService.moveItem}）。
+     *
+     * @param fromFolderId 源夹；不存在 → 404、不是我的 → 403
+     * @param toFolderId   目标夹；同上
+     * @param contentId    内容 id；内容不存在或已失效 → 404（条目留在源夹）
+     */
+    @RequiresLogin
+    @PostMapping("/move")
+    public ApiResponse<String> moveItem(@CurrentUserId long userId,
+                                        @RequestParam long fromFolderId,
+                                        @RequestParam long toFolderId,
+                                        @RequestParam long contentId) {
+        favoriteService.moveItem(userId, fromFolderId, toFolderId, contentId);
+        return ApiResponse.success("移动成功");
     }
 
     // ==================== 参数解析 ====================

@@ -110,4 +110,26 @@
         DELETE FROM favorite_folder WHERE id = #{id}
     </delete>
 
+    <!-- 默认夹懒建（T4，R-01）：不存在则建、已存在则原样不动。
+         ★ ON DUPLICATE KEY UPDATE id = id —— 撞 uk_user_default（每用户至多一条默认夹，
+           R-09 生成列方案）时走无变化赋值而不抛异常；并发首次收藏两边都成功、都拿到同一条。
+           "先 SELECT 后 INSERT" 兜不住并发（两个事务都能查到"不存在"），别改回去。
+         ⚠️ is_default 显式写 1（与 insertFolder 的"永远自建夹"是两条路径）；
+           is_private 不写（走列默认 0 = 公开，R-05）。 -->
+    <insert id="insertDefaultFolderIfAbsent">
+        INSERT INTO favorite_folder (user_id, name, is_default)
+        VALUES (#{userId}, #{name}, 1)
+        ON DUPLICATE KEY UPDATE id = id
+    </insert>
+
+    <!-- 取默认夹 id（懒建第二步，紧跟上一条）。按业务键（user_id + is_default = 1）查
+         而非连接级 LAST_INSERT_ID：两次 mapper 调用可能各借各的连接（懒建序列不加事务），
+         连接级函数会取错；业务键查询与连接无关。 -->
+    <select id="findDefaultFolderId" resultType="long">
+        SELECT id
+        FROM favorite_folder
+        WHERE user_id = #{userId} AND is_default = 1
+        LIMIT 1
+    </select>
+
 </mapper>

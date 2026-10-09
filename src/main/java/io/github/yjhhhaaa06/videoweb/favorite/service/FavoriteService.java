@@ -4,6 +4,7 @@ import io.github.yjhhhaaa06.videoweb.common.exception.ConflictException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ForbiddenException;
 import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
+import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
 import io.github.yjhhhaaa06.videoweb.favorite.dao.FavoriteFolderDao;
 import io.github.yjhhhaaa06.videoweb.favorite.dao.FavoriteItemDao;
 import io.github.yjhhhaaa06.videoweb.favorite.model.entity.FavoriteFolder;
@@ -17,8 +18,9 @@ import java.util.List;
 /**
  * 收藏业务（收藏夹 CRUD / 收藏与移出 / 状态与计数 / 夹内分页）。
  *
- * <h2>分期落点（T1 骨架 / T2 夹 CRUD / T3 私密与公开夹）</h2>
- * 夹 CRUD = **T2**；私密开关 + 他人公开夹 = **T3**；写路径（收藏/移出/移动）= T4；
+ * <h2>分期落点（T1 骨架 / T2 夹 CRUD / T3 私密与公开夹 / T4 收藏写路径）</h2>
+ * 夹 CRUD = **T2**；私密开关 + 他人公开夹 = **T3**；写路径（收藏/移出/移动）= **T4**（本类
+ * {@link #addItem} / {@link #removeItems} / {@link #moveItem}）；
  * 状态与计数 = T5；夹内分页 = T6。本类承担**装配关系**（controller → 本类 → 两个 DAO）
  * 与**边界声明**，其余方法随任务逐个补。
  *
@@ -31,24 +33,29 @@ import java.util.List;
  *   <li>🚫 <b>一期不写缓存、不写冗余计数</b>（G7）：没有 {@code favorite.cache} 包，
  *       不维护 {@code content.favorite_count}（R-06：一期实时
  *       {@code COUNT(DISTINCT user_id)}，二期才上冗余列）。发现自己需要缓存 ⇒ 先停下改分期。</li>
- *   <li>★ <b>{@code remove} 不校验内容存在性</b>（G11）：见 {@code FavoriteItemDao} 的口径 1。
- *       T2 移出的是"整个夹"（{@link #deleteFolder}），不涉及内容存在性；收藏/移出归 T4。</li>
+ *   <li>★ <b>{@code remove} 不校验内容存在性</b>（G11）：见 {@link #removeItems} 与
+ *       {@code FavoriteItemDao} 的口径 1。失效条目**能移出**；反向：{@code add}/{@code move}
+ *       照常校验（{@code isContentExist} 带 {@code is_deleted = 0}），
+ *       「失效不可移入」由此**自然产生**，没有专门分支。</li>
  *   <li>跨域只走三条合法通道：对方的 Service 公开方法 / 同事务内的 DAO 薄依赖 / 自己的
  *       {@code event} 包订阅别人的事件（见 {@code architecture/tech/模块边界与依赖.md} §三）。
  *       ⚠️ 本域**没有** {@code event} 包也不该有：收藏不是"别人要响应的事实"。
- *       ★ T2 的四个方法**零跨域调用**（只碰自己两张表）——所以本任务不需要在 ArchUnit 之外
- *       新增任何依赖表态。</li>
+ *       T4 新增一条 **DAO 薄依赖**：{@code ContentDao.isContentExist}（收藏/移动前判内容存在，
+ *       与 like 域对 content/comment 的薄依赖同形态——同事务内一条窄查询，不碰对方的
+ *       service/model/cache）。</li>
  * </ul>
  *
  * <h2>事务</h2>
- * 写路径（尤其是"删夹一并删条目" R-02）必须同事务，切分口径见
- * {@code architecture/tech/事务边界.md}；{@code @Transactional} 标在**本类的 public 入口**上，
- * 别标在同类内部调用的私有方法上（自调用绕过代理 ⇒ 静默失效）。
+ * 写路径的切分口径见 {@code architecture/tech/事务边界.md}；{@code @Transactional} 标在
+ * **本类的 public 入口**上，别标在同类内部调用的私有方法上（自调用绕过代理 ⇒ 静默失效）。
  * <ul>
+ *   <li>{@link #moveItem} —— **两条写必须同进同退**（插入目标夹 + 从源夹删除）⇒
+ *       {@code @Transactional}；先插后删：目标夹撞唯一键（409）时源夹必然未动；</li>
  *   <li>{@link #deleteFolder} —— **两条写必须同进同退**（删条目 + 删夹）⇒ {@code @Transactional}；</li>
- *   <li>{@link #createFolder} / {@link #updateFolder} —— **各只有一条写**，本身即原子 ⇒ **不加事务**
- *       （§四"纯读/单写不为取连接套事务"）。{@code updateFolder} 的两个字段由**一条**动态 SQL
- *       更新（给了才改），不是两条 ⇒ 不需要事务兜"半改状态"；</li>
+ *   <li>{@link #createFolder} / {@link #updateFolder} / {@link #addItem}（显式夹）/
+ *       {@link #removeItems} —— **各只有一条写**，本身即原子 ⇒ **不加事务**
+ *       （§四"纯读/单写不为取连接套事务"）；{@code addItem} 懒建路径虽是两条写，但
+ *       "空默认夹"是合法终态、与收藏记录无完整性耦合，见 {@link #addItem} 方法注释；</li>
  *   <li>{@link #listMyFolders} / {@link #listPublicFolders} —— 单条 SELECT ⇒ 不加事务（§四）。</li>
  * </ul>
  *
@@ -62,7 +69,8 @@ import java.util.List;
  *   <li>并发补建还要靠 {@code uk_user_default} 兜（本可以不引入的竞态）。</li>
  * </ul>
  * ⇒ 保持懒建 + 空列表；空态是**前端要渲染的一种正常响应**（T7），不是错误。
- * 本类**不提供**"取或建默认夹"的方法 —— 那是 T4 收藏路径的单点，没有别的消费方。
+ * 本类不暴露独立的"建默认夹"端点 —— 懒建只发生在首次收藏的路径里
+ * （{@link #ensureDefaultFolder}，T4 落地），没有别的消费方。
  *
  * <h2>归属与不存在的错误码口径（对齐既有语义，别自创）</h2>
  * <table>
@@ -105,12 +113,17 @@ public class FavoriteService {
     /** 名称长度上限 —— 与列 {@code favorite_folder.name varchar(100)} 对齐。 */
     private static final int NAME_MAX_LENGTH = 100;
 
+    /** 懒建默认夹的名字（需求篇 §二「默认收藏夹」；用户之后可照常改名，重名不校验——同 {@link #createFolder}）。 */
+    private static final String DEFAULT_FOLDER_NAME = "默认收藏夹";
+
     private final FavoriteFolderDao folderDao;
     private final FavoriteItemDao itemDao;
+    private final ContentDao contentDao;
 
-    public FavoriteService(FavoriteFolderDao folderDao, FavoriteItemDao itemDao) {
+    public FavoriteService(FavoriteFolderDao folderDao, FavoriteItemDao itemDao, ContentDao contentDao) {
         this.folderDao = folderDao;
         this.itemDao = itemDao;
+        this.contentDao = contentDao;
     }
 
     // ========================================================================
@@ -241,8 +254,161 @@ public class FavoriteService {
     }
 
     // ========================================================================
+    // 收藏写路径（T4：add / remove / move）
+    // ========================================================================
+
+    /**
+     * 收藏一条内容进一个夹（{@code POST /favorite/add}）。
+     *
+     * <h2>校验顺序（对齐 {@code /like/*} 写路径「先校验存在性」的参照）</h2>
+     * <ol>
+     *   <li><b>内容存在性 → 404「内容不存在」</b>：{@code isContentExist} 的 SQL 带
+     *       {@code is_deleted = 0} ⇒ 失效内容（作者删 1 / 下架 2）进不来 ——
+     *       「失效不可移入」**自然产生**，没有专门分支（分期篇 §3.5 的设计根因）。
+     *       ★ 放在**最前**还有一个懒建路径特有的理由：见下文"刻意不做"；</li>
+     *   <li><b>夹归属 → 404/403</b>（显式夹时）：复用 {@link #requireOwnedFolder}，
+     *       与改名/删除同一口径；</li>
+     *   <li><b>重复收藏 → 409</b>：不预查，撞唯一键 {@code uk_folder_content} 由
+     *       {@code DuplicateKeyException} 全局映射（并发安全，"幂等拒绝"——
+     *       第二次收藏不产生副作用、也不算错误状态被 500 化）。</li>
+     * </ol>
+     *
+     * <h2>★ {@code folderId == null}：默认夹懒建（R-01 的唯一落点）</h2>
+     * 需求篇 §二：「收藏时没选夹，内容自动进默认收藏夹」。新用户**没有任何途径**
+     * 先拿到默认夹 id（夹列表是空态、一期没有"建默认夹"端点），所以"不带夹收藏"
+     * 必须由本方法就地懒建 —— 这是全系统**唯一**会创建默认夹的路径。
+     * 懒建靠 {@code ON DUPLICATE KEY UPDATE} 撞 {@code uk_user_default} 跳过（见
+     * {@code FavoriteFolderDao.insertDefaultFolderIfAbsent}），并发首次收藏不会重复建夹。
+     *
+     * <h2>刻意不做：懒建路径不加 {@code @Transactional}</h2>
+     * "建默认夹 + 插收藏记录"是两条写，但二者**没有完整性耦合**：即使后者失败，
+     * 留下的"空默认夹"也是合法终态 —— 它正是该用户首次收藏成功后会拥有的状态
+     * （对照 {@link #moveItem}：留下的是"两边都有"的不一致，才必须同事务）。
+     * 且内容校验在最前 ⇒ 404/409 路径不会留下任何行（"被拒的请求不留痕"），
+     * 剩下的只有 DB 级故障，为它套事务是"缺原子性需求硬加事务"（事务边界篇 §7.1.5）。
+     *
+     * @param userId    当前登录用户（即收藏人）
+     * @param folderId  目标夹；{@code null} = 没选夹 → 收进（必要时懒建的）默认夹
+     * @param contentId 内容 id；内容不存在或已失效 → 404
+     */
+    public void addItem(long userId, Long folderId, long contentId) {
+        if (!contentDao.isContentExist(contentId)) {
+            throw new NotFoundException("内容不存在");
+        }
+        long targetFolderId;
+        if (folderId == null) {
+            targetFolderId = ensureDefaultFolder(userId);
+        } else {
+            requireOwnedFolder(userId, folderId);
+            targetFolderId = folderId;
+        }
+        itemDao.insertItem(targetFolderId, userId, contentId);
+    }
+
+    /**
+     * 从一个夹移出若干条收藏记录（{@code POST /favorite/remove}，批量：夹内勾选多条一次移出）。
+     *
+     * <h2>★ 红线：本方法**不校验内容存在性**（G11，T4 最重要的口径）</h2>
+     * 直接按 {@code (folder_id, content_id)} 删行。失效内容的收藏记录**能移出** ——
+     * 用户在夹里看得见占位卡片，若这里加了存在性校验，占位就**永远清不掉**
+     * （B 站实测口径，R-07）。这与 {@code /like/*} 写路径「先校验存在性」的惯例
+     * **刻意不同**，也与 {@link #addItem}/{@link #moveItem} **刻意不对称** ——
+     * 两处校验、一处不校验，是同一条业务规则的两面（分期篇 §3.5 的表格）。
+     *
+     * <h2>其余口径</h2>
+     * <ul>
+     *   <li><b>夹归属照常校验</b>（404/403）：G11 只豁免"内容"，不豁免"夹" ——
+     *       移出的前提是动自己的夹；</li>
+     *   <li><b>幂等</b>：记录不存在（陈旧页面 / 已被移出）⇒ 删除 0 行，**照常 200**，
+     *       不报 404/409。不做"先查记录存在性"的预检 —— 批量场景下查与删之间的并发移出
+     *       会造成假错，且删除本就是单向、无冲突的操作（{@code FavoriteItemDao} 同口径）；</li>
+     *   <li><b>别的夹不受影响</b>：DELETE 只作用于 {@code folderId} 这一个夹
+     *       （需求篇 §三「若该内容还在别的夹里，那些夹里的不受影响」）；</li>
+     *   <li><b>空列表 → 400</b>：一个 id 都不给是调用方 bug，静默 200 会让
+     *       "什么都没发生"伪装成"移出成功"（同 {@link #updateFolder} 空更新的口径）。</li>
+     * </ul>
+     *
+     * <p>⚠️ 单条 {@code DELETE ... IN} 原生原子 ⇒ 不加 {@code @Transactional}（事务边界篇 §一）。
+     *
+     * @param userId     当前登录用户
+     * @param folderId   从哪个夹移出；不存在 → 404、不是我的 → 403
+     * @param contentIds 要移出的内容 id（可含失效内容；空 → 400）
+     */
+    public void removeItems(long userId, long folderId, List<Long> contentIds) {
+        if (contentIds == null || contentIds.isEmpty()) {
+            throw new ParamException("没有要移出的内容（contentIds 不能为空）");
+        }
+        requireOwnedFolder(userId, folderId);
+        itemDao.deleteByFolderAndContentIds(folderId, contentIds);
+    }
+
+    /**
+     * 把一条收藏从 A 夹挪到 B 夹（{@code POST /favorite/move}）。
+     *
+     * <h2>★ 为什么 move 是独立端点，而不是前端的 remove + add 两次调用</h2>
+     * T4 前提自审的结论（G13 授权自行决断，但事务边界要讲清楚）：两次 HTTP 调用之间
+     * 没有任何原子性可言 —— remove 成功、add 失败（目标夹撞唯一键 / 内容恰好失效）时，
+     * 条目已经从源夹消失且**不会出现在目标夹**：正常内容表现为"条目丢了"，
+     * 失效内容更糟 —— B 站口径是"失效条目不可移动但**保留原位**"（R-07），
+     * 而两段式会把它从原位删掉。故 move 必须是**一个事务内的单端点**。
+     *
+     * <h2>事务与顺序：先插后删（{@code @Transactional}）</h2>
+     * 两条写（插入目标夹 + 从源夹删除）必须同进同退，否则留下"两边都有"或"两边都没有"。
+     * 先插后删让最常见的失败（目标夹已有同内容 ⇒ 撞 {@code uk_folder_content} ⇒ 409）
+     * 发生在删除之前 —— 409 时源夹原样保留；即便 DB 在删除一步出错，事务回滚也兜住。
+     * ★ {@code from == to} 不写专门分支：插入撞自己的唯一键 ⇒ 自然 409、什么都不变。
+     *
+     * <h2>口径细节</h2>
+     * <ul>
+     *   <li><b>内容存在性校验</b>（同 {@link #addItem}）：失效内容 → 404，条目**留在原位**
+     *       ——「失效不可移动」自然产生；</li>
+     *   <li><b>两个夹都校验归属</b>（404/403）：源夹与目标夹都得是我的；</li>
+     *   <li><b>移动后的收藏时间是新的</b>：实现是"目标夹新增一行 + 源夹删一行"，
+     *       新行的 {@code create_time} 是移动时刻（可读作"收进目标夹的时间"）——
+     *       需求篇对"移动是否保留原收藏时间"无约定，取最简单且自洽的实现（T6 夹内列表
+     *       按 {@code create_time} 倒序，移动过的条目排在前面）。</li>
+     * </ul>
+     *
+     * @param userId       当前登录用户
+     * @param fromFolderId 源夹；不存在 → 404、不是我的 → 403
+     * @param toFolderId   目标夹；同上；已有同内容 → 409（源夹保留）
+     * @param contentId    内容 id；不存在或已失效 → 404（条目留在源夹）
+     */
+    @Transactional
+    public void moveItem(long userId, long fromFolderId, long toFolderId, long contentId) {
+        if (!contentDao.isContentExist(contentId)) {
+            throw new NotFoundException("内容不存在");
+        }
+        requireOwnedFolder(userId, fromFolderId);
+        requireOwnedFolder(userId, toFolderId);
+        // 先插后删：见方法注释"事务与顺序"。
+        itemDao.insertItem(toFolderId, userId, contentId);
+        itemDao.deleteByFolderAndContentIds(fromFolderId, List.of(contentId));
+    }
+
+    // ========================================================================
     // 私有校验（只写业务，不吃注解 —— 运行在调用方事务里）
     // ========================================================================
+
+    /**
+     * 默认夹懒建（R-01）：不存在则建（名字「默认收藏夹」），返回夹 id。
+     *
+     * <p>"存在才跳过"的并发安全由唯一键 {@code uk_user_default} 兜
+     * （{@code FavoriteFolderDao.insertDefaultFolderIfAbsent} 的注释）——
+     * 本方法因此**不需要**外层事务：两个并发的首次收藏要么一建一跳、要么都跳，殊途同归。
+     *
+     * <p>⚠️ 懒建之后按业务键回查 id（两次 mapper 调用可能各借各的连接，
+     * 连接级 {@code LAST_INSERT_ID} 会取错，见 {@code findDefaultFolderId} 注释）。
+     * 回查为 {@code null} 只可能是唯一键兜底失效的库级异常 ⇒ 交给全局出口 500。
+     */
+    private long ensureDefaultFolder(long userId) {
+        folderDao.insertDefaultFolderIfAbsent(userId, DEFAULT_FOLDER_NAME);
+        Long id = folderDao.findDefaultFolderId(userId);
+        if (id == null) {
+            throw new IllegalStateException("默认夹懒建后查不到行（uk_user_default 应保证行存在）");
+        }
+        return id;
+    }
 
     /**
      * 取回一个夹并校验归属（404 / 403 的分界线）。
