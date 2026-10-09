@@ -195,6 +195,24 @@ class SecurityContractTests extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("收藏一期 T5：status 判为需登录、count 判为**匿名可访问**（成对断言）")
+    void favorite状态与计数鉴权() {
+        // ★ 两类端点、两个信任边界（T5）：
+        //   /status = "我收在哪些夹"（私有）⇒ 需登录；
+        //   /count  = 公开展示数（需求篇 §三）⇒ 匿名可访问 —— ★ 与 /like/content/count 的"需登录"
+        //            刻意不同（那条是 TV 的 /like 前缀保护惯性；收藏是新域，按真实口径定）。
+        //   两条必须**成对**断：只断 status=true 的话，把这个端点漏标（或反过来给 count 误标）
+        //   在断言上都看不出来。HTTP 侧也有覆盖（FavoriteStatusAndCountTests.状态需登录计数匿名可访问），
+        //   本类是**最先、最精确**的信号（直接回答"这个 401 是谁要求的"，T2 教训）。
+        assertThat(requiresLogin("GET", "/favorite/status"))
+                .as("私有状态，必须登录")
+                .isTrue();
+        assertThat(requiresLogin("GET", "/favorite/count"))
+                .as("公开展示数，必须匿名可访问（误加 @RequiresLogin 会让匿名内容页看不到收藏数）")
+                .isFalse();
+    }
+
+    @Test
     @DisplayName("未映射的路径返回 false：真正的 404 由 DispatcherServlet 产生，本机制不越权处理路由")
     void 未映射路径不需登录() {
         assertThat(requiresLogin("GET", "/no/such/endpoint")).isFalse();
