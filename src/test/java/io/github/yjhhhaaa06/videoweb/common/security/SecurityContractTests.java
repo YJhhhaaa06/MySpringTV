@@ -183,6 +183,18 @@ class SecurityContractTests extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("收藏一期 T4：收藏写路径三端点判为需登录（方法级注解，与 T2/T3 同一口径）")
+    void favorite收藏写路径端点需登录() {
+        // 三个**全登录**端点。T2 的教训在这里同样适用：三个端点都收 @CurrentUserId
+        // （取不到即 401），所以"未登录 → 401"的 HTTP 用例对 @RequiresLogin 机制是假绿
+        // （401 可能来自参数解析器而非注解）—— 机制级的"是谁要求的"只有本类能回答。
+        // 反向对照（公开端点 isFalse）随上一条用例钉着：类级误标会让那条先红。
+        assertThat(requiresLogin("POST", "/favorite/add")).isTrue();
+        assertThat(requiresLogin("POST", "/favorite/remove")).isTrue();
+        assertThat(requiresLogin("POST", "/favorite/move")).isTrue();
+    }
+
+    @Test
     @DisplayName("未映射的路径返回 false：真正的 404 由 DispatcherServlet 产生，本机制不越权处理路由")
     void 未映射路径不需登录() {
         assertThat(requiresLogin("GET", "/no/such/endpoint")).isFalse();
