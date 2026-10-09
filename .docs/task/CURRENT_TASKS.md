@@ -302,8 +302,9 @@
   反向验证两个注入点各自独立。**不复用 `ProfileService` 的"跳过 null、total 不变"口径**
   （`ProfileService.java:109`，那会让分页出空洞）。顺序 `create_time DESC, id DESC`：
   `create_time` 是秒精度，同秒并列只按它排会让页间顺序不确定（重漏）⇒ 补 `id DESC` 兜底。
-  验证：`FavoriteItemListTests` **12 例** + `SecurityContractTests` 新增 1 例全绿；
-  **回归基线 `run_tests.py` = 386 例全绿**（默认组，373 + 13）。
+  验证：`FavoriteItemListTests` **13 例**（审查后补了「分页越界与极大页码」一条）
+  + `SecurityContractTests` 新增 1 例全绿；
+  **回归基线 `run_tests.py` = 387 例全绿**（默认组，373 + 14）。
   ★ **反向验证已实测（`temp-script/t6_injections.sh` + `t6_injections2.sh`；先 commit 再注入，
   逐条注入→跑→`git checkout` 还原）**：
   ① 去掉 `maskIfInvalid` 的失效分支 ⇒ **2 红**（脱敏两条：原标题 / 封面 / 作者泄漏）；
@@ -315,8 +316,11 @@
      实测 MySQL 并列时按索引序回行、恰与 `id DESC` 相反；⚠️ 属"实测成立"非"规范保证"）；
   ⑦ `countByFolderId` 加 `JOIN content ... is_deleted = 0` ⇒ **4 红**（total 变小）；
   ⑧ 去掉 `/favorite/list` 的 `@RequiresLogin` ⇒ `SecurityContractTests` **1 红**、而
-  `FavoriteItemListTests` **12 例全绿** —— 又一次证实 T2 教训：HTTP 侧 401 由
+  `FavoriteItemListTests` **13 例全绿** —— 又一次证实 T2 教训：HTTP 侧 401 由
   `@CurrentUserId` 参数解析器兜出，对 `@RequiresLogin` 机制是**假绿**。
+  ⑨ **（T6-4 审查实测、已修）** 把 `jointMediaUrl` 改成 `"http://cdn.invalid/" + url` ⇒
+  **修前 12 例全绿 / 修后 1 红** —— 原断言只断"封面非空白"，而 `base-url` 默认空串让这段
+  代码一期是**恒等变换、零覆盖**；已改为钉住整个 URL 值（详见审查 M4）。
   ★ **⑤ 的教训（可迁移）**：断言"顺序"的用例必须让**排序键序与 id 序反向** ——
   首轮夹具按"先插最早收的"造数据 ⇒ id 序与收藏时序同向 ⇒ 实现改成按 id 排也照样绿。
   **夹具的插入顺序本身就是判别力的一部分，不是中性的实现细节**（已修：倒序用例倒着插、
