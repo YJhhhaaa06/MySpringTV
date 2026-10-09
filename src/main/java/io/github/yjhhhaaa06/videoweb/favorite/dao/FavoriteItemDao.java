@@ -273,7 +273,12 @@ public interface FavoriteItemDao {
      *
      * <h2>⚠️ 封面那一列：本 SQL 持有一份 content 域的封面规则副本（已知债，见 {@code CURRENT_ISSUES.md}）</h2>
      * {@code coverUrl} 取 {@code content_media} 里 {@code type = 3}（封面）按
-     * {@code sort, id} 排的第一条 URL —— 与 {@code ContentCache.buildContentMedia} 的选取规则同源。
+     * {@code sort, id} 排的第一条 URL —— 与 {@code ContentCache.buildContentMedia} 的选取
+     * <b>近似</b>同源：⚠️ 那边是 {@code ORDER BY type, sort}（**没有** id 兜底，见
+     * {@code ContentMediaMapper.findMediaByContentId}），本处多一条 {@code id} ——
+     * 故当一条内容有多张 {@code sort} 相同的封面时，两边可能选到<b>不同的行</b>。
+     * 保留 {@code id} 兜底是有意的（结果确定胜过逐字同源），差异已写进
+     * {@code CURRENT_ISSUES.md} <b>I-07</b>。
      * 为什么不走 {@code ContentService.loadContentVOs}（那才是"跨域只走 Service 契约"的写法）：
      * 它把"媒体损坏 / 未知类型"也按"装载不出来 ⇒ 跳过"处理，而 R-03 的失效口径**只认
      * {@code is_deleted != 0}**，两者不是同一批内容；混用会让"列表说失效"与
@@ -281,12 +286,13 @@ public interface FavoriteItemDao {
      * 收藏夹的封面可能与其他列表不一致 —— **属已知且已登记的债**，不在此偷偷扩大。
      *
      * @param folderId 目标夹（调用方保证存在且属于当前用户）
-     * @param offset   偏移量（service 由 {@code (page-1) * pageSize} 算出）
+     * @param offset   偏移量（service 由 {@code (page-1) * pageSize} 算出；⚠️ 用 {@code long}
+     *                  —— {@code page} 无上限，用 int 会在极大页码上溢出成负数 ⇒ SQL 语法错 ⇒ 500）
      * @param limit    页大小（已由 Controller 归一到 1..域级上限）
      * @return 该页的收藏记录（**含**失效占位行，条数 = {@code limit} 除非已到末尾）；
      *         空夹 ⇒ 空列表（不是 {@code null}）
      */
     List<FavoriteItemVO> findPageByFolderId(@Param("folderId") long folderId,
-                                            @Param("offset") int offset,
+                                            @Param("offset") long offset,
                                             @Param("limit") int limit);
 }

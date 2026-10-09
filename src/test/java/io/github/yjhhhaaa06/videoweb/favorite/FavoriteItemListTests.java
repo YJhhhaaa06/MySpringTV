@@ -50,7 +50,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <ul>
  *   <li>去掉 {@code FavoriteService.maskIfInvalid} 的失效分支 ⇒ 脱敏用例变红（原标题 / 封面 / 作者泄漏）；</li>
  *   <li>{@code findPageByFolderId} 的 {@code LEFT JOIN} 改成 {@code INNER JOIN} ⇒
- *       失效条目从页里消失 ⇒ 脱敏 / total / 满页三条用例变红（**分页出空洞**）；</li>
+ *       {@code 整页失效也返回满页} 变红、{@code 失效条目脱敏…} 在 {@code requireItem} 报错
+ *       （幽灵内容行真没了 ⇒ 整行消失）。
+ *       ⚠️ 但 {@code total包含失效条目} <b>不会</b>红 —— 该夹具的失效内容在 {@code content} 表里
+ *       <b>都有行</b>（只是 {@code is_deleted=1/2}），INNER JOIN 并不丢它们 ⇒ total 不变。
+ *       "total 含失效"的判别力由下面 {@code countByFolderId} 那条注入单独兜住；
+ *       换言之"INNER JOIN 丢行"只对<b>行真没了</b>的幽灵内容可见，对软删内容不可见 ——
+ *       这正是 {@code c.id IS NULL} 那一半判据存在的理由。</li>
  *   <li>{@code ORDER BY} 的 {@code i.create_time DESC} 换成 {@code i.id DESC} ⇒ 倒序与分页用例变红；</li>
  *   <li>{@code countByFolderId} 加 {@code JOIN content ... is_deleted = 0} ⇒ total 变小 ⇒
  *       "total 含失效"与分页并集用例变红；</li>
@@ -234,6 +240,27 @@ class FavoriteItemListTests extends AbstractHttpIntegrationTest {
     // ========================================================================
 
     @Test
+    @DisplayName("分页边界：越过末尾 ⇒ 200 + 空页 + total 不变；page 极大**不得 500**（offset 用 long 防溢出）")
+    void 分页越界与极大页码() {
+        TestUser me = register("13800004014", "越界用户");
+        long folder = insertFolder(me.id, "越界夹");
+        for (int i = 3; i >= 1; i--) {
+            insertItem(folder, me.id, insertContent(me.id, "内容" + i, 0), i);
+        }
+
+        JsonNode beyond = Envelope.data(list(me.token, folder, "99", "2"));
+        assertThat(beyond.path("list").size()).as("越过末尾 ⇒ 空页（不是 404、不是报错）").isZero();
+        assertThat(beyond.path("total").asLong()).as("total 仍报全量（3）").isEqualTo(3L);
+
+        ResponseEntity<String> huge = list(me.token, folder, "2147483647", "100");
+        assertThat(huge.getStatusCode().value())
+                .as("★ page 极大不得 500 —— offset 用 int 会溢出成负数 ⇒ `OFFSET -…` 是 SQL 语法错"
+                        + "（FeedService / CommentService 已用 long，本路径同口径）")
+                .isEqualTo(200);
+        assertThat(Envelope.data(huge).path("list").size()).isZero();
+    }
+
+    @Test
     @DisplayName("★失效条目脱敏：invalid=true、标题=「内容已失效」、**不含原标题/封面/作者**；正常条目三者齐全")
     void 失效条目脱敏不含原标题封面作者() {
         TestUser me = register("13800004006", "脱敏用户");
@@ -253,7 +280,12 @@ class FavoriteItemListTests extends AbstractHttpIntegrationTest {
                 .isFalse();
         assertThat(valid.path("title").asString()).isEqualTo("正常内容的标题");
         assertThat(valid.path("coverUrl").asString())
-                .as("★ 正常条目**有**封面（否则'失效无封面'那条断言就是假绿：恒 null）").isNotBlank();
+                .as("★ 钉住封面 URL 的**整个值**：只断「非空白」是假绿 —— 实测把 jointMediaUrl 改成"
+                        + " `http://cdn.invalid/` + url 后 12 例全绿（前缀拼错没人看得见）。"
+                        + " ⚠️ 一期 video.media.base-url 默认空串 ⇒ jointMediaUrl 是恒等变换，"
+                        + " 故期望值就是夹具写入的相对路径；若将来给测试环境配了该前缀，"
+                        + " 本断言须改成「以 baseUrl 开头 + 以该相对路径结尾」")
+                .isEqualTo("/upload/cover/" + alive + ".png");
         assertThat(valid.path("authorName").asString())
                 .as("★ 正常条目**有**作者（同理，否则'失效无作者'恒 null ⇒ 假绿）").isEqualTo("脱敏用户");
 
@@ -270,7 +302,9 @@ class FavoriteItemListTests extends AbstractHttpIntegrationTest {
             assertThat(item.path("authorName").isNull()).as("★ 作者为 null").isTrue();
             assertThat(item.path("contentId").asLong())
                     .as("★ 保留 contentId（移出要它：失效条目必须删得掉）").isEqualTo(invalidContent);
-            assertThat(item.path("favoriteTime").isMissingNode()).as("收藏时间仍是事实，照常返回").isFalse();
+            assertThat(item.path("favoriteTime").asString())
+                    .as("收藏时间仍是事实，照常返回（断 isNotBlank 而非「键不缺失」—— 空串也能通过后者）")
+                    .isNotBlank();
         }
     }
 
@@ -368,6 +402,8 @@ class FavoriteItemListTests extends AbstractHttpIntegrationTest {
                 .as("不存在的夹 ⇒ 404").isEqualTo(404);
         assertThat(get("/favorite/list", me.token).getStatusCode().value())
                 .as("缺 folderId ⇒ 400").isEqualTo(400);
+        assertThat(get("/favorite/list?folderId=abc", me.token).getStatusCode().value())
+                .as("folderId 非数字 ⇒ 400（与缺参同源，由 Spring 参数绑定拦）").isEqualTo(400);
         assertThat(list(me.token, mine, null, null).getStatusCode().value())
                 .as("自己的夹 ⇒ 200").isEqualTo(200);
     }

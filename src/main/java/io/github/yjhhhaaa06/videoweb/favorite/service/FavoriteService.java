@@ -511,7 +511,10 @@ public class FavoriteService {
     public PageResult<FavoriteItemVO> listFolderItems(long userId, long folderId, int page, int pageSize) {
         requireOwnedFolder(userId, folderId);
         int total = itemDao.countByFolderId(folderId);
-        int offset = (page - 1) * pageSize;
+        // ⚠️ 用 long 防 int 溢出：`page` 没有上限（PageParams 只归一 ≤0 与非数字），
+        //    page=2147483647 时 (page-1)*pageSize 会溢出成负数 ⇒ `OFFSET -200` 是 SQL 语法错 ⇒ 500。
+        //    一个"翻到不存在的页"的请求不该 500 —— 与 FeedService / CommentService 同款写法。
+        long offset = (long) (page - 1) * pageSize;
         List<FavoriteItemVO> rows = itemDao.findPageByFolderId(folderId, offset, pageSize);
         List<FavoriteItemVO> items = new ArrayList<>(rows.size());
         for (FavoriteItemVO row : rows) {
