@@ -152,7 +152,9 @@ public class ContentService {
      * feed 依赖本 Service 而非内容域的缓存实现。
      *
      * <p>语义与 {@code recall} 的装载段逐字一致：一趟批量读（含 miss 装载），按入参 {@code contentIds}
-     * 的**原序**输出，取不到的条目（已删 / 媒体损坏）**跳过**——于是返回条数可能少于入参。
+     * 的**原序**输出，取不到的条目（已删 / 媒体损坏 / 未知类型）**跳过**——于是返回条数可能少于入参。
+     * ⚠️ "取不到 ⇒ 跳过"已被收藏夹内列表（favorite）当作**失效判据**（见 {@code CURRENT_NEEDS.md} R-11）——
+     * 改这条跳过语义前先看 {@code FavoriteService.listFolderItems}。
      *
      * @param contentIds 该页内容 id（可为空 → 空列表）
      */

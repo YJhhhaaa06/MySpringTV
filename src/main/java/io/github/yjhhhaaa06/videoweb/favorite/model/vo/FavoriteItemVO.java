@@ -10,17 +10,21 @@ import java.time.LocalDateTime;
  * 收藏夹**内**的一条内容（{@code GET /favorite/list} 的条目，T6）。
  *
  * <h2>★ 一条记录两种渲染：正常卡片 / 失效占位</h2>
- * 需求篇 §五「失效内容」+ R-03：内容被作者删除（{@code is_deleted = 1}）或管理员下架
- * （{@code is_deleted = 2}）、乃至内容行真没了，收藏记录**仍在**、仍占分页位置，
- * 但对外只能看到一张**脱敏占位卡**：
+ * 需求篇 §五「失效内容」+ R-03 / R-11：内容被作者删除（{@code is_deleted = 1}）、管理员下架
+ * （{@code is_deleted = 2}）、内容行真没了、乃至**媒体损坏 / 未知类型（装不出来）**，
+ * 收藏记录**仍在**、仍占分页位置，但对外只能看到一张**脱敏占位卡**：
  * <pre>
  * 正常：{invalid:false, title:"原标题",   coverUrl:"/upload/cover/x.png", authorName:"原作者"}
  * 失效：{invalid:true,  title:"内容已失效", coverUrl:null,                authorName:null}
  * </pre>
  * ⚠️ 失效条目**不返回原标题 / 封面 / 作者** —— 这是 R-03 的安全侧理由：
- * 一旦把标题带出去，第三方客户端就能捞出作者已删的内容（"删了"就不该再被检索到）。
- * 判据与"能不能收进来"同源（T4 的 {@code ContentDao.isContentExist} 带 {@code is_deleted = 0}），
- * 故不会出现"列表说失效、{@code add} 却收得进"这类自相矛盾（详见 {@code FavoriteItemDao} 口径 2）。
+ * 一旦把标题带出去，第三方客户端就能捞出作者已删的内容（"删了"就不该再被检索到）；
+ * 而"装不出来"的内容本域**根本拿不到**这些字段（展示字段整体来自 content 装载契约）。
+ * ★ 失效判据（R-11，2026-10-09 拍板）：**"看不了 ≈ 失效"** —— 不存在 / 已删下架 /
+ * 媒体损坏 / 未知类型，凡 content 装载契约"取不到"即渲染占位。
+ * ⚠️ 已知边缘态：数据损坏态（{@code is_deleted = 0} 但装不出来）下本列表占位，
+ * 而 {@code add}/{@code move}（{@code isContentExist} 只看 is_deleted）仍收得进 ——
+ * 属已登记的取舍（生产写路径造不出该态），**不是**"读写同源判据"。
  *
  * <h2>字段为什么是这七个（键集即契约，加字段前先回需求篇）</h2>
  * <ul>
@@ -46,10 +50,11 @@ import java.time.LocalDateTime;
  *
  * <h2>一个形状两个角色</h2>
  * 本类同时是 **Mapper 行类型**（{@code favoriteItemVoMap}）与 **API 载荷形状** ——
- * 与 {@code FavoriteFolderVO} 同款处置。⚠️ 差别是：SQL 里查出来的 {@code title} /
- * {@code coverUrl} / {@code authorName} 是**原值**（失效内容也查得到），**脱敏发生在 Java 侧**
- * （{@code FavoriteService.listFolderItems}）——"判失效"归 SQL、"失效长什么样"归 Java，
- * 两件事不在一层做，各自的注入点也就各自独立（反向验证两个点都能红）。
+ * 与 {@code FavoriteFolderVO} 同款处置。⚠️ 分工是：SQL 只填**本域三列**
+ * （{@code id} / {@code contentId} / {@code favoriteTime}）；其余四列由
+ * {@code FavoriteService.listFolderItems} 组装 —— 正常行从 {@code ContentService.loadContentVOs}
+ * 的条目抄出，失效行**构造**占位（"内容可不可用"归 content 域、"失效长什么样"归本域，
+ * 各自的注入点独立，反向验证两个点都能红）。
  *
  * <p>JSON 形状（{@code /favorite/list} 的 {@code data.list} 元素）：
  * <pre>
@@ -71,7 +76,8 @@ public class FavoriteItemVO {
     /** 收藏时间（{@code favorite_item.create_time}），即本列表的排序键。 */
     private LocalDateTime favoriteTime;
 
-    /** 内容是否已失效（{@code is_deleted != 0} 或内容行不存在）。 */
+    /** 内容是否已失效 —— 判据 = content 装载契约"取不到"（不存在 / 已删下架 / 媒体损坏 /
+     *  未知类型均折叠，R-11："看不了 ≈ 失效"）。 */
     private Boolean invalid;
 
     /** 标题；失效时是固定文案「内容已失效」（**不是**原标题）。 */

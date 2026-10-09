@@ -9,6 +9,9 @@
   （deleteByFolderAndContentIds，批量移出 + move 的源侧删除共用）；
   T5 补入状态（findFoldersByUserAndContent）与计数（countDistinctUserByContentId）；
   T6 补入夹内分页（countByFolderId + findPageByFolderId）—— 本仓纪律是**不提前写无主 SQL**。
+  ★ T6 残留提交（2026-10-09）：findPageByFolderId 由"跨域单条 LEFT JOIN"改为**只查本域三列**，
+    标题/封面/作者与失效判定整体移交 content 装载契约（口径"看不了 ≈ 失效"，见 CURRENT_NEEDS R-11）
+    —— 跨域直连他域表的形态、封面规则副本与 URL 前缀第二份实现（I-07 ①②③）一并根治。
 
   ⚠️ 全局 `map-underscore-to-camel-case: false`；本文件的写语句（DELETE/INSERT）无列映射需求；
      T5 的两条读语句列名要么无下划线（id/name）、要么用显式别名（下面 findFoldersByUserAndContent
@@ -56,9 +59,10 @@
            INNER JOIN 不丢行。⚠️ 但本表**无外键**、DB 不兜底 —— 该前提只由 FavoriteService.deleteFolder
            的 @Transactional 一处承担（CURRENT_ISSUES.md I-04：零判别力、可被静默误删）。前提失效时
            症状是**跨端点不一致**：孤儿行 JOIN 不上 ⇒ status 报"未收藏"，而 count 那条不 JOIN ⇒ 仍计入。
-           ⚠️ 别与 T6 夹内列表的 LEFT JOIN content 混同（那防的是跨域软删导致的
-           分页空洞，本 SQL 不碰 content 表）。
-         ★ 不判内容有效性：失效内容的记录照样在（R-03 不自动清理）⇒ 照常返回它在的夹。
+           ⚠️ 本 SQL 不碰 content 表；T6 夹内列表**现在也不碰**（失效判定已整体走 content
+           装载契约折叠，见 CURRENT_NEEDS R-11）—— 两条都不要回流成跨域 JOIN（I-07 ③）。
+         ★ 不判内容有效性：失效内容（含已删下架与"装不出来"的，R-11）的记录照样在
+           （R-03 不自动清理）⇒ 照常返回它在的夹。
          ⚠️ 顺序（默认夹置顶 + 创建序）与 FavoriteFolderMapper.findByUserIdWithItemCount 同一契约。 -->
     <select id="findFoldersByUserAndContent"
             resultType="io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteFolderBriefVO">
@@ -87,18 +91,17 @@
          T6：夹内分页（GET /favorite/list）
          ================================================================== -->
 
-    <!-- 夹内列表行映射（FavoriteItemVO）。
-         ⚠️ title / cover_url / author_name 是**原值**（失效内容也查得到）—— 脱敏在 Java 侧
-            （FavoriteService.listFolderItems）做：SQL 只负责"判失效"（invalid 列），
-            Java 负责"失效长什么样"。两层分开 ⇒ 反向验证两个注入点各自独立。 -->
+    <!-- 夹内列表行映射（FavoriteItemVO 的**本域三列**）。
+         ★ 本 SQL 只出 id / content_id / create_time（⇒ favoriteTime）；其余四列
+           （invalid / title / coverUrl / authorName）由 Java 侧经 content 装载契约组装
+           （FavoriteService.listFolderItems）——"内容可不可用"归 content 域、
+           "失效长什么样"归本域，两层分开 ⇒ 反向验证两个注入点各自独立。
+         ⚠️ 别在这里加 content 联结 / 封面 / 作者子查询（T6 残留提交已删过一次，
+            理由见下面 findPageByFolderId 的注释与 CURRENT_NEEDS R-11）。 -->
     <resultMap id="favoriteItemVoMap" type="io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteItemVO">
         <id property="id" column="id"/>
         <result property="contentId" column="content_id"/>
         <result property="favoriteTime" column="favorite_time"/>
-        <result property="invalid" column="invalid"/>
-        <result property="title" column="title"/>
-        <result property="coverUrl" column="cover_url"/>
-        <result property="authorName" column="author_name"/>
     </resultMap>
 
     <!-- 夹内记录总数（total）—— ★ 数的是收藏**记录行**，含失效条目（R-07）。
@@ -110,36 +113,28 @@
         SELECT COUNT(*) FROM favorite_item WHERE folder_id = #{folderId}
     </select>
 
-    <!-- 夹内一页（收藏时间倒序）。★ 四条口径每一条都有对应的注入点，改前先读 DAO 的 Javadoc。
-         ① LEFT JOIN content —— 联结只为**判**内容还在不在，**不是**筛选；
-            改成 INNER JOIN ⇒ 失效记录整行消失 ⇒ 分页出空洞（用户看到 5 条里只有 3 条）。
-            这是本任务最重要的一条（G12）。
-         ② 失效判据 `c.id IS NULL OR c.is_deleted != 0` ——
-            前半覆盖"内容行真没了"（防 INNER JOIN 丢行造成的空洞，别当多余优化掉）；
-            后半覆盖三态（0 正常 / 1 作者删除 / 2 管理员下架），**别写成 = 1**。
-            ★ 与 T4 的 ContentDao.isContentExist（is_deleted = 0）是同一判据的两面。
-         ③ 分页单位是 favorite_item 行 —— LIMIT/OFFSET 作用在收藏记录上，
+    <!-- 夹内一页（收藏时间倒序）。★ 只查**本域三列**；title / coverUrl / authorName / invalid
+         由 FavoriteService.listFolderItems 经 ContentService.loadContentVOs 组装
+         （T6 残留提交 2026-10-09；口径"看不了 ≈ 失效"，CURRENT_NEEDS R-11）。
+         ① 判失效**不在这里**：内容不存在 / 已删下架 / 媒体损坏 / 未知类型 ⇒ content 装载契约
+            返回"取不到" ⇒ 本行渲染为占位。⚠️ 别回流成"JOIN content + is_deleted 判定" ——
+            那只覆盖"无行 / 已删"两种，**测不出**"视频行缺失 / 未知 type"，会与新口径分叉。
+         ② 分页单位是 favorite_item 行（G12）：LIMIT/OFFSET 作用在收藏记录上，
             一整页都是失效条目也照常返回整页（不补位、不跳过；跳过 ⇒ 用户看不到 ⇒ 永远清不掉）。
             ⚠️ 因此**不要**复用 ProfileService 的"跳过 null、total 不变"口径（ProfileService.java:109）。
-         ④ 顺序 `create_time DESC, id DESC` —— create_time 是 datetime（**秒**精度），
+         ③ 顺序 `create_time DESC, id DESC` —— create_time 是 datetime（**秒**精度），
             同秒收藏多条时只按 create_time 排会让页间顺序不确定（同一行可能出现在两页、
             或某页漏掉一行）；补 id DESC 作稳定 tie-breaker（id 递增 ⇒ 同秒内新的在前）。
-         ⚠️ 封面子查询（type = 3 按 sort, id 取第一条）是 content 域封面规则的**一份副本** ——
-            已知债，理由见 FavoriteItemDao.findPageByFolderId 的注释与 CURRENT_ISSUES.md。 -->
+         ④ 封面选取与 URL 前缀**不再由本 SQL / 本域负责**：封面规则收归 content 域一处
+            （旧副本见 I-07 ①，URL 前缀第二份实现见 I-07 ②，均已删）。
+         ⚠️ 已知边缘态（R-11 已拍板接受）：数据损坏（如视频行缺失）时本列表占位，
+            而 add/move（isContentExist 带 is_deleted = 0）仍收得进 —— 该态无 API 可达
+            （发布必插视频行、删只允许 type=2 图片、换源只改 url），属已登记取舍。 -->
     <select id="findPageByFolderId" resultMap="favoriteItemVoMap">
         SELECT i.id AS id,
                i.content_id AS content_id,
-               i.create_time AS favorite_time,
-               CASE WHEN c.id IS NULL OR c.is_deleted != 0 THEN 1 ELSE 0 END AS invalid,
-               c.title AS title,
-               u.username AS author_name,
-               (SELECT m.url FROM content_media m
-                 WHERE m.content_id = c.id AND m.type = 3
-                 ORDER BY m.sort, m.id
-                 LIMIT 1) AS cover_url
+               i.create_time AS favorite_time
         FROM favorite_item i
-        LEFT JOIN content c ON c.id = i.content_id
-        LEFT JOIN users u ON u.id = c.user_id
         WHERE i.folder_id = #{folderId}
         ORDER BY i.create_time DESC, i.id DESC
         LIMIT #{limit} OFFSET #{offset}

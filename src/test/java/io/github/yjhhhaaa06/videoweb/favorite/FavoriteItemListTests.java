@@ -31,6 +31,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>★ <b>失效条目脱敏</b>（R-03）：{@code invalid=true}、标题是「内容已失效」、
  *       {@code coverUrl} / {@code authorName} 恒为 {@code null} ——
  *       <b>不含原标题 / 封面 / 作者</b>；且失效条目**保留 {@code contentId}**（移出要它）；</li>
+ *   <li>★ <b>"装不出来"也占位</b>（R-11）：视频行缺失 / 未知 type 的 {@code is_deleted = 0}
+ *       内容 ⇒ 同样 {@code invalid=true} + 占位（口径"**看不了 ≈ 失效**"）；</li>
  *   <li>★ <b>一整页都是失效条目也返回满页</b>（G12）：跳过 ⇒ 用户看不到 ⇒ 也就永远清不掉；</li>
  *   <li>★ <b>失效条目能移出</b>（与 T4 联动，R-07）：占位能看见 ⇒ 就该删得掉；</li>
  *   <li>归属与鉴权：他人的夹 403 / 不存在的夹 404 / 缺 {@code folderId} 400 / 未登录 401；</li>
@@ -41,6 +43,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <h2>★ 期望值怎么来的（规避"迎合型伪测试"）</h2>
  * "倒序"出自需求篇 §三「按收藏时间倒序」；"total 含失效"出自 R-07（B 站实测：失效视频算进
  * 收藏夹视频数）；"脱敏"出自 R-03（只给占位，**不返回原标题 / 封面 / 作者**）；
+ * ★ "装不出来也占位"出自 R-11（**"看不了 ≈ 失效"**：不存在 / 已删下架 / 媒体损坏 / 未知类型
+ * 统一折叠为占位，2026-10-09 拍板）；
  * "整页失效也满页"出自 G12 与 R-07 的"可移出"理由（看不见就清不掉）；
  * "失效能移出"出自 G11（{@code remove} 不校验内容存在性）；
  * 归属与鉴权口径出自 {@code FavoriteService} 类注释的表与 T2~T5 一贯形态。
@@ -48,23 +52,22 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <h2>★ 反向验证（逐条注入 → 确认变红 → 还原；实测记录见 T6 回写，T8 收口复核）</h2>
  * <ul>
- *   <li>去掉 {@code FavoriteService.maskIfInvalid} 的失效分支 ⇒ 脱敏用例变红（原标题 / 封面 / 作者泄漏）；</li>
- *   <li>{@code findPageByFolderId} 的 {@code LEFT JOIN} 改成 {@code INNER JOIN} ⇒
- *       {@code 整页失效也返回满页} 变红、{@code 失效条目脱敏…} 在 {@code requireItem} 报错
- *       （幽灵内容行真没了 ⇒ 整行消失）。
- *       ⚠️ 但 {@code total包含失效条目} <b>不会</b>红 —— 该夹具的失效内容在 {@code content} 表里
- *       <b>都有行</b>（只是 {@code is_deleted=1/2}），INNER JOIN 并不丢它们 ⇒ total 不变。
- *       "total 含失效"的判别力由下面 {@code countByFolderId} 那条注入单独兜住；
- *       换言之"INNER JOIN 丢行"只对<b>行真没了</b>的幽灵内容可见，对软删内容不可见 ——
- *       这正是 {@code c.id IS NULL} 那一半判据存在的理由。</li>
+ *   <li>去掉 {@code FavoriteService.toItemVO} 的失效分支（{@code content == null} 也当正常行）
+ *       ⇒ 脱敏与"装不出来也占位"用例变红（占位字段全成 null）；</li>
+ *   <li>★ 把"取不到"当有效（不渲染占位）⇒ {@code 装不出来也占位} 必须变红 ——
+ *       这是 R-11 口径的**唯一钉子**（旧实现"JOIN content + is_deleted"在此注入下不会红：
+ *       它本来就测不出"视频行缺失 / 未知 type"）；</li>
  *   <li>{@code ORDER BY} 的 {@code i.create_time DESC} 换成 {@code i.id DESC} ⇒ 倒序与分页用例变红；</li>
  *   <li>{@code countByFolderId} 加 {@code JOIN content ... is_deleted = 0} ⇒ total 变小 ⇒
  *       "total 含失效"与分页并集用例变红；</li>
- *   <li>{@code c.is_deleted != 0} 写成 {@code = 1} ⇒ 三态覆盖用例变红；</li>
  *   <li>去掉 {@code /favorite/list} 的 {@code @RequiresLogin} ⇒ {@code SecurityContractTests} 变红
- *       （而本类 **12 例全绿** —— 又一次证实 T2 教训：HTTP 侧的 401 由 {@code @CurrentUserId}
+ *       （而本类 HTTP 用例**全绿** —— 又一次证实 T2 教训：HTTP 侧的 401 由 {@code @CurrentUserId}
  *       的参数解析器兜出，对 {@code @RequiresLogin} 机制是**假绿**）。</li>
  * </ul>
+ * ⚠️ 已随 T6 残留提交（2026-10-09）作废的旧注入点（机制已不在本域，别再按它们注入、也别把
+ * "注入后不变红"读成测试没判别力）："LEFT JOIN 改 INNER JOIN"、"SQL 的 invalid 恒 0"、
+ * "c.is_deleted 写成 = 1" —— 三者针对旧的"自持 SQL 判失效"；新机制下对位物是上面前两条
+ * （content 装载契约折叠 + 本域占位组装）。
  *
  * <h2>★ 一次实测到的假绿，已修（T6-2b）</h2>
  * 首轮注入"把排序键换成 {@code i.id DESC}"得到 **0 红** —— 夹具按"先插最早收的、后插最近收的"
@@ -280,9 +283,8 @@ class FavoriteItemListTests extends AbstractHttpIntegrationTest {
                 .isFalse();
         assertThat(valid.path("title").asString()).isEqualTo("正常内容的标题");
         assertThat(valid.path("coverUrl").asString())
-                .as("★ 钉住封面 URL 的**整个值**：只断「非空白」是假绿 —— 实测把 jointMediaUrl 改成"
-                        + " `http://cdn.invalid/` + url 后 12 例全绿（前缀拼错没人看得见）。"
-                        + " ⚠️ 一期 video.media.base-url 默认空串 ⇒ jointMediaUrl 是恒等变换，"
+                .as("★ 钉住封面 URL 的**整个值**：只断「非空白」是假绿（T6-4 实测过前缀拼错无人察觉）。"
+                        + " ⚠️ 一期 video.media.base-url 默认空串 ⇒ content 域的 jointUrl 是恒等变换，"
                         + " 故期望值就是夹具写入的相对路径；若将来给测试环境配了该前缀，"
                         + " 本断言须改成「以 baseUrl 开头 + 以该相对路径结尾」")
                 .isEqualTo("/upload/cover/" + alive + ".png");
@@ -306,6 +308,40 @@ class FavoriteItemListTests extends AbstractHttpIntegrationTest {
                     .as("收藏时间仍是事实，照常返回（断 isNotBlank 而非「键不缺失」—— 空串也能通过后者）")
                     .isNotBlank();
         }
+    }
+
+    @Test
+    @DisplayName("★装载不出来的内容也占位（R-11 看不了≈失效）：视频行缺失 / 未知 type ⇒ invalid=true、不带原标题封面作者")
+    void 装载不出来的内容也占位() {
+        TestUser me = register("13800004015", "损坏态用户");
+        long folder = insertFolder(me.id, "损坏态夹");
+        long missingVideo = insertUnbuildableContent(me.id, "视频行缺失的标题");
+        long unknownType = insertUnknownTypeContent(me.id, "未知类型的标题");
+        insertItem(folder, me.id, missingVideo, 2);
+        insertItem(folder, me.id, unknownType, 1);
+
+        JsonNode data = Envelope.data(list(me.token, folder, null, null));
+        assertThat(data.path("total").asLong())
+                .as("两条记录都在（装不装得出来不改计数，G12）").isEqualTo(2L);
+
+        for (JsonNode item : data.path("list")) {
+            assertThat(item.path("invalid").asBoolean())
+                    .as("★ R-11：is_deleted = 0 但装不出来 ⇒ 照样占位"
+                            + "（旧'JOIN content 判 is_deleted'的实现下本断言必绿 ⇒ 它是新口径的钉子）")
+                    .isTrue();
+            assertThat(item.path("title").asString())
+                    .as("标题位写「内容已失效」（装不出来 = 看不了 = 失效）").isEqualTo(INVALID_TITLE);
+            assertThat(item.path("title").asString())
+                    .as("占位不是打标：不得带原标题")
+                    .isNotEqualTo("视频行缺失的标题").isNotEqualTo("未知类型的标题");
+            assertThat(item.path("coverUrl").isNull())
+                    .as("封面为 null（占位卡片不给素材）").isTrue();
+            assertThat(item.path("authorName").isNull()).as("作者为 null").isTrue();
+        }
+        assertThat(contentIds(data.path("list")))
+                .as("★ 保留 contentId（移出要它：占位条目必须删得掉）")
+                .containsExactly(unknownType, missingVideo);
+        assertThat(oracleItemCount(folder)).as("独立 oracle：2 条收藏记录").isEqualTo(2L);
     }
 
     @Test
@@ -553,30 +589,57 @@ class FavoriteItemListTests extends AbstractHttpIntegrationTest {
         return n == null ? 0L : n;
     }
 
-    /** 插入一条内容（含一张封面媒体行，使"正常条目有封面"这条断言具备判别力）。 */
+    /**
+     * 插入一条**可装配**（content 域视角）的内容：视频行 + 封面行 —— 列表里是正常卡片。
+     *
+     * <p>★ 视频行是 R-11 口径的判据前提：content 域对 {@code type = 1} 要求至少一行视频媒体
+     * （{@code ContentCache.buildContentMedia}），缺了就是"媒体损坏 ⇒ 装不出来 ⇒ 占位"。
+     * 夹具按"完整可播放的视频内容"造，才能断言"正常卡片有标题 / 封面 / 作者"。
+     */
     private long insertContent(long authorId, String title, int isDeleted) {
-        long contentId = insertContentRow(authorId, title, isDeleted);
-        jdbcTemplate.update(
-                "INSERT INTO content_media (content_id, url, type, sort) VALUES (?, ?, 3, 0)",
-                contentId, "/upload/cover/" + contentId + ".png");
+        long contentId = insertContentRow(authorId, title, isDeleted, 1);
+        insertMedia(contentId, "/upload/video/" + contentId + ".mp4", 1, 1);
+        insertMedia(contentId, "/upload/cover/" + contentId + ".png", 3, 0);
         return contentId;
     }
 
-    private long insertContentRow(long authorId, String title, int isDeleted) {
+    /** 插入一条"装不出来"的内容：视频行缺失（{@code is_deleted = 0}，只有封面行）—— R-11 钉子用。 */
+    private long insertUnbuildableContent(long authorId, String title) {
+        long contentId = insertContentRow(authorId, title, 0, 1);
+        insertMedia(contentId, "/upload/cover/" + contentId + ".png", 3, 0);
+        return contentId;
+    }
+
+    /** 插入一条未知 type 的内容（数据损坏态；content 域装载的 default 分支直接折叠）。 */
+    private long insertUnknownTypeContent(long authorId, String title) {
+        long contentId = insertContentRow(authorId, title, 0, 99);
+        insertMedia(contentId, "/upload/cover/" + contentId + ".png", 3, 0);
+        return contentId;
+    }
+
+    private long insertContentRow(long authorId, String title, int isDeleted, int type) {
         GeneratedKeyHolder keyHolder = new GeneratedKeyHolder();
         jdbcTemplate.update(connection -> {
             PreparedStatement ps = connection.prepareStatement(
-                    "INSERT INTO content (user_id, type, title, description, is_deleted) VALUES (?, 1, ?, ?, ?)",
+                    "INSERT INTO content (user_id, type, title, description, is_deleted) VALUES (?, ?, ?, ?, ?)",
                     new String[]{"id"});
             ps.setLong(1, authorId);
-            ps.setString(2, title);
-            ps.setString(3, "T6 测试描述");
-            ps.setInt(4, isDeleted);
+            ps.setInt(2, type);
+            ps.setString(3, title);
+            ps.setString(4, "T6 测试描述");
+            ps.setInt(5, isDeleted);
             return ps;
         }, keyHolder);
         Number key = keyHolder.getKey();
         assertThat(key).as("content 插入必须回填自增 id").isNotNull();
         return key.longValue();
+    }
+
+    /** 插一行媒体（type：1 视频 / 2 图片 / 3 封面）。 */
+    private void insertMedia(long contentId, String url, int type, int sort) {
+        jdbcTemplate.update(
+                "INSERT INTO content_media (content_id, url, type, sort) VALUES (?, ?, ?, ?)",
+                contentId, url, type, sort);
     }
 
     /**
