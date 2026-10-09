@@ -17,13 +17,20 @@ import java.util.List;
  *       （{@code /favorite/folder/list}）做差集即可渲染勾选框。</li>
  * </ul>
  *
- * <h2>⚠️ {@code isFavorited} 恒等于 {@code !folders.isEmpty()} —— 它不是第二处事实源</h2>
- * 收藏**必须有归属**（一期无"无夹收藏"形态：没选夹也进默认夹）⇒ 一条收藏记录必属于某个夹。
- * 故"已收藏 ⟺ 至少落在一个夹里"是**结构性成立**的，本类里 {@code isFavorited} 由
- * {@code folders.isEmpty()} **推导**而来（{@code FavoriteService.getFavoriteStatus}），
- * 不是另查一次得来的：<b>没有可漂移的余地</b>。留这个字段纯粹为前端省一次
- * {@code folders.length > 0} 的推导，并为"按钮态"提供与点赞同形的直接读法。
- * {@code FavoriteStatusAndCountTests} 里有一条把该不变量钉死。
+ * <h2>⚠️ {@code isFavorited} 由 {@code folders} 推导 —— 字段级恒等成立，但"已收藏"的语义**有前提**</h2>
+ * <b>① 字段级（成立）</b>：本类里 {@code isFavorited} 由 {@code folders.isEmpty()} **推导**而来
+ * （{@code FavoriteService.getFavoriteStatus}，同一次调用内同源），不另查一次 ⇒ 它**不是**第二处
+ * 事实源，这两个字段之间没有可漂移的余地（{@code FavoriteStatusAndCountTests} 把该不变量钉死）。
+ * 留它纯粹为前端省一次 {@code folders.length > 0} 的推导，并为"按钮态"提供与点赞同形的直接读法。
+ *
+ * <p><b>② 语义级（⚠️ 有前提，别当"结构性"）</b>："已收藏 ⟺ 至少落在一个夹里"看着是结构性事实，
+ * 实则**依赖"每条收藏记录都指向一个存在的夹"** —— 而 {@code favorite_item} 与
+ * {@code favorite_folder} **之间没有外键**（V2 刻意与 V1 一致），DB 不兜底；这个保证**只由
+ * {@code FavoriteService.deleteFolder} 的 {@code @Transactional} 一处**承担，而它正是
+ * {@code CURRENT_ISSUES.md} <b>I-04</b> 登记为"零判别力、可被静默误删"的那处。
+ * ⚠️ 一旦出现孤儿记录（夹已删、条目残留）：本端点（{@code folders} 走 INNER JOIN 夹）会**漏报**
+ * 成"未收藏"，而 {@code /favorite/count}（不 JOIN）**仍把它计入** —— 两条读端点口径就此不一致。
+ * 根治见 I-04（给 {@code folder_id} 加外键，或补删夹失败的注入用例）。
  *
  * <p>JSON（{@code data}）：
  * <pre>

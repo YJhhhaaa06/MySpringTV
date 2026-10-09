@@ -140,11 +140,19 @@ public interface FavoriteItemDao {
      * <h2>判据是 {@code (user_id, content_id)}，不是"按夹判"</h2>
      * 同一内容可以躺在我的多个夹里（唯一键是 {@code (folder_id, content_id)}），故"在哪些夹"
      * 必须按**用户维度**取行 —— 正是 {@code idx_user_content (user_id, content_id)} 服务的查询
-     * （该索引两列都被等值命中，走索引；与下面那条 {@code COUNT(DISTINCT)} 不同，那条用不上索引）。
+     * （该索引两列都被等值命中，**走索引**）。
+     * ⚠️ **别据此推断"计数那条用不上索引"** —— 见 {@link #countDistinctUserByContentId}：
+     * 那条同样能借这个索引（loose index scan），T5 实测非全表扫。
      *
-     * <h2>★ 为什么 {@code JOIN favorite_folder} 是安全的（不是 T6 那条 LEFT JOIN 的反例）</h2>
-     * {@code favorite_folder} 与 {@code favorite_item} **同属本域**、且删夹时条目**同事务一并删**
-     * （R-02，{@link #deleteByFolderId}）⇒ 不存在"条目指向已删夹"的孤儿，INNER JOIN 不会丢行。
+     * <h2>★ 为什么 {@code JOIN favorite_folder} 是安全的 —— ⚠️ 前提是"删夹事务在场"</h2>
+     * {@code favorite_folder} 与 {@code favorite_item} **同属本域**，且删夹时条目**同事务一并删**
+     * （R-02，{@link #deleteByFolderId}）⇒ 正常路径下不存在"条目指向已删夹"的孤儿，INNER JOIN 不丢行。
+     * <b>⚠️ 但本表**没有外键**（V2 刻意与 V1 一致），DB 不兜底</b>：该前提**只由
+     * {@code FavoriteService.deleteFolder} 的 {@code @Transactional} 一处承担** —— 而那正是
+     * {@code CURRENT_ISSUES.md} <b>I-04</b> 登记为"零判别力、可被静默误删"的那处。
+     * 前提失效（孤儿行 {@code folder_id} 指向已删夹）时可观察症状是**跨端点不一致**：这里 JOIN 不上
+     * ⇒ 丢行 ⇒ {@code status} 报"未收藏"；而 {@link #countDistinctUserByContentId} **不 JOIN**
+     * ⇒ 仍把该孤儿算进收藏数（根治见 I-04：加外键或补失败注入用例）。
      * ⚠️ 别与 T6 夹内列表的 **LEFT JOIN content** 混为一谈：那条防的是**跨域**（内容被软删 /
      * 行真没了）造成的**分页空洞**，与本条无关（本 SQL 根本不碰 content 表）。
      *
@@ -182,11 +190,14 @@ public interface FavoriteItemDao {
      * <p>★ <b>T5 实测基线（一次性探针，非断言；数字见 {@code CURRENT_TASKS.md} T5 回写）</b>：
      * 2 万行 / 目标 content 2000 个不同 user ⇒ {@code EXPLAIN} 是
      * {@code type=range, key=idx_user_content, key_len=16, Extra="Using where; Using index for group-by (scanning)"}
-     * —— 即 MySQL 8 **没有**退化成全表扫，而是借 {@code idx_user_content} 做 **loose index scan /
-     * skip scan**（用 {@code user_id} 前导列满足 {@code DISTINCT}、逐段跳扫滤 {@code content_id}）；
+     * —— 即 MySQL 8 **没有**退化成全表扫，而是借 {@code idx_user_content} 做 **loose index scan**
+     * （{@code DISTINCT} 列 {@code user_id} 恰是索引最左前缀 ⇒ 满足 loose index scan 对
+     * {@code COUNT(DISTINCT)} 的适用条件；{@code (scanning)} 是它的一个变体）。
+     * ⚠️ 措辞别混：MySQL 的 **{@code INDEX_SKIP_SCAN}（{@code Using index for skip scan}）官方明确
+     * 不含 GROUP BY / DISTINCT** —— 本条走的是 loose index scan，**不是** skip scan。
      * {@code EXPLAIN ANALYZE} 实际 ≈ 17ms，20 次实测 best ≈ 14ms / avg ≈ 19ms。
      * ⚠️ **别照抄"无 {@code content_id} 索引 ⇒ 全表扫"**：这个查询形态
-     * （{@code COUNT(DISTINCT user_id)} + 恰好有 {user_id, content_id} 复合索引）能被 skip scan 接住
+     * （{@code COUNT(DISTINCT user_id)} + 恰好有 {user_id, content_id} 复合索引）能被 loose index scan 接住
      * —— 这是 T5 实测**推翻**的初始假设。二期建 {@code content_id} 前导索引 / 上冗余列时，拿这组数字当对照。
      *
      * <p>⚠️ 不校验 {@code contentId} 存在性：内容不存在 / 从来没人收藏 ⇒ {@code 0}

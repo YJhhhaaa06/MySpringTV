@@ -282,7 +282,8 @@ public class FavoriteController {
     /**
      * 某内容的收藏数（**按人去重**：同一人进多夹只算 1）。
      *
-     * <p>{@code data} 是**整数**（与 {@code /like/content/count} 同形）。
+     * <p>{@code data} 是**整数**（JSON 形态同 {@code /like/content/count}；⚠️ Java 侧类型**不同**——
+     * 那条是 {@code Integer}，本条是 {@code Long}，与 DAO 的 {@code COUNT} 返回一致、也免去 int 溢出的顾虑）。
      * ⚠️ 与那条的差别是**鉴权**：本端点**匿名可访问**（见类注释"鉴权"节 —— 收藏数是公开展示数，
      * 内容页匿名可看），故不注入 {@code @CurrentUserId}。一期实时算（R-06，不读
      * {@code content.favorite_count} 列）。

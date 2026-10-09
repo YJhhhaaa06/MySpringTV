@@ -244,7 +244,7 @@
   ✅ **强制探索①（耗时基线）★ 现场纠了一处认知错**：初始假设"无 `content_id` 前导索引 ⇒ 全表扫"
   被实测**推翻** —— 2 万行 / 目标内容 2000 个不同 user 下 `EXPLAIN` = `type=range`、
   `key=idx_user_content`、`Extra="Using where; Using index for group-by (scanning)"`（MySQL 8 的
-  **loose index scan / skip scan**，用 `user_id` 前导列满足 `DISTINCT`）；`EXPLAIN ANALYZE` ≈17ms、
+  **loose index scan**，`DISTINCT` 列 `user_id` 恰是索引最左前缀；**不是** `INDEX_SKIP_SCAN`，那个官方不含 GROUP BY/DISTINCT）；`EXPLAIN ANALYZE` ≈17ms、
   20 次实测 **best≈14ms / avg≈19ms**。已就地更正 DAO/XML 注释并登记 **I-06**；数字记入分期篇 §3.2。
   ✅ **强制探索②（进两夹的表达形态）**：`folders` 列出两个夹、`isFavorited=true`、`count` 仍为 **1**
   —— 由 `同一人进两夹状态含两夹计数仍为一` 钉死（同时断言 DB 里是 2 条记录，故"去 DISTINCT"必红）。
@@ -255,7 +255,17 @@
   ② `findFoldersByUserAndContent` 去掉 `i.user_id = #{userId}` ⇒ **`两人收藏计数加一且状态互不影响` 1 例红**（别人的夹混进我的状态）；
   ③ 给 `/favorite/count` 误加 `@RequiresLogin` ⇒ `SecurityContractTests.favorite状态与计数鉴权` + 本类
   `状态需登录计数匿名可访问` / `参数缺失400与不存在内容不404` **共 3 例红**。三轮还原后两根全绿。
-  拆 **2 个 commit**（T5-1 feat / T5-2 test）。
+  拆 **4 个 commit**（T5-1 feat / T5-2 test / T5-3 docs / T5-4 审查修正）。
+  ★ **收尾派了独立 subagent 审查（T5-4）**，查出**两处必改**（均为注释/文档级、不影响运行行为）并已修正：
+  ① `FavoriteItemDao` / `FavoriteItemMapper.xml` 里残留半句"计数那条**用不上索引**"，与 I-06 的更正
+  **同文件自相矛盾**（"就地更正不彻底"的典型 —— 只改了被点名那处）；② `FavoriteStatusVO` 把
+  "已收藏 ⟺ 至少落在一个夹里"说成"**结构性成立、没有可漂移的余地**"—— **字段级**恒等成立（同源推导），
+  但**语义级**前提（每条记录都指向存在的夹）**无外键兜底**、只靠 I-04 指出的零覆盖事务；
+  孤儿行会让 `count` **计入**而 `status` **漏报**（已在 VO / JOIN 注释里限定作用域并写明该症状，
+  I-04 已补记这是"用户可见的跨端分歧"、优先级上调）。另采纳两条措辞修正：`count` 的 `Long` 与
+  `/like/content/count` 的 `Integer` 类型不同（原写"同形"）；`loose index scan` **不**写作 "skip scan"
+  （MySQL 的 `INDEX_SKIP_SCAN` 官方不含 GROUP BY / DISTINCT）。审查另核：无假绿（键集两端都拦、
+  计数走独立 oracle 复算）、无红线触碰（G7/G10 干净）、契约口径实现且覆盖到位。
   **未做（各有归属）**：`static/js/api.js` **未动**（新端点尚无前端消费方，T7 统一接）；
   "详情内联 `isFavorited`" 未做 ⇒ **R-10**（待拍板）。
 

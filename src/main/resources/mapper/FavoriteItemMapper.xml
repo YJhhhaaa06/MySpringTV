@@ -50,9 +50,13 @@
 
     <!-- 某内容收在我的哪些夹（T5：GET /favorite/status 的 folders）。
          ★ 判据 (user_id, content_id) —— 同一内容可进多夹，不能按夹判；正好命中 idx_user_content
-           (user_id, content_id) 的两列等值（与下面那条计数不同，那条用不上索引）。
-         ★ JOIN（非 LEFT）：item 与 folder 同属本域，删夹时条目同事务一并删（R-02）⇒ 无孤儿，
-           INNER JOIN 不丢行。⚠️ 别与 T6 夹内列表的 LEFT JOIN content 混同（那防的是跨域软删导致的
+           (user_id, content_id) 的两列等值（**走索引**）。
+           ⚠️ 别据此推断"计数那条用不上索引" —— 那条同样借这个索引（loose index scan，见下）。
+         ★ JOIN（非 LEFT）：item 与 folder 同属本域，删夹时条目同事务一并删（R-02）⇒ 正常路径无孤儿，
+           INNER JOIN 不丢行。⚠️ 但本表**无外键**、DB 不兜底 —— 该前提只由 FavoriteService.deleteFolder
+           的 @Transactional 一处承担（CURRENT_ISSUES.md I-04：零判别力、可被静默误删）。前提失效时
+           症状是**跨端点不一致**：孤儿行 JOIN 不上 ⇒ status 报"未收藏"，而 count 那条不 JOIN ⇒ 仍计入。
+           ⚠️ 别与 T6 夹内列表的 LEFT JOIN content 混同（那防的是跨域软删导致的
            分页空洞，本 SQL 不碰 content 表）。
          ★ 不判内容有效性：失效内容的记录照样在（R-03 不自动清理）⇒ 照常返回它在的夹。
          ⚠️ 顺序（默认夹置顶 + 创建序）与 FavoriteFolderMapper.findByUserIdWithItemCount 同一契约。 -->
@@ -70,8 +74,10 @@
          ★ 一期实时算、不读 content.favorite_count 列（R-06）；这也是二期冗余列验收时的不变式右边。
          ⚠️ 刻意没有 content_id 前导索引（有意基线，别顺手加：先加就把二期"优化前"的对照毁了）。
            ★ T5 实测：本条并未退化成全表扫 —— EXPLAIN = type=range / key=idx_user_content /
-           Extra="Using where; Using index for group-by (scanning)"（MySQL 8 的 loose index scan /
-           skip scan，用 user_id 前导列满足 DISTINCT）。基线数字见 CURRENT_TASKS.md T5 回写。
+           Extra="Using where; Using index for group-by (scanning)"（MySQL 8 的 **loose index scan**：
+           DISTINCT 列 user_id 恰是索引最左前缀；(scanning) 是它的一个变体）。
+           ⚠️ 它不是 INDEX_SKIP_SCAN（那个官方不含 GROUP BY/DISTINCT），别混称。
+           基线数字见 CURRENT_TASKS.md T5 回写。
          COUNT 无匹配行返回 0（不是 null）⇒ 不存在 / 无人收藏都是 0，不 404。 -->
     <select id="countDistinctUserByContentId" resultType="long">
         SELECT COUNT(DISTINCT user_id) FROM favorite_item WHERE content_id = #{contentId}
