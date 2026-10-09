@@ -7,10 +7,12 @@
 
   T2 落"删夹一并删条目"这一条（R-02）；T4 补入收藏（insertItem）与移出
   （deleteByFolderAndContentIds，批量移出 + move 的源侧删除共用）；
-  状态 / 计数 / 夹内分页归 T5~T6 —— 本仓纪律是**不提前写无主 SQL**。
+  T5 补入状态（findFoldersByUserAndContent）与计数（countDistinctUserByContentId）；
+  夹内分页归 T6 —— 本仓纪律是**不提前写无主 SQL**。
 
-  ⚠️ 全局 `map-underscore-to-camel-case: false`；本文件只有写语句（DELETE/INSERT），
-     无列映射需求。
+  ⚠️ 全局 `map-underscore-to-camel-case: false`；本文件的写语句（DELETE/INSERT）无列映射需求；
+     T5 的两条读语句列名要么无下划线（id/name）、要么用显式别名（下面 findFoldersByUserAndContent
+     没有下划线列，countDistinctUserByContentId 是聚合值），故都不需要 resultMap。
 -->
 <mapper namespace="io.github.yjhhhaaa06.videoweb.favorite.dao.FavoriteItemDao">
 
@@ -45,5 +47,32 @@
             #{contentId}
         </foreach>
     </delete>
+
+    <!-- 某内容收在我的哪些夹（T5：GET /favorite/status 的 folders）。
+         ★ 判据 (user_id, content_id) —— 同一内容可进多夹，不能按夹判；正好命中 idx_user_content
+           (user_id, content_id) 的两列等值（与下面那条计数不同，那条用不上索引）。
+         ★ JOIN（非 LEFT）：item 与 folder 同属本域，删夹时条目同事务一并删（R-02）⇒ 无孤儿，
+           INNER JOIN 不丢行。⚠️ 别与 T6 夹内列表的 LEFT JOIN content 混同（那防的是跨域软删导致的
+           分页空洞，本 SQL 不碰 content 表）。
+         ★ 不判内容有效性：失效内容的记录照样在（R-03 不自动清理）⇒ 照常返回它在的夹。
+         ⚠️ 顺序（默认夹置顶 + 创建序）与 FavoriteFolderMapper.findByUserIdWithItemCount 同一契约。 -->
+    <select id="findFoldersByUserAndContent"
+            resultType="io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteFolderBriefVO">
+        SELECT f.id AS id, f.name AS name
+        FROM favorite_item i
+        JOIN favorite_folder f ON f.id = i.folder_id
+        WHERE i.user_id = #{userId} AND i.content_id = #{contentId}
+        ORDER BY f.is_default DESC, f.id ASC
+    </select>
+
+    <!-- 某内容的收藏数（T5：GET /favorite/count）—— ★ 按人去重：COUNT(DISTINCT user_id)，
+         同一人进多夹只算 1（需求篇 §六）。写成 COUNT(*) 会把"一人多夹"重复计数（T5 注入点之一）。
+         ★ 一期实时算、不读 content.favorite_count 列（R-06）；这也是二期冗余列验收时的不变式右边。
+         ⚠️ 刻意没有 content_id 前导索引 ⇒ 本条走全表扫（EXPLAIN type=ALL），这是有意的基线，
+           别顺手加索引（先加就把二期"优化前"的对照毁了）；基线见 CURRENT_TASKS.md T5 回写。
+         COUNT 无匹配行返回 0（不是 null）⇒ 不存在 / 无人收藏都是 0，不 404。 -->
+    <select id="countDistinctUserByContentId" resultType="long">
+        SELECT COUNT(DISTINCT user_id) FROM favorite_item WHERE content_id = #{contentId}
+    </select>
 
 </mapper>

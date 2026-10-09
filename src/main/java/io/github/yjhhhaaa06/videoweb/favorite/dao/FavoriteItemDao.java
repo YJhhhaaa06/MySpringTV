@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.favorite.dao;
 
+import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteFolderBriefVO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -11,8 +12,10 @@ import java.util.List;
  * <h2>本接口的 SQL 随任务逐个补</h2>
  * T1 只确立包与 mapper 注册路径（当时是空接口）；**T2 补入第一条** ——
  * {@link #deleteByFolderId}（删夹一并删条目，R-02）；**T4 补入收藏与移出** ——
- * {@link #insertItem} / {@link #deleteByFolderAndContentIds}。
- * 其余归后续任务：T5 状态与计数、T6 夹内分页。**不提前写无主 SQL**。
+ * {@link #insertItem} / {@link #deleteByFolderAndContentIds}；
+ * **T5 补入状态与计数** —— {@link #findFoldersByUserAndContent}（"收在哪些夹"）与
+ * {@link #countDistinctUserByContentId}（收藏数，按人去重）。
+ * 其余归后续任务：T6 夹内分页。**不提前写无主 SQL**。
  *
  * <h2>写 SQL 前必须先读的四条口径（都是本域特有的坑，别照抄 like）</h2>
  * <ol>
@@ -130,4 +133,62 @@ public interface FavoriteItemDao {
      */
     int deleteByFolderAndContentIds(@Param("folderId") long folderId,
                                     @Param("contentIds") List<Long> contentIds);
+
+    /**
+     * 某内容**收在我的哪些夹**（T5，{@code GET /favorite/status} 的 {@code folders}）。
+     *
+     * <h2>判据是 {@code (user_id, content_id)}，不是"按夹判"</h2>
+     * 同一内容可以躺在我的多个夹里（唯一键是 {@code (folder_id, content_id)}），故"在哪些夹"
+     * 必须按**用户维度**取行 —— 正是 {@code idx_user_content (user_id, content_id)} 服务的查询
+     * （该索引两列都被等值命中，走索引；与下面那条 {@code COUNT(DISTINCT)} 不同，那条用不上索引）。
+     *
+     * <h2>★ 为什么 {@code JOIN favorite_folder} 是安全的（不是 T6 那条 LEFT JOIN 的反例）</h2>
+     * {@code favorite_folder} 与 {@code favorite_item} **同属本域**、且删夹时条目**同事务一并删**
+     * （R-02，{@link #deleteByFolderId}）⇒ 不存在"条目指向已删夹"的孤儿，INNER JOIN 不会丢行。
+     * ⚠️ 别与 T6 夹内列表的 **LEFT JOIN content** 混为一谈：那条防的是**跨域**（内容被软删 /
+     * 行真没了）造成的**分页空洞**，与本条无关（本 SQL 根本不碰 content 表）。
+     *
+     * <p><b>顺序是契约</b>：默认夹置顶 + 创建序（{@code is_default DESC, id ASC}），
+     * 与 {@code FavoriteFolderDao.findByUserIdWithItemCount} 复用同一顺序 —— 两处不许各排一半。
+     *
+     * <p>⚠️ 不判内容有效性：失效内容（{@code is_deleted != 0}）的记录照样在
+     * {@code favorite_item} 里（R-03 不自动清理）⇒ 本查询照常返回它所在的夹
+     * （"我还收着它"是事实；T6 才在**内容**侧把它渲染成脱敏占位）。
+     *
+     * @param userId    当前登录用户（只返回他自己的夹）
+     * @param contentId 内容 id
+     * @return 该内容收在我哪些夹（未收藏 ⇒ **空列表**）；每项只有 {@code id} + {@code name}
+     */
+    List<FavoriteFolderBriefVO> findFoldersByUserAndContent(@Param("userId") long userId,
+                                                            @Param("contentId") long contentId);
+
+    /**
+     * 某内容的收藏数（T5，{@code GET /favorite/count}）—— <b>按人去重</b>（R-06）。
+     *
+     * <h2>★ 口径：数的是"人"，不是"记录"</h2>
+     * {@code COUNT(DISTINCT user_id)} —— 同一人把同一内容收进 3 个夹也只算 **1**
+     * （需求篇 §六「按人去重」）。⚠️ 写成 {@code COUNT(*)} 会把"一人多夹"重复计数
+     * （T5 反向验证的注入点之一：去掉 {@code DISTINCT} ⇒ 计数用例变红）。
+     *
+     * <h2>★ 这是"唯一事实源"，也是二期冗余列的 oracle（R-06）</h2>
+     * 一期不读不写 {@code content.favorite_count} 列，实时算；二期上增量维护后必须满足
+     * {@code content.favorite_count == 本查询}。故一期这条"笨查询"**直接就是二期的验收基准**。
+     *
+     * <h2>⚠️ 刻意不加 {@code content_id} 前导索引 —— 它的耗时基线是二期的对照</h2>
+     * 表上只有 {@code idx_user_content (user_id, content_id)}（前导列是 {@code user_id}）与
+     * {@code uk_folder_content (folder_id, content_id)}、{@code idx_folder_time (folder_id, create_time)}，
+     * 没有一条能只靠 {@code content_id} 等值定位 ⇒ 本条 SQL 走**全表扫**（{@code EXPLAIN} 的
+     * {@code type=ALL}）。**这是有意的**：先加索引就把"优化前"的基线毁掉了。
+     * T5 已记录基线（N 行 ⇒ 全表扫 + 实测耗时，见 {@code .docs/task/CURRENT_TASKS.md} T5 回写
+     * 与 {@code 收藏功能-分期与设计.md} §3.2）。二期建 {@code content_id} 前导索引 / 冗余列时，
+     * 拿它当对照。
+     *
+     * <p>⚠️ 不校验 {@code contentId} 存在性：内容不存在 / 从来没人收藏 ⇒ {@code 0}
+     * （{@code COUNT} 无匹配行返回 0，不是 null）；返回 0 而不是 404 —— 内容页对"没人收藏"
+     * 与"内容不存在"本就给不出不同答案，且 {@code /like/content/count} 同款。
+     *
+     * @param contentId 内容 id
+     * @return 收藏人数（同一人进多夹只算 1）；无人收藏 ⇒ {@code 0}
+     */
+    long countDistinctUserByContentId(@Param("contentId") long contentId);
 }

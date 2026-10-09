@@ -5,6 +5,7 @@ import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteFolderVO;
+import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteStatusVO;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.PublicFavoriteFolderVO;
 import io.github.yjhhhaaa06.videoweb.favorite.service.FavoriteService;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,7 +29,8 @@ import java.util.List;
  *   <tr><td>{@code POST /favorite/add}</td><td rowspan="3">收藏写路径 = <b>T4</b></td><td>✅ 本任务落地</td></tr>
  *   <tr><td>{@code POST /favorite/remove}（批量）</td><td>✅ 本任务落地</td></tr>
  *   <tr><td>{@code POST /favorite/move}</td><td>✅ 本任务落地</td></tr>
- *   <tr><td>{@code GET /favorite/status|count}</td><td>T5</td><td>未落地</td></tr>
+ *   <tr><td>{@code GET /favorite/status}</td><td rowspan="2">状态与计数 = <b>T5</b></td><td rowspan="2">✅ 本任务落地</td></tr>
+ *   <tr><td>{@code GET /favorite/count}</td></tr>
  *   <tr><td>{@code GET /favorite/list}</td><td>T6</td><td>未落地</td></tr>
  * </table>
  *
@@ -49,6 +51,14 @@ import java.util.List;
  * 别照抄 {@code /profile} 的 {@code @CurrentUserId(required = false)}：那条端点有个性化需求，
  * 这条没有。
  *
+ * <p>★ <b>T5 又加了一条匿名端点</b>（{@link #contentCount}）：{@code /favorite/count} 是
+ * 公开展示数（需求篇 §三「内容页显示"多少人收藏了它"」），同样**不注入** {@code @CurrentUserId}
+ * ——它不需要个性化。两条匿名端点（{@code /folder/public}、{@code /count}）都**没有**任何
+ * 鉴权注解，{@code JwtAuthFilter} 对 {@code requiresLogin == false} 的请求按匿名放行。
+ * 判别力由 {@code SecurityContractTests.favorite状态与计数鉴权} 守着（status {@code true} /
+ * count {@code false} 的**成对**断言 —— 否则"整个 {@code /favorite} 被放行"与"逐端点声明正确"
+ * 在断言上无法区分）。
+ *
  * <h2>请求形态：写 {@code POST} + {@code x-www-form-urlencoded}、读 {@code GET} + query</h2>
  * 沿袭 {@code /like/*} 与 {@code /follow/*} 的既有风格（见 T1 时本类的注释）。
  * 收藏是新域、**没有 TV 老前端要兼容**，选 form 而非 JSON 的理由只有一条：
@@ -66,6 +76,10 @@ import java.util.List;
  * 409 默认夹不可删 / 重复收藏 · 400 夹名为空或超长 / 更新时一个字段都没给 /
  * {@code isPrivate} 格式非法 / 移出内容列表为空 · 401 未登录
  * —— 分界线与理由见 {@code FavoriteService} 的类注释。
+ *
+ * <p>⚠️ <b>两条读端点（{@code /status}、{@code /count}）刻意没有 404</b>：内容不存在 /
+ * 从未被收藏 ⇒ 分别是"未收藏（{@code folders=[]}）"与 {@code 0}，都是合法状态。
+ * 给它们加 404 会同时给"这个内容 id 存不存在"开探测口（无端扩大攻击面）。
  */
 @RestController
 @RequestMapping("/favorite")
@@ -241,6 +255,45 @@ public class FavoriteController {
                                         @RequestParam long contentId) {
         favoriteService.moveItem(userId, fromFolderId, toFolderId, contentId);
         return ApiResponse.success("移动成功");
+    }
+
+    // ==================== 收藏状态与收藏数（T5：读 = GET + query） ====================
+
+    /**
+     * 我对某内容的收藏状态（**是否已收藏 + 收在哪些夹**）——需求篇 §三「知道收在了哪些夹」。
+     *
+     * <p>{@code data} 是对象：{@code {"isFavorited":true,"folders":[{"id":1,"name":"默认收藏夹"}]}}；
+     * 未收藏 ⇒ {@code {"isFavorited":false,"folders":[]}}（**空数组**，不是 404、不是缺 {@code data} 键）。
+     * 形状与 {@code isFavorited ≡ !folders.isEmpty()} 的论证见 {@code FavoriteStatusVO} 类注释。
+     *
+     * <p>★ <b>需登录</b>（{@code @RequiresLogin} + {@code @CurrentUserId}）：这是"我的"私有状态，
+     * 与他人视角（{@link #publicFolders}）和公开计数（{@link #contentCount}）是不同信任边界。
+     * 内容不存在 / 从未被收藏 ⇒ 未收藏（**不 404**，见类注释"错误码"节）。
+     *
+     * @param contentId 内容 id（必传）；缺参 / 非数字 → 400（Spring 参数绑定 → 全局出口）
+     */
+    @RequiresLogin
+    @GetMapping("/status")
+    public ApiResponse<FavoriteStatusVO> contentStatus(@CurrentUserId long userId,
+                                                      @RequestParam long contentId) {
+        return ApiResponse.success(favoriteService.getFavoriteStatus(userId, contentId));
+    }
+
+    /**
+     * 某内容的收藏数（**按人去重**：同一人进多夹只算 1）。
+     *
+     * <p>{@code data} 是**整数**（与 {@code /like/content/count} 同形）。
+     * ⚠️ 与那条的差别是**鉴权**：本端点**匿名可访问**（见类注释"鉴权"节 —— 收藏数是公开展示数，
+     * 内容页匿名可看），故不注入 {@code @CurrentUserId}。一期实时算（R-06，不读
+     * {@code content.favorite_count} 列）。
+     *
+     * <p>内容不存在 / 无人收藏 ⇒ {@code 0}（**不 404**）。
+     *
+     * @param contentId 内容 id（必传）；缺参 / 非数字 → 400
+     */
+    @GetMapping("/count")
+    public ApiResponse<Long> contentCount(@RequestParam long contentId) {
+        return ApiResponse.success(favoriteService.getFavoriteCount(contentId));
     }
 
     // ==================== 参数解析 ====================

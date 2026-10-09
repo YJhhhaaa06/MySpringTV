@@ -8,7 +8,9 @@ import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
 import io.github.yjhhhaaa06.videoweb.favorite.dao.FavoriteFolderDao;
 import io.github.yjhhhaaa06.videoweb.favorite.dao.FavoriteItemDao;
 import io.github.yjhhhaaa06.videoweb.favorite.model.entity.FavoriteFolder;
+import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteFolderBriefVO;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteFolderVO;
+import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteStatusVO;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.PublicFavoriteFolderVO;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,10 +20,10 @@ import java.util.List;
 /**
  * 收藏业务（收藏夹 CRUD / 收藏与移出 / 状态与计数 / 夹内分页）。
  *
- * <h2>分期落点（T1 骨架 / T2 夹 CRUD / T3 私密与公开夹 / T4 收藏写路径）</h2>
- * 夹 CRUD = **T2**；私密开关 + 他人公开夹 = **T3**；写路径（收藏/移出/移动）= **T4**（本类
- * {@link #addItem} / {@link #removeItems} / {@link #moveItem}）；
- * 状态与计数 = T5；夹内分页 = T6。本类承担**装配关系**（controller → 本类 → 两个 DAO）
+ * <h2>分期落点（T1 骨架 / T2 夹 CRUD / T3 私密与公开夹 / T4 写路径 / T5 状态与计数）</h2>
+ * 夹 CRUD = **T2**；私密开关 + 他人公开夹 = **T3**；写路径（收藏/移出/移动）= **T4**；
+ * 状态与计数 = **T5**（本类 {@link #getFavoriteStatus} / {@link #getFavoriteCount}）；
+ * 夹内分页 = T6。本类承担**装配关系**（controller → 本类 → 两个 DAO）
  * 与**边界声明**，其余方法随任务逐个补。
  *
  * <h2>一期红线（写方法前先读，别让实现把口径吃掉）</h2>
@@ -56,7 +58,9 @@ import java.util.List;
  *       {@link #removeItems} —— **各只有一条写**，本身即原子 ⇒ **不加事务**
  *       （§四"纯读/单写不为取连接套事务"）；{@code addItem} 懒建路径虽是两条写，但
  *       "空默认夹"是合法终态、与收藏记录无完整性耦合，见 {@link #addItem} 方法注释；</li>
- *   <li>{@link #listMyFolders} / {@link #listPublicFolders} —— 单条 SELECT ⇒ 不加事务（§四）。</li>
+ *   <li>{@link #listMyFolders} / {@link #listPublicFolders} / {@link #getFavoriteStatus} /
+ *       {@link #getFavoriteCount} —— **单条 SELECT ⇒ 不加事务**（§四；状态那条虽有
+ *       "查目录 + 推导布尔"，但只是**一趟查询 + 一次 Java 推导**，不是两条写）。</li>
  * </ul>
  *
  * <h2>★ 懒建与"列表空态"为什么自洽（T2 前提自审）</h2>
@@ -384,6 +388,61 @@ public class FavoriteService {
         // 先插后删：见方法注释"事务与顺序"。
         itemDao.insertItem(toFolderId, userId, contentId);
         itemDao.deleteByFolderAndContentIds(fromFolderId, List.of(contentId));
+    }
+
+    // ========================================================================
+    // 状态与计数（T5：读路径）
+    // ========================================================================
+
+    /**
+     * 当前用户对某内容的收藏状态（{@code GET /favorite/status}）——需求篇 §三「打开内容页能看到
+     * "已收藏"，并知道**收在了哪些夹**」。
+     *
+     * <h2>★ 一趟查询 + 一次推导，{@code isFavorited} 不是第二处事实源</h2>
+     * 只打一次 {@link FavoriteItemDao#findFoldersByUserAndContent} 拿"收在哪些夹"，
+     * {@code isFavorited} 由 {@code folders.isEmpty()} **推导**（收藏必有归属 ⇒
+     * 已收藏 ⟺ 至少落在一个夹里，结构性成立）。不另发一条 {@code EXISTS} ——
+     * 两条查询会引入"两处事实源"，且毫无必要。不变量由
+     * {@code FavoriteStatusAndCountTests} 钉死。
+     *
+     * <h2>刻意不做的事</h2>
+     * <ul>
+     *   <li><b>不校验内容存在性</b>：状态只反映"我收没收藏"这个事实，内容不存在 / 从没被收藏
+     *       都返回 {@code favorited=false, folders=[]}（200，不是 404）—— 与
+     *       {@code /like/content/status} 同款；且状态端点不该给"内容存不存在"开探测口；</li>
+     *   <li><b>不判内容有效性</b>：失效内容（{@code is_deleted != 0}）的记录仍在，故
+     *       "我还收着它"照常显示（R-03 不自动清理；脱敏是 T6 在**内容**侧的事）；</li>
+     *   <li><b>别人的收藏不影响</b>：判据是 {@code (当前用户, 内容)}。</li>
+     * </ul>
+     *
+     * <p>⚠️ 只查**当前用户**自己的记录 ⇒ 需登录（{@code @RequiresLogin} + {@code @CurrentUserId}）；
+     * 与匿名可访问的 {@link #getFavoriteCount} 是**两条**端点、两个信任边界。
+     */
+    public FavoriteStatusVO getFavoriteStatus(long userId, long contentId) {
+        List<FavoriteFolderBriefVO> folders = itemDao.findFoldersByUserAndContent(userId, contentId);
+        FavoriteStatusVO status = new FavoriteStatusVO();
+        status.setFolders(folders);
+        status.setIsFavorited(!folders.isEmpty());
+        return status;
+    }
+
+    /**
+     * 某内容的收藏数（{@code GET /favorite/count}）—— <b>按人去重</b>（R-06，需求篇 §六）。
+     *
+     * <p>实时 {@code COUNT(DISTINCT user_id)}（口径与耗时基线见
+     * {@link FavoriteItemDao#countDistinctUserByContentId}）；一期不读不写
+     * {@code content.favorite_count} 列（R-06 —— 那列一期只建不用）。
+     *
+     * <p>★ <b>公开数据、匿名可访问</b>：需求篇 §三「内容页显示"多少人收藏了它"」，而内容页
+     * 匿名可看 ⇒ 本端点**无** {@code @RequiresLogin}、**无** {@code @CurrentUserId}。
+     * ⚠️ 与 {@code /like/content/count} 的"需登录"**刻意不同**：那条是 TV 的
+     * {@code /like} 前缀保护惯性（老 pytest 断言无 token 401），收藏是新域、无此包袱，
+     * 按"这个数谁看得到"的真实口径定（收藏数本就是公开展示数）。
+     *
+     * <p>不校验 {@code contentId} 存在性：不存在 / 无人收藏都是 {@code 0}（不 404）。
+     */
+    public long getFavoriteCount(long contentId) {
+        return itemDao.countDistinctUserByContentId(contentId);
     }
 
     // ========================================================================
