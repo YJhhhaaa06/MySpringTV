@@ -64,9 +64,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       去掉注解仍得 401。这与 {@code SecurityContractTests} 类注释写的是同一件事：
  *       "401 是谁给的"必须直接对 {@code RequestMappingLookup} 求值才看得见。</li>
  * </ul>
- * ⚠️ <b>本类覆盖不到的机制</b>：{@code deleteFolder} 的 {@code @Transactional}
- * （R-02 的"同进同退"）**无判别力** —— 两条顺序 DELETE 都会成功，去掉注解锁照样绿，
- * 除非注入"第二条写失败"。已登记 {@code CURRENT_ISSUES.md} <b>I-04</b>，由 T8 处置。
+ * ⚠️ <b>{@code deleteFolder} 的事务回滚语义不在本类</b>（两条顺序 DELETE 都成功 ⇒ 去掉注解仍绿，
+ * 本类只钉"两次写都成功"的终态）—— 已由 T8 用 {@code @MockitoSpyBean} 打桩"删夹行失败"在
+ * {@code FavoriteTransactionTests.删夹第二步失败时删条目回滚} 中补上判别力（去掉 {@code @Transactional}
+ * 即变红）。原 {@code CURRENT_ISSUES.md} <b>I-04</b> 由此收口。
  */
 class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
 

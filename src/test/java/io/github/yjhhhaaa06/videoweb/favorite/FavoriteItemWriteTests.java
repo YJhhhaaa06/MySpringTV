@@ -67,9 +67,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>把 {@code insertDefaultFolderIfAbsent} 的 {@code is_default} 改成 0（建出自建夹）⇒
  *       {@code 不带夹收藏} 变红（500，懒建回查不到 {@code is_default=1} 的行）。</li>
  * </ul>
- * ⚠️ <b>本类覆盖不到的机制</b>：{@code moveItem} 的 {@code @Transactional} 在
- * **删除步失败**时的回滚语义 —— 先插后删的顺序让"插入失败"发生在删除之前，
- * HTTP 侧造不出"插入成功、删除失败"的注入点。与 T2 的 I-04 同款，标注给 T8 处置。
+ * ⚠️ <b>{@code moveItem} 的事务回滚语义不在本类</b>：先插后删让"插入失败"先于删除，纯 HTTP 造不出
+ * "插入成功、删除失败"的注入点。已由 T8 用 {@code @MockitoSpyBean} 打桩"删源夹失败"在
+ * {@code FavoriteTransactionTests.移动第二步失败时插入回滚} 中补上判别力（去掉 {@code @Transactional} 即变红）。
  */
 class FavoriteItemWriteTests extends AbstractHttpIntegrationTest {
 
@@ -378,6 +378,25 @@ class FavoriteItemWriteTests extends AbstractHttpIntegrationTest {
 
         assertThat(itemRowCount(mine, content)).as("五次被拒都不得动源夹的记录").isOne();
         assertThat(oracleItemCount(others)).as("别人的夹也不得被写入").isZero();
+    }
+
+    @Test
+    @DisplayName("★移动到「源夹里并没有这条内容」：现行为 = 变相 add（目标夹插入 + 200），源夹本就没有")
+    void 移动源夹无该内容_现行为钉子() {
+        TestUser me = register("13800002015", "钉子用户");
+        long emptySource = insertFolderRow(me.id, "空源夹");
+        long target = insertFolderRow(me.id, "目标夹");
+        long content = insertContent(me.id);
+
+        // 需求篇 / 设计篇均**未约定**"源夹里没有该内容"时 move 该怎么办（T8 强制探索③）。
+        // 现实现 = 目标夹插入成功 + 源夹删除命中 0 行 ⇒ 200（等价于一次 add）。
+        // ★ 本条只把**现行为钉死**（防将来无声漂移），不代表它是对的口径；
+        //   若要改成 404 须先回需求篇拍板，且**不得**为此加"源夹存在性预查"（那属无主校验）。
+        ResponseEntity<String> resp = moveItem(me.token, emptySource, target, content);
+
+        assertThat(resp.getStatusCode().value()).as("现行为：变相 add ⇒ 200").isEqualTo(200);
+        assertThat(itemRowCount(target, content)).as("目标夹插入了一行").isOne();
+        assertThat(itemRowCount(emptySource, content)).as("源夹本就没有该内容，删 0 行").isZero();
     }
 
     // ========================================================================
