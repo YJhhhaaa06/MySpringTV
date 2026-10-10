@@ -71,6 +71,7 @@ function render() {
         </div>
         <div class="user-follow-wrap" id="followWrap"></div>
       </div>
+      <div class="user-fav" id="userFav"></div>
       <div id="selfMenu"></div>
       <div class="home-content" id="contentGrid"></div>
       <div class="load-more" id="loadMore"></div>
@@ -150,6 +151,7 @@ async function loadContent() {
   try {
     const batch = await list.nextBatch();
     renderProfileHead();
+    loadUserFav();
     renderContentGrid(batch);
     renderContentLoadMore();
   } catch (e) {
@@ -188,6 +190,35 @@ function renderProfileHead() {
 
   state.isFollowed = profile.isFollowed;
   renderFollowBtn();
+}
+
+// ---------- 收藏夹模块（T7） ----------
+// 本人：只给"我的收藏夹"入口（私人夹在收藏页里管理，个人空间不展开）；
+// 他人：只列**公开**夹（R-08：一期只给名称 + 视频数，无 id ⇒ 不打开展示；
+//       私密夹由后端 /favorite/folder/public 过滤掉，前端看不到也不需要过滤）。
+async function loadUserFav() {
+  const box = state.container.querySelector('#userFav');
+  if (!box) return;
+  if (state.isSelf) {
+    box.innerHTML = `
+      <div class="user-menu">
+        <div class="user-menu-item" id="goFav"><span>⭐ 我的收藏夹</span><span class="arrow">›</span></div>
+      </div>`;
+    box.querySelector('#goFav').addEventListener('click', () => navigate('/favorite'));
+    return;
+  }
+  let folders;
+  try {
+    folders = (await request(`favorite/folder/public?userId=${state.profileUserId}`)) || [];
+  } catch (e) {
+    return;
+  }
+  if (!folders.length) { box.innerHTML = ''; return; }
+  box.innerHTML = `<div class="user-fav-card">
+      <div class="user-fav-title">公开收藏夹</div>
+      ${folders.map((f) => `<div class="user-fav-item"><span class="uf-name">${escapeHtml(f.name)}</span>`
+        + `<span class="uf-count">${f.itemCount} 个内容</span></div>`).join('')}
+    </div>`;
 }
 
 function renderContentGrid(list) {

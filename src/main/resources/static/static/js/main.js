@@ -18,6 +18,7 @@ import * as publish from './views/publish.js';
 import * as login from './views/login.js';
 import * as coupon from './views/coupon.js';
 import * as admin from './views/admin.js';
+import * as favorite from './views/favorite.js';
 
 const CATEGORIES = [
   { id: -1, name: '推荐' },
@@ -75,7 +76,7 @@ function renderShell() {
     <a class="drawer-item" href="#/follow" data-nav="follow">${ICONS.feed}<span class="drawer-label">动态</span></a>
     <a class="drawer-item" href="#/user/me" data-nav="user">${ICONS.user}<span class="drawer-label">我的</span></a>
     <a class="drawer-item" href="#/publish" data-nav="publish">${ICONS.publish}<span class="drawer-label">创作中心</span></a>
-    <a class="drawer-item disabled" data-nav="star">${ICONS.star}<span class="drawer-label">收藏</span></a>
+    <a class="drawer-item" href="#/favorite" data-nav="favorite">${ICONS.star}<span class="drawer-label">收藏</span></a>
     <a class="drawer-item disabled" data-nav="history">${ICONS.history}<span class="drawer-label">历史</span></a>`;
 
   refreshUserArea();
@@ -166,6 +167,7 @@ function registerRoutes() {
   register('/login', login);
   register('/coupon', coupon);
   register('/admin', admin);
+  register('/favorite', favorite);
 }
 
 // ---------- 导航高亮 ----------
@@ -178,6 +180,7 @@ function onRouteChange({ pattern, query }) {
     else if (nav === 'follow') active = pattern === '/follow';
     else if (nav === 'user') active = pattern === '/user/:id';
     else if (nav === 'publish') active = pattern === '/publish';
+    else if (nav === 'favorite') active = pattern === '/favorite';
     el.classList.toggle('active', active);
   });
   // 分类下拉高亮当前分区

@@ -928,3 +928,72 @@ body.drawer-open .drawer-backdrop { opacity: 1; pointer-events: auto; }
 .ew-media-actions .ew-delete:hover { color: #fff; background: #e34d59; border-color: #e34d59; }
 .ew-media-actions button:disabled { opacity: .6; cursor: not-allowed; }
 .ew-empty { color: var(--text-3); font-size: 13px; padding: 8px 0; }
+
+/* ==========================================================================
+   收藏（T7）：收藏夹页 #/favorite + 详情页收藏弹窗 + 失效占位卡
+   ★ 失效占位封面是**代码合成**（灰底 + 内联 SVG），项目不引入占位图片素材。
+   ========================================================================== */
+
+/* ---------- 收藏夹页 ---------- */
+.fav-page { max-width: var(--content-max); margin: 0 auto; }
+.fav-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+.fav-head h2 { font-size: 18px; font-weight: 700; }
+.fav-layout { display: grid; grid-template-columns: 236px 1fr; gap: 18px; align-items: start; }
+
+.fav-folders { background: var(--bg-card); border-radius: var(--radius); padding: 8px; box-shadow: var(--shadow-1); }
+.fav-folder-item { padding: 10px; border-radius: 8px; cursor: pointer; transition: background .12s; }
+.fav-folder-item:hover { background: var(--bg); }
+.fav-folder-item.active { background: var(--brand-weak); }
+.ff-top { display: flex; align-items: center; gap: 6px; }
+.ff-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 500; }
+.fav-folder-item.active .ff-name { color: var(--brand); font-weight: 600; }
+.ff-badge { flex-shrink: 0; font-size: 11px; padding: 1px 6px; border-radius: 8px; background: var(--bg); color: var(--text-3); }
+.ff-badge.private { background: #fff4e5; color: #c07a14; }
+.ff-count { flex-shrink: 0; font-size: 12px; color: var(--text-3); font-family: var(--font-num); }
+.ff-acts { display: none; gap: 6px; margin-top: 8px; }
+.fav-folder-item.active .ff-acts, .fav-folder-item:hover .ff-acts { display: flex; }
+.ff-act { font-size: 12px; color: var(--text-3); padding: 2px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg-card); transition: all .15s; }
+.ff-act:hover { color: var(--brand); border-color: var(--brand); }
+.ff-act.danger:hover { color: #e34d59; border-color: #f3cdd1; }
+.fav-folders-empty { padding: 18px 10px; color: var(--text-3); font-size: 13px; text-align: center; line-height: 1.8; }
+
+.fav-main { min-width: 0; }
+.fav-main-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
+.fav-main-title { font-size: 16px; font-weight: 700; }
+.fav-main-sub { font-size: 13px; color: var(--text-3); }
+
+/* 失效卡片：占位封面 + 不可点开（内容已打不开），但保留「移出」 */
+.invalid-card { cursor: default; }
+.invalid-card:hover { transform: none; box-shadow: var(--shadow-1); }
+.invalid-cover { display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #e9ebee, #dfe2e6); color: #b6bcc4; }
+.invalid-cover svg { width: 46px; height: 46px; }
+.fav-remove-btn { margin-top: 10px; width: 100%; padding: 5px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-card); color: var(--text-2); font-size: 12px; transition: all .15s; }
+.fav-remove-btn:hover { color: var(--brand); border-color: var(--brand); }
+
+/* ---------- 详情页收藏弹窗（选夹） ---------- */
+.fav-modal { max-width: 420px; }
+.fav-picker { max-height: 46vh; overflow-y: auto; margin-bottom: 14px; display: flex; flex-direction: column; gap: 2px; }
+.fav-pick-row { display: flex; align-items: center; gap: 10px; padding: 9px 8px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+.fav-pick-row:hover { background: var(--brand-weak); }
+.fav-pick-row input { width: 16px; height: 16px; accent-color: var(--brand); cursor: pointer; flex-shrink: 0; }
+.fp-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fp-count { color: var(--text-3); font-size: 12px; font-family: var(--font-num); }
+.fp-hint { color: var(--text-4); font-size: 12px; }
+.fav-pick-empty { text-align: center; color: var(--text-3); font-size: 13px; padding: 26px 0; }
+.fav-new-row { display: flex; gap: 8px; margin-bottom: 16px; }
+.fav-new-row .input { margin-bottom: 0; flex: 1; }
+.fav-new-btn { flex-shrink: 0; padding: 0 16px; border-radius: 8px; background: var(--bg); color: var(--text-2); font-size: 13px; transition: all .15s; }
+.fav-new-btn:hover { color: var(--brand); background: var(--brand-weak); }
+
+/* ---------- 个人空间「公开收藏夹」模块 ---------- */
+.user-fav-card { background: var(--bg-card); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 18px; box-shadow: var(--shadow-1); }
+.user-fav-title { font-size: 14px; font-weight: 700; margin-bottom: 10px; }
+.user-fav-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line-soft); font-size: 14px; }
+.user-fav-item:last-child { border-bottom: none; }
+.uf-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.uf-count { flex-shrink: 0; color: var(--text-3); font-size: 12px; }
+
+@media (max-width: 700px) {
+  .fav-layout { grid-template-columns: 1fr; }
+  .ff-acts { display: flex; }
+}

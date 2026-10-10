@@ -28,6 +28,9 @@ export function mount(container, params) {
     expandedRoots: {},      // T10-B：rootId → { replies, page, totalPages }（展开的楼中楼）
     related: [],
     parentId: null,
+    isFavorited: false,      // 收藏按钮态（T7：GET /favorite/status）
+    favoriteCount: 0,        // 收藏数（T7：GET /favorite/count，匿名可读）
+    pickFolders: null,       // 收藏弹窗最近一次拉到的"我的夹"列表
   };
   if (!state.contentId) {
     container.innerHTML = emptyBox('缺少内容 ID');
@@ -57,6 +60,7 @@ function render() {
         </div>
         <div class="detail-actions">
           <button class="like-btn" id="likeBtn">❤ 点赞 <span id="likeCount">0</span></button>
+          <button class="like-btn" id="favBtn">⭐ 收藏</button>
           <button class="edit-btn" id="editBtn" style="display:none">✏ 编辑</button>
         </div>
         <div class="detail-desc" id="desc"></div>
@@ -76,6 +80,20 @@ function render() {
           <div id="relatedList"><div class="empty"><div class="empty-msg">加载中...</div></div></div>
         </div>
       </div>
+    </div>
+
+    <div class="modal-overlay hidden" id="favOverlay">
+      <div class="modal fav-modal">
+        <div class="modal-title">收藏到</div>
+        <div class="fav-picker" id="favPicker"></div>
+        <div class="fav-new-row">
+          <input class="input" id="favNewName" placeholder="新建收藏夹" maxlength="30">
+          <button class="fav-new-btn" id="favCreateBtn">创建</button>
+        </div>
+        <div class="btn-row">
+          <button class="btn-confirm" id="favDone">完成</button>
+        </div>
+      </div>
     </div>`;
 
   const input = state.container.querySelector('#commentInput');
@@ -83,6 +101,16 @@ function render() {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendComment(); }
   });
   state.container.querySelector('#sendBtn').addEventListener('click', sendComment);
+
+  // 收藏弹窗（选夹）
+  state.container.querySelector('#favDone').addEventListener('click', closeFavPicker);
+  state.container.querySelector('#favOverlay').addEventListener('click', (e) => {
+    if (e.target.id === 'favOverlay') closeFavPicker();
+  });
+  state.container.querySelector('#favCreateBtn').addEventListener('click', createFolderFromPicker);
+  state.container.querySelector('#favNewName').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') createFolderFromPicker();
+  });
 }
 
 async function init() {
@@ -155,7 +183,7 @@ function renderContent() {
   }
 
   c.querySelector('#title').textContent = item.title || '';
-  c.querySelector('#stats').textContent = `❤ ${formatNumber(item.likeCount || 0)} · 💬 ${formatNumber(item.commentCount || 0)} · ${formatTime(item.createTime)}`;
+  renderStats();
 
   const authorName = item.authorName || '未知作者';
   const avatar = c.querySelector('#authorAvatar');
@@ -177,6 +205,11 @@ function renderContent() {
   updateLikeBtn();
   c.querySelector('#likeCount').textContent = item.likeCount || 0;
   likeBtn.addEventListener('click', toggleContentLike);
+
+  // 收藏（T7）：按钮态 / 公开计数由独立端点取（onclick 赋值，避免重复渲染叠加监听）
+  updateFavBtn();
+  c.querySelector('#favBtn').onclick = openFavPicker;
+  initFavorite();
 
   // 作者本人可编辑作品（改标题/简介 + 替换/删除媒体）；onclick 赋值避免重复渲染时监听叠加
   const editBtn = c.querySelector('#editBtn');
@@ -485,11 +518,171 @@ async function deleteComment(comment) {
     await loadInitialComments();
     if (state.content) {
       state.content.commentCount = Math.max(0, (state.content.commentCount || 0) - removed);
-      state.container.querySelector('#stats').textContent =
-        `❤ ${formatNumber(state.content.likeCount || 0)} · 💬 ${formatNumber(state.content.commentCount || 0)} · ${formatTime(state.content.createTime)}`;
+      renderStats();
     }
   } catch (e) {
     showToast(e.message || '删除失败');
+  }
+}
+
+// ---------- 收藏（T7） ----------
+/** 详情页统计行（点赞 / 评论 / 收藏数）—— 三处写同一行，收敛到此以免各写一份漂移。 */
+function renderStats() {
+  const item = state.content;
+  const el = state.container && state.container.querySelector('#stats');
+  if (!item || !el) return;
+  el.textContent = `❤ ${formatNumber(item.likeCount || 0)} · 💬 ${formatNumber(item.commentCount || 0)}`
+    + ` · ⭐ ${formatNumber(state.favoriteCount || 0)} · ${formatTime(item.createTime)}`;
+}
+
+function updateFavBtn() {
+  const btn = state.container && state.container.querySelector('#favBtn');
+  if (!btn) return;
+  const on = state.isFavorited === true;
+  btn.className = 'like-btn' + (on ? ' liked' : '');
+  btn.textContent = on ? '⭐ 已收藏' : '⭐ 收藏';
+}
+
+/** 收藏数与收藏状态（登录才查状态）分别取；任一失败都不打断详情页。 */
+async function initFavorite() {
+  refreshFavoriteCount();
+  if (!isLoggedIn()) { updateFavBtn(); return; }
+  try {
+    const st = await request(`favorite/status?contentId=${state.contentId}`);
+    state.isFavorited = !!(st && st.isFavorited);
+  } catch (e) {
+    state.isFavorited = false;
+  }
+  updateFavBtn();
+}
+
+async function refreshFavoriteCount() {
+  try {
+    state.favoriteCount = (await request(`favorite/count?contentId=${state.contentId}`)) || 0;
+  } catch (e) {
+    state.favoriteCount = 0;
+  }
+  renderStats();
+}
+
+async function openFavPicker() {
+  if (!requireLogin()) return;
+  state.container.querySelector('#favOverlay').classList.remove('hidden');
+  await loadPicker();
+}
+
+function closeFavPicker() {
+  const overlay = state.container.querySelector('#favOverlay');
+  if (overlay) overlay.classList.add('hidden');
+}
+
+/**
+ * 懒建默认夹的**占位行**（id = null 表示"还不存在"）。
+ *
+ * <p>需求篇 §二「每个用户自带一个默认收藏夹；收藏时没选夹，内容自动进这里」。
+ * 默认夹只由 `add` **不传 folderId** 触发懒建（R-01，`FavoriteService.ensureDefaultFolder`），
+ * 后端**没有**独立的"建默认夹"端点 ⇒ 前端必须自己给出这条入口（否则默认夹永远建不出来：
+ * 弹窗只列已有夹、而默认夹只由"不选夹"产生，两者互锁）。
+ * 勾它 = 调 `add` 不带 `folderId` ⇒ 懒建落成，随后 `loadPicker()` 会拿到真实行（带 isDefault）。
+ */
+const LAZY_DEFAULT_ROW = { id: null, name: '默认收藏夹', itemCount: null, isDefault: true };
+
+/** 拉"我的夹" + 当前内容收藏状态，渲染勾选框：勾上 = 已收在该夹（与后端契约同源）。 */
+async function loadPicker() {
+  const picker = state.container.querySelector('#favPicker');
+  if (!picker) return;
+  picker.innerHTML = '<div class="fav-pick-empty">加载中...</div>';
+  let folders;
+  let st;
+  try {
+    [folders, st] = await Promise.all([
+      request('favorite/folder/list'),
+      request(`favorite/status?contentId=${state.contentId}`),
+    ]);
+  } catch (e) {
+    picker.innerHTML = '<div class="fav-pick-empty">加载失败</div>';
+    return;
+  }
+  state.pickFolders = folders || [];
+  state.isFavorited = !!(st && st.isFavorited);
+  const checkedIds = new Set(((st && st.folders) || []).map((f) => f.id));
+  updateFavBtn();
+
+  // 默认夹还不存在 ⇒ 补一行占位入口（已存在时它本就由 /folder/list 返回，且按契约默认夹置顶）
+  const hasDefault = state.pickFolders.some((f) => f.isDefault === true);
+  const rows = hasDefault ? state.pickFolders : [LAZY_DEFAULT_ROW, ...state.pickFolders];
+
+  picker.innerHTML = '';
+  rows.forEach((f) => {
+    const row = document.createElement('label');
+    row.className = 'fav-pick-row';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = checkedIds.has(f.id); // 占位行 id=null ⇒ 恒未勾
+    cb.addEventListener('change', () => toggleFolderPick(f, cb));
+    const name = document.createElement('span');
+    name.className = 'fp-name';
+    name.textContent = f.name;
+    const cnt = document.createElement('span');
+    cnt.className = f.id == null ? 'fp-hint' : 'fp-count';
+    cnt.textContent = f.id == null ? '首次收藏时创建' : (f.itemCount != null ? f.itemCount : '');
+    row.appendChild(cb);
+    row.appendChild(name);
+    row.appendChild(cnt);
+    picker.appendChild(row);
+  });
+}
+
+/** 勾选 = 收藏到该夹；取消 = 从该夹移出。409（已在夹里）按幂等成功处理。 */
+async function toggleFolderPick(folder, cb) {
+  const want = cb.checked;
+  cb.disabled = true;
+  try {
+    if (folder.id == null) {
+      // 勾占位行 ⇒ 走 R-01 懒建：add **不带 folderId**（后端就地建默认夹并落这条收藏）
+      await request(`favorite/add?contentId=${state.contentId}`, { method: 'POST' });
+      showToast('已收藏到默认收藏夹');
+    } else if (want) {
+      await request(`favorite/add?contentId=${state.contentId}&folderId=${folder.id}`, { method: 'POST' });
+      showToast('已收藏');
+    } else {
+      await request(`favorite/remove?folderId=${folder.id}&contentIds=${state.contentId}`, { method: 'POST' });
+      showToast('已取消收藏');
+    }
+    await loadPicker();
+    await refreshFavoriteCount();
+  } catch (e) {
+    if (e.code === 409) {
+      await loadPicker();
+      await refreshFavoriteCount();
+    } else {
+      cb.checked = !want;
+      showToast(e.message || '操作失败');
+    }
+  } finally {
+    cb.disabled = false;
+  }
+}
+
+async function createFolderFromPicker() {
+  if (!requireLogin()) return;
+  const input = state.container.querySelector('#favNewName');
+  const name = input.value.trim();
+  if (!name) { showToast('夹名不能为空'); return; }
+  try {
+    const prevIds = new Set((state.pickFolders || []).map((f) => f.id));
+    await request(`favorite/folder/add?name=${encodeURIComponent(name)}`, { method: 'POST' });
+    const folders = (await request('favorite/folder/list')) || [];
+    const created = folders.find((f) => !prevIds.has(f.id)); // 刚建的那条（id 单调增）
+    if (created) {
+      await request(`favorite/add?contentId=${state.contentId}&folderId=${created.id}`, { method: 'POST' });
+    }
+    input.value = '';
+    showToast('已创建并收藏');
+    await loadPicker();
+    await refreshFavoriteCount();
+  } catch (e) {
+    showToast(e.message || '创建失败');
   }
 }
 
@@ -502,7 +695,7 @@ async function toggleContentLike() {
   item.likeCount += liked ? -1 : 1;
   updateLikeBtn();
   state.container.querySelector('#likeCount').textContent = item.likeCount;
-  state.container.querySelector('#stats').textContent = `❤ ${formatNumber(item.likeCount || 0)} · 💬 ${formatNumber(item.commentCount || 0)} · ${formatTime(item.createTime)}`;
+  renderStats();
   try {
     await request(`like/content/${action}?contentId=${state.contentId}`, { method: 'POST' });
   } catch (e) {

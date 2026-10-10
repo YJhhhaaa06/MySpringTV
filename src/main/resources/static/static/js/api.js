@@ -16,6 +16,14 @@
 import { getToken, clearAuth } from './auth.js';
 import { showToast } from './utils.js';
 
+// ----------------------------------------------------------------------------
+// T7 收藏域端点清单（前端在此登记；**不新增封装层** —— 各视图沿用
+// `request('路径', { method, jsonBody })` 的既有调用风格，与 like / follow / comment 同款）。
+//   写：POST favorite/folder/{add,update,remove} · favorite/{add,remove,move}（form 参数走 query）
+//   读：GET  favorite/folder/list · favorite/folder/public · favorite/status · favorite/count · favorite/list
+//   ★ 鉴权差异：folder/public、count 匿名可访问；其余需登录（后端逐端点声明，别照抄 like 的类级注解）。
+// ----------------------------------------------------------------------------
+
 export async function request(path, options = {}) {
   const opts = { ...options };
   opts.headers = { ...(options.headers || {}) };
