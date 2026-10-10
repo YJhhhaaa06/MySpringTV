@@ -46,6 +46,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       {@code COUNT(*)} ⇒ {@code 同一人进两夹…计数仍为一} 变红（1 → 2）；</li>
  *   <li>把 {@code findFoldersByUserAndContent} 的 {@code i.user_id = ?} 去掉 ⇒
  *       {@code 两人收藏…状态互不影响} 变红（别人的夹混进我的状态）；</li>
+ *   <li>★ <b>T8 补</b>：把两条 SQL 的 <b>{@code content_id} 条件</b>去掉 ⇒ {@code 两人收藏…} 变红
+ *       （收藏数 2→3、丙的夹混进 content 的状态）。⚠️ 这条判别力来自夹具里"**另一个内容**被另一人收藏"
+ *       的对照 —— T8 只读审查发现原夹具三处都只有单一内容，去掉 {@code content_id} 过滤**可能仍绿**，
+ *       故已把对照固化进 {@code 两人收藏…} 的夹具；</li>
  *   <li>给 {@code /favorite/count} 误加 {@code @RequiresLogin} ⇒ 本类匿名用例 + {@code
  *       SecurityContractTests.favorite状态与计数鉴权} 变红。</li>
  * </ul>
@@ -140,24 +144,36 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
     void 两人收藏计数加一且状态互不影响() {
         TestUser a = register("13800003003", "甲");
         TestUser b = register("13800003004", "乙");
-        TestUser c = register("13800003005", "丙没收藏");
+        TestUser c = register("13800003005", "丙");
         long content = insertContent(a.id);
+        long otherContent = insertContent(a.id);       // ★ 干扰内容：只被"丙"收藏
         long folderA = insertFolder(a.id, "甲的夹");
         long folderB = insertFolder(b.id, "乙的夹");
+        long folderC = insertFolder(c.id, "丙的夹");
         insertItem(folderA, a.id, content);
         insertItem(folderB, b.id, content);
+        insertItem(folderC, c.id, otherContent);       // ★ 干扰记录：另一内容 + 另一人
 
-        assertThat(countOf(count(a.token, content))).as("两个不同的人 ⇒ 2").isEqualTo(2L);
+        // ★ count 的判别力：**必须有"另一个内容的收藏"作对照** ——
+        //   否则全表 COUNT(DISTINCT user_id) 恰好等于"本内容"的人数，去掉 content_id 过滤仍绿（T8 F1）。
+        assertThat(countOf(count(a.token, content))).as("两个不同的人收同一内容 ⇒ 2").isEqualTo(2L);
         assertThat(countOf(count(a.token, content))).isEqualTo(oracleDistinctUserCount(content));
+        assertThat(countOf(count(a.token, otherContent)))
+                .as("★ 对照：另一个内容只被丙收藏 ⇒ 1（若实现漏了 content_id 过滤，这里会变成 3）")
+                .isEqualTo(1L);
+        assertThat(countOf(count(a.token, otherContent))).isEqualTo(oracleDistinctUserCount(otherContent));
 
-        // ★ 隔离：甲的状态只含甲的夹，乙的只含乙的，丙的空
+        // ★ 隔离：甲的状态只含甲的夹，乙的只含乙的，丙的**不含**别的内容所在的夹
         assertThat(names(Envelope.data(status(a.token, content)).path("folders")))
                 .as("★ 状态判据是 (当前用户, 内容)；去掉 user_id 条件会把乙的夹混进来")
                 .containsExactly("甲的夹");
         assertThat(names(Envelope.data(status(b.token, content)).path("folders")))
                 .containsExactly("乙的夹");
-        assertThat(Envelope.data(status(c.token, content)).path("folders").size())
-                .as("丙没收藏 ⇒ 空（别人的收藏不算我的）").isZero();
+        // ★ 丙收的是**另一个内容** ⇒ 查询 content 的状态必须为空。
+        //   去掉 content_id 条件会把"丙的夹"（装着 otherContent）混进 content 的状态（T8 F2）。
+        assertThat(names(Envelope.data(status(c.token, content)).path("folders")))
+                .as("★ 丙没收藏**这个内容**（他收的是别的）⇒ 空；漏了 content_id 过滤会混进「丙的夹」")
+                .isEmpty();
     }
 
     // ========================================================================

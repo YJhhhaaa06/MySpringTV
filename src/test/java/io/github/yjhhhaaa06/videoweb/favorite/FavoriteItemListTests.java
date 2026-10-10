@@ -63,6 +63,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>去掉 {@code /favorite/list} 的 {@code @RequiresLogin} ⇒ {@code SecurityContractTests} 变红
  *       （而本类 HTTP 用例**全绿** —— 又一次证实 T2 教训：HTTP 侧的 401 由 {@code @CurrentUserId}
  *       的参数解析器兜出，对 {@code @RequiresLogin} 机制是**假绿**）。</li>
+ *   <li>★ <b>T8 补</b>：去掉 {@code countByFolderId} / {@code findPageByFolderId} 的
+ *       {@code folder_id = ?} 条件 ⇒ {@code total包含失效条目} 变红（total 4→6、list 4→6）。
+ *       ⚠️ 判别力来自该用例新增的"**干扰夹**"对照 —— T8 只读审查发现原夹具全为单夹，
+ *       去掉 {@code folder_id} 过滤**可能仍绿**，故已把对照固化进夹具。</li>
  * </ul>
  * ⚠️ 已随 T6 残留提交（2026-10-09）作废的旧注入点（机制已不在本域，别再按它们注入、也别把
  * "注入后不变红"读成测试没判别力）："LEFT JOIN 改 INNER JOIN"、"SQL 的 invalid 恒 0"、
@@ -358,8 +362,15 @@ class FavoriteItemListTests extends AbstractHttpIntegrationTest {
         insertItem(folder, me.id, deleted, 2);
         insertItem(folder, me.id, hidden, 1);
 
+        // ★ 干扰夹：**另一个夹**里的记录不得混进本夹的 total / 列表 —— 缺这个对照，
+        //   去掉 countByFolderId / findPageByFolderId 的 `folder_id = ?` 条件仍绿（T8 F3）。
+        long noiseFolder = insertFolder(me.id, "干扰夹");
+        insertItem(noiseFolder, me.id, insertContent(me.id, "干扰内容1", 0), 2);
+        insertItem(noiseFolder, me.id, insertContent(me.id, "干扰内容2", 0), 1);
+
         JsonNode data = Envelope.data(list(me.token, folder, null, null));
         assertThat(oracleItemCount(folder)).as("独立 oracle：4 条收藏记录").isEqualTo(4L);
+        assertThat(oracleItemCount(noiseFolder)).as("对照：干扰夹另有 2 条").isEqualTo(2L);
         assertThat(data.path("total").asLong())
                 .as("★ total 必须等于收藏**记录**数（含失效）—— 与 /folder/list 的 itemCount 同一口径")
                 .isEqualTo(oracleItemCount(folder));
