@@ -134,11 +134,12 @@
 * **强制探索**：
   - `ContentStatusFiller` 的**去留**：被整体取代（删），还是保留为 `content` 侧的薄壳？两者皆可，但**必须明确选一个并说明**
   - `content/service/ProfileService` 自己内联了一套点赞批量（见其类注释）—— **是否顺带对齐**？（若顺带 = 扩大范围，需回报）
+    ⇒ **2026-10-12 拍板：不对齐**（用户"选择不改"）—— 改它要给 `/profile` 每页 +2 趟批量读，且互动域只有"三维一起答"的批量契约。裁剪登记与后续去向见 `CURRENT_ISSUES.md` **I-09**（"维度可选"重载 / 更优解，待处理）
   - `feed/service/FeedService.renderPage` 只填 `isLiked`（不填 `isFollowed`）—— **不在本任务范围**，但回写里要说明为何不动
   - ★ **前端乐观更新**：`detail.js` 的本地 ±1（`toggleContentLike`）改动后是否仍成立；"写后重新拉取"拿到的是哪个字段
 * **验收**：
   - 契约测试：详情响应**有** `interaction`、**无**顶层 `isLiked`/`isFollowed`；**匿名 ⇒ `null`**；登录且已赞/已关注 ⇒ 子对象内为 `true`
-  - ★ **可复算判据**：`grep` 确认 `content` 域**不再 import** `like.service` / `follow.service`（本方案的收益落点）
+  - ★ **可复算判据（2026-10-12 收窄，理由见 `CURRENT_ISSUES.md` I-09）**：`grep` 确认**互动态填充路径**（`ContentStatusFiller` / `ContentService` / `StartController`）**零 import** `like.service` / `follow.service`（本方案的收益落点）。⚠️ **例外 = `ProfileService`**（内联点赞批量保留、不对齐，用户 2026-10-12 拍板）⇒ 原判据"整域零 import"**不成立**，以本条为准
   - 前端：浏览器实测详情页三按钮（赞 / 关注 / 收藏）初始态与点击后状态正确
   - 回归基线全绿（⚠️ **例数可能与 391 不同** —— 改断言会动例数，回写里写清）
 * **回写**：

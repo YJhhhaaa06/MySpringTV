@@ -24,7 +24,7 @@
 
 | 编号 | 发现于（任务 / 日期） | 分类 | 现象 | 证据 | 影响 | 处置 | 状态 |
 |------|---------------------|------|------|------|------|------|------|
-| 待登记 | | | | | | | |
+| I-09 | T10 探索期 / 2026-10-12 | 债务 | R-10 判据「content 域不再 import like.service / follow.service」**只兑现一半**：T10 后互动态填充路径（`ContentStatusFiller` / `ContentService` / `StartController`）已改走互动域，但 `ProfileService` 仍**内联点赞批量**（直连 `like.service.batchIsContentLiked`；另有主页维度的 `follow.service` 用法：主页关注态 + 关注/粉丝计数） | `grep "import.*videoweb\.(like\|follow)\.service" src/main/java/.../content/` ⇒ 仅剩 `ProfileService.java:10-11`（T10 交付后复算）；`ProfileService.java:114-127` 第 ⑤ 段 | content 域仍持有一条"我是否点过赞"的直接依赖（profile 路径）；R-10 的"content 域依赖 3 → 1"在 profile 路径上不成立 | **保留现状**（用户 2026-10-12 拍板"选择不改"）：改它要给 `/profile` 每页 **+2 趟批量读**（互动域只提供"三维一起答"的批量契约，无"单维"子契约；两趟结果在 profile 路径被丢弃）。**后续考虑**：① 互动域加"维度可选"的批量重载；② 或更优解（避免为低频路径扩大 T9 刚钉死的契约面）。⚠️ `follow.service` 的 profile 维度用法**不是**本议题：那是 `模块边界与依赖.md` §四 已登记的合法契约 | 待处理 |
 
 > 📌 **I-01 ~ I-08 的正文已于一期收尾清出**（2026-10-11，历史在 git）：一行摘要见下「已解决（本期内）」，
 > 详细结论与理由见 [设计篇](收藏功能-分期与设计.md) **附录「编号索引」**。
