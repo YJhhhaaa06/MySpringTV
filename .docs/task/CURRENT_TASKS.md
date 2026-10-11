@@ -18,7 +18,7 @@
 * **本周期**：`2026-10-11` 起 · **第 2 张清单**（编号 **T9 起**，**不回收 T1–T8**）
 * **本张清单范围**：`CURRENT_NEEDS.md` §四 的 **二期-1 ~ 二期-4**；**反面清单 8 条**同在那里（本文件不复制）
 * **收尾 checklist**：☑ 回归基线全绿 · ☑ 完成态已清出（记入 git）· ☑ 问题已结转（`FURTHER_ISSUES.md`）· ☑ 工作树干净
-* ⚠️ **本期含一条 breaking**（T10 = R-10 契约演进）—— 用户 2026-10-11 明确接受，判据③ 的例外见设计篇 §一
+* ⚠️ **本期含一条 breaking**（T10 = R-10 契约演进）—— 用户 2026-10-11 明确接受，判据③ 的例外见设计篇 §一；**T10 已于 2026-10-12 交付**
 
 ---
 
@@ -112,7 +112,7 @@
 
 ---
 
-### T10 详情互动态内联（**breaking 收口**）（来源 R-10 / 能力 二期-1）【待执行】
+### T10 详情互动态内联（**breaking 收口**）（来源 R-10 / 能力 二期-1）【已完成】
 
 > ⚠️ **先质疑（G14）**：
 > - **任务**：前提是"把顶层 `isLiked`/`isFollowed` 搬进 `interaction` 值得付一次 breaking"。**这是本期唯一的对外契约破坏**。执行中若发现改动面远超预期（例如前端牵连面比评估的大），**停下回报**。
@@ -142,7 +142,21 @@
   - ★ **可复算判据（2026-10-12 收窄，理由见 `CURRENT_ISSUES.md` I-09）**：`grep` 确认**互动态填充路径**（`ContentStatusFiller` / `ContentService` / `StartController`）**零 import** `like.service` / `follow.service`（本方案的收益落点）。⚠️ **例外 = `ProfileService`**（内联点赞批量保留、不对齐，用户 2026-10-12 拍板）⇒ 原判据"整域零 import"**不成立**，以本条为准
   - 前端：浏览器实测详情页三按钮（赞 / 关注 / 收藏）初始态与点击后状态正确
   - 回归基线全绿（⚠️ **例数可能与 391 不同** —— 改断言会动例数，回写里写清）
-* **回写**：
+* **回写**：T10 完成（自拆 5 commit：T10-0 登记 I-09+判据收窄 / T10-1 破契约收口（后端+前端+既有断言）/ T10-2 列表契约测试 / T10-3 审查修正 / T10-4 回写+文档同步）——
+  详情 `ContentDetailVO` 顶层 `isLiked`/`isFollowed` → 内嵌 `interaction` 子对象（匿名 ⇒ `null`，不是 `{}`）；`getContentDetailVO` 直调互动域单条契约；
+  `ContentStatusFiller` **保留为 content 侧薄壳**（只留 `ContentVO → InteractionTarget` 映射 + 批量透传，不再 import like/follow；映射留在 content 的理由：互动域不得认识 `ContentVO`、且 `/start` 与 `/search` 共享一份）；
+  前端 `detail.js` 四个读点 + 两处乐观更新改读 `item.interaction.*`（null 安全），初始收藏态改读内联值 ⇒ 详情页内容相关请求 **3 → 2**，弹窗仍走 `/favorite/status` 取 folders。
+  验证：`ContentReadTests` 17 → 19 例（新增"列表顶层键集/值不变"与"批量透传 spy"），全量基线 **404 例**全绿（T9 基线 402 + 本次 2）；
+  `--group resilience` **34 例**全绿（合计 **438**）；**5 条反向注入**逐条实测变红并还原（① 去掉 interaction 装配 ⇒ 形状/个性化红；② 去掉匿名短路 ⇒ 匿名用例红；
+  ③ 薄壳改逐条调单条 ⇒ 批量透传红；④ 漏填 isFollowed ⇒ 列表用例红；⑤ 子对象塞 likeCount ⇒ 键集用例红）；
+  `grep` 复核：互动态填充路径（`ContentStatusFiller`/`ContentService`/`StartController`）**零 import** like/follow.service（content 域仅剩 `ProfileService` = I-09 例外）；`interaction` 域零 import content；
+  浏览器实测（真库真服务：内容 258 + 新账号，独立 oracle = DB 行 + 登录态接口 `interaction` 三维全 true）：三按钮初始态 / 点击态 / **整页刷新后持久**全对；匿名三按钮未点亮、页面正常。
+  执行期决断（G13/G14，代价已记）：
+  ① ★ **装配期 Bean 环** `contentService → interactionService → favoriteService → contentService`（favorite 在 T6-5 依赖 `loadContentVOs`）——首跑实测 25 例 error；
+     R-10 的"无环"只成立于**直连边**；在互动域聚合边**单点 `@Lazy`** 断环（三条边全是运行期读依赖、装配期不需要对方实体；删注解 = 启动期响亮失败），登记 **I-10**（备选：把装载契约抽成窄组件）；
+  ② 审查（subagent 只读）**零必修**，采纳 2 条建议（薄壳契约前提注释 / 文件尾换行），1 条不采纳（与既有测试写法保持一致）。
+  未动项：`ProfileService`（用户 2026-10-12 拍板"选择不改"，I-09）；`FeedService.renderPage` 只填 `isLiked`（**刻意不动**——feed 的 `isFollowed` 一直"不填"，补填属响应值改动，见 `architecture/domain/feed.md` §3.3）。
+  文档同步：`模块边界与依赖.md` §三/§六（依赖表 + 新增 `content ⇄ interaction` 传递闭包环行）、`domain/feed.md` §3.3、`CURRENT_NEEDS.md` §三「已核实的事实」、设计篇 §3.6。
 
 ---
 

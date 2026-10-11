@@ -76,7 +76,8 @@ public class InteractionService {
      * 只多一次代理跳转）。⚠️ 环只需断一处；**本注解若被删**，Spring 启动期会直接
      * {@code BeanCurrentlyInCreationException}——响亮失败，不是静默故障。
      * <p>⚠️ 别把"无环"读成传递闭包：R-10 的"无环"只成立在**直连边**上（本域不 import content）；
-     * 上面那个环在传递闭包上真实存在（发现与备选处置见 {@code CURRENT_ISSUES.md} I-10）。
+     * 上面那个环在传递闭包上真实存在（第二锚点：设计篇 §3.6 的"T10 落地实测"；登记
+     * {@code CURRENT_ISSUES.md} I-10）。
      */
     public InteractionService(LikeService likeService, @Lazy FavoriteService favoriteService,
                               FollowService followService) {

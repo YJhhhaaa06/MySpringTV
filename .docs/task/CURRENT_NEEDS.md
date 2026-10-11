@@ -93,8 +93,10 @@ R-10（内联 `isFavorited`）只是它下面的子项。不先分清这个，"�
 **★ 已核实的事实**（免得再查一遍）：
 
 - 详情**只有 1 个接口** `GET /search/IdSearch`（视频 / 图文按响应 `type` 分流，**不是**两个接口）；
-  "按有效 token 决定是否填充"**已是现状**（`ContentService.getContentDetailVO:192` + `ContentStatusFiller` 各方法对 `userId == null` 短路）。
-- 详情页现状 3 个内容相关请求（IdSearch + `/favorite/status` + `/favorite/count`）。
+  "按有效 token 决定是否填充"**已是现状**（T10 起由 `InteractionService` 对 `userId == null` 短路，
+  `ContentService.getContentDetailVO` 直调互动域）。
+- 详情页内容相关请求：T10 前 **3 个**（IdSearch + `/favorite/status` + `/favorite/count`）；
+  T10 后 **2 个**（初始收藏态改读详情内联 `interaction.isFavorited`；`/favorite/status` 只在收藏弹窗取 `folders` 时发）。
 - feed 的 `isLiked` 是**服务端批量填充**（`FeedService.renderPage:133`），**不是**"内联"。
 - 前端**没有任何列表页消费** `ContentVO.isLiked`/`isFollowed`（⇒ `F-15`，**前端功能缺失**，非后端缺陷）。
 

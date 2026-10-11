@@ -114,7 +114,8 @@ GET /feed ─► FeedController ─► FeedService.getFeed
 两个**有意为之**的契约点：
 
 - **只填 `isLiked`，不填 `isFollowed`**。feed 条目刻意不做关注态批量填充——"顺手"改用
-  `ContentStatusFiller.fillLikeAndFollowBatch` 会改变响应形状，属契约改动，故不做。
+  `ContentStatusFiller.fillLikeAndFollowBatch`（T10 后它是 content 侧薄壳、数据来自互动域）
+  会给 feed 条目的 `isFollowed` 填上值，属响应值改动，故不做。
 - **跳过 null 会让返回页短于 `pageSize`**（内容已软删 / 缓存空标记）。这不是"到底"，前端已按
   `shortPageMeansEnd:false` 处置。
 
