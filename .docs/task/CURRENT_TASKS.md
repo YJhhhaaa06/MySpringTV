@@ -14,11 +14,11 @@
 
 ## 周期头（每窗开读）
 
-* **方向**：收藏 —— **一期（有无）已收尾**（2026-10-08 → 2026-10-11）｜二期（性能）**未开窗**｜三期（周边）留池待评审
-* **本周期**：`2026-10-08` 起 · **第 1 张清单（已清出）** —— 交付一览见文末「上一张清单」
-* **下一张清单**：二期 —— 开窗时重置本头，编号从 **T9** 起（**不回收 T1–T8**）
-* **收尾 checklist**：☑ 回归基线全绿（`run_tests.py` = **391 例** + `--group resilience` **34 例**）· ☑ 完成态已清出（记入 git）
-  · ☑ 问题已结转（`FURTHER_ISSUES.md`）· ☑ 工作树干净
+* **方向**：收藏 —— 一期（有无）已收尾（2026-10-08 → 2026-10-11）｜**二期（性能 + R-10 契约演进）= 本张清单**｜三期（周边）留池待评审
+* **本周期**：`2026-10-11` 起 · **第 2 张清单**（编号 **T9 起**，**不回收 T1–T8**）
+* **本张清单范围**：`CURRENT_NEEDS.md` §四 的 **二期-1 ~ 二期-4**；**反面清单 8 条**同在那里（本文件不复制）
+* **收尾 checklist**：☑ 回归基线全绿 · ☑ 完成态已清出（记入 git）· ☑ 问题已结转（`FURTHER_ISSUES.md`）· ☑ 工作树干净
+* ⚠️ **本期含一条 breaking**（T10 = R-10 契约演进）—— 用户 2026-10-11 明确接受，判据③ 的例外见设计篇 §一
 
 ---
 
@@ -31,9 +31,10 @@
 | G3 | **疑问分级**：可自答的 → 任务回写留一句；须裁决的 → **停下问用户**，不擅自拍板、不硬扛、不超范围 |
 | G4 | 一任务 = 四要素 + 三句以内回写；探索过程 / 失败尝试 / 中间稿一律走 git，不进本文件 |
 | G5 | **声明式机制必须配契约测试**：断言通过 ≠ 机制生效；写「证明某机制」的用例前先自问「去掉那行实现会红吗」（详见仓库根 `AGENTS.md`「测试纪律」节） |
-| G6 | 改 schema 走 Flyway **V2**（V1 冻结）；测试用 DB 时钟造时间窗、关键计数走独立 oracle 查列 |
-| G8 | ★ **跨期约定（升格保留）**：一期的测试必须只断言可观察行为（HTTP 状态 + body + DB 终态）—— 二期换实现时测试**不许改**；改了就说明测试在抄实现（纪律①） |
+| G6 | 改 schema 走 Flyway **最高版本 +1**（V1 冻结、**V2 已应用** ⇒ 下一次是 **V3**）；⚠️ **已应用的迁移文件逐字节冻结**（**连注释都不能改**，见 `architecture/tech/数据与Schema演进.md` §2.4）；测试用 DB 时钟造时间窗、关键计数走独立 oracle 查列 |
+| G8 | ★ **跨期约定（升格保留）**：一期的测试必须只断言可观察行为（HTTP 状态 + body + DB 终态）—— 二期换实现时测试**不许改**；改了就说明测试在抄实现（纪律①）。⚠️ **唯一例外 = T10**（R-10 有意契约演进），见设计篇 §一 |
 | G13 | ★ **跨期约定（升格保留）**：清单只给方向与红线，不写死实现步骤 —— 有些问题**只有执行期才看得见**。把执行者当**勤快的外包**。执行中发现清单前提不成立 / 与既有实现冲突 / 有更好的拆法 ⇒ **自行决断或停下登记 `CURRENT_ISSUES.md` I-##**，不硬扛、也不擅自扩大范围 |
+| G14 | ★ **每个任务都显式标注「可质疑」（2026-10-11 用户要求；**同日校准口径**）**：**任务可被质疑**（前提不成立 / 需求已被既有实现覆盖 / 执行时机不对）；**设计也可被质疑**（弊大于利 / 有更合适的方案 / 更便宜的拆法）。⚠️ **但本项目是学习项目、无真实流量**（见 `AGENTS.md`「项目定位与优化口径」）⇒ **质疑成立 ≠ 停做**：**先把代价写进回写**；若仍做，注明"**已知代价后选择做**"（理由可以是"展示决策"）。**只有质疑指向真实缺陷**（与既有实现冲突 / 会引入数据错误 / 真会成环）**才必须停下回报** |
 
 > **一期专属约定已随一期清出**（收编进 [设计篇](收藏功能-分期与设计.md) **附录「编号索引」**）：
 > `G7` 一期不写缓存 / 不做冗余计数增量维护（⇒ 二期）；`G9` `favorite` 必须登记进 `ArchitectureTests.DOMAINS`（已落地）；
@@ -45,11 +46,20 @@
 ## 任务
 
 > 每任务必含**四要素 + 回写**；状态取值：待执行 / 执行中 / 已完成 / 搁置（搁置**必须**注明去向）。
-> 登记时复制下面模板，编号顺延（**不回收**）。每任务在入口线索强调任务可被 AI 质疑 ——
-> 可能任务前提不成立 / 需求被已有实现覆盖 / 执行时机不对 / 想达成目标可能引入更大的问题。
+> ★ **每个任务开头的「先质疑」是约定（G14），不是客套** —— 认真回答它。
+>
+> ⚠️ **读法（G14 于 2026-10-11 校准）**：块里列的是**已知代价 / 反对理由**，**不是"请自行否决"** ——
+> 出现"停下回报"字样时按 G14 理解：**先记代价、再决定**；**只有指向真实缺陷才必须停**。
+> 本项目**无真实流量**（见仓库根 `AGENTS.md`「项目定位与优化口径」）⇒ 这些代价**本身就是学习与展示的对象**：
+> 能说清"我付了什么代价、换到什么、什么条件下不值得"，就是收益。
 
 ```
-### T9 <任务名>（来源 N# / R-## / 能力 二期-x）【待执行】
+### T# <任务名>（来源 N# / R-## / 能力 二期-x）【待执行】
+
+> ⚠️ **先质疑（G14）**：
+> - **任务**：前提是否成立？需求是否已被既有实现覆盖？执行时机对不对？
+> - **设计**：是否弊大于利？有没有更合适的方案 / 更便宜的拆法？
+> 质疑成立 ⇒ **停下回报或登记 `CURRENT_ISSUES.md` I-##**（G3 / G13 / G14 允许并鼓励）。
 
 * **入口线索**：
 * **目标**：
@@ -59,9 +69,143 @@
 * **回写**：（完成后三句内写清改了什么、验证结果；探索过程不写）
 ```
 
-> 📌 清单是**粗颗粒**（G13）：给方向与红线，不给施工步骤。**二期（性能）开窗时在此登记。**
+---
 
-（本张清单已清出；上期八个任务见文末一览）
+### T9 互动域骨架与两种契约（来源 R-10 / 能力 二期-1）【待执行】
+
+> ⚠️ **先质疑（G14）**：
+> - **任务**：前提是"`content` 域不该直接依赖 like / follow / favorite 三域"。⚠️ **这个前提在只有 3 个互动维度时并不显然必要** —— `like` 域已经这样很久了。若判断"互动维度不会增长（投币不做）"，**本任务与 T10 都应停下回报**，改走"详情节内联平铺"的更小方案。
+> - **设计**：新建一个域是否**弊大于利**？反面事实：**总跨域边数实际增加**（3 → 1+3）。若认为"多一个域只为省 2 条依赖边"不值，**同样停下回报**。
+
+* **入口线索**：设计篇 **§3.6**（形态）+ **§3.4**（新域登记要求）；`CURRENT_NEEDS.md` §三「R-10 结论」（为什么是这条方案、排除了什么）；现状参照 `content/service/ContentStatusFiller`（它**为批量而生** —— 既是正面参照，也是"逐条就完蛋"的反面教材）；三个现成契约 `LikeService.batchIsContentLiked` / `FollowService.batchIsFollowing` / `FavoriteService`（**需新增轻量判存在方法**）
+* **目标**：
+  - 新建域 `interaction`：★ **不建 `Controller`**（本方案**刻意不拆 HTTP 接口**）；只有 `service` + `model/vo`；**不建 `dao`**（它是聚合器，不是数据所有者）
+  - `InteractionStatusVO`：`isLiked` / `isFavorited` / `isFollowed`
+  - **两种契约**：单条 `getStatus(userId, contentId, type)` + **批量** `batchGetStatus(userId, contentIds, …)`
+  - `ArchitectureTests.DOMAINS` 登记 `interaction`
+  - 收藏域补一个**不 JOIN 的轻量判存在**契约（`isFavorited(userId, contentId)`，走 `idx_user_content` 等值点查）—— 见设计篇 §3.6
+* **红线边界**：
+  - ★ **互动域不得依赖 content**（否则 `content → interaction → content` 成环）；"哪些维度适用"由调用方把 `type` **传入**
+  - ★ **不得新增 HTTP 端点**（本方案的核心约束就是"不拆接口"）
+  - ★ **批量契约必须原样透传批量语义、不得循环调单条**（`ContentStatusFiller` 类注释的既有纪律：逐条调用会让 100 条推荐页变 200 次往返）
+  - ★ **域边界排除「评论点赞」**（`like` 域已含内容赞 + 评论赞）
+  - ★ **匿名语义**：`userId == null` ⇒ 不查任何互动域，返回 `null`（**不是**三个 `false`）—— 见 §3.6
+* **强制探索**：
+  - `ContentStatusFiller` 的四个方法在**后续 T10** 各自被谁取代 / 保留 —— 本任务只需**摸清**，改动归 T10
+  - 三个域现有公开方法的签名能否直接复用；`FavoriteService` 需要新增的轻量方法**长什么样**（是否与 T11 的缓存落点重合）
+  - **`interaction` 的包结构**：确认它真的不需要 `dao` / `cache` / `event`
+  - ★ **`type` 从哪来**：详情 / 列表本来就持有 `type` ⇒ 确认调用方可直传，**不需要互动域反查**（反查即成环）
+* **验收**：
+  - ★ `ArchitectureTests` 通过 **且** `DOMAINS` **含 `interaction`** —— ⚠️ 前半句是**永远绿的假绿**，**有效验收只有后半句**（本仓明确记载）
+  - 单条 + 批量两种契约各有单测（批量：给 N 个 id 返回 N 条映射，**不重不漏**）
+  - ★ **可复算判据**：`grep` 确认 `interaction` 域**不 import** `..content..`（无环）
+  - 既有回归基线全绿（★ 本任务**不改对外契约**，例数应**不变**；变了说明动到了不该动的地方）
+* **回写**：
+
+---
+
+### T10 详情互动态内联（**breaking 收口**）（来源 R-10 / 能力 二期-1）【待执行】
+
+> ⚠️ **先质疑（G14）**：
+> - **任务**：前提是"把顶层 `isLiked`/`isFollowed` 搬进 `interaction` 值得付一次 breaking"。**这是本期唯一的对外契约破坏**。执行中若发现改动面远超预期（例如前端牵连面比评估的大），**停下回报**。
+> - **设计**：`interaction` 子对象 vs "顶层加 `isFavorited` 平铺"（更小、不 breaking）。用户已拍板前者；但执行中若发现**更便宜的等效实现**，允许回报。
+
+* **入口线索**：设计篇 **§3.6**；`content/model/vo/ContentDetailVO`（⚠️ **其类注释写死了键集**）；`content/service/ContentStatusFiller`；`content/service/ContentService.getContentDetailVO:186`；`content/controller/SearchController:72`；前端 `static/static/js/views/detail.js:251,258,692,732`；测试 `content/ContentReadTests:71,72,119,144`
+* **目标**：
+  - `ContentDetailVO`：加 `interaction` 子对象、**删顶层** `isLiked` / `isFollowed`，并**改类注释的键集声明**（它是契约）
+  - `ContentService.getContentDetailVO` 改调互动域；**匿名 ⇒ `interaction == null`**
+  - ★ **列表路径的填充来源也改走互动域**：使 `content` 域**不再 import** `like.service` / `follow.service` —— 否则本方案的收益只剩一半
+  - 前端 `detail.js` 改读 `item.interaction.*`；`static/js/api.js` 的注释同步
+  - `ContentReadTests` 相应用例改断言（★ **G8 的唯一例外**，设计篇 §一 已声明）
+* **红线边界**：
+  - ★ **`/search/IdSearch` 路径与请求参数不变**（不拆接口）
+  - ★ **匿名 ⇒ `interaction: null`**（不是 `{}`、不是三个 `false`）—— 这是本方案相对平铺的**表达力增益**，别做丢
+  - ★ **`likeCount` / `commentCount` / `createTime` 等不在 `interaction` 内** —— 它们是公共计数 / 内容属性，不是"我的状态"，**别顺手搬**
+  - ★ **列表 `ContentVO` 的顶层键集不变**（只换**数据来源**，不改契约）—— 两者刻意不同，别一起改
+  - ★ 不得改 `/start` / `/search` / `/profile` / `/feed` 的**响应形状**
+* **强制探索**：
+  - `ContentStatusFiller` 的**去留**：被整体取代（删），还是保留为 `content` 侧的薄壳？两者皆可，但**必须明确选一个并说明**
+  - `content/service/ProfileService` 自己内联了一套点赞批量（见其类注释）—— **是否顺带对齐**？（若顺带 = 扩大范围，需回报）
+  - `feed/service/FeedService.renderPage` 只填 `isLiked`（不填 `isFollowed`）—— **不在本任务范围**，但回写里要说明为何不动
+  - ★ **前端乐观更新**：`detail.js` 的本地 ±1（`toggleContentLike`）改动后是否仍成立；"写后重新拉取"拿到的是哪个字段
+* **验收**：
+  - 契约测试：详情响应**有** `interaction`、**无**顶层 `isLiked`/`isFollowed`；**匿名 ⇒ `null`**；登录且已赞/已关注 ⇒ 子对象内为 `true`
+  - ★ **可复算判据**：`grep` 确认 `content` 域**不再 import** `like.service` / `follow.service`（本方案的收益落点）
+  - 前端：浏览器实测详情页三按钮（赞 / 关注 / 收藏）初始态与点击后状态正确
+  - 回归基线全绿（⚠️ **例数可能与 391 不同** —— 改断言会动例数，回写里写清）
+* **回写**：
+
+---
+
+### T11 收藏缓存层（来源 能力 二期-2）【待执行】
+
+> ⚠️ **先质疑（G14）**：
+> - **任务**：前提是"`isFavorited` 高频读 + `count` 回源昂贵，值得上缓存"。⚠️ **若实测发现一期那 17ms 在真实数据量下不成问题**（例如收藏表只有几百行），**停下回报** —— 无基线证据的优化不该做（二期判据①）。
+> - **设计**：是否**弊大于利**？缓存引入"三态 / 空标记 / 降级 / 条件写"四套机制与相应测试成本。本仓明确记过"**去掉缓存功能照样能用**" ⇒ 若判断"直接查 DB 就够"，**停下回报**。
+
+* **入口线索**：设计篇 **§3.7**（边界）+ `architecture/tech/缓存与数据一致性.md` §四（读写口径）；**形态照抄 `like/cache/LikeCache` + `like/cache/LikeRedisOps`**（同构，**别自创**）；`favorite/service/FavoriteService`（四个写点）；`FavoriteItemDao.countDistinctUserByContentId`（一期基线 ≈17ms）
+* **目标**：
+  - `FavoriteCache` + `FavoriteRedisOps`：`user:favoriteSet:{userId}`（**Set**）+ `content:favoriteCount:{id}`（**String**）+ `empty:` 空标记（**仅成员侧**）+ 单飞（`SingleFlight`）+ Redis 失败降级 DB
+  - **写路径**：`add` / `remove` / `move` / `deleteFolder` **提交后**条件写缓存
+  - **读路径**：`isFavorited` → `SISMEMBER`；`count` → `GET`
+  - ⚠️ **`folders` 不缓存**（§3.7：低频 + 未收藏时短路）
+* **红线边界**：
+  - ★ **计数 key 不得写空标记**（`0` 是**合法值**，缓存文档 §六.1）—— 否则"0 个收藏"与"未知"混淆
+  - ★ **失效集 = 数据 key + 空标记**（成员侧）；**凡 DEL 数据 key 必带空标记**
+  - ★ **`RedisOps` 是抽象协议基类，绝不能标 `@Component`**（标了会 `NoUniqueBeanDefinitionException`）
+  - ★ **写路径：DB 提交后才碰缓存**（`AFTER_COMMIT`）；**不得在事务内写缓存**
+  - ★ **Redis 失败 ⇒ 降级走 DB、接口不 500**；**DB 失败 ⇒ 原样上抛**（不吞成空 / 0）
+  - ★ **不用 `@Cacheable`**（本仓刻意显式封装）；键一律经 `CacheKeys`，域内不得散写字面量
+* **强制探索**：
+  - ★ **"提交后写缓存"怎么挂？** `like` 用 `like.event.LikeChangedListener`（**自域事件**），但本仓明写"**收藏域不该有 `event` 包**"（"收藏不是别人要响应的事实"）。⇒ 两条路：① 建 `favorite.event` 的自域事件（**须先论证它与"不该有 event 包"如何共存**）；② 用 `TransactionSynchronization.afterCommit` 直接注册。**这是必须明确表态的设计点**
+  - ⚠️ **别在 `AFTER_COMMIT` 监听器里再 `publishEvent` 转发**（事务已结束 ⇒ 事件**静默丢弃**，本仓已踩）
+  - 「**条件写只在 key 已加载时执行**」（缓存文档 §四.2）在收藏域怎么表达：冷 key 不写半套数据，改整体失效
+  - 空标记与数据 key 的**判定顺序**（**先空标记、后数据 key**）
+  - 四个写点各自的事务边界（`deleteFolder` 有 `@Transactional`；`addItem` 懒建路径的特殊性见其注释）
+  - ★ 与 T12 的接口：`count` 缓存 miss 时**回源读 `content.favorite_count` 列**（T12 之后）；若 T12 未完成，回源先走实时 `COUNT(DISTINCT)`
+* **验收**：
+  - 三态各有用例：**命中 / miss 回源回填 / Redis 失败降级**
+  - ★ **空标记**：无收藏用户读一次 → 写空标记且**不再回源**；随后 `add` → 读**不再是 false**（**反向验证**：去掉写路径清空标记 ⇒ 该用例必须变红）
+  - ★ **降级**：`@MockitoSpyBean` 让 `FavoriteRedisOps` 抛 `CacheUnavailableException` ⇒ 读仍返回 DB 真值、**接口不 500**
+  - ★ **用 Redis 的测试 `@BeforeEach` 必须清 Redis**（既有纪律）
+  - ★ **不漂移**：写后读到的 `isFavorited` / `count` 与 DB 终态一致（**独立 oracle**：直接查 `favorite_item`）
+  - `folders` 仍走 DB（确认**没**被顺手缓存）
+* **回写**：
+
+---
+
+### T12 `favorite_count` 冗余列启用 + 事务内批量重算（来源 能力 二期-3）【待执行】
+
+> ⚠️ **先质疑（G14）**：
+> - **任务**：前提是"实时 `COUNT(DISTINCT user_id)` 慢到要治"。⚠️ **一期的 17ms 是在测试容器上造 2 万行 / 2000 人得到的**；若真实数据量下它本身很快，**停下回报**（别为假想瓶颈付冗余列的维护成本）。
+> - **设计**：冗余列 = **第二处事实源**。若判断"17ms 可直接接受、不值得引入冗余"，**停下回报** —— 本仓已记过这条判据（"去掉它功能还在" ⇒ 属可推迟的优化）。
+
+* **入口线索**：设计篇 **§3.2**（口径，含"为什么不能增量 / 不能 `FOR UPDATE`"）+ §3.1（列已在 V2 建、一期不用）；`FavoriteItemDao.countDistinctUserByContentId`（**一期基线：`EXPLAIN` = loose index scan，≈17ms / 2 万行**）；`architecture/tech/数据与Schema演进.md`（Flyway 策略）
+* **目标**：
+  - **存量回填** `content.favorite_count`（V2 落地时该列全是 0）—— 走 **Flyway V3**（数据迁移）
+  - `recountFavoriteCounts(Set<Long> contentIds)`：**1 次** `SELECT content_id, COUNT(DISTINCT user_id) … WHERE content_id IN (…) GROUP BY content_id` + **1 次批量** `UPDATE`
+  - 三条写路径接入：`add`（单内容）/ `remove`（单内容）/ **`deleteFolder`（批量）**
+  - `getFavoriteCount` 改读列（不再实时 `COUNT(DISTINCT)`）
+  - ⏳ **实测**：上面那条 `GROUP BY … IN (…)` 的 `EXPLAIN` + 耗时，**数字写回设计篇 §3.2**（与一期基线对照）
+* **红线边界**：
+  - ★ **不做增量维护**（4 个写点 + **并发漂移**：`uk_folder_content` 维度与判定维度不重合）
+  - ★ **不用 `SELECT … FOR UPDATE`**（判"不存在"时 RC 无效 / RR gap lock 共享 ⇒ 死锁）
+  - ★ **不变量必须成立**：`content.favorite_count == COUNT(DISTINCT user_id)`（二期判据②）
+  - ★ **一期测试不许改**（G8；唯一例外是 T10，**不在本任务**）
+  - ★ ⚠️ **V3 写入后逐字节冻结**（本仓血泪教训：连注释都不能改，改了 `spring-boot:run` 直接 `Migration checksum mismatch`）⇒ **把 SQL 想清楚再写**
+* **强制探索**：
+  - `favorite_count` 的**列类型**（是否 `unsigned`？**下溢风险与 `F-04` 同类** —— 回填前后都要能自证不为负）
+  - **回填怎么做**：一条 `UPDATE content SET favorite_count = (SELECT COUNT(DISTINCT user_id) FROM favorite_item WHERE content_id = content.id)`？⚠️ 先 `SELECT COUNT(*)` **估规模**，判断**是否需要分批**
+  - `deleteFolder` 在**大夹（1000+ 条）**下的行为：确认是 **1 次 `GROUP BY` + 1 次批量 UPDATE**，**不是 N 次**
+  - `recountFavoriteCounts` 的**事务边界**：必须与关系行的增删**同事务**（否则计数与明细在提交窗口内不一致）
+  - `content.favorite_count` 现在有谁读？一期**无人读**；二期**T11 的 count 缓存回源**会读它 ⇒ 确认改语义不会波及别处
+* **验收**：
+  - ★ **独立 oracle**：抽样若干 content，`content.favorite_count == SELECT COUNT(DISTINCT user_id) FROM favorite_item WHERE content_id = ?`（**不读接口回显**、**不读缓存**）
+  - 三条写路径各有用例（含 `deleteFolder` 的**批量**：删一个大夹后，受影响的每个 content 都重算正确）
+  - ★ **对照夹具**：同一内容被**多个用户**收藏/取消后，count 仍等于 oracle（夹具要有"另一人"干扰行）
+  - ★ **回填正确性**：V3 应用后全表一致（可复算 SQL）
+  - ⏳ **实测数字**（`EXPLAIN` + 耗时）记录进设计篇 §3.2
+* **回写**：
 
 ---
 
@@ -85,13 +229,16 @@
 
 ---
 
-## 结转与留池（本张清单已核销）
+## 结转与留池（本张清单）
 
 > 未纳入本张清单的已登记项，**逐行显式处理**：进下一张清单 / 登 `CURRENT_NEEDS.md` 留池 / 转 `FURTHER_ISSUES.md` / 废弃。
 > **不允许静默跳过**。
 
 | 来源 | 事项 | 去向（决定人 + 日期） |
 |------|------|---------------------|
-| R-04 | 已失效内容的媒体仍可直连下载 | ✅ 转 `FURTHER_ISSUES.md` **F-10**（用户 2026-10-08 拍板：一期不做） |
-| 分期篇 §一 | 二期（缓存 + 冗余计数）/ 三期（周边） | ✅ **已登记 `FURTHER_ISSUES.md` 留池表**（2026-10-11 一期收尾） |
-| — | （下一张清单开窗时在此登记） | — |
+| 二期-1 | 互动域 + 详情内联 | ✅ 本张清单 **T9 / T10** |
+| 二期-2 | 收藏缓存层 | ✅ 本张清单 **T11** |
+| 二期-3 | 冗余列 + 批量重算 | ✅ 本张清单 **T12** |
+| 二期-4 | 契约测试与实测 | ✅ 分摊在 **T9~T12 的「验收」列**（不单列任务） |
+| 反面清单 8 条 | 增量维护 / `FOR UPDATE` / 异步重算 / MySQL 关系表 / `folders` 缓存 / 投币 / 前端列表展示 / 其它域优化 | ✅ **已在 `CURRENT_NEEDS.md` §四 + `FURTHER_ISSUES.md`（F-13 / F-14 / F-15）逐条登记**，**不进本张清单** |
+| T12 | 若实测证明"写路径聚合成为瓶颈" | ⇒ 届时启动 `FURTHER_ISSUES.md` **F-14**（异步重算） |
