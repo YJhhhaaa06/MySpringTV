@@ -55,6 +55,8 @@ public class ContentStatusFiller {
         if (userId == null || list == null || list.isEmpty()) {
             return;
         }
+        // 互动域批量契约保证"每个入参 id 恰好一条"（不重不漏，见 InteractionService#batchGetStatus），
+        // 故此处不判空、缺失也不可能发生 —— 该前提由 InteractionStatusContractTests 钉住
         Map<Long, InteractionStatusVO> statuses = interactionService.batchGetStatus(userId, targets(list));
         for (ContentVO vo : list) {
             InteractionStatusVO status = statuses.get(vo.getId());
