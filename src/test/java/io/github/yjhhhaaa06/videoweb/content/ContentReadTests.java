@@ -1,15 +1,27 @@
 package io.github.yjhhhaaa06.videoweb.content;
 
+import io.github.yjhhhaaa06.videoweb.interaction.service.InteractionService;
 import io.github.yjhhhaaa06.videoweb.support.Envelope;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import tools.jackson.databind.JsonNode;
 
 import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 /**
  * S5：content **读路径**与作者写路径的 HTTP 契约测试。
@@ -40,6 +52,16 @@ class ContentReadTests extends AbstractContentIntegrationTest {
     private static final String AUTHOR = "content-author";
     private static final String OTHER_PHONE = "13900001002";
     private static final String OTHER = "content-other";
+
+    /** T10：列表填充来源改走互动域 ⇒ 用 spy 钉"批量透传、不得循环调单条"（见批量透传用例）。 */
+    @MockitoSpyBean
+    private InteractionService interactionService;
+
+    @BeforeEach
+    void 重置spy() {
+        // spy 是单例 bean，调用记录会跨用例累积 ⇒ 每测清零（真实行为不受影响）
+        Mockito.reset(interactionService);
+    }
 
     // ========================================================================
     // /search/IdSearch
@@ -302,6 +324,60 @@ class ContentReadTests extends AbstractContentIntegrationTest {
     }
 
     // ========================================================================
+    // 列表路径：互动态填充来源改走互动域（T10），顶层键集**不变**
+    // ========================================================================
+
+    @Test
+    @DisplayName("列表：/start 与 keywordSearch 仍把互动态填在顶层（来源改走互动域）；匿名 ⇒ false 且键仍在")
+    void 列表_互动态仍填顶层() {
+        String token = registerAndGetToken(OTHER_PHONE, OTHER);
+        registerAndGetToken(AUTHOR_PHONE, AUTHOR);
+        long authorId = userIdOf(AUTHOR_PHONE);
+        long viewerId = userIdOf(OTHER_PHONE);
+        long contentId = insertPostContent(authorId, "zqtb 列表互动态内容");
+
+        insertContentLike(viewerId, contentId);
+        jdbcTemplate.update("INSERT INTO follow (user_id, followed_user_id) VALUES (?, ?)",
+                viewerId, authorId);
+
+        JsonNode startItem = itemOf(Envelope.data(get("/start", token)), contentId);
+        assertThat(startItem.path("isLiked").asBoolean()).as("/start 顶层 isLiked（登录且已赞）").isTrue();
+        assertThat(startItem.path("isFollowed").asBoolean()).as("/start 顶层 isFollowed（已关注作者）").isTrue();
+
+        JsonNode searchItem = itemOf(
+                Envelope.data(get("/search/keywordSearch?keyword=zqtb", token)).path("list"), contentId);
+        assertThat(searchItem.path("isLiked").asBoolean()).as("keywordSearch 顶层 isLiked").isTrue();
+        assertThat(searchItem.path("isFollowed").asBoolean()).as("keywordSearch 顶层 isFollowed").isTrue();
+
+        // 匿名：两键仍在顶层、值为 false（不是 null、不是缺键——列表键集是冻结契约）
+        JsonNode anonItem = itemOf(Envelope.data(get("/start", null)), contentId);
+        assertThat(anonItem.has("isLiked")).as("列表顶层 isLiked 键必须在").isTrue();
+        assertThat(anonItem.has("isFollowed")).as("列表顶层 isFollowed 键必须在").isTrue();
+        assertThat(anonItem.path("isLiked").asBoolean()).isFalse();
+        assertThat(anonItem.path("isFollowed").asBoolean()).isFalse();
+    }
+
+    @Test
+    @DisplayName("★列表填充批量透传：/start ⇒ 互动域批量契约一趟、单条契约零次（不得循环调单条）")
+    void 列表_批量透传不循环调单条() {
+        String token = registerAndGetToken(OTHER_PHONE, OTHER);
+        registerAndGetToken(AUTHOR_PHONE, AUTHOR);
+        long authorId = userIdOf(AUTHOR_PHONE);
+        long viewerId = userIdOf(OTHER_PHONE);
+        long contentId = insertPostContent(authorId, "批量透传内容");
+        insertContentLike(viewerId, contentId);
+        Mockito.reset(interactionService);      // 前置夹具（注册/点赞）的调用不计入
+
+        assertThat(idsOf(Envelope.data(get("/start", token))))
+                .as("本用例需非空列表才有判别力").contains(contentId);
+
+        // ★ 判别力：把 ContentStatusFiller 改成"逐条调 getStatus"，这两个断言立即变红
+        //   （T9 红线的同一纪律：100 条列表不得退化为 100 次往返；反向注入实测见 T10 回写）
+        verify(interactionService, times(1)).batchGetStatus(eq(viewerId), anyList());
+        verify(interactionService, never()).getStatus(any(), anyLong(), anyLong(), anyInt());
+    }
+
+    // ========================================================================
     // /content/commentEnabled（CM-3 显式划入 S5）
     // ========================================================================
 
@@ -439,6 +515,16 @@ class ContentReadTests extends AbstractContentIntegrationTest {
             ids.add(node.path("id").asLong());
         }
         return ids;
+    }
+
+    /** 从列表信封里取指定 id 的条目（找不到直接失败——防"夹具没造上/被过滤掉"的假绿）。 */
+    private static JsonNode itemOf(JsonNode list, long contentId) {
+        for (JsonNode node : list) {
+            if (node.path("id").asLong() == contentId) {
+                return node;
+            }
+        }
+        throw new AssertionError("列表里应包含内容 " + contentId + "，实际：" + list);
     }
 
     /** 单页取全（pageSize=100 装得下本用例的数据）并返回 id 列表。 */
