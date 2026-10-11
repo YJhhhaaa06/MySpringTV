@@ -27,9 +27,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       例如"开关生效了"不是看响应，而是直查 {@code content.comment_enabled} 列。</li>
  * </ol>
  *
- * <h2>★ 目录里没有的比对：{@code isLiked}/{@code isFollowed} 的匿名默认值</h2>
- * 匿名请求这两个字段应保持 Java 默认 {@code false}（TV 行为）。这类"缺省值也是契约"的点
- * 必须显式断言——否则实现改成"不填就是 null"也不会被发现。
+ * <h2>★ 互动态的位置（R-10 / T10）</h2>
+ * 详情响应的互动态收在 {@code interaction} 子对象（顶层 {@code isLiked}/{@code isFollowed}
+ * 已在 T10 删除——这是 R-10 有意的 breaking 面，见 {@code 收藏功能-分期与设计.md} §3.6）；
+ * **匿名 ⇒ {@code "interaction": null}**（不是 {@code {}}、不是三个 {@code false}）。
+ * 列表路径（{@code /start} / {@code /search/keywordSearch}）**顶层键集不变**，仍填
+ * {@code isLiked}/{@code isFollowed}（只换数据来源，见 {@code ContentStatusFiller} 的薄壳职责）。
  */
 class ContentReadTests extends AbstractContentIntegrationTest {
 
@@ -67,9 +70,16 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         assertThat(data.path("videoUrl").asString()).endsWith(".mp4");
         assertThat(data.path("coverUrl").asString()).endsWith(".png");
         assertThat(data.path("imageUrls").isNull()).as("视频内容的 imageUrls 应为 null").isTrue();
-        // 匿名/登录都有的两个状态字段
-        assertThat(data.has("isLiked")).as("isLiked 必须在（匿名默认 false）").isTrue();
-        assertThat(data.has("isFollowed")).as("isFollowed 必须在（匿名默认 false）").isTrue();
+        // 互动态：T10 起收进 interaction 子对象；顶层 isLiked/isFollowed 已删（R-10 的 breaking 面）
+        assertThat(data.has("isLiked")).as("顶层 isLiked 已删除").isFalse();
+        assertThat(data.has("isFollowed")).as("顶层 isFollowed 已删除").isFalse();
+        JsonNode interaction = data.path("interaction");
+        assertThat(interaction.isObject()).as("带 token（登录）⇒ interaction 是对象").isTrue();
+        assertThat(keysOf(interaction)).as("子对象键集契约：恰好三维").containsExactlyInAnyOrder(
+                "isLiked", "isFavorited", "isFollowed");
+        assertThat(interaction.path("isLiked").asBoolean()).isFalse();
+        assertThat(interaction.path("isFavorited").asBoolean()).isFalse();
+        assertThat(interaction.path("isFollowed").asBoolean()).isFalse();
     }
 
     @Test
@@ -116,7 +126,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
     }
 
     @Test
-    @DisplayName("详情：已登录且已点赞 → isLiked=true；已关注作者 → isFollowed=true")
+    @DisplayName("详情：已登录且已赞 / 已收藏 / 已关注作者 → interaction 三维各自 true；零互动对照用户全 false")
     void 详情_个性化状态() {
         String token = registerAndGetToken(OTHER_PHONE, OTHER);
         registerAndGetToken(AUTHOR_PHONE, AUTHOR);
@@ -127,21 +137,30 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         insertContentLike(viewerId, contentId);
         jdbcTemplate.update("INSERT INTO follow (user_id, followed_user_id) VALUES (?, ?)",
                 viewerId, authorId);
+        // 收藏走真实写入口（不传 folderId ⇒ R-01 懒建默认夹）——内联收藏态是 R-10 的收益点，端到端点亮
+        assertThat(postQuery("/favorite/add", query("contentId", String.valueOf(contentId)), token)
+                .getStatusCode().value()).as("前置：收藏应成功").isEqualTo(200);
 
-        JsonNode data = Envelope.data(get("/search/IdSearch?contentId=" + contentId, token));
-        assertThat(data.path("isLiked").asBoolean()).isTrue();
-        assertThat(data.path("isFollowed").asBoolean()).isTrue();
+        JsonNode interaction = Envelope.data(get("/search/IdSearch?contentId=" + contentId, token))
+                .path("interaction");
+        assertThat(interaction.path("isLiked").asBoolean()).isTrue();
+        assertThat(interaction.path("isFavorited").asBoolean())
+                .as("★ 内联收藏态（R-10 收益点：详情页不必再为它单发 /favorite/status）").isTrue();
+        assertThat(interaction.path("isFollowed").asBoolean()).isTrue();
 
-        // 反向对照：换一个没点过赞也没关注的用户 ⇒ 两个字段都是 false
-        // （排除"恒为 true"的假绿——这正是"这个断言还可能由谁产生"的自问）
+        // 反向对照：换一个没点过赞 / 没收藏 / 没关注的用户 ⇒ 三维都是 false，且子对象**在场**
+        // （排除"恒为 true"与"匿名态混入"两种假绿——这正是"这个断言还可能由谁产生"的自问）
         String otherToken = registerAndGetToken("13900001003", "content-third");
-        JsonNode other = Envelope.data(get("/search/IdSearch?contentId=" + contentId, otherToken));
+        JsonNode other = Envelope.data(get("/search/IdSearch?contentId=" + contentId, otherToken))
+                .path("interaction");
+        assertThat(other.isObject()).as("登录但零互动 ⇒ 对象在场（不是 null）").isTrue();
         assertThat(other.path("isLiked").asBoolean()).isFalse();
+        assertThat(other.path("isFavorited").asBoolean()).isFalse();
         assertThat(other.path("isFollowed").asBoolean()).isFalse();
     }
 
     @Test
-    @DisplayName("详情：匿名访问 200 且 isLiked/isFollowed 为 false")
+    @DisplayName("详情：匿名访问 200 且 interaction 为 null（不是 {}、不是三个 false）")
     void 详情_匿名可访问() {
         registerAndGetToken(AUTHOR_PHONE, AUTHOR);
         long contentId = insertVideoContent(userIdOf(AUTHOR_PHONE), "匿名可见内容");
@@ -149,8 +168,12 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         ResponseEntity<String> resp = get("/search/IdSearch?contentId=" + contentId, null);
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         JsonNode data = Envelope.data(resp);
-        assertThat(data.path("isLiked").asBoolean()).isFalse();
-        assertThat(data.path("isFollowed").asBoolean()).isFalse();
+        assertThat(data.has("interaction")).as("匿名也输出 interaction 键（值为 null）").isTrue();
+        assertThat(data.path("interaction").isNull())
+                .as("★ 匿名 ⇒ null（不是 {}、不是三个 false）—— R-10 相对平铺的表达力增益")
+                .isTrue();
+        assertThat(data.has("isLiked")).as("顶层 isLiked 已删除").isFalse();
+        assertThat(data.has("isFollowed")).as("顶层 isFollowed 已删除").isFalse();
     }
 
     // ========================================================================
@@ -166,7 +189,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         insertPostContent(authorId, "zqtb 分页内容二");
 
         JsonNode defaultData = Envelope.data(get("/search/keywordSearch?keyword=zqtb", null));
-        assertThat(envelopeKeys(defaultData)).containsExactlyInAnyOrder(
+        assertThat(keysOf(defaultData)).containsExactlyInAnyOrder(
                 "list", "total", "page", "pageSize", "totalPages");
         assertThat(defaultData.path("page").asInt()).isEqualTo(1);
         assertThat(defaultData.path("pageSize").asInt()).isEqualTo(PAGE_SIZE_MAX);
@@ -404,9 +427,9 @@ class ContentReadTests extends AbstractContentIntegrationTest {
     // 辅助
     // ========================================================================
 
-    private static List<String> envelopeKeys(JsonNode data) {
+    private static List<String> keysOf(JsonNode node) {
         List<String> keys = new ArrayList<>();
-        data.propertyNames().forEach(keys::add);
+        node.propertyNames().forEach(keys::add);
         return keys;
     }
 

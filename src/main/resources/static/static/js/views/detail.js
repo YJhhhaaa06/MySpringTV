@@ -28,7 +28,7 @@ export function mount(container, params) {
     expandedRoots: {},      // T10-B：rootId → { replies, page, totalPages }（展开的楼中楼）
     related: [],
     parentId: null,
-    isFavorited: false,      // 收藏按钮态（T7：GET /favorite/status）
+    isFavorited: false,      // 收藏按钮态（T7；T10 起初始值读详情内联 interaction.isFavorited，弹窗仍走 /favorite/status 取 folders）
     favoriteCount: 0,        // 收藏数（T7：GET /favorite/count，匿名可读）
     pickFolders: null,       // 收藏弹窗最近一次拉到的"我的夹"列表
   };
@@ -206,7 +206,8 @@ function renderContent() {
   c.querySelector('#likeCount').textContent = item.likeCount || 0;
   likeBtn.addEventListener('click', toggleContentLike);
 
-  // 收藏（T7）：按钮态 / 公开计数由独立端点取（onclick 赋值，避免重复渲染叠加监听）
+  // 收藏（T7 / T10）：按钮初始态读详情内联 interaction.isFavorited；公开计数仍走 /favorite/count
+  // （onclick 赋值，避免重复渲染叠加监听）
   updateFavBtn();
   c.querySelector('#favBtn').onclick = openFavPicker;
   initFavorite();
@@ -246,16 +247,24 @@ async function reloadAfterEdit() {
   }
 }
 
+/**
+ * 详情内联互动态（R-10 §3.6）：赞 / 藏 / 关注三维在 `content.interaction` 子对象里。
+ * 匿名（或 token 已失效）⇒ `interaction` 为 null ⇒ 返回空对象，三个读点一律按"未点亮"处理。
+ */
+function interactionOf(item) {
+  return (item && item.interaction) || {};
+}
+
 function updateFollowBtn() {
   const btn = state.container.querySelector('#followBtn');
-  const followed = state.content.isFollowed === true;
+  const followed = interactionOf(state.content).isFollowed === true;
   btn.textContent = followed ? '已关注' : '+ 关注';
   btn.className = 'follow-btn ' + (followed ? 'followed' : 'unfollowed');
 }
 
 function updateLikeBtn() {
   const btn = state.container.querySelector('#likeBtn');
-  btn.classList.toggle('liked', state.content.isLiked === true);
+  btn.classList.toggle('liked', interactionOf(state.content).isLiked === true);
 }
 
 function renderRelated() {
@@ -543,16 +552,15 @@ function updateFavBtn() {
   btn.textContent = on ? '⭐ 已收藏' : '⭐ 收藏';
 }
 
-/** 收藏数与收藏状态（登录才查状态）分别取；任一失败都不打断详情页。 */
-async function initFavorite() {
+/**
+ * 收藏按钮初始态 + 收藏数。
+ * T10（R-10）：初始态读**详情内联**的 `interaction.isFavorited`（匿名/失效 token ⇒ null ⇒ 未点亮），
+ * 不再为它单发 `favorite/status`（详情页请求 3 → 2）；收藏弹窗打开时仍走 status 取 `folders`。
+ * 计数仍走公开端点；任一失败都不打断详情页。
+ */
+function initFavorite() {
   refreshFavoriteCount();
-  if (!isLoggedIn()) { updateFavBtn(); return; }
-  try {
-    const st = await request(`favorite/status?contentId=${state.contentId}`);
-    state.isFavorited = !!(st && st.isFavorited);
-  } catch (e) {
-    state.isFavorited = false;
-  }
+  state.isFavorited = interactionOf(state.content).isFavorited === true;
   updateFavBtn();
 }
 
@@ -689,9 +697,10 @@ async function createFolderFromPicker() {
 async function toggleContentLike() {
   if (!requireLogin()) return;
   const item = state.content;
-  const liked = item.isLiked;
+  const it = interactionOf(item);
+  const liked = it.isLiked === true;
   const action = liked ? 'remove' : 'add';
-  item.isLiked = !liked;
+  it.isLiked = !liked;
   item.likeCount += liked ? -1 : 1;
   updateLikeBtn();
   state.container.querySelector('#likeCount').textContent = item.likeCount;
@@ -699,7 +708,7 @@ async function toggleContentLike() {
   try {
     await request(`like/content/${action}?contentId=${state.contentId}`, { method: 'POST' });
   } catch (e) {
-    item.isLiked = liked;
+    it.isLiked = liked;
     item.likeCount += liked ? 1 : -1;
     updateLikeBtn();
     state.container.querySelector('#likeCount').textContent = item.likeCount;
@@ -729,15 +738,16 @@ async function toggleCommentLike(comment, btn) {
 async function toggleFollow() {
   if (!requireLogin()) return;
   const item = state.content;
-  const followed = item.isFollowed;
+  const it = interactionOf(item);
+  const followed = it.isFollowed === true;
   const action = followed ? 'remove' : 'add';
-  item.isFollowed = !followed;
+  it.isFollowed = !followed;
   updateFollowBtn();
   try {
     await request(`follow/${action}?followedUserId=${item.authorId}`, { method: 'POST' });
     showToast(followed ? '已取消关注' : '关注成功');
   } catch (e) {
-    item.isFollowed = followed;
+    it.isFollowed = followed;
     updateFollowBtn();
     showToast(e.message || '操作失败');
   }

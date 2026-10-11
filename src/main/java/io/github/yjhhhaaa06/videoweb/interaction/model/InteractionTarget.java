@@ -17,7 +17,7 @@ package io.github.yjhhhaaa06.videoweb.interaction.model;
  * </ul>
  *
  * <p>{@code authorId <= 0}（作者未知）时：关注维度**不查询**、按 {@code false} 作答 ——
- * 与既有列表填充口径一致（{@code ContentStatusFiller.fillFollowStatus} 跳过非正作者 id）。
+ * 与既有列表填充口径一致（旧 {@code ContentStatusFiller} 对非正作者 id 同样跳过，T10 后该口径移入本域）。
  *
  * @param contentId 内容 id
  * @param authorId  内容作者 id（{@code <= 0} = 未知）

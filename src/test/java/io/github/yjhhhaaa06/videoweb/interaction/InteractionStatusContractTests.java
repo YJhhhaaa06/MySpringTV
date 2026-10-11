@@ -60,7 +60,8 @@ import static org.mockito.Mockito.verifyNoInteractions;
  * "匿名 ⇒ null 且不查"出自同节（"不是三个 false"是它相对平铺的表达力增益）；
  * "批量不得循环调单条"出自 T9 红线（{@code CURRENT_TASKS.md}）与 {@code ContentStatusFiller}
  * 类注释的性能性质；"评论赞不算内容赞"出自 T9 红线"域边界排除评论点赞"；
- * "authorId &lt;= 0 跳过"是既有填充行为（{@code ContentStatusFiller.fillFollowStatus}）的保留。
+ * "authorId &lt;= 0 跳过"是既有填充行为的保留（旧 {@code ContentStatusFiller} 对非正作者 id 跳过，
+ * T10 后该口径移入互动域）。
  * 盖住实现，这些断言照样写得出来。
  *
  * <h2>★ 反向验证（注入 → 确认变红 → 还原；实测记录见 T9 回写）</h2>

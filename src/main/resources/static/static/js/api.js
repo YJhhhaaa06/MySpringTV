@@ -22,6 +22,9 @@ import { showToast } from './utils.js';
 //   写：POST favorite/folder/{add,update,remove} · favorite/{add,remove,move}（form 参数走 query）
 //   读：GET  favorite/folder/list · favorite/folder/public · favorite/status · favorite/count · favorite/list
 //   ★ 鉴权差异：folder/public、count 匿名可访问；其余需登录（后端逐端点声明，别照抄 like 的类级注解）。
+//   ★ T10（R-10）：详情互动态（赞 / 藏 / 关注作者）**内联在 /search/IdSearch 响应的
+//     `interaction` 子对象**里（匿名 ⇒ null），**没有新端点**；`favorite/status` 仍被收藏弹窗
+//     用于取"收在哪些夹"（folders），详情按钮初始态不再单发它。
 // ----------------------------------------------------------------------------
 
 export async function request(path, options = {}) {

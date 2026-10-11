@@ -5,6 +5,7 @@ import io.github.yjhhhaaa06.videoweb.follow.service.FollowService;
 import io.github.yjhhhaaa06.videoweb.interaction.model.InteractionTarget;
 import io.github.yjhhhaaa06.videoweb.interaction.model.vo.InteractionStatusVO;
 import io.github.yjhhhaaa06.videoweb.like.service.LikeService;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -62,7 +63,23 @@ public class InteractionService {
     private final FavoriteService favoriteService;
     private final FollowService followService;
 
-    public InteractionService(LikeService likeService, FavoriteService favoriteService, FollowService followService) {
+    /**
+     * <h2>★ 为什么 {@code favoriteService} 是 {@code @Lazy}（装配环的唯一断点，T10 发现）</h2>
+     * T10 起 {@code content} 域依赖本域（详情 / 列表取互动态），而
+     * {@code favorite → content}（T6-5 的 {@code ContentService.loadContentVOs} 装载契约）
+     * 与本域 {@code → favorite}（T9 的聚合边）一起闭成**装配期 Bean 环**：
+     * <pre>
+     *   contentService → interactionService → favoriteService → contentService
+     * </pre>
+     * 三条边**全是运行期读依赖**（装配期谁都不需要对方实体）⇒ 在**本域这条边**（T9 引入的
+     * 聚合边）用 {@code @Lazy} 断环：注入解析代理、首次调用才取真实 Bean（行为不变，
+     * 只多一次代理跳转）。⚠️ 环只需断一处；**本注解若被删**，Spring 启动期会直接
+     * {@code BeanCurrentlyInCreationException}——响亮失败，不是静默故障。
+     * <p>⚠️ 别把"无环"读成传递闭包：R-10 的"无环"只成立在**直连边**上（本域不 import content）；
+     * 上面那个环在传递闭包上真实存在（发现与备选处置见 {@code CURRENT_ISSUES.md} I-10）。
+     */
+    public InteractionService(LikeService likeService, @Lazy FavoriteService favoriteService,
+                              FollowService followService) {
         this.likeService = likeService;
         this.favoriteService = favoriteService;
         this.followService = followService;
@@ -106,7 +123,8 @@ public class InteractionService {
      * 不论入参多少条，本方法对三个互动域**各只调一次**批量契约：
      * {@code LikeService.batchIsContentLiked} / {@code FavoriteService.batchIsFavorited} /
      * {@code FollowService.batchIsFollowing}（关注维度按**去重后的作者集**查，多个内容同作者只查一次）。
-     * ⚠️ 这是本域存在的核心约束（{@code ContentStatusFiller} 类注释的既有纪律）：
+     * ⚠️ 这是本域存在的核心约束（原 {@code ContentStatusFiller} 类注释的既有纪律，
+     * T10 后由本域与 content 侧的薄壳共同承接）：
      * 改成"逐条调单条"会让 100 条推荐页变 200+ 次往返。判别力见
      * {@code InteractionStatusContractTests} 的调用次数断言。
      *

@@ -19,8 +19,8 @@ import io.github.yjhhhaaa06.videoweb.content.model.vo.AdminContentVO;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentDetailVO;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentVO;
 import io.github.yjhhhaaa06.videoweb.comment.dao.CommentDao;
+import io.github.yjhhhaaa06.videoweb.interaction.service.InteractionService;
 import io.github.yjhhhaaa06.videoweb.like.dao.ContentLikeDao;
-import io.github.yjhhhaaa06.videoweb.like.service.LikeService;
 import io.github.yjhhhaaa06.videoweb.upload.model.UploadType;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -77,7 +77,7 @@ public class ContentService {
     private final CommentDao commentDao;
     private final ContentLikeDao contentLikeDao;
     private final ContentCache contentCache;
-    private final LikeService likeService;
+    private final InteractionService interactionService;
     private final ContentStatusFiller contentStatusFiller;
     private final ApplicationEventPublisher events;
 
@@ -86,7 +86,7 @@ public class ContentService {
                           CommentDao commentDao,
                           ContentLikeDao contentLikeDao,
                           ContentCache contentCache,
-                          LikeService likeService,
+                          InteractionService interactionService,
                           ContentStatusFiller contentStatusFiller,
                           ApplicationEventPublisher events) {
         this.contentDao = contentDao;
@@ -94,7 +94,7 @@ public class ContentService {
         this.commentDao = commentDao;
         this.contentLikeDao = contentLikeDao;
         this.contentCache = contentCache;
-        this.likeService = likeService;
+        this.interactionService = interactionService;
         this.contentStatusFiller = contentStatusFiller;
         this.events = events;
     }
@@ -179,7 +179,13 @@ public class ContentService {
     // ========================================================================
 
     /**
-     * 内容详情（含媒体列表 + 已登录时的 isLiked / isFollowed）。
+     * 内容详情（含媒体列表 + 互动态子对象）。
+     *
+     * <p>T10（R-10，{@code 收藏功能-分期与设计.md} §3.6）：互动态（赞 / 藏 / 关注作者）整体
+     * 走互动域，收进响应的 {@code interaction} 子对象；**匿名 ⇒ 子对象为 {@code null}**
+     * （互动域对 {@code userId == null} 短路、"不查任何维度"——不是三个 {@code false}）。
+     * 顶层 {@code isLiked} / {@code isFollowed} 已从 {@code ContentDetailVO} 删除
+     * （breaking，用户 2026-10-11 接受）。
      *
      * @return {@code null} = 内容不存在 / 已软删 / 媒体损坏（Controller 据此 404）
      */
@@ -189,10 +195,8 @@ public class ContentService {
             return null;
         }
         ContentDetailVO vo = contentCache.toDetailVO(dto);
-        if (userId != null) {
-            contentStatusFiller.fillContentLikeStatus(vo, contentId, userId);
-            contentStatusFiller.fillFollowStatus(vo, userId);
-        }
+        // 单条三维走互动域单条契约；匿名（userId == null）由它短路返回 null ⇒ "interaction": null
+        vo.setInteraction(interactionService.getStatus(userId, contentId, vo.getAuthorId(), vo.getType()));
         return vo;
     }
 
