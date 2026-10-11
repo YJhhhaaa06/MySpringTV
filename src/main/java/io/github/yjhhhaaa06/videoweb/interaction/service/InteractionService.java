@@ -23,16 +23,16 @@ import java.util.Set;
  * 本域只做**组装**：content 域依赖本域（**1 条边**，见 T10），不再直接 import 那三个域；
  * 三个域的数据归属不变（本域不是数据所有者）。
  * ⚠️ 总跨域边数其实**增加**了（3 → 1+3）——本方案的收益是"方向变单向 / 分层清晰"，
- * 别记成"依赖变少"（R-10 结论原话）。
+ * 别记成"依赖变少"（R-10 结论原话，见 {@code CURRENT_NEEDS.md} §三「R-10 结论」）。
  *
  * <h2>三条边界（写改动前先读）</h2>
  * <ol>
  *   <li>★ <b>本域不得依赖 content</b>：否则 {@code content → interaction → content} 成环、
- *       R-10 的"无环"收益落空。"哪些维度适用"由调用方把 {@code type} 传入、
+ *       R-10 §3.6 的"无环"收益落空。"哪些维度适用"由调用方把 {@code type} 传入、
  *       作者由 {@link InteractionTarget} 带入，**不反查内容**。可复算判据：
  *       {@code grep -rn "import.*videoweb.content" src/main/java/.../interaction/} 必须零命中
  *       （T9 回写记录在 {@code CURRENT_TASKS.md}）。</li>
- *   <li>★ <b>刻意不拆 HTTP 接口</b>：本域**没有** {@code controller} —— "不拆接口"是 R-10 的
+ *   <li>★ <b>刻意不拆 HTTP 接口</b>：本域**没有** {@code controller} —— "不拆接口"是 R-10 §3.6 的
  *       核心约束，互动态是收进既有详情响应的内嵌子对象。也**没有** {@code dao} / {@code cache} /
  *       {@code event}：本域是聚合器、不是数据所有者，三份数据分别在 like / favorite / follow 域，
  *       跨域只走它们的 Service 公开契约（{@code 模块边界与依赖.md} §三 通道①）。</li>
@@ -80,7 +80,7 @@ public class InteractionService {
      *
      * <p>⚠️ {@code type} 今天是"**预留的判据位置**"：视频 / 图文都适用三维，故暂不参与分支；
      * 将来按类型收窄维度（如投币）时在**本域内**用它判定，而不是去反查内容类型
-     * （反查即依赖 content、即成环）。详见 {@link InteractionTarget} 与 F-13。
+     * （反查即依赖 content、即成环）。详见 {@link InteractionTarget} 与 F-13（{@code FURTHER_ISSUES.md} 登记）。
      *
      * @param userId    当前登录用户；{@code null} = 匿名 ⇒ 返回 {@code null}（不查任何互动域）
      * @param contentId 内容 id

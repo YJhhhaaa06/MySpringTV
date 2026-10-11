@@ -34,7 +34,8 @@ import static org.mockito.Mockito.verify;
  *
  * <h2>★ 与 {@code /favorite/status} 的口径差（本类的核心判别力）</h2>
  * {@code status} 判"收在哪些夹"（JOIN {@code favorite_folder}）；本契约判"**记录存在**"（**不 JOIN**）。
- * 两者在正常态一致，在"孤儿行"边缘态（夹被删而条目未删，I-04）**刻意不同侧**：
+ * 两者在正常态一致，在"孤儿行"边缘态**刻意不同侧**（夹被删而条目未删；该态无 API 可达，
+ * 前提由 {@code deleteFolder} 的 {@code @Transactional} 承担，判别力已由 I-04 在 T8 收口）：
  * <ul>
  *   <li>{@code isFavorited} ⇒ **true**（"我收藏过"这个事实仍成立；与收藏数同侧）；</li>
  *   <li>{@code /favorite/status} ⇒ false（JOIN 丢行）—— 该分叉是已登记的已知边缘态，不是缺陷。</li>
@@ -165,7 +166,8 @@ class FavoriteExistenceTests extends AbstractHttpIntegrationTest {
         long content = insertContent(me.id());
         long folder = insertFolder(me.id(), false);
         insertItem(folder, me.id(), content);
-        // 直删夹、留下孤儿条目（I-04 登记的边缘态：正常路径由 deleteFolder 的同事务兜住，无 API 可达）
+        // 直删夹、留下孤儿条目（孤儿行边缘态：正常路径由 deleteFolder 的同事务兜住，无 API 可达；
+        // 该前提的判别力见 I-04 的 T8 收口）
         jdbcTemplate.update("DELETE FROM favorite_folder WHERE id = ?", folder);
 
         assertThat(countRows("SELECT COUNT(*) FROM favorite_item WHERE user_id = ? AND content_id = ?",

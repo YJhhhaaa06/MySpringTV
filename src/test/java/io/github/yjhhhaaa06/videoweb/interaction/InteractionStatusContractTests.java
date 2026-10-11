@@ -24,6 +24,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -169,6 +170,23 @@ class InteractionStatusContractTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
+    @DisplayName("★单条：登录但零互动 ⇒ 三维全 false 且**非 null**（与匿名可区分）")
+    void 单条登录零互动返回非null且三维false() {
+        TestUser spectator = register("13900009017", "t9-spectator");
+        TestUser author = register("13900009018", "t9-spectator-author");
+        long content = insertContent(author.id(), 1);
+
+        InteractionStatusVO status = interactionService.getStatus(spectator.id(), content, author.id(), 1);
+
+        assertThat(status)
+                .as("★ 登录且零互动 ⇒ 对象在场（不是 null）—— 与匿名用例成对，表达力增益的两半")
+                .isNotNull();
+        assertThat(status.getIsLiked()).isFalse();
+        assertThat(status.getIsFavorited()).isFalse();
+        assertThat(status.getIsFollowed()).isFalse();
+    }
+
+    @Test
     @DisplayName("★单条匿名（userId == null）：返回 null 且不查任何互动域（不是三个 false）")
     void 单条匿名返回null且不查互动域() {
         TestUser viewer = register("13900009004", "t9-anon-single");
@@ -259,13 +277,18 @@ class InteractionStatusContractTests extends AbstractHttpIntegrationTest {
                 new InteractionTarget(c3, otherAuthor.id(), 1),
                 new InteractionTarget(c1, author.id(), 1)));        // 重复 id
 
-        // ★ 三维各**恰好一趟**批量：内容 id 去重后 3 个、作者去重后 2 个
-        //   ——逐条调用会让这里的 times(1) 变 times(N)、never() 变 N 次（判别力就在这两个断言）
-        verify(likeService, times(1)).batchIsContentLiked(eq(viewer.id()), eq(List.of(c1, c2, c3)));
+        // ★ 三维各**恰好一趟**批量：内容 id 去重后 3 个、作者去重后 2 个（入参 4 条含重复）
+        //   ——逐条调用会让这里的 times(1) 变 times(N)、never() 变 N 次（判别力就在这两个断言）。
+        //   入参断言用 argThat + 集合相等（不看顺序）：判别力（一趟 + 去重）不减，且不把测试
+        //   绑死在实现选的去重容器（LinkedHashMap 的首次出现序）上。
+        verify(likeService, times(1)).batchIsContentLiked(eq(viewer.id()),
+                argThat(ids -> ids != null && ids.size() == 3 && ids.containsAll(List.of(c1, c2, c3))));
         verify(likeService, never()).isContentLiked(anyLong(), anyLong());
-        verify(favoriteService, times(1)).batchIsFavorited(eq(viewer.id()), eq(List.of(c1, c2, c3)));
+        verify(favoriteService, times(1)).batchIsFavorited(eq(viewer.id()),
+                argThat(ids -> ids != null && ids.size() == 3 && ids.containsAll(List.of(c1, c2, c3))));
         verify(favoriteService, never()).isFavorited(anyLong(), anyLong());
-        verify(followService, times(1)).batchIsFollowing(eq(viewer.id()), eq(List.of(author.id(), otherAuthor.id())));
+        verify(followService, times(1)).batchIsFollowing(eq(viewer.id()),
+                argThat(ids -> ids != null && ids.size() == 2 && ids.containsAll(List.of(author.id(), otherAuthor.id()))));
         verify(followService, never()).isFollowing(anyLong(), anyLong());
     }
 

@@ -305,8 +305,9 @@ public interface FavoriteItemDao {
      * <h2>口径：判"记录存在"，与收藏数（{@link #countDistinctUserByContentId}）同侧</h2>
      * 判据是 {@code favorite_item} 行本身，**不判内容有效性**（失效内容的记录照样在，
      * R-03 / R-07 —— "我还收着它"是事实）。
-     * ⚠️ 与 JOIN 版的唯一已知分叉 = {@code I-04} 登记的"孤儿行"边缘态（夹被删而条目未删，
-     * 该态无 API 可达、由 {@code deleteFolder} 的 {@code @Transactional} 一处承担前提）：
+     * ⚠️ 与 JOIN 版的唯一已知分叉 = "**孤儿行**"边缘态（夹被删而条目未删，无 API 可达；
+     * 其前提由 {@code deleteFolder} 的 {@code @Transactional} 一处承担，判别力已由
+     * {@code 收藏功能-分期与设计.md} 附录A.3 **I-04** 在 T8 收口 —— 打桩"最后一步"的失败注入用例）：
      * 孤儿行下 JOIN 版会丢行（status 报"未收藏"），而本查询与 count 一样**仍算已收藏**。
      * 本查询取"记录存在性"侧是有意的 —— 它服务的是"我收藏过没有"这个事实，
      * 不是"这条记录还能不能挂到某个夹上"。

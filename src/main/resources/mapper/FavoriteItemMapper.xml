@@ -148,7 +148,8 @@
          favorite_folder —— "是否收藏过"只需判 (user_id, content_id) 的记录存在，不需要夹名；
          两列等值 ⇒ 命中 idx_user_content(user_id, content_id) 的点查（轻量判存在）。
          ⚠️ 判据是记录本身（不判内容有效性，R-03/R-07）；孤儿行边缘态下与 count 同侧仍算
-            "已收藏"，与 JOIN 版（status）的分叉见 DAO Javadoc 与 收藏功能-分期与设计.md 附录A.3 I-04。
+            "已收藏"，与 JOIN 版（status）的分叉见 DAO Javadoc —— 孤儿行前提由 deleteFolder 的
+            @Transactional 承担（其判别力已由 收藏功能-分期与设计.md 附录A.3 I-04 在 T8 收口）。
          ⚠️ 别回流成 "JOIN + 取夹名"（那是 /favorite/status 的形态）——本查询服务的是互动域的
             "我收藏过没有"，不是"收在哪些夹"。 -->
     <select id="existsByUserAndContent" resultType="boolean">
