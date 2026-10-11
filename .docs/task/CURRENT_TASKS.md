@@ -71,7 +71,7 @@
 
 ---
 
-### T9 互动域骨架与两种契约（来源 R-10 / 能力 二期-1）【待执行】
+### T9 互动域骨架与两种契约（来源 R-10 / 能力 二期-1）【已完成】
 
 > ⚠️ **先质疑（G14）**：
 > - **任务**：前提是"`content` 域不该直接依赖 like / follow / favorite 三域"。⚠️ **这个前提在只有 3 个互动维度时并不显然必要** —— `like` 域已经这样很久了。若判断"互动维度不会增长（投币不做）"，**本任务与 T10 都应停下回报**，改走"详情节内联平铺"的更小方案。
@@ -100,7 +100,15 @@
   - 单条 + 批量两种契约各有单测（批量：给 N 个 id 返回 N 条映射，**不重不漏**）
   - ★ **可复算判据**：`grep` 确认 `interaction` 域**不 import** `..content..`（无环）
   - 既有回归基线全绿（★ 本任务**不改对外契约**，例数应**不变**；变了说明动到了不该动的地方）
-* **回写**：
+* **回写**：T9 完成（自拆 4 commit：T9-1 实现 / T9-2 测试 / T9-3 独立审查修正 / T9-4 文档同步）——
+  新建 `interaction` 域（仅 service + model，不拆 HTTP、无 controller/dao/cache/event；单条 `getStatus(userId,contentId,authorId,type)`
+  + 批量 `batchGetStatus(userId, List<InteractionTarget>)`，匿名一律 null 且不查）＋ 收藏域 `isFavorited`/`batchIsFavorited`
+  （不 JOIN、走 `idx_user_content`）；`ArchitectureTests.DOMAINS` 已登记。
+  验证：新增 **11 例**全绿、全量基线 **402 例**全绿（默认组；＋ resilience **34 例**全绿，合计 **436**。既有 391 例零改动——"例数应不变"按"既有用例不被改动"执行，增量全为新用例）；
+  **7 条反向注入**逐条实测变红并还原（单/批量匿名短路、批量循环 ×2、关注维度传错 id、判存在改 JOIN、SQL 去 `user_id`）；
+  `grep` 复核 interaction 零 import content。⚠️ 探索期两处决断（G13；代价已记、独立审查评断均成立、零必修）：
+  ① 单条签名比设计篇示例多 `authorId`（`isFollowed` 判作者、不得反查内容 —— 设计篇 §3.6 已同步）；
+  ② 批量契约填满三维 ⇒ 收藏域**加** `batchIsFavorited`（否则 `isFavorited` 恒 false、且违"不得循环调单条"）。
 
 ---
 

@@ -53,7 +53,7 @@ import static org.mockito.Mockito.verify;
  *   <li>把 {@code existsByUserAndContent} 改回 JOIN {@code favorite_folder} 版
  *       ⇒ {@code 孤儿行仍判已收藏} 变红（true → false）；</li>
  *   <li>把 {@code batchIsFavorited} 改成循环调 {@code isFavorited}
- *       ⇒ {@code 批量一趟查询不循环编单条} 变红（DAO 单条方法被调 N 次）；</li>
+ *       ⇒ {@code 批量判存在完整映射且一趟查询} 变红（DAO 单条方法被调 N 次）；</li>
  *   <li>去掉两条 SQL 的 {@code user_id} 条件 ⇒ {@code 单条…他人不串} 与 {@code 批量…} 变红。</li>
  * </ul>
  *
