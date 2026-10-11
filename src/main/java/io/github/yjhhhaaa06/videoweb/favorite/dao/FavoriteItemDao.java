@@ -6,6 +6,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * 收藏记录数据访问（表 {@code favorite_item}，V2 建）。
@@ -16,8 +17,10 @@ import java.util.List;
  * {@link #insertItem} / {@link #deleteByFolderAndContentIds}；
  * **T5 补入状态与计数** —— {@link #findFoldersByUserAndContent}（"收在哪些夹"）与
  * {@link #countDistinctUserByContentId}（收藏数，按人去重）；
- * **T6 补入夹内分页** —— {@link #countByFolderId}（total）+ {@link #findPageByFolderId}（页内行）。
- * 至此本表的一期读路径齐了；**不提前写无主 SQL**。
+ * **T6 补入夹内分页** —— {@link #countByFolderId}（total）+ {@link #findPageByFolderId}（页内行）；
+ * **T9 补入判存在**（互动域组装详情 / 列表用）—— {@link #existsByUserAndContent} +
+ * {@link #findFavoritedContentIds}（**不 JOIN**、走 {@code idx_user_content} 等值命中）。
+ * 一期读路径（T5 / T6）已齐；**不提前写无主 SQL**（每条 SQL 随任务补入）。
  *
  * <h2>写 SQL 前必须先读的四条口径（都是本域特有的坑，别照抄 like）</h2>
  * <ol>
@@ -285,4 +288,50 @@ public interface FavoriteItemDao {
     List<FavoriteItemVO> findPageByFolderId(@Param("folderId") long folderId,
                                             @Param("offset") long offset,
                                             @Param("limit") int limit);
+
+    // ========================================================================
+    // 判存在（T9：互动域组装互动态用 —— 不 JOIN 的轻量版）
+    // ========================================================================
+
+    /**
+     * 当前用户**是否收藏过**某内容（T9，供互动域组装详情响应）。
+     *
+     * <h2>★ 与 {@link #findFoldersByUserAndContent} 的区别：**不 JOIN**、只判存在</h2>
+     * "我是否收藏过" ⟺ 存在一条 {@code (user_id, content_id)} 的记录 —— **不需要**知道
+     * 收在哪些夹，也就不需要 JOIN {@code favorite_folder}（那条 JOIN 只是为取夹名，
+     * 服务 {@code /favorite/status} 的"收在哪些夹"）。本查询两列**等值**，正好命中
+     * {@code idx_user_content (user_id, content_id)} 的点查。
+     *
+     * <h2>口径：判"记录存在"，与收藏数（{@link #countDistinctUserByContentId}）同侧</h2>
+     * 判据是 {@code favorite_item} 行本身，**不判内容有效性**（失效内容的记录照样在，
+     * R-03 / R-07 —— "我还收着它"是事实）。
+     * ⚠️ 与 JOIN 版的唯一已知分叉 = {@code I-04} 登记的"孤儿行"边缘态（夹被删而条目未删，
+     * 该态无 API 可达、由 {@code deleteFolder} 的 {@code @Transactional} 一处承担前提）：
+     * 孤儿行下 JOIN 版会丢行（status 报"未收藏"），而本查询与 count 一样**仍算已收藏**。
+     * 本查询取"记录存在性"侧是有意的 —— 它服务的是"我收藏过没有"这个事实，
+     * 不是"这条记录还能不能挂到某个夹上"。
+     *
+     * @param userId    当前登录用户
+     * @param contentId 内容 id
+     * @return 存在任意一条记录 ⇒ {@code true}（同一人收进多个夹也只答 true）
+     */
+    boolean existsByUserAndContent(@Param("userId") long userId, @Param("contentId") long contentId);
+
+    /**
+     * 当前用户在给定内容子集中**已收藏**的那些 content_id（T9，供互动域的**批量**契约）。
+     *
+     * <p>返回**命中子集**（不是完整映射）：调用方按 {@code in set = true} 组装，
+     * "缺失 = 未收藏"由调用方补 false —— 与 {@code ContentLikeDao.findLikedContentIds}
+     * 的形态一致（那条服务点赞降级路径）。
+     *
+     * <p>SQL 形态：{@code user_id} 等值 + {@code content_id IN (...)}，命中
+     * {@code idx_user_content}；{@code DISTINCT} 保证"同一人进多个夹"只回一次。
+     * 不 JOIN（理由同 {@link #existsByUserAndContent}）。
+     *
+     * @param userId     当前登录用户
+     * @param contentIds 内容 id 集（**非空**；空集由 service 拦掉，否则 {@code IN ()} 是语法错）
+     * @return 该用户已收藏的 content_id 子集（可能为空集）
+     */
+    Set<Long> findFavoritedContentIds(@Param("userId") long userId,
+                                      @Param("contentIds") List<Long> contentIds);
 }

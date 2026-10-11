@@ -140,4 +140,37 @@
         LIMIT #{limit} OFFSET #{offset}
     </select>
 
+    <!-- ==================================================================
+         T9：判存在（互动域组装互动态用 —— 不 JOIN 的轻量版）
+         ================================================================== -->
+
+    <!-- 我是否收藏过某内容（T9）。★ 与 findFoldersByUserAndContent 的区别：**不 JOIN**
+         favorite_folder —— "是否收藏过"只需判 (user_id, content_id) 的记录存在，不需要夹名；
+         两列等值 ⇒ 命中 idx_user_content(user_id, content_id) 的点查（轻量判存在）。
+         ⚠️ 判据是记录本身（不判内容有效性，R-03/R-07）；孤儿行边缘态下与 count 同侧仍算
+            "已收藏"，与 JOIN 版（status）的分叉见 DAO Javadoc 与 收藏功能-分期与设计.md 附录A.3 I-04。
+         ⚠️ 别回流成 "JOIN + 取夹名"（那是 /favorite/status 的形态）——本查询服务的是互动域的
+            "我收藏过没有"，不是"收在哪些夹"。 -->
+    <select id="existsByUserAndContent" resultType="boolean">
+        SELECT EXISTS(
+            SELECT 1 FROM favorite_item
+            WHERE user_id = #{userId} AND content_id = #{contentId}
+        )
+    </select>
+
+    <!-- 我在这批内容里已收藏的 content_id 子集（T9：互动域批量契约的一趟查询）。
+         ★ 与 like 域的 findLikedContentIds 同形（命中子集，缺失由调用方补 false）。
+         user_id 等值 + content_id IN ⇒ 命中 idx_user_content；
+         DISTINCT：同一人把同一内容收进多个夹也只回一次（口径"按人去重"）。
+         ⚠️ 不 JOIN favorite_folder（理由同上）；空列表会生成 IN () 语法错 —— service 已拦空集。 -->
+    <select id="findFavoritedContentIds" resultType="long">
+        SELECT DISTINCT content_id
+        FROM favorite_item
+        WHERE user_id = #{userId}
+          AND content_id IN
+        <foreach collection="contentIds" item="contentId" open="(" separator="," close=")">
+            #{contentId}
+        </foreach>
+    </select>
+
 </mapper>

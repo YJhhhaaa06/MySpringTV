@@ -21,8 +21,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 收藏业务（收藏夹 CRUD / 收藏与移出 / 状态与计数 / 夹内分页）。
@@ -30,8 +32,9 @@ import java.util.Map;
  * <h2>分期落点（T1 骨架 / T2 夹 CRUD / T3 私密与公开夹 / T4 写路径 / T5 状态与计数）</h2>
  * 夹 CRUD = **T2**；私密开关 + 他人公开夹 = **T3**；写路径（收藏/移出/移动）= **T4**；
  * 状态与计数 = **T5**（本类 {@link #getFavoriteStatus} / {@link #getFavoriteCount}）；
- * 夹内分页 = **T6**（本类 {@link #listFolderItems}）。本类承担**装配关系**
- * （controller → 本类 → 两个 DAO）与**边界声明**，其余方法随任务逐个补。
+ * 夹内分页 = **T6**（本类 {@link #listFolderItems}）；判存在（互动域的组装契约）= **T9**
+ * （本类 {@link #isFavorited} / {@link #batchIsFavorited}）。
+ * 本类承担**装配关系**（controller → 本类 → 两个 DAO）与**边界声明**，其余方法随任务逐个补。
  *
  * <h2>一期红线（写方法前先读，别让实现把口径吃掉）</h2>
  * <ul>
@@ -546,6 +549,69 @@ public class FavoriteService {
             items.add(toItemVO(row, byContentId.get(row.getContentId())));
         }
         return new PageResult<>(items, total, page, pageSize);
+    }
+
+    // ========================================================================
+    // 判存在（T9：互动域的组装契约 —— 不 JOIN 的轻量版）
+    // ========================================================================
+
+    /**
+     * 当前用户**是否收藏过**某内容（T9）—— 供互动域组装详情响应
+     * （R-10 / {@code 收藏功能-分期与设计.md} §3.6）。
+     *
+     * <h2>★ 与 {@link #getFavoriteStatus} 的区别：只判存在、**不 JOIN**</h2>
+     * {@code /favorite/status} 要回答"**收在哪些夹**"（故 JOIN {@code favorite_folder} 取夹名）；
+     * 本方法只回答"我收藏过没有" ⟺ 存在一条 {@code (user_id, content_id)} 记录 ——
+     * 一趟 {@code idx_user_content} 等值点查（DAO 口径见
+     * {@code FavoriteItemDao.existsByUserAndContent}）。
+     *
+     * <p>★ <b>T11 的缓存落点就是本方法</b>：二期给"我是否收藏过"上 Redis Set 后
+     * （{@code SISMEMBER}），换的是本方法**内部**的实现，签名不变 —— 互动域只依赖
+     * 本 Service 契约，对它无感（{@code 模块边界与依赖.md} §四）。
+     *
+     * <h2>口径</h2>
+     * <ul>
+     *   <li><b>不判内容有效性</b>：失效内容的记录照样在（R-03 / R-07）⇒ 仍答 true
+     *       （"我还收着它"是事实）；</li>
+     *   <li><b>不校验 userId 存在性</b>：查不到记录就是 false（同 {@code /favorite/status}
+     *       的"空态是合法状态"口径，不给存在性开探测口）；</li>
+     *   <li>同一人把同一内容收进**多个夹**也只答 true（判据是 {@code (user_id, content_id)}
+     *       的记录存在性，不是按夹数）。</li>
+     * </ul>
+     *
+     * @param userId    当前登录用户（互动域只在登录时才调本方法 —— 匿名没有"我的状态"）
+     * @param contentId 内容 id
+     * @return 收藏过 ⇒ {@code true}
+     */
+    public boolean isFavorited(long userId, long contentId) {
+        return itemDao.existsByUserAndContent(userId, contentId);
+    }
+
+    /**
+     * 批量形态（T9）：入参每个内容都回一条、缺失补 {@code false}（完整映射，不重不漏）——
+     * 供互动域的**批量契约**组装列表（R-10 §3.6）。
+     *
+     * <p>★ <b>一趟查询，不循环调单条</b>：{@code findFavoritedContentIds} 一条
+     * {@code user_id = ? AND content_id IN (…)} 取命中子集，再在 Java 侧补 false ——
+     * 逐条调 {@link #isFavorited} 会让 100 条列表变 100 次点查（互动域类注释同款纪律）。
+     *
+     * <p>口径与 {@link #isFavorited} 完全一致（不 JOIN / 不判内容有效性 / 按人去重）；
+     * T11 上缓存后本方法对应"一趟 {@code SMISMEMBER}"，签名同样不变。
+     *
+     * @param userId     当前登录用户
+     * @param contentIds 内容 id 集（空 / {@code null} ⇒ 空 Map；**不**发查询 —— 空 IN 是语法错）
+     * @return contentId → 是否已收藏（每个入参 id 恰好一条；重复 id 收敛为一条）
+     */
+    public Map<Long, Boolean> batchIsFavorited(long userId, List<Long> contentIds) {
+        if (contentIds == null || contentIds.isEmpty()) {
+            return Map.of();
+        }
+        Set<Long> favoritedIds = itemDao.findFavoritedContentIds(userId, contentIds);
+        Map<Long, Boolean> result = new LinkedHashMap<>();
+        for (Long contentId : contentIds) {
+            result.put(contentId, favoritedIds.contains(contentId));
+        }
+        return result;
     }
 
     // ========================================================================
