@@ -12,7 +12,7 @@
      经 resultMap 显式映射，别指望下划线自动转换。
 
   ⚠️ 两条 SQL 里都**没有** `default_uniq`：它是 VIRTUAL 生成列（唯一键 uk_user_default 的挂载点），
-     不承载业务语义（理由见 CURRENT_NEEDS.md R-09）；INSERT 时由 MySQL 自己算。
+     不承载业务语义（理由见 收藏功能-分期与设计.md 附录A.2 R-09）；INSERT 时由 MySQL 自己算。
 -->
 <mapper namespace="io.github.yjhhhaaa06.videoweb.favorite.dao.FavoriteFolderDao">
 

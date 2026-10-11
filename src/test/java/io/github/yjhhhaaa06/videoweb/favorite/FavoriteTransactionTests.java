@@ -25,7 +25,7 @@ import static org.mockito.Mockito.doThrow;
 
 /**
  * 收藏一期的**声明式机制生效证明**：为两处原本"零判别力的 {@code @Transactional}"补上可注入的判别力
- * （T8 收口；来源 {@code CURRENT_ISSUES.md} <b>I-04</b> 与 T4 审查遗留）。
+ * （T8 收口；来源 {@code 收藏功能-分期与设计.md 附录A.3} <b>I-04</b> 与 T4 审查遗留）。
  *
  * <h2>为什么单列一个类（照 {@code AdminTransactionTests} 的范式）</h2>
  * 其余收藏用例都断言"两次写都成功"的**终态** ⇒ 去掉 {@code @Transactional} 仍绿（假绿）。

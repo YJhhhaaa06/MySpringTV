@@ -15,7 +15,7 @@
 -- 归属域：**favorite**（新域，已登记进 ArchitectureTests.DOMAINS）。
 --   新域不登记 ⇒ ArchUnit 规则 1/2/3 根本不覆盖它，"规则通过"是永远绿的假绿。
 --
--- 一期口径（决策见 .docs/task/CURRENT_NEEDS.md R-01~R-08）：
+-- 一期口径（决策见 .docs/task/收藏功能-分期与设计.md 附录A.2 R-01~R-08）：
 --   · `is_private` / `description` **必须一次到位**（R-05：后补要 V3 + 存量回填，
 --     且"默认公开"一旦上线即成对外契约）；
 --   · `favorite_count` 列**一期只加、不读不写**（R-06：二期上增量维护时，

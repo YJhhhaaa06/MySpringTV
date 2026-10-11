@@ -17,12 +17,13 @@
 Flyway + Testcontainers。**由 `old-project/TVhomework1`（Servlet + 手写连接池/事务/缓存/MQ + 自研 IoC）
 迁移而来**，迁移已收口。
 
-| 现状（2026-10-08） | 值 |
+| 现状（2026-10-11） | 值 |
 |---|---|
 | 迁移 | ✅ **已收口** —— 老端点 **43 / 43 / 0**；判据四条腿复算通过（过程与明细见 `archive/migration/`，判据见 `archive/migration/决策留痕表.md` **K-2**） |
-| 回归基线 | `python tools/run_tests.py` → **352 例全绿**（默认排除 `resilience`）；`--group resilience` → **34 例全绿**（合计 **386**） |
+| 收藏功能 | ✅ **一期（有无）已交付并收尾**（T1–T8，2026-10-08 → 2026-10-11）；二期（性能）/ 三期（周边）留池待评审 |
+| 回归基线 | `python tools/run_tests.py` → **391 例全绿**（默认排除 `resilience`）；`--group resilience` → **34 例全绿**（合计 **425**） |
 | 环境 | dev 库 `spring_tv`@3306、媒体根 `D:/data/projects/MySpringTV/media` |
-| 未结的账 | `task/FURTHER_ISSUES.md`：**F-01 / F-02**（Security 链，属"上线准备度"）+ **F-04 ~ F-09**（继承的存量数据债，须逐条表态、不阻塞） |
+| 未结的账 | `task/FURTHER_ISSUES.md`：**F-01 / F-02**（Security 链，属"上线准备度"）+ **F-04 ~ F-09**（继承的存量数据债，须逐条表态、不阻塞）+ **F-10 / F-11**（收藏一期转出的两个口径缺口）+ **F-12**（编号空间） |
 
 > ⚠️ **三条必须知道的边界**：
 > ① **前端**在 `src/main/resources/static/`（18 文件）。⚠️ 后续若再动 HTTP 层，须同步 `static/js/api.js`；
@@ -30,7 +31,7 @@ Flyway + Testcontainers。**由 `old-project/TVhomework1`（Servlet + 手写连�
 > ② 鉴权**还没迁 Spring Security**，当前是自研 `JwtAuthFilter` + `@RequiresLogin`，
 > `SecurityPassthroughConfig` 是**临时态** —— 已结转 `task/FURTHER_ISSUES.md` **F-01 / F-02**。
 > ③ ★ **老项目 `old-project/TVhomework1` 只读留存、禁止删除**（它是当初行为判据的唯一事实源）；
-> ⚠️ **V1 baseline 冻结，不要改**（改了会让测试库与活库分叉；下一次 schema 演进走 **V2**）。
+> ⚠️ **V1 baseline 冻结，不要改**（改了会让测试库与活库分叉；下一次 schema 演进走 **V2**，V2 已落地）。
 
 ---
 
@@ -39,7 +40,10 @@ Flyway + Testcontainers。**由 `old-project/TVhomework1`（Servlet + 手写连�
 ```
 .docs/
 ├── INDEX.md              ← 本文件（唯一入口）
-├── task/                 ← 新功能：**需求 / 分期与设计**（动手前登记，跨期稳定）+ **执行登记台**（CURRENT_*/FURTHER_ISSUES，随期滚动）
+├── task/                 ← 新功能：**需求 / 分期与设计**（动手前登记，跨期稳定）+ **执行登记台**（随期滚动）
+│                            ⚠️ 登记台（`CURRENT_*` / `FURTHER_ISSUES`）**完成即清出**（归宿 = git commit），
+│                            文件本身**复用不改名**；**编号（T# / R-## / I-## / F-## / G#）不回收**，
+│                            其解释收编进对应功能的 `*-分期与设计.md` **附录「编号索引」**（见 §三）。
 ├── temp/                 ← 草稿（gitignore）
 └── archive/
     └── migration/        ← ★ **迁移期全部归档**（2026-10-07 收尾迁入；**勿通读**，只用来追溯）
@@ -59,13 +63,14 @@ Flyway + Testcontainers。**由 `old-project/TVhomework1`（Servlet + 手写连�
 | 我要… | 读这个 | 何时更新 |
 |------|--------|---------|
 | ★ **写新代码 / 了解架构** | **`architecture/ARCHITECTURE.md`**（主索引：模块地图 + "写代码前读哪篇" + 写作规范）→ 横切机制见 `architecture/tech/` 各篇、业务域见 `architecture/domain/` | 架构变更时 |
-| ★ **执行中登记（问题 / 需求 / 任务）** | `task/CURRENT_NEEDS.md`（当期需求，决策源 N#/R-##）+ `task/CURRENT_TASKS.md`（当期任务，四要素+回写）+ `task/CURRENT_ISSUES.md`（**本期**问题）+ `task/FURTHER_ISSUES.md`（结转留池） | 每窗开/收时 |
-| ★ **加新功能 / 看分期设计** | **`task/`**：`收藏功能-需求.md`（用户视角，唯一事实源）+ `收藏功能-分期与设计.md`（**跨期骨架**：分期预告 + 表 / 端点 / 计数口径）+ `CURRENT_NEEDS.md`（**本期**范围与反面清单） | 开工前登记 / 分期变更时 |
-| **知道下一步做什么** | **"上线准备度"清单**：`task/FURTHER_ISSUES.md` **F-01 / F-02**（Security 链）+ `archive/migration/切片计划.md` §二（Dockerfile / 部署形态 / springdoc / 限流） | 排期/收尾时 |
+| ★ **执行中登记（问题 / 需求 / 任务）** | `task/CURRENT_NEEDS.md`（当期需求，决策源 N# / R-##）+ `task/CURRENT_TASKS.md`（当期任务，四要素+回写）+ `task/CURRENT_ISSUES.md`（**本期**问题）+ `task/FURTHER_ISSUES.md`（结转留池） | 每窗开/收时 |
+| ★ **查某个编号是什么**（`T#` / `R-##` / `I-##` / `G#`） | **`task/收藏功能-分期与设计.md` 附录「一期编号索引」** —— 代码 / mapper / 测试注释里有**数百处**编号引用，那份索引是它们**唯一**的查证入口 | 每期收尾时把已终结的编号收编进去 |
+| ★ **加新功能 / 看分期设计** | **`task/`**：`收藏功能-需求.md`（用户视角，唯一事实源）+ `收藏功能-分期与设计.md`（**跨期骨架**：分期预告 + 表 / 端点 / 计数口径 + **编号索引附录**）+ `CURRENT_NEEDS.md`（**本期**范围与反面清单） | 开工前登记 / 分期变更时 |
+| **知道下一步做什么** | **"上线准备度"清单**：`task/FURTHER_ISSUES.md` **F-01 / F-02**（Security 链）+ `archive/migration/切片计划.md` §二（Dockerfile / 部署形态 / springdoc / 限流）+ `task/FURTHER_ISSUES.md` 留池表（收藏二期/三期候选） | 排期/收尾时 |
 | 知道**现在还欠着什么** | `task/FURTHER_ISSUES.md`（结转池 F-##；E 类存量数据债已并入 F-04 ~ F-09） | 每次裁剪**先登记再动代码** |
-| 知道**当初为什么这么定** | `archive/migration/决策留痕表.md`（A 架构 / B 范围 / C 保真度 / D 契约差异 / E 事务指针 / F 选型 / **G 可观测 / H 韧性 / I 一致性 / J MQ** / K 收口判据） | **只读追溯**，新决策不再往里加 |
+| 知道**当初为什么这么定** | `archive/migration/决策留痕表.md`（A 架构 / B 范围 / C 保真度 / D 契约差异 / E 事务指针 / F 选型 / **G 可观测 / H 韧性 / I 一致性 / J MQ** / K 收口判据）；收藏一期的决策理由见 `task/收藏功能-分期与设计.md` **附录 A.2** | **只读追溯**，新决策不再往里加 |
 | 处理**某个事务边界** | `archive/migration/事务边界决策表.md`（§四 状态总表；逐条论证在 `archive/migration/事务边界明细-*.md`）；**写新事务**看 `architecture/tech/事务边界.md` | 开工前必须表态 |
-| 动**测试** | **仓库根 `AGENTS.md`「测试纪律」节**（防"测试迎合"四条，唯一事实源）；分层 / DoD / 老测试资产处置的历史论证见 `archive/migration/测试策略与阶段验收.md` | 测试体系变更 |
+| 动**测试** | **仓库根 `AGENTS.md`「测试纪律」节**（防"测试迎合"四条 + 实测补充，唯一事实源）；分层 / DoD / 老测试资产处置的历史论证见 `archive/migration/测试策略与阶段验收.md` | 测试体系变更 |
 | 写**脚本** | `tools/README.md`（**Python 硬性约定**：UTF-8 / 路径 / 默认只预演） | 加脚本时 |
 | 查**老项目某个行为** | 直接 grep `old-project/TVhomework1`（**只读行为规格书，禁止写入、禁止删除**） | — |
 | **踩到坑**（Duration 单位 / MyBatis 前缀 / record 绑定 / ArchUnit 扫测试类…） | `archive/migration/迁移工作流-切片SOP.md` **§二 坑表**（18 条，多数与迁移无关、写新代码同样适用） | 踩到新坑时 |
@@ -79,7 +84,7 @@ Flyway + Testcontainers。**由 `old-project/TVhomework1`（Servlet + 手写连�
 
 ```bash
 python tools/doc_stats.py          # 文档体量（防膨胀；阈值 单文件 40 KB / 单章节 300 行）
-python tools/doc_links.py          # 文档交叉引用是否指得到（**归档后必跑**）
+python tools/doc_links.py          # 文档交叉引用是否指得到（**归档/清出后必跑**）
 python tools/doc_archive.py --plan <计划.json>   # 归档已完成章节（默认只预演，--apply 落盘）
 .\mvnw.cmd -B clean verify        # 回归基线（⚠️ 必须带 clean，见《测试策略》§五.1）
 ```
@@ -91,6 +96,9 @@ python tools/doc_archive.py --plan <计划.json>   # 归档已完成章节（默
 >
 > ⚠️ **跑"全绿"必须带 `clean`**：`target/classes` 留着上一轮 class 时增量编译会跳过重编，
 > "源码编译不过"会被旧 class 掩盖而测试照样绿（2026-10-03 实测到该路径）。
+>
+> ⚠️ **编号引用不在 `doc_links.py` 的检测面内**（它只认 5 种形态，见下）—— 所以**清出 / 改名编号时
+> 必须手工跑一遍** `grep -rnE "\b(R-[0-9]{2}|I-0[0-9]|G1[0-3]|T[1-8])\b" src .docs`，逐条改指新家。
 
 **环境前置**：Docker 必须在跑（Testcontainers 自起 mysql/redis/rabbitmq，**不需要**手工起容器）；
 测试素材在外部目录 `D:\dev\WorkSpace\VideoPlatform\TestResource`（`TV_TEST_RESOURCE_DIR` 可覆盖，
@@ -103,11 +111,15 @@ python tools/doc_archive.py --plan <计划.json>   # 归档已完成章节（默
 
 ---
 
-## 五、纪律（三条最容易被忽略的）
+## 五、纪律（四条最容易被忽略的）
 
 1. **裁剪即登记**：任何"这次先不做"的决定，先写进 `task/FURTHER_ISSUES.md` 再动代码；
    消化后**改状态不要删行**（删了就没人知道曾经裁剪过）。
 2. **同一事实只写一处**：单一事实源见 §三"读这个"列；别处只能**链接**，不许复述
    （复述必然漂移——2026-10-03 就发现 DoD 写了两份且已经不一致）。
-3. **归档要连同"引用修复"一起做**：移走文档后，正文里指向它的引用必须改指新位置——
-   **悬空指针比不引用更坏，它让人以为查过了**（`tools/doc_links.py` 就是这条纪律的执行者）。
+3. **归档 / 清出要连同"引用修复"一起做**：移走或删掉一条内容后，正文与**代码注释**里指向它的引用必须改指新位置
+   —— **悬空指针比不引用更坏，它让人以为查过了**（`tools/doc_links.py` 管文档侧；**编号侧靠 §四 那条 grep**）。
+4. ★ **编号纪律（2026-10-11 起）**：① **编号不回收**，且**每个前缀只服务一个编号空间**
+   （`F-##` 是唯一活着的 F 空间；迁移期的 `F0-x` / `F-Dx` 已冻结、不得再生成新号；`T#` 的双空间冲突见 **F-12**）。
+   ② **引用编号时必须同时给第二锚点**（`设计篇 §x.y` 或 `类#方法`）—— **"只有编号、没有第二锚点"的引用不合格**，
+   否则总账一挪家注释就废。③ 让代码引用的新编号，**先在设计篇附录登记**。

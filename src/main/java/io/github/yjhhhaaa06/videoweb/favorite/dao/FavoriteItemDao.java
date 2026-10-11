@@ -21,7 +21,7 @@ import java.util.List;
  *
  * <h2>写 SQL 前必须先读的四条口径（都是本域特有的坑，别照抄 like）</h2>
  * <ol>
- *   <li>★ <b>{@code remove} 不得校验内容存在性</b>（{@code CURRENT_TASKS.md} G11）：
+ *   <li>★ <b>{@code remove} 不得校验内容存在性</b>（G11 红线 —— 见 {@code 收藏功能-分期与设计.md} 附录A.4）：
  *       直接按 {@code (folder_id, content_id)} 删行。这与 {@code /like/*} 写路径
  *       "先校验存在性"的惯例**刻意不同** —— 一加校验，失效条目就**永远清不掉**
  *       （用户在夹里看得见占位却删不掉）。反向：{@code add}/{@code move} 照常校验
@@ -151,12 +151,12 @@ public interface FavoriteItemDao {
      * （R-02，{@link #deleteByFolderId}）⇒ 正常路径下不存在"条目指向已删夹"的孤儿，INNER JOIN 不丢行。
      * <b>⚠️ 但本表**没有外键**（V2 刻意与 V1 一致），DB 不兜底</b>：该前提**只由
      * {@code FavoriteService.deleteFolder} 的 {@code @Transactional} 一处承担** —— 而那正是
-     * {@code CURRENT_ISSUES.md} <b>I-04</b> 登记为"零判别力、可被静默误删"的那处。
+     * {@code 收藏功能-分期与设计.md 附录A.3} <b>I-04</b> 登记为"零判别力、可被静默误删"的那处。
      * 前提失效（孤儿行 {@code folder_id} 指向已删夹）时可观察症状是**跨端点不一致**：这里 JOIN 不上
      * ⇒ 丢行 ⇒ {@code status} 报"未收藏"；而 {@link #countDistinctUserByContentId} **不 JOIN**
      * ⇒ 仍把该孤儿算进收藏数（根治见 I-04：加外键或补失败注入用例）。
      * ⚠️ 本 SQL 不碰 content 表；T6 夹内列表**现在也不碰**（失效判定已整体走 content 装载契约
-     * 折叠，见 {@code CURRENT_NEEDS.md} R-11）—— 两条都不要回流成跨域 JOIN（I-07 ③）。
+     * 折叠，见 {@code 收藏功能-分期与设计.md 附录A.2} R-11）—— 两条都不要回流成跨域 JOIN（I-07 ③）。
      *
      * <p><b>顺序是契约</b>：默认夹置顶 + 创建序（{@code is_default DESC, id ASC}），
      * 与 {@code FavoriteFolderDao.findByUserIdWithItemCount} 复用同一顺序 —— 两处不许各排一半。
@@ -189,7 +189,7 @@ public interface FavoriteItemDao {
      * {@code uk_folder_content (folder_id, content_id)} 与 {@code idx_folder_time (folder_id, create_time)}，
      * **没有一条以 {@code content_id} 前导**。这是有意的：先加就把"优化前"的基线毁掉了。
      *
-     * <p>★ <b>T5 实测基线（一次性探针，非断言；数字见 {@code CURRENT_TASKS.md} T5 回写）</b>：
+     * <p>★ <b>T5 实测基线（一次性探针，非断言；数字见 {@code 收藏功能-分期与设计.md} §3.2）</b>：
      * 2 万行 / 目标 content 2000 个不同 user ⇒ {@code EXPLAIN} 是
      * {@code type=range, key=idx_user_content, key_len=16, Extra="Using where; Using index for group-by (scanning)"}
      * —— 即 MySQL 8 **没有**退化成全表扫，而是借 {@code idx_user_content} 做 **loose index scan**
@@ -243,13 +243,13 @@ public interface FavoriteItemDao {
      * {@code invalid} / {@code title} / {@code coverUrl} / {@code authorName} 由
      * {@code FavoriteService.listFolderItems} 经 {@code ContentService.loadContentVOs} 组装
      * （T6 残留提交 2026-10-09 —— 旧形态"单条 LEFT JOIN + 封面规则副本 + URL 前缀第二份实现"
-     * 已整体删除，见 {@code CURRENT_ISSUES.md} I-07）。
+     * 已整体删除，见 {@code 收藏功能-分期与设计.md 附录A.3} I-07）。
      *
      * <h2>★ 三条口径（写改动前先读，每一条都有对应的注入点）</h2>
      * <ol>
      *   <li><b>判失效不在这里</b>：内容"可不可用"由 content 装载契约决定 —— 不存在 / 已删下架
      *       （{@code is_deleted != 0}）/ 媒体损坏（视频行缺失）/ 未知 type 统一折叠为"取不到"
-     *       ⇒ 该行渲染占位。口径"看不了 ≈ 失效"（{@code CURRENT_NEEDS.md} **R-11**）。
+     *       ⇒ 该行渲染占位。口径"看不了 ≈ 失效"（{@code 收藏功能-分期与设计.md 附录A.2} **R-11**）。
      *       ⚠️ 别回流成"JOIN content + is_deleted 判定"：那**测不出**"视频行缺失 / 未知 type"，
      *       会与新口径分叉，还把跨域直连他域表（I-07 ③）重新引进来；</li>
      *   <li><b>分页单位是 {@code favorite_item} 行</b>（G12）：{@code LIMIT/OFFSET} 直接作用在

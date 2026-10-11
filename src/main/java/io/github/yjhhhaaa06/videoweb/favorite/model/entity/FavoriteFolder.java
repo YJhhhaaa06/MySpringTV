@@ -20,7 +20,7 @@ import lombok.NoArgsConstructor;
  *
  * <p>⚠️ <b>{@code default_uniq} 是 VIRTUAL 生成列（唯一键的判别列），刻意不映射</b>：
  * 它不承载业务语义，只是 {@code uk_user_default} 的挂载点（理由见
- * {@code CURRENT_NEEDS.md} R-09）。
+ * {@code 收藏功能-分期与设计.md 附录A.2} R-09）。
  *
  * <p>⚠️ <b>两个布尔用包装类型 {@code Boolean} 而不是 {@code boolean}</b>：列是 {@code NOT NULL}，
  * 但属性名 {@code isDefault} 配 {@code boolean} 会让 Lombok 生成 {@code isDefault()} + {@code setDefault()}，

@@ -493,7 +493,7 @@ public class FavoriteService {
      * {@link ContentService#loadContentVOs}（缓存支撑——跨域只走对方 Service 契约，
      * 见 {@code 模块边界与依赖.md} §四）取展示字段；**契约"取不到"即失效** ——
      * 不存在 / 已删下架 / 媒体损坏 / 未知类型统一渲染占位
-     * （口径"看不了 ≈ 失效"，{@code CURRENT_NEEDS.md} **R-11**）。
+     * （口径"看不了 ≈ 失效"，{@code 收藏功能-分期与设计.md 附录A.2} **R-11**）。
      * 占位形态仍是本域的显示决策：标题 = 「内容已失效」、封面与作者 = {@code null}
      * ——"内容可不可用"归 content 域、"失效长什么样"归本域，两个注入点独立（反向验证都能红）。
      * ⚠️ 别把这段搬去复用 {@code ProfileService} 的填充逻辑：那处是"取不到就跳过"，
