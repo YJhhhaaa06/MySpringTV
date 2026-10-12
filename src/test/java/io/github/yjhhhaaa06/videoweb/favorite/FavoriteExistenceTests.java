@@ -8,15 +8,16 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.sql.PreparedStatement;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -53,13 +54,19 @@ import static org.mockito.Mockito.verify;
  *   <li>把 {@code existsByUserAndContent} 改回 JOIN {@code favorite_folder} 版
  *       ⇒ {@code 孤儿行仍判已收藏} 变红（true → false）；</li>
  *   <li>把 {@code batchIsFavorited} 改成循环调 {@code isFavorited}
- *       ⇒ {@code 批量判存在完整映射且一趟查询} 变红（DAO 单条方法被调 N 次）；</li>
+ *       ⇒ {@code 批量判存在完整映射且一趟查询} 变红：★ T11 上缓存后"循环调单条"只会让**第一条** miss
+ *       （随后命中回填的集合），DAO 单条方法的调用次数由 N 变成 1 —— 但 {@code never} 断言照旧变红
+ *       （判别力不依赖次数多少，只依赖"单条方法**有没有**被调"）；</li>
  *   <li>去掉两条 SQL 的 {@code user_id} 条件 ⇒ {@code 单条…他人不串} 与 {@code 批量…} 变红。</li>
  * </ul>
  *
  * <h2>独立性</h2>
  * 夹具直插 {@code favorite_item} / {@code favorite_folder}（两条 SQL 的被判对象），
  * oracle 直查行数与列 —— 不经接口回显。
+ * <p>★ <b>T11 补充</b>：本类两个被测契约（{@code isFavorited} / {@code batchIsFavorited}）现在走
+ * Redis 缓存，而夹具是**直插 DB**（绕开服务写路径 ⇒ 不触发任何失效）⇒ {@code @BeforeEach} 必须清
+ * Redis，否则"直插行 ⇒ 下一读可见"不再成立。缓存自身的时序（写路径失效 / 三态 / 降级）由
+ * {@code FavoriteCacheTests} 走**真实端点**覆盖 —— 两边分工，不互相伪装。
  */
 class FavoriteExistenceTests extends AbstractHttpIntegrationTest {
 
@@ -72,12 +79,27 @@ class FavoriteExistenceTests extends AbstractHttpIntegrationTest {
     @MockitoSpyBean
     private FavoriteItemDao itemDao;
 
+    @Autowired
+    private StringRedisTemplate redis;
+
     @BeforeEach
     void 清空本域相关表() {
         // 在基类的 DELETE FROM users 之后执行（JUnit5 父类 @BeforeEach 先跑）。
         jdbcTemplate.update("DELETE FROM favorite_item");
         jdbcTemplate.update("DELETE FROM favorite_folder");
         jdbcTemplate.update("DELETE FROM content");
+        // ★ T11 起本类的两个被契约（isFavorited / batchIsFavorited）走 Redis 缓存 ⇒ 用例前清 Redis。
+        //   本类夹具是**直插 favorite_item**（绕开服务写路径），缓存不会失效 ⇒ 不清会出现
+        //   "上一条用例读出的缓存让这一条读不到刚插的行"的隐性耦合（口径分工见 FavoriteCacheTests）。
+        clearRedis();
+    }
+
+    /** Redis 侧清空（测试 Redis 是进程级单例，key 会跨用例残留）。 */
+    private void clearRedis() {
+        Set<String> keys = redis.keys("*");
+        if (keys != null && !keys.isEmpty()) {
+            redis.delete(keys);
+        }
     }
 
     // ========================================================================
@@ -137,8 +159,14 @@ class FavoriteExistenceTests extends AbstractHttpIntegrationTest {
 
         assertThat(favoriteService.batchIsFavorited(me.id(), List.of())).as("空入参 ⇒ 空 Map").isEmpty();
 
-        // ★ 一趟批量 + 单条方法零次（逐条调用会让 100 条列表变 100 次点查）
-        verify(itemDao, times(1)).findFavoritedContentIds(eq(me.id()), anyList());
+        // ★ 一趟批量 + 单条方法零次（逐条调用会让 100 条列表变 100 次点查）。
+        //   ⚠️ T11 上缓存后"一趟"落在**回填**那条：本用例是**冷 key**（{@code @BeforeEach} 已清 Redis）
+        //   ⇒ miss → 单飞回源**一次** → 回填该用户全量（{@code findAllFavoritedContentIds}）。
+        //   子集版 {@code findFavoritedContentIds}（{@code IN (...)}）只在**降级**路径用
+        //   （Redis 挂时按请求 id 作答，不拉全量）。
+        //   ★ 判别力落在 {@code never(existsByUserAndContent)}：把批量改成"循环调单条"⇒ 单条方法被调
+        //   ⇒ 立刻变红（这条与缓存无关，是 T9 就有的"不循环调单条"纪律）。
+        verify(itemDao, times(1)).findAllFavoritedContentIds(eq(me.id()));
         verify(itemDao, never()).existsByUserAndContent(anyLong(), anyLong());
     }
 

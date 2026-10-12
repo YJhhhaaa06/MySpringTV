@@ -5,6 +5,8 @@ import io.github.yjhhhaaa06.videoweb.support.Envelope;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import tools.jackson.databind.JsonNode;
@@ -12,6 +14,7 @@ import tools.jackson.databind.JsonNode;
 import java.sql.PreparedStatement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -65,12 +68,32 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
     /** 刻意**不**在 content 表插行的"幽灵内容 id"（内容行真没了，R-07 失效形态之一）。 */
     private static final long GHOST_CONTENT_ID = 990201L;
 
+    @Autowired
+    private StringRedisTemplate redis;
+
     @BeforeEach
     void 清空本域相关表() {
         // 在基类的 DELETE FROM users 之后执行（JUnit5 父类 @BeforeEach 先跑）。
         jdbcTemplate.update("DELETE FROM favorite_item");
         jdbcTemplate.update("DELETE FROM favorite_folder");
         jdbcTemplate.update("DELETE FROM content");
+        // ★ T11 起 /favorite/count 走缓存（content:favoriteCount:{id}）⇒ 本类用例前清 Redis ——
+        //   测试 Redis 是 support/Containers 的**进程级单例**，key 会跨用例残留（同 like 域纪律）。
+        clearRedis();
+    }
+
+    /**
+     * ★ T11 边界声明：本类的夹具是**直改 DB**（{@code insertItem} / {@code jdbcTemplate.update(DELETE ...)}），
+     * 而缓存只在**服务写路径**（add / remove / move / 删夹）上失效 ⇒ 直改 DB 之后缓存可能仍是旧值。
+     * 故凡"直改 DB ⇒ 随后读 {@code /favorite/count}"的地方都要先清 Redis：本类继续只钉**计数口径**
+     * （按人去重 / 含失效 / 空态），"写路径会让缓存失效"的时序由 {@code FavoriteCacheTests}
+     * 走**真实端点**覆盖 —— 两边分工，不互相伪装。
+     */
+    private void clearRedis() {
+        Set<String> keys = redis.keys("*");
+        if (keys != null && !keys.isEmpty()) {
+            redis.delete(keys);
+        }
     }
 
     // ========================================================================
@@ -192,6 +215,9 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
 
         // 移出 A：B 里还有 ⇒ 仍"已收藏"，且 count 仍是 1（同一人还没绝迹）
         jdbcTemplate.update("DELETE FROM favorite_item WHERE folder_id = ? AND content_id = ?", folderA, content);
+        // ★ T11：这次"移出"是**直改 DB**（绕开服务写路径）⇒ 缓存不会失效 ⇒ 读 count 前先清 Redis，
+        //   否则这里读到的是缓存，本断言就变成"缓存恰好也是 1"的假绿（口径分工见 #clearRedis）。
+        clearRedis();
         JsonNode afterA = Envelope.data(status(me.token, content));
         assertThat(afterA.path("isFavorited").asBoolean()).isTrue();
         assertThat(names(afterA.path("folders"))).containsExactly("夹B");
@@ -200,6 +226,7 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
 
         // 全移出：回到未收藏
         jdbcTemplate.update("DELETE FROM favorite_item WHERE folder_id = ? AND content_id = ?", folderB, content);
+        clearRedis();   // ★ 同上：直改 DB ⇒ 缓存不在场，本断言钉的是"计数口径"，不是缓存新鲜度
         JsonNode empty = Envelope.data(status(me.token, content));
         assertThat(empty.path("isFavorited").asBoolean()).isFalse();
         assertThat(empty.path("folders").size()).isZero();
