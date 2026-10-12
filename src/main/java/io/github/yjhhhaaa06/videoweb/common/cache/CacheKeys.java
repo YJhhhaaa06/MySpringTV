@@ -144,6 +144,35 @@ public final class CacheKeys {
         return "user:commentLikeSet:" + userId;
     }
 
+    // ==================== 收藏（FavoriteCache，收藏二期 T11） ====================
+
+    /**
+     * 我收藏过的内容：{@code user:favoriteSet:{userId}}（Set&lt;contentId&gt;）。
+     *
+     * <p>成员 key 取**用户维度**（与 {@link #userLikeSet(long)} 同构，理由同 TV 第四期 T4 的装载反转）：
+     * 装载量 = 该用户收藏的内容数，与内容热度解耦（热门内容不会把全部收藏者拉进内存）。
+     *
+     * <p>⚠️ 它的语义是"**这个人现在收着这条内容**"（⟺ {@code favorite_item} 里存在
+     * {@code (user_id, content_id)} 行，**与夹数无关**）：同一内容可进多夹（唯一键
+     * {@code uk_folder_content} 是**夹内**唯一），故"移出某个夹"**不等于**"取消收藏"——
+     * 这条正是 T11 写路径**不能**做无条件 {@code SREM} 的根因
+     * （见 {@code FavoriteCache} 类注释；登记 {@code CURRENT_ISSUES.md} I-11）。
+     */
+    public static String userFavoriteSet(long userId) {
+        return "user:favoriteSet:" + userId;
+    }
+
+    /**
+     * 某内容的收藏数：{@code content:favoriteCount:{id}}（String int，**按人去重**）。
+     *
+     * <p>★ <b>刻意无空标记</b>（口径同 {@link #contentLikeCount(long)}）：{@code 0} 是**合法值**，
+     * 必须与"key 不存在"靠 {@code GET} 返回 {@code null} / {@code "0"} 区分；
+     * 给它写空标记会让"0 人收藏"与"未知"混淆。
+     */
+    public static String contentFavoriteCount(long contentId) {
+        return "content:favoriteCount:" + contentId;
+    }
+
     // ==================== 关注（FollowCache） ====================
 
     /**

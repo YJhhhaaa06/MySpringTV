@@ -335,4 +335,69 @@ public interface FavoriteItemDao {
      */
     Set<Long> findFavoritedContentIds(@Param("userId") long userId,
                                       @Param("contentIds") List<Long> contentIds);
+
+    // ========================================================================
+    // 收藏缓存（T11：二期-2）—— 两条**为缓存而加**的读
+    // ========================================================================
+
+    /**
+     * 该用户收藏过的**全部** content_id（T11：缓存 miss 时回填用户维度成员集）。
+     *
+     * <h2>为什么不复用 {@link #findFavoritedContentIds}</h2>
+     * 那条是"给定子集里命中的部分"（降级路径用，避免为 3 个 id 拉全量）；
+     * 本查询是"**该用户的全量收藏**"——它只服务**回填**：成员 key
+     * （{@code user:favoriteSet:{userId}}）断言的是"这个人的收藏全集"，
+     * miss 时必须一次装全，否则缓存里是一个**残缺集合**（把已收藏判成未收藏）。
+     * 两条查询的负载形态不同（全集 vs 子集），刻意分开而不是互相凑。
+     *
+     * <h2>口径</h2>
+     * <ul>
+     *   <li>按 {@code user_id} 等值（命中 {@code idx_user_content} 前导列）；
+     *       {@code DISTINCT} 保证"同一内容收进多个夹"只回一次
+     *       —— 成员集表达的是"我收藏过"，与夹数无关（DAO 类注释口径 4）；</li>
+     *   <li><b>不 JOIN {@code favorite_folder}</b>：同 {@link #existsByUserAndContent}
+     *       ——"我收藏过没有"与"收在哪些夹"是两个问题；</li>
+     *   <li><b>不判内容有效性</b>：失效内容的记录照样在（R-03 / R-07）⇒ 照样进集合
+     *       （"我还收着它"是事实）；</li>
+     *   <li>⚠️ <b>本查询没有分页/上限</b>：装载量 = 该用户的收藏数。这与 like 域的成员集
+     *       （{@code findLikedContentIdsByUser}）同一形态、同一取舍 —— 用户维度反转的目的正是
+     *       让装载量与**内容热度**解耦。真出现"一个人的收藏上百万"时才需要窗口装载
+     *       （那要引入 {@code partial:} 前缀态与四处特判，见缓存文档 §六.2，**现在不做**）。</li>
+     * </ul>
+     *
+     * @param userId 当前登录用户
+     * @return 该用户收藏过的 content_id 集（可能为空集，**不是** {@code null}）
+     */
+    Set<Long> findAllFavoritedContentIds(@Param("userId") long userId);
+
+    /**
+     * 一个夹内的全部 content_id（T11：删夹前取"受影响的收藏记录"，供**批量失效**收藏数缓存）。
+     *
+     * <h2>为什么删夹要先把 id 取出来</h2>
+     * 删夹删的是**记录行**，但收藏数缓存（{@code content:favoriteCount:{id}}）是**内容维度**的
+     * ——记录删掉之后就再也查不出"刚才动了哪些内容" ⇒ 必须在删之前取。取出来的集合**只用于失效**，
+     * 不参与任何判定（不判"是否仍是最后一个夹"：见 {@code FavoriteCache} 类注释，
+     * 收藏域的写路径一律整体失效，不做增量）。
+     *
+     * <p>⚠️ <b>必须与两条 DELETE 同事务</b>（事务由 {@code FavoriteService.deleteFolder} 的
+     * {@code @Transactional} 提供，本查询在其中）：否则并发收藏会让"取到的 id 集"与
+     * "实际删掉的行"不一致 ⇒ 失效集漏项（缓存留着一条已经变了的计数）。
+     *
+     * <h2>为什么不用 {@code SELECT ... FOR UPDATE}</h2>
+     * 本仓明确排除（判"不存在"时 RC 下不加锁形同虚设、RR 下 gap lock 共享 ⇒ 死锁，
+     * 见 {@code 收藏功能-分期与设计.md} §3.2 的排除理由）；MySQL 的 {@code DELETE} 也没有
+     * {@code RETURNING} ⇒ 取 id 与删除是**两条语句、一个事务**。
+     *
+     * <p>⚠️ 与 T12 的关系：T12 的 {@code recountFavoriteCounts(Set&lt;Long&gt;)} 需要同一份
+     * "受影响的 contentId 集"（§3.2 的"`deleteFolder`（批量删条目）⇒ 受影响的全部 contentId"）
+     * ⇒ 届时**复用本查询**，别新写一条同形 SQL。
+     *
+     * <p>⚠️ 本 SQL **不碰 content 表**（只查本域一列）：失效集由 favorite 侧给出，
+     * "谁读这个计数"不归本域管。
+     *
+     * @param folderId 目标夹（调用方保证存在且属于当前用户）
+     * @return 该夹内的 content_id（同一内容在同一夹里至多一行 ⇒ 无重复；空夹 ⇒ 空列表）。
+     *         失效是幂等的，即便将来出现重复也无害
+     */
+    List<Long> findContentIdsByFolderId(@Param("folderId") long folderId);
 }

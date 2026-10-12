@@ -216,6 +216,13 @@ video:
     # ⚠️ 单位口径：TV 的 getCommentTtlSeconds() 返回**秒**、getContentTtlMillis() 返回**毫秒**，
     #    本实现统一用 Duration（Spring 原生表达），消除这个历史不一致。
     comment-ttl: ${COMMENT_CACHE_TTL:10m}
+    # 收藏缓存（收藏二期 T11）。★ 取值对齐 like 的 15m：两域形态同类 —— "我的状态"类
+    # 用户维度成员集（user:favoriteSet:{id}）+ 内容维度计数（content:favoriteCount:{id}），
+    # 写路径都在提交后条件写/失效、读路径都热在详情页。
+    # 刻意比 follow / content 的 30m 短：收藏的失效驱动有 add/remove/move/删夹 四个写点，
+    # 短 TTL 让"万一漏了一处失效"的最坏影响面更小。
+    # ⚠️ 同上：Duration 属性**必须带单位后缀**，写裸数字 15 会被解析成 PT15S（15 秒）。
+    favorite-ttl: ${FAVORITE_CACHE_TTL:15m}
 
   # 媒体资源 URL 前缀（S5 切片）。替代 TV 的 RequestContext.getContextPath()
   # （Servlet context path 的 ThreadLocal，本项目内嵌容器下恒为空串）。

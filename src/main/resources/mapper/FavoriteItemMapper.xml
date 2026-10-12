@@ -174,4 +174,37 @@
         </foreach>
     </select>
 
+    <!-- ==================================================================
+         T11（二期-2）：收藏缓存要用到的两条读
+         ================================================================== -->
+
+    <!-- 该用户收藏过的**全部** content_id（T11：成员集 miss 回填，装载量 = 该用户收藏数）。
+         ★ 与上面 findFavoritedContentIds 的分工：那条是"给定子集里的命中"（**降级**路径用，
+           避免为 3 个 id 拉全量）；本条是"**全量**"（**回填**路径用）—— 成员 key 断言的是
+           "这个人的收藏全集"，必须一次装全，否则缓存里是残缺集合（把已收藏判成未收藏）。
+         ★ DISTINCT：同一内容收进多个夹只回一次（成员集表达"我收藏过"，与夹数无关）。
+         ⚠️ 不 JOIN favorite_folder（与 existsByUserAndContent 同款理由：两个不同的问题）；
+           不判内容有效性（失效内容的记录照样在，R-03/R-07 ⇒ 照样算"我还收着它"）。
+         ⚠️ 本查询**无分页/上限**：用户维度反转的目的就是让装载量与内容热度解耦（同 like 的
+           findLikedContentIdsByUser）。要窗口装载就得引入 partial: 前缀态与四处特判，**现在不做**。 -->
+    <select id="findAllFavoritedContentIds" resultType="long">
+        SELECT DISTINCT content_id
+        FROM favorite_item
+        WHERE user_id = #{userId}
+    </select>
+
+    <!-- 一个夹内的全部 content_id（T11：删夹前取失效集 —— 收藏数是**内容维度**的，
+         ★ 记录删掉后就再查不出"刚动了哪些内容"，故必须**删之前**取）。
+         ★ 只用于失效（DEL content:favoriteCount:{id}），不参与任何判定：收藏域写路径一律
+           "整体失效"，不做增量（夹内唯一 ⇒ add/remove 不必然 ±1，见 CURRENT_ISSUES.md I-11）。
+         ⚠️ 必须与两条 DELETE **同事务**（FavoriteService.deleteFolder 的 @Transactional）：
+           否则并发收藏让"取到的 id 集"与"实际删掉的行"不一致 ⇒ 失效集漏项。
+         ⚠️ 不写 SELECT ... FOR UPDATE（本仓排除：判不存在时 RC 无效 / RR gap lock 共享 ⇒ 死锁）；
+           命中 idx_folder_time(folder_id, create_time) 的前导列。 -->
+    <select id="findContentIdsByFolderId" resultType="long">
+        SELECT content_id
+        FROM favorite_item
+        WHERE folder_id = #{folderId}
+    </select>
+
 </mapper>
