@@ -43,7 +43,7 @@ import static org.mockito.Mockito.verify;
 
 /**
  * 收藏二期 <b>T11：缓存层（{@code FavoriteCache} / {@code FavoriteRedisOps}）</b> 的语义与时序测试
- * （{@code 能力 二期-2}；设计篇 §3.7；口径与代价 {@code CURRENT_ISSUES.md} I-11）。
+ * （{@code 能力 二期-2}；设计篇 §3.7；口径与代价见**附录 A.3 I-11**）。
  *
  * <h2>为什么必须单列一个类</h2>
  * 其余收藏测试钉的是"接口返回什么"，它们**完全无法**证明缓存这一侧的语义是否正确：

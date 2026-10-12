@@ -57,7 +57,7 @@ import java.util.Set;
  *   <li>{@code remove}（从某夹移出）**不必然**取消收藏（可能仍收在别的夹）；</li>
  *   <li>{@code move} 甚至可能"源夹本没有这条"⇒ insert 成功 + 源侧删 0 行 = **一次新增收藏**。</li>
  * </ul>
- * ⇒ 写路径分两档（{@code CURRENT_ISSUES.md} I-11 已登记、用户 2026-10-12 拍板）：
+ * ⇒ 写路径分两档（{@code 收藏功能-分期与设计.md 附录 A.3} I-11 已登记、用户 2026-10-12 拍板）：
  * <table>
  *   <caption>写路径动作</caption>
  *   <tr><th>写点</th><th>成员侧</th><th>计数侧</th></tr>

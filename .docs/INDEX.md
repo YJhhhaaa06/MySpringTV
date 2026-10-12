@@ -20,10 +20,10 @@ Flyway + Testcontainers。**由 `old-project/TVhomework1`（Servlet + 手写连�
 | 现状（2026-10-12） | 值 |
 |---|---|
 | 迁移 | ✅ **已收口** —— 老端点 **43 / 43 / 0**；判据四条腿复算通过（过程与明细见 `archive/migration/`，判据见 `archive/migration/决策留痕表.md` **K-2**） |
-| 收藏功能 | ✅ **一期（有无）已交付并收尾**（T1–T8，2026-10-08 → 2026-10-11）；**二期进行中**：T9 互动域 ✅、T10 详情互动态内联 ✅（R-10，2026-10-12）、T11 / T12 待执行 |
-| 回归基线 | `python tools/run_tests.py` → **404 例全绿**（默认排除 `resilience`）；`--group resilience` → **34 例全绿**（合计 **438**） |
+| 收藏功能 | ✅ **一期（有无）已交付**（T1–T8，2026-10-08 → 2026-10-11）；✅ **二期（性能 + R-10 契约演进）已交付并收尾**（T9–T12，2026-10-11 → 2026-10-12；落地与实测见设计篇 §3.2 / §3.6 / §3.7）；⏳ **下一期方向待拍板** ⇒ `task/CURRENT_NEEDS.md` §三 **R-12** |
+| 回归基线 | `python tools/run_tests.py` → **428 例全绿**（默认排除 `resilience`）；`--group resilience` → **34 例全绿**（合计 **462**）｜2026-10-12 二期收尾复算 |
 | 环境 | dev 库 `spring_tv`@3306、媒体根 `D:/data/projects/MySpringTV/media` |
-| 未结的账 | `task/FURTHER_ISSUES.md`：**F-01 / F-02**（Security 链，属"上线准备度"）+ **F-04 ~ F-09**（继承的存量数据债，须逐条表态、不阻塞）+ **F-10 / F-11**（收藏一期转出的两个口径缺口）+ **F-12**（编号空间）；＋ `task/CURRENT_ISSUES.md` **I-09**（ProfileService 仍直连 `like.service`，待处理） |
+| 未结的账 | `task/FURTHER_ISSUES.md`：**F-01 / F-02**（Security 链，属"上线准备度"）+ **F-04 ~ F-09**（继承的存量数据债，须逐条表态、不阻塞）+ **F-10 / F-11**（收藏一期转出的两个口径缺口）+ **F-12**（编号空间）+ **F-13 ~ F-15**（投币 / 异步重算 / 前端列表互动态）+ **F-16 ~ F-19**（★ **二期收尾现转**：`ProfileService` 对齐 / 收藏缓存层重判 / 装配期 Bean 环根治 / 并发计数残留窗口） |
 
 > ⚠️ **三条必须知道的边界**：
 > ① **前端**在 `src/main/resources/static/`（18 文件）。⚠️ 后续若再动 HTTP 层，须同步 `static/js/api.js`；
@@ -64,9 +64,9 @@ Flyway + Testcontainers。**由 `old-project/TVhomework1`（Servlet + 手写连�
 |------|--------|---------|
 | ★ **写新代码 / 了解架构** | **`architecture/ARCHITECTURE.md`**（主索引：模块地图 + "写代码前读哪篇" + 写作规范）→ 横切机制见 `architecture/tech/` 各篇、业务域见 `architecture/domain/` | 架构变更时 |
 | ★ **执行中登记（问题 / 需求 / 任务）** | `task/CURRENT_NEEDS.md`（当期需求，决策源 N# / R-##）+ `task/CURRENT_TASKS.md`（当期任务，四要素+回写）+ `task/CURRENT_ISSUES.md`（**本期**问题）+ `task/FURTHER_ISSUES.md`（结转留池） | 每窗开/收时 |
-| ★ **查某个编号是什么**（`T#` / `R-##` / `I-##` / `G#`） | **`task/收藏功能-分期与设计.md` 附录「一期编号索引」** —— 代码 / mapper / 测试注释里有**数百处**编号引用，那份索引是它们**唯一**的查证入口 | 每期收尾时把已终结的编号收编进去 |
+| ★ **查某个编号是什么**（`T#` / `R-##` / `I-##` / `G#`） | **`task/收藏功能-分期与设计.md` 附录「编号索引」**（A.1 任务 / A.2 决策 / A.3 问题 / A.4 运行约定；**已含一期 + 二期**）—— 代码 / mapper / 测试注释里有**数百处**编号引用，那份索引是它们**唯一**的查证入口 | 每期收尾时把已终结的编号收编进去 |
 | ★ **加新功能 / 看分期设计** | **`task/`**：`收藏功能-需求.md`（用户视角，唯一事实源）+ `收藏功能-分期与设计.md`（**跨期骨架**：分期预告 + 表 / 端点 / 计数口径 + **编号索引附录**）+ `CURRENT_NEEDS.md`（**本期**范围与反面清单） | 开工前登记 / 分期变更时 |
-| **知道下一步做什么** | **"上线准备度"清单**：`task/FURTHER_ISSUES.md` **F-01 / F-02**（Security 链）+ `archive/migration/切片计划.md` §二（Dockerfile / 部署形态 / springdoc / 限流）+ `task/FURTHER_ISSUES.md` 留池表（收藏二期/三期候选） | 排期/收尾时 |
+| **知道下一步做什么** | ⏳ **先看 `task/CURRENT_NEEDS.md` §三 R-12**（下一期方向**待拍板**：收藏三期周边 / 性能第二轮 / 上线准备度）；素材池 = `task/FURTHER_ISSUES.md`（**F-16 ~ F-19** 是二期现转的）+ 其留池表 + **"上线准备度"清单**（`F-01 / F-02` Security 链 + `archive/migration/切片计划.md` §二 Dockerfile / 部署形态 / springdoc / 限流） | 排期/收尾时 |
 | 知道**现在还欠着什么** | `task/FURTHER_ISSUES.md`（结转池 F-##；E 类存量数据债已并入 F-04 ~ F-09） | 每次裁剪**先登记再动代码** |
 | 知道**当初为什么这么定** | `archive/migration/决策留痕表.md`（A 架构 / B 范围 / C 保真度 / D 契约差异 / E 事务指针 / F 选型 / **G 可观测 / H 韧性 / I 一致性 / J MQ** / K 收口判据）；收藏一期的决策理由见 `task/收藏功能-分期与设计.md` **附录 A.2** | **只读追溯**，新决策不再往里加 |
 | 处理**某个事务边界** | `archive/migration/事务边界决策表.md`（§四 状态总表；逐条论证在 `archive/migration/事务边界明细-*.md`）；**写新事务**看 `architecture/tech/事务边界.md` | 开工前必须表态 |

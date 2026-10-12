@@ -184,7 +184,7 @@
     <!-- 一个夹内的全部 content_id（T11：删夹前取失效集 —— 收藏数是**内容维度**的，
          ★ 记录删掉后就再查不出"刚动了哪些内容"，故必须**删之前**取）。
          ★ 只用于失效（DEL content:favoriteCount:{id}），不参与任何判定：收藏域写路径一律
-           "整体失效"，不做增量（夹内唯一 ⇒ add/remove 不必然 ±1，见 CURRENT_ISSUES.md I-11）。
+           "整体失效"，不做增量（夹内唯一 ⇒ add/remove 不必然 ±1，见 {@code 收藏功能-分期与设计.md 附录 A.3} I-11）。
          ⚠️ 必须与两条 DELETE **同事务**（FavoriteService.deleteFolder 的 @Transactional）：
            否则并发收藏让"取到的 id 集"与"实际删掉的行"不一致 ⇒ 失效集漏项。
          ⚠️ 不写 SELECT ... FOR UPDATE（本仓排除：判不存在时 RC 无效 / RR gap lock 共享 ⇒ 死锁）；

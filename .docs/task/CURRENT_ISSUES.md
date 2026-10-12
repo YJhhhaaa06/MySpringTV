@@ -22,17 +22,7 @@
 
 > **状态取值**：待处理 / 已纳入NEEDS / 已解决 / 待裁决（须停下问用户）/ 已转 `F-##`。
 
-| 编号 | 发现于（任务 / 日期） | 分类 | 现象 | 证据 | 影响 | 处置 | 状态 |
-|------|---------------------|------|------|------|------|------|------|
-| I-12 | T12 探索期 / 2026-10-12 | 决策 | ★ 任务书 T12 的「三条写路径接入」**少列了 `move`**：move 的边缘态"源夹不含该内容"（陈旧页面 / 前端传错 from，与 I-11 缓存侧记录的同源）时 insert 成功、源侧删 0 行 ⇒ 等价于一次**新增收藏**，列不重算就 +1 缺失 ⇒ ★ 不变量 `favorite_count == COUNT(DISTINCT user_id)` 被一条 **API 可达**的路径打破。同任务还牵出两处须拍板的口径：① 读切列使 T5 一期计数测试的**直插夹具**不可见（列只由写路径维护）；② 重算引入第二条写 ⇒ `addItem`/`removeItems` 须升级 `@Transactional` | `FavoriteService.moveItem` 的先插后删顺序（源夹 0 行删除合法）；`FavoriteStatusAndCountTests` 8 条用例中 5 条依赖直插行可见（T12 读列后必红）；`收藏功能-分期与设计.md` §3.2 任务书红线"重算必须与关系行增删同事务" | ①不变量出现 API 可达反例；②G8 红线与二期-3 读语义正面冲突；③事务边界文档既有表述（"刻意不加事务"）过时 | **已拍板（用户 2026-10-12，探索期口头确认）**：① **move 接入重算**（第四条路径，代价 = 低频操作多一趟同事务聚合+UPDATE，幂等无害）；② **G8 第二例外**：T5 夹具改走真实写路径（业务断言一字不改），**幽灵内容 count 期望 1 → 0**（列只能存在于 content 行上，该态无 API 可达；"无行回退实时聚合"的混合方案会重开匿名端点 17ms 聚合口子，刻意不做）；③ addItem/removeItems 升级事务（任务书推论，非偏离）。**T12 已按此落地**（T12-2/T12-3）；文档同步 = 《模块边界与依赖》§六（`content ⇄ favorite` 行，含读边例外）、设计篇 §3.2 | 已解决 |
-
-| I-09 | T10 探索期 / 2026-10-12 | 债务 | R-10 判据「content 域不再 import like.service / follow.service」**只兑现一半**：T10 后互动态填充路径（`ContentStatusFiller` / `ContentService` / `StartController`）已改走互动域，但 `ProfileService` 仍**内联点赞批量**（直连 `like.service.batchIsContentLiked`；另有主页维度的 `follow.service` 用法：主页关注态 + 关注/粉丝计数） | `grep "import.*videoweb\.(like\|follow)\.service" src/main/java/.../content/` ⇒ 仅剩 `ProfileService.java:10-11`（T10 交付后复算）；`ProfileService.java:114-127` 第 ⑤ 段 | content 域仍持有一条"我是否点过赞"的直接依赖（profile 路径）；R-10 的"content 域依赖 3 → 1"在 profile 路径上不成立 | **保留现状**（用户 2026-10-12 拍板"选择不改"）：改它要给 `/profile` 每页 **+2 趟批量读**（互动域只提供"三维一起答"的批量契约，无"单维"子契约；两趟结果在 profile 路径被丢弃）。**后续考虑**：① 互动域加"维度可选"的批量重载；② 或更优解（避免为低频路径扩大 T9 刚钉死的契约面）。⚠️ `follow.service` 的 profile 维度用法**不是**本议题：那是 `模块边界与依赖.md` §四 已登记的合法契约 | 待处理 |
-| I-10 | T10 执行期（首跑测试）/ 2026-10-12 | 决策 | ★ **R-10 的"无环"只成立于直连边**：`content → interaction`（T10 新增）、`interaction → favorite`（T9）、`favorite → content`（T6-5 的 `loadContentVOs` 装载契约）在**传递闭包**上闭成环，并在 **Bean 装配期**表现为 `BeanCurrentlyInCreationException`（应用根本起不来） | 实测：`run_tests.py --test ContentReadTests` ⇒ 25 例 error，根因链 `contentService → interactionService → favoriteService → contentService`（日志 `target/test-reports/run-20261012_005149.log`）；`FavoriteService.java:544` 是 `favorite → content` 的唯一调用点 | 不修则应用无法启动；R-10 文档的"无环"表述在传递闭包读法下会失真 | **已解决（T10 内）**：在 `InteractionService` 的 `favoriteService` 注入点加 `@Lazy` **单点断环**（三条边全是运行期读依赖、装配期不需要对方实体；行为不变，只多一次代理跳转；删注解 = 启动期响亮失败）。**备选（留待将来）**：把 `loadContentVOs` 抽成窄装载组件，消掉 `favorite → content` 回指边。⚠️ 语义澄清已补进 `收藏功能-分期与设计.md` §3.6（"直连边 vs 传递闭包"） | 已解决 |
-
-| I-11 | T11 探索期 / 2026-10-12 | 决策 | ★ 任务书 T11 的"写路径**提交后条件写缓存**"在 `uk_folder_content`（**夹内**唯一）模型下**不成立**：同一用户可把同一内容收进多个夹（合法态，需求篇 §三）⇒ `add` 不必然 +1（该内容他已在别的夹）、`remove` 不必然 −1（可能仍收在别的夹）、`move` 也不必然零效应（**源夹其实没含该内容**时 insert 成功、源侧删 0 行 ⇒ 等价于一次新增收藏）。无条件 `INCR`/`DECR`/`SREM` 给出的是**错的答案**，不是性能退化 | 唯一键 `uk_folder_content (folder_id, content_id)`（`V2__favorite_tables.sql`）；`FavoriteItemDao` 类注释口径 4（判定"同一人是否收藏过"必须按 `(user_id, content_id)`，**不能按夹判**）；`FavoriteService.addItem:328` / `removeItems:371` **刻意无 `@Transactional`**（事务边界篇 §四）⇒ 若照 `like` 建 `favorite.event` + `@TransactionalEventListener(AFTER_COMMIT)`（`fallbackExecution` 默认 `false`，领域事件篇 §5.2），这两个写点的事件会被**静默丢弃** | 照任务书直写"条件写"⇒ 成员/计数缓存与 DB 长期漂移；照 like 加事件 ⇒ 两个写点缓存永不更新（且与"收藏域不该有 event 包"的现有记载冲突） | **已拍板（用户 2026-10-12）**：① 提交后钩子 = `TransactionSynchronizationManager.afterCommit`（有同步活动则登记、**无则立即执行**，照顾两个无事务写点），**不建** `favorite.event`；② 写路径只有 `add` 做条件写（单调 ⇒ `SADD` 安全，并清空标记），`remove` / `move` / `deleteFolder` 一律**整体失效**（成员 key + 空标记），**计数侧一律 `DEL`**；③ `/favorite/status` 的"未收藏短路"本任务**不做**（保 `isFavorited ≡ !folders.isEmpty()` 的单一来源）。**T11 已按此落地**（T11-2~T11-5）：实现 = `favorite/cache/{FavoriteCache,FavoriteRedisOps,AfterCommit}.java`；**10 条反向注入逐条实测变红并还原**，其中"照任务书原口径写成条件 `INCR` + 写路径不失效"一条**实测使 `多夹收藏与逐夹移出都不漂移` 变红** —— 这是本编号存在的直接证据（详见 T11 回写）；文档同步 = 《缓存与数据一致性》§一/§五/§七、《韧性》§四/§六、设计篇 §3.7 | 已解决 |
-
-> 📌 **I-01 ~ I-08 的正文已于一期收尾清出**（2026-10-11，历史在 git）：一行摘要见下「已解决（本期内）」，
-> 详细结论与理由见 [设计篇](收藏功能-分期与设计.md) **附录「编号索引」**。
+**⏳ 本张清单暂无问题登记**（下一期开窗时按下面格式登记；编号从 **I-13** 起）。
 
 ---
 
@@ -43,21 +33,33 @@
 
 | 编号 | 事项 | 为什么必须问 | 问于（日期） | 结论 |
 |------|------|-------------|-------------|------|
-| 待登记 | | | | |
+| **待裁决** | ★ **下一期方向**（`CURRENT_NEEDS.md` §三 **R-12**：周边 / 性能第二轮 / 上线准备度） | 三条路的代价与前提不同（见 R-12 候选表），且**拍板前不许拆任务**（C-1） | 2026-10-12 | ⏳ 待用户拍板 |
 
 ---
 
-## 已解决（收藏一期，2026-10-08 → 2026-10-11）
+## 已解决（收藏二期，2026-10-11 → 2026-10-12）
 
-> 本期内已解决的可留一行摘要（细节走 git + 设计篇附录），收尾时统一清出。
+> 正文已随二期收尾清出（历史在 git）；**结论与理由收编进**
+> [设计篇](收藏功能-分期与设计.md) **附录 A.3**（那是这些编号的唯一查证入口）。
 
 | 编号 | 一句话结论 | 解决于（任务 / 日期） |
 |------|-----------|---------------------|
-| I-01 | 分期篇 §3.1 骨架里**没有任何唯一键**能表达"每用户至多一个默认夹"（`UNIQUE(user_id,is_default)` 会连坐自建夹）⇒ T1 落地 `default_uniq` **VIRTUAL 生成列** + `uk_user_default` | T1 / 2026-10-08 |
-| I-02 | 结构锚点只断言 `flyway_schema_history` **首行** ⇒ "新增迁移没被应用"**察觉不到**（假绿）；改为断言**全部版本行** + 表计数 18 | T1 / 2026-10-08 |
-| I-03 | 测试助手 `Envelope.str(resp,field)` 走 `data.<field>` ⇒ 对**字符串型 data**（写端点的中文文案）**恒返回 null**；改用 `Envelope.data(resp).asString()`（本期不改 `Envelope` 本体） | T2 / 2026-10-08 |
-| I-04 | `FavoriteService.deleteFolder` 的 `@Transactional` **零判别力**（两条 DELETE 都成功 ⇒ 去掉注解仍绿），后果是静默孤儿行、且被 T5 两条读端点暴露成**跨端不一致**；T8 用 `@MockitoSpyBean` 打桩"最后一步"获得**永久判别力** | T8 / 2026-10-10 |
-| I-05 | `git checkout --` 式注入脚本会**连未提交的改动一起还原**（T3 首跑实测丢过 3 个文件的改动）⇒ 纪律：**先 commit 再注入** | T3 / 2026-10-08 |
-| I-06 | 性能基线假设"无 `content_id` 前导索引 ⇒ 全表扫"被**实测推翻**（实为 **loose index scan**，2 万行 / 2000 人 ≈ 17ms）；教训：写基线前先实测 `EXPLAIN`，且"就地更正"要扫同主题**全部**出现处 | T5 / 2026-10-09 |
-| I-07 | 夹内列表曾持**一份 content 域封面规则副本 + URL 前缀第二份实现**（且 URL 前缀一期是**恒等变换、零覆盖**），并首次跨域直连他域表；T6-5 改走 `ContentService.loadContentVOs` **整体根治** | T6-5 / 2026-10-09 |
-| I-08 | 前端弹窗"**必选夹**" × 默认夹**只能懒建** ⇒ 两者**互锁**，默认夹在前端永远建不出来（需求篇「纳入」项零可达）；补"默认收藏夹 · 首次收藏时创建"占位行（`id=null`、`add` 不带 `folderId`） | T7 / 2026-10-10 |
+| I-09 | `ProfileService` 仍内联点赞批量（R-10 的"content 域不再 import like/follow"**只兑现一半**）⇒ 用户拍板"选择不改" | T10 / 2026-10-12 ⇒ **结转 `FURTHER_ISSUES.md` F-16** |
+| I-10 | R-10 的"无环"**只成立于直连边**：`content → interaction → favorite → content` 在**传递闭包**成环、并在**装配期**表现为 `BeanCurrentlyInCreationException` ⇒ 在 `InteractionService` 的 `favoriteService` 注入点 `@Lazy` 单点断环 | T10 / 2026-10-12（备选 ⇒ **F-18**） |
+| I-11 | 任务书"四个写点条件写缓存"在 `uk_folder_content`（**夹内**唯一）下**不成立**（`add` 不必然 +1 / `remove` 不必然 −1 / `move` 可能等价新增收藏）；且两个写点无事务 ⇒ 照 like 建事件会被**静默丢弃** ⇒ 改 `TransactionSynchronization` 钩子 + 只有 `add` 条件写 | T11 / 2026-10-12 |
+| I-12 | 任务书 T12 的"三条写路径"**少列 `move`**（源夹不含该内容 ⇒ 等价新增收藏，不变量被 **API 可达**路径打破）；另牵出 T5 夹具不可见与写点升级 `@Transactional` | T12 / 2026-10-12 |
+
+## 已解决（收藏一期，2026-10-08 → 2026-10-11）
+
+> 细节走 git + 设计篇附录 A.3。
+
+| 编号 | 一句话结论 | 解决于（任务 / 日期） |
+|------|-----------|---------------------|
+| I-01 | 骨架缺"每用户至多一个默认夹"的唯一键 ⇒ 落地 `default_uniq` **VIRTUAL 生成列** + `uk_user_default` | T1 / 2026-10-08 |
+| I-02 | 结构锚点只断 `flyway_schema_history` **首行** ⇒ "新增迁移没被应用"是**假绿**；改为断言**全部版本行** + 表计数 18 | T1 / 2026-10-08 |
+| I-03 | 测试助手 `Envelope.str(resp,field)` 走 `data.<field>` ⇒ 对**字符串型 data**（写端点的中文文案）**恒返回 null**；改用 `Envelope.data(resp).asString()` | T2 / 2026-10-08 |
+| I-04 | `FavoriteService.deleteFolder` 的 `@Transactional` **零判别力**（去掉注解仍绿）⇒ `@MockitoSpyBean` 打桩"**最后一步**"获得永久判别力 | T8 / 2026-10-10 |
+| I-05 | `git checkout --` 式注入脚本会**连未提交的改动一起还原**（实测丢过 3 个文件）⇒ 纪律：**先 commit 再注入** | T3 / 2026-10-08 |
+| I-06 | 性能基线假设"无 `content_id` 前导索引 ⇒ 全表扫"被**实测推翻**（实为 **loose index scan**，2 万行 / 2000 人 ≈ 17ms）⇒ 写基线前先实测 `EXPLAIN`；且"就地更正"要扫同主题**全部**出现处 | T5 / 2026-10-09 |
+| I-07 | 夹内列表曾持 content 域封面规则副本 + URL 前缀第二份实现 + 跨域直连他域表 ⇒ T6-5 改走 `ContentService.loadContentVOs` 整体根治 | T6-5 / 2026-10-09 |
+| I-08 | 前端弹窗"必选夹" × 默认夹**只能懒建**互锁 ⇒ 补"默认收藏夹 · 首次收藏时创建"占位行 | T7 / 2026-10-10 |

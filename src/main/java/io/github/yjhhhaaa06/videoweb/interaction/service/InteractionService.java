@@ -24,7 +24,7 @@ import java.util.Set;
  * 本域只做**组装**：content 域依赖本域（**1 条边**，见 T10），不再直接 import 那三个域；
  * 三个域的数据归属不变（本域不是数据所有者）。
  * ⚠️ 总跨域边数其实**增加**了（3 → 1+3）——本方案的收益是"方向变单向 / 分层清晰"，
- * 别记成"依赖变少"（R-10 结论原话，见 {@code CURRENT_NEEDS.md} §三「R-10 结论」）。
+ * 别记成"依赖变少"（R-10 结论原话，见 {@code 收藏功能-分期与设计.md 附录 A.2} R-10）。
  *
  * <h2>三条边界（写改动前先读）</h2>
  * <ol>
@@ -32,7 +32,7 @@ import java.util.Set;
  *       R-10 §3.6 的"无环"收益落空。"哪些维度适用"由调用方把 {@code type} 传入、
  *       作者由 {@link InteractionTarget} 带入，**不反查内容**。可复算判据：
  *       {@code grep -rn "import.*videoweb.content" src/main/java/.../interaction/} 必须零命中
- *       （T9 回写记录在 {@code CURRENT_TASKS.md}）。</li>
+ *       （T9 的结论与归宿见 {@code 收藏功能-分期与设计.md 附录 A.1} T9）。</li>
  *   <li>★ <b>刻意不拆 HTTP 接口</b>：本域**没有** {@code controller} —— "不拆接口"是 R-10 §3.6 的
  *       核心约束，互动态是收进既有详情响应的内嵌子对象。也**没有** {@code dao} / {@code cache} /
  *       {@code event}：本域是聚合器、不是数据所有者，三份数据分别在 like / favorite / follow 域，
@@ -77,7 +77,7 @@ public class InteractionService {
      * {@code BeanCurrentlyInCreationException}——响亮失败，不是静默故障。
      * <p>⚠️ 别把"无环"读成传递闭包：R-10 的"无环"只成立在**直连边**上（本域不 import content）；
      * 上面那个环在传递闭包上真实存在（第二锚点：设计篇 §3.6 的"T10 落地实测"；登记
-     * {@code CURRENT_ISSUES.md} I-10）。
+     * {@code 收藏功能-分期与设计.md 附录 A.3} I-10；备选的根治方案见 {@code FURTHER_ISSUES.md} F-18）。
      */
     public InteractionService(LikeService likeService, @Lazy FavoriteService favoriteService,
                               FollowService followService) {

@@ -78,8 +78,10 @@ V1 一旦在任一库上被应用，就写进了该库的 `flyway_schema_history
 
 ```
 db/migration/
-├── V1__baseline_tv_schema.sql   ← 冻结，永不再改
-└── V2__<描述>.sql               ← 新增：只写增量（ALTER TABLE / CREATE TABLE / CREATE INDEX …）
+├── V1__baseline_tv_schema.sql        ← 冻结，永不再改
+├── V2__favorite_tables.sql           ← 已应用（2026-10-08 收藏一期 T1），同样冻结
+├── V3__backfill_favorite_count.sql   ← 已应用（2026-10-12 收藏二期 T12）：**只改数据、不改结构**
+└── V4__<描述>.sql                    ← 下一次演进写这里（编号递增，绝不回写 V1~V3）
 ```
 
 - V2 在**所有环境**都会被执行（活库：V1 已应用 ⇒ 只有 V2 是新的，会真正跑；空库：V1→V2 顺序跑完）。
@@ -88,6 +90,8 @@ db/migration/
 - ★ **现状（2026-10-08）**：首个增量脚本 **`V2__favorite_tables.sql`** 已落地（收藏一期 T1，
   见 §四"V2 增量"）。它同时是这条策略的**首个实例**：活库走"baseline 0 + V1 no-op + 只跑 V2"，
   空库/测试容器走"V1 → V2 顺序跑完"。
+- ★ **现状更新（2026-10-12）**：收藏二期 T12 又落了 **`V3__backfill_favorite_count.sql`**（数据迁移，见 §四）
+  ⇒ **下一次演进走 V4**；V2 / V3 同 V1 一样**逐字节冻结**。
 
 ### 2.4 ★ 已应用的迁移**连注释也不能改**（2026-10-11 实测踩到）
 
@@ -212,7 +216,16 @@ V1 共定义 **15 张业务表**，V2 再增 **2 张**（收藏一期，见下�
 | 17 | `favorite_item` | favorite | 收藏记录：`uk_folder_content` 防重复收藏、`idx_user_content` 服务"按人去重"、`idx_folder_time` 服务夹内倒序分页 | 失效内容**不清理**，返回脱敏占位（R-03） |
 | — | `content.favorite_count` | （列在 content 上，业务归 favorite） | 收藏数**冗余列**（按人去重） | ★ **一期只建不读不写**（R-06），二期启用 |
 
-> 📌 本表出现的 `R-##` / `T#` 编号见 `收藏功能-分期与设计.md` **附录「一期编号索引」**（编号的唯一查证入口）。
+**V3 增量（`V3__backfill_favorite_count.sql`，2026-10-12 收藏二期 T12）——★ 数据迁移，不改结构**：
+
+| 项 | 内容 |
+|---|---|
+| 做了什么 | 存量回填 `content.favorite_count`：一条聚合 `UPDATE`（按 `favorite_item` 的 `COUNT(DISTINCT user_id)` 回写），**单条 SQL、未分批**（dev 库规模：content 51 行 / favorite_item 4 行；容器空库 ⇒ no-op） |
+| 为什么单独一个版本 | 它**不新增表/列**（列是 V2 建的），只把 V2 时"全是 0 或空"的列填成真值 ⇒ 属**数据迁移**；与结构变更分开，回滚与审计都清楚 |
+| 落地验证（可复算） | dev 库 `spring-boot:run` 日志 `Successfully applied 1 migration`；全表复算 `SELECT COUNT(*) FROM content c LEFT JOIN (…) t … WHERE c.favorite_count <> COALESCE(t.cnt,0)` = **0 行错位**；`flyway_schema_history` = 0(baseline) → 1 → 2 → 3 全 success |
+| 冻结状态 | ✅ **已应用 ⇒ 逐字节冻结**（§2.4：连注释都不能改） |
+
+> 📌 本表出现的 `R-##` / `T#` 编号见 `收藏功能-分期与设计.md` **附录「编号索引」**（编号的唯一查证入口）。
 
 > 落地形态的两处非显然设计（都是"一次到位 / 别在下游重复推导"的东西）：
 > ① `favorite_folder.default_uniq` 是 **VIRTUAL 生成列**（默认夹 `1`、自建夹 `NULL`），

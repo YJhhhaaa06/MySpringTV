@@ -105,7 +105,7 @@ import java.util.Set;
  * {@code @TransactionalEventListener} 的 {@code fallbackExecution=false} 默认值下，"无事务也要执行"
  * 的场景一旦出现（T12 之前曾有：{@code addItem}/{@code removeItems} 刻意无事务）事件会被
  * **静默丢弃**，且与"收藏域不该有 event 包"的既有定位冲突。取舍与代价登记在
- * {@code CURRENT_ISSUES.md} **I-11**。
+ * {@code 收藏功能-分期与设计.md 附录 A.3} **I-11**。
  *
  * <h2>★ 写路径的缓存动作（T11）：只有 {@code add} 条件写，其余整体失效</h2>
  * 起因是收藏的**夹内唯一**模型（{@code uk_folder_content}）：同一用户可把同一内容收在多个夹里 ⇒
@@ -528,7 +528,7 @@ public class FavoriteService {
         //   常态下 move 确实不改收藏态（人还是收着这条、收藏数也不变），但"源夹其实没含这条"
         //   （陈旧页面 / 前端传错 from）时 insert 照样成功、源侧删 0 行 ⇒ 等价于一次**新增收藏**；
         //   整体失效在那个边缘态下也给出正确答案，代价（移动后该用户下次读全量回源一次）
-        //   与 move 的低频相称。取舍见 CURRENT_ISSUES.md I-11。
+        //   与 move 的低频相称。取舍见 {@code 收藏功能-分期与设计.md 附录 A.3} I-11。
         AfterCommit.run(() -> {
             favoriteCache.invalidateUserFavorites(userId);
             favoriteCache.invalidateFavoriteCount(contentId);

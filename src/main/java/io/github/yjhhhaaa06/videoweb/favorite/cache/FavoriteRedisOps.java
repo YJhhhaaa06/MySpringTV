@@ -33,7 +33,7 @@ import java.util.Set;
  * </ul>
  * ⇒ 除 {@code add}（单调：收藏过 ⇒ 仍然收藏过，{@code SADD} 恒安全）之外，
  * 收藏域**不做增量条件写**，一律走**整体失效**让读回源自愈（{@link FavoriteCache#invalidateUserFavorites}）。
- * 详见 {@code CURRENT_ISSUES.md} I-11 与 {@code 收藏功能-分期与设计.md} §3.7。
+ * 详见 {@code 收藏功能-分期与设计.md} §3.7 与**附录 A.3 I-11**。
  *
  * <h2>★ 空标记（仅成员侧）</h2>
  * {@code empty:user:favoriteSet:{userId}}（短 TTL 60s）承载"**已确认该用户一条收藏都没有**"——
