@@ -34,7 +34,7 @@ import java.util.Set;
  * <h2>读路径（三态，与 like 逐项同构）</h2>
  * <pre>
  * 空标记命中 → false / 全 false（已确认该用户无收藏，**不回源 DB**）
- * 数据 key 在 → SISMEMBER / SMISMEMBER（pipeline 一趟），并滑动续期
+ * 数据 key 在 → SISMEMBER / N×SISMEMBER（pipeline 一趟），并滑动续期
  * 两者皆无   → miss：单飞回源 → 原子回填 → 作答（空集写空标记）
  * Redis 失败 → 降级直查 DB（单条 checker / 按请求 id 子集批量），**不写回**
  * </pre>

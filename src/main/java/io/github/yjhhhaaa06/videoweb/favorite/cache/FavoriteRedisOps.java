@@ -32,7 +32,7 @@ import java.util.Set;
  *   <li>{@code move} 甚至可能是"源夹压根没这条"⇒ insert 成功、源侧删 0 行 = 一次新增收藏。</li>
  * </ul>
  * ⇒ 除 {@code add}（单调：收藏过 ⇒ 仍然收藏过，{@code SADD} 恒安全）之外，
- * 收藏域**不做增量条件写**，一律走**整体失效**让读回源自愈（{@link FavoriteCache#invalidateUser}）。
+ * 收藏域**不做增量条件写**，一律走**整体失效**让读回源自愈（{@link FavoriteCache#invalidateUserFavorites}）。
  * 详见 {@code CURRENT_ISSUES.md} I-11 与 {@code 收藏功能-分期与设计.md} §3.7。
  *
  * <h2>★ 空标记（仅成员侧）</h2>

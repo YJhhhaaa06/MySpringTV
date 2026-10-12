@@ -160,7 +160,7 @@
 
 ---
 
-### T11 收藏缓存层（来源 能力 二期-2）【执行中】
+### T11 收藏缓存层（来源 能力 二期-2）【已完成】
 
 > ⚠️ **先质疑（G14）**：
 > - **任务**：前提是"`isFavorited` 高频读 + `count` 回源昂贵，值得上缓存"。⚠️ **若实测发现一期那 17ms 在真实数据量下不成问题**（例如收藏表只有几百行），**停下回报** —— 无基线证据的优化不该做（二期判据①）。
@@ -193,7 +193,24 @@
   - ★ **用 Redis 的测试 `@BeforeEach` 必须清 Redis**（既有纪律）
   - ★ **不漂移**：写后读到的 `isFavorited` / `count` 与 DB 终态一致（**独立 oracle**：直接查 `favorite_item`）
   - `folders` 仍走 DB（确认**没**被顺手缓存）
-* **回写**：
+* **回写**：T11 完成（自拆 5 commit：T11-1 登记 I-11 / T11-2 基建 / T11-3 接线 / T11-4 测试 / T11-5 审查修正+回写）——
+  新建 `favorite/cache`：`FavoriteCache`（三态读 + 单飞 + 降级 + 写路径分档）+ `FavoriteRedisOps`（**只一个**条件写 Lua + 回填/空标记 Lua；抽象的 `RedisOps` 基类未标 `@Component`）+
+  `AfterCommit`（提交后钩子）；`CacheKeys` 补 `user:favoriteSet:{id}` / `content:favoriteCount:{id}`；`FavoriteCacheProperties`（`video.cache.favorite-ttl`，默认 **15m**，绑定期校验正数）；
+  `FavoriteItemDao` 补两条**为缓存而加**的读（`findAllFavoritedContentIds` 回填全量 / `findContentIdsByFolderId` 删夹前取失效集，T12 复用）；
+  `FavoriteService` 四条读委托缓存（签名与端点契约**一字不变**）、四个写点各自在 DB 写成功后经 `AfterCommit` 触缓存。
+  ★ **三处偏离任务书措辞**（前提被推翻，登记 **I-11**、用户 2026-10-12 拍板）：
+  ① **计数侧一律 `DEL`**（不做 `INCR`/`DECR`）—— `uk_folder_content` 是**夹内**唯一，同一人可把同一内容收进多夹 ⇒ `add` 不必然 +1、`remove` 不必然 −1；
+  ② **成员侧只有 `add` 条件写**，`remove`/`move`/`deleteFolder` **整体失效** —— 移出某夹 ≠ 取消收藏；且 `move` **不是**"净效应为零 ⇒ 不写"（源夹不含该内容时等价于新增收藏）；
+  ③ **提交后钩子用 `TransactionSynchronization`**（无同步活动 ⇒ 立即执行），不建 `favorite.event` —— `addItem`/`removeItems` 刻意无事务，走事件会被 `fallbackExecution=false` **静默丢弃**，且本域不该有 `event` 包。
+  ⏳ **未做**（有意）：`/favorite/status` 的"`SISMEMBER` 为 false 时短路"（会让 `isFavorited` 出现第二处事实源，与 T5 钉住的不变量冲突）⇒ 设计篇 §3.7 仍标 ⏳；`folders` 不缓存（照 §3.7）。
+  验证：新增 **14 例**（`FavoriteCacheTests` 13 + `FavoriteCachePropertiesBindingTests` 1）、全量基线 **418 例**全绿（T10 基线 404）；
+  **10 条反向注入逐条实测变红并还原**（① `ADD_LUA` 去清空标记 ② 整体失效改空实现 ③ ★**照任务书原口径**写条件 `INCR` + 写路径不失效 ④ `move` 不写 ⑤ 删夹批量失效删掉 ⑥ `AfterCommit` 换成事务体内直接调用 ⑦ 无同步分支改"跳过" ⑧ 不写空标记 ⑨ 降级改 rethrow ⑩ 把 DB 失败吞成 false）；
+  其中 ③ 有额外发现：**单独**注入 `INCR` 时全绿（被写路径的 `DEL` 抹掉），只有"条件写 + 不失效"**整体**注入才现形 ⇒ "条件写"与"失效"在本域必须**成对**；
+  ⑥ 还暴露了测试自身的缺陷：原回滚用例打桩"**首步** DB 写失败"对"事务内 vs 提交后"**零鉴别力**（两种世界都"什么都没写"）⇒ 已按 AGENTS「最后一步打桩」改成**外层事务在成功写之后置回滚**（事务内即可观察到缓存已失效 ⇒ 变红）；
+  既有用例两处调整（**G8 例外**，待用户追认）：`FavoriteExistenceTests` 的批量 DAO 调用断言改指向**回填**那条（T11 后冷 miss 走全量 loader）＋ 清 Redis；`FavoriteStatusAndCountTests` 在**直改 DB** 之后清 Redis（夹具绕开写路径 ⇒ 缓存不失效，"直改 DB ⇒ 下一读可见"不再是缓存下的可观察契约）。两处都不改业务断言口径。
+  独立审查（subagent 只读）：**功能层零必修**；采纳 4 条（1 条必修 = 悬空的 `{@link FavoriteCache#invalidateUser}`；3 条建议 = 补"批量**降级**也不逐条点查"的断言、`SMISMEMBER` 措辞对齐、补本回写），0 条不采纳。
+  **代价（G14，如实登记）**：本仓**无真实流量** ⇒ 这层缓存的可测收益拿不到基线证据（`SISMEMBER` vs `idx_user_content` 点查同量级）⇒ 属**已知代价后选择做**（价值 = 决策展示 + T12 的对照面）；且**计数侧缓存的边际价值随 T12 下降**（T12 后回源降为主键点查）⇒ 届时"是否仍值得缓存计数"应重新判断。
+  文档同步：《缓存与数据一致性》§一（三态机清单）/ §五（新增 favorite 两行）/ §七（新增取舍 7：只有 `add` 条件写）；《韧性》§四.1（单飞接线）/ §六（降级链）；《模块边界与依赖》§二 包结构表（`cache` 新增 favorite）；设计篇 §3.7（T11 落地对照表，含两条 ⏳ 与"计数侧边际价值"提醒）。
 
 ---
 

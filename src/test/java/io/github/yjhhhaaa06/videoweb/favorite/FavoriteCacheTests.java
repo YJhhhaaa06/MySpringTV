@@ -19,6 +19,8 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
@@ -30,8 +32,10 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -67,21 +71,30 @@ import static org.mockito.Mockito.verify;
  * </ul>
  * 故写路径只有 {@code add} 做条件写（单调、恒安全），其余一律**整体失效**。
  *
- * <h2>★ 反向验证清单（注入 → 确认变红 → 还原；实测记录见 T11 回写）</h2>
- * <ul>
- *   <li>把 {@code FavoriteRedisOps.ADD_LUA} 的 {@code DEL KEYS[2]}（清空标记）删掉 ⇒
- *       {@link #空标记写路径必须清掉否则刚收藏的被60秒假否定()} 变红；</li>
- *   <li>把 {@code remove} 的成员侧改成无条件 {@code SREM} ⇒ {@link #多夹收藏与逐夹移出都不漂移()} 变红；</li>
- *   <li>把计数侧改成 {@code INCR}/{@code DECR} ⇒ 同一个用例（多夹那一步）变红；</li>
- *   <li>把 {@code move} 的缓存动作整段删掉 ⇒ {@link #move源夹不含该内容时等价于新增收藏()} 变红；</li>
- *   <li>把 {@code deleteFolder} 的批量失效删掉 ⇒ {@link #删夹后受影响内容的计数批量失效()} 变红；</li>
- *   <li>把 {@code AfterCommit.run} 换成"直接调用"（即写在事务体内）⇒
- *       {@link #deleteFolder事务回滚后缓存不动()} 变红（缓存被提前失效）；</li>
- *   <li>把 {@code AfterCommit.run} 的"无同步活动 ⇒ 立即执行"分支改成"跳过" ⇒
- *       {@link #无事务写点提交后缓存确实被更新()} 变红；</li>
- *   <li>把降级 catch 去掉（或把 DB 异常也 catch 成降级）⇒
- *       {@link #Redis不可用降级查DB且接口不500()} / {@link #DB失败不被降级吞掉()} 分别变红。</li>
- * </ul>
+ * <h2>★ 反向验证清单（**逐条实测变红并还原**，与 T11 回写同一份记录）</h2>
+ * <table>
+ *   <caption>注入 → 变红</caption>
+ *   <tr><th>#</th><th>注入</th><th>变红用例（条数）</th></tr>
+ *   <tr><td>1</td><td>{@code ADD_LUA} 去掉 {@code DEL KEYS[2]}（不清空标记）</td>
+ *       <td>{@code 空标记写路径必须清掉…}（1）</td></tr>
+ *   <tr><td>2</td><td>{@code invalidateUserFavorites} 改空实现</td>
+ *       <td>成员整体失效相关 5 例（多夹 / move / 删夹 / 无事务写点 / 提交成功）</td></tr>
+ *   <tr><td>3</td><td>★ <b>照任务书原口径写</b>（{@code add} 条件 {@code INCR} + 写路径不做失效）</td>
+ *       <td>{@code 多夹收藏与逐夹移出都不漂移}（1）—— "无条件 INCR 会在这里答 2"</td></tr>
+ *   <tr><td>4</td><td>{@code move} 的缓存动作整段删掉</td>
+ *       <td>{@code move源夹不含该内容时等价于新增收藏}（1）</td></tr>
+ *   <tr><td>5</td><td>删夹的计数批量失效删掉</td><td>{@code 删夹后…批量失效} + {@code 提交成功后缓存被失效}（2）</td></tr>
+ *   <tr><td>6</td><td>{@code AfterCommit.run} 换成事务体内直接调用</td>
+ *       <td>{@code deleteFolder事务回滚后缓存不动}（1）</td></tr>
+ *   <tr><td>7</td><td>{@code AfterCommit} 的"无同步活动 ⇒ 立即执行"改成**跳过**</td>
+ *       <td>无事务写点相关 3 例</td></tr>
+ *   <tr><td>8</td><td>不写空标记（去掉 {@code markEmptyIfAbsent}）</td><td>空标记相关 2 例</td></tr>
+ *   <tr><td>9</td><td>降级 catch 改成 rethrow（Redis 失败不降级）</td><td>降级 + DB 上抛 2 例</td></tr>
+ *   <tr><td>10</td><td>降级里把 DB 失败也吞成 {@code false}</td><td>{@code DB失败不被降级吞掉}（1）</td></tr>
+ * </table>
+ * <p>⚠️ 注入 3 的一个发现值得记下：**单独**把 {@code add} 改成条件 {@code INCR} 时全部用例仍绿 ——
+ * 因为写路径的 {@code DEL} 会把那次 {@code INCR} 抹掉。只有把"条件写 + 不失效"**按任务书原口径整体**
+ * 注入，才会现形。这说明"条件写"与"失效"在本域**必须成对**（这也是 I-11 的核心结论）。
  */
 class FavoriteCacheTests extends AbstractHttpIntegrationTest {
 
@@ -97,6 +110,10 @@ class FavoriteCacheTests extends AbstractHttpIntegrationTest {
 
     @Autowired
     private StringRedisTemplate redis;
+
+    /** 回滚用例用它把"提交后"这条时序钉住（外层事务置回滚 ⇒ afterCommit 不得执行）。 */
+    @Autowired
+    private PlatformTransactionManager txManager;
 
     /** spy：真实执行 + 用于"命中态不回源 DB"的调用次数断言，以及失败注入。 */
     @MockitoSpyBean
@@ -363,18 +380,26 @@ class FavoriteCacheTests extends AbstractHttpIntegrationTest {
         assertThat(favoriteService.isFavorited(me.id(), content)).isTrue();
         assertThat(setContains(me.id(), content)).as("前置：成员集已加载").isTrue();
 
-        // 注入：让事务的**第一步 DB 写**失败 ⇒ 整笔回滚（deleteFolder 是 @Transactional）
-        doThrow(new DataAccessException("模拟删条目失败") {
-        }).when(itemDao).deleteByFolderId(anyLong());
+        // ★ 让事务在**已有成功写之后**才失败 —— 包进外层事务、先让 deleteFolder 跑完、再置回滚。
+        //   为什么不用"打桩让第一步 DB 写失败"：首步失败对"事务内 vs 提交后"**没有鉴别力**
+        //   （两种世界都"什么都没写"）；只有"写成功了、事务却回滚"才能把两者区分开
+        //   （同 AGENTS「测试纪律」的"最后一步打桩"与 LikeCacheTests 的预热—回滚手法）。
+        TransactionTemplate tx = new TransactionTemplate(txManager);
+        tx.execute(status -> {
+            favoriteService.deleteFolder(me.id(), folder);
+            assertThat(oracleRecordCount(content)).as("事务内：删除已生效（内存可见）").isZero();
+            assertThat(hasKey(USER_FAVORITE_SET_KEY + me.id()))
+                    .as("★ 事务**尚未提交** ⇒ 缓存动作（afterCommit）此刻**不得**已经发生")
+                    .isTrue();
+            status.setRollbackOnly();
+            return null;
+        });
 
-        assertThatThrownBy(() -> favoriteService.deleteFolder(me.id(), folder))
-                .isInstanceOf(DataAccessException.class);
-
-        // ① DB 侧回滚了
+        // ① DB 侧回滚了（夹与条目都还在）
         assertThat(oracleRecordCount(content)).as("记录仍在").isEqualTo(1L);
         assertThat(countRows("SELECT COUNT(*) FROM favorite_folder WHERE id = ?", folder)).isEqualTo(1L);
 
-        // ② ★ 缓存侧也必须"没动过"：事务没提交 ⇒ afterCommit 回调根本不执行
+        // ② ★ 缓存侧也必须"没动过"：事务回滚 ⇒ afterCommit 回调根本不执行
         assertThat(hasKey(USER_FAVORITE_SET_KEY + me.id()))
                 .as("★ 若把失效动作挪进事务体（不走 AfterCommit）⇒ 这里 key 已被删 ⇒ 变红")
                 .isTrue();
@@ -452,10 +477,17 @@ class FavoriteCacheTests extends AbstractHttpIntegrationTest {
                 .getString(anyString());
 
         assertThat(favoriteService.isFavorited(me.id(), content)).as("降级仍返回 DB 真值").isTrue();
+
+        // ★ 降级也必须"**一趟 IN 批量**、不逐条点查"（T9 立下的纪律：否则 100 条列表退化成 100 次点查）。
+        //   清掉前面的调用记录，让后面两条 verify 只反映**批量降级**这一次调用。
+        Mockito.clearInvocations(itemDao);
         assertThat(favoriteService.batchIsFavorited(me.id(), List.of(content, content + 1)))
                 .as("批量降级按请求 id 子集作答（不拉全量）")
                 .containsEntry(content, true)
                 .containsEntry(content + 1, false);
+        verify(itemDao, times(1)).findFavoritedContentIds(eq(me.id()), anyList());
+        verify(itemDao, never()).existsByUserAndContent(anyLong(), anyLong());
+
         assertThat(favoriteService.getFavoriteCount(content)).isEqualTo(1L);
 
         ResponseEntity<String> resp = get("/favorite/count?contentId=" + content, null);
