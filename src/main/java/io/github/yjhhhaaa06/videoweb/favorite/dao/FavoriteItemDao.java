@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.favorite.dao;
 
+import io.github.yjhhhaaa06.videoweb.content.model.ContentFavoriteCount;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteFolderBriefVO;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteItemVO;
 import org.apache.ibatis.annotations.Mapper;
@@ -19,7 +20,11 @@ import java.util.Set;
  * {@link #countDistinctUserByContentId}（收藏数，按人去重）；
  * **T6 补入夹内分页** —— {@link #countByFolderId}（total）+ {@link #findPageByFolderId}（页内行）；
  * **T9 补入判存在**（互动域组装详情 / 列表用）—— {@link #existsByUserAndContent} +
- * {@link #findFavoritedContentIds}（**不 JOIN**、走 {@code idx_user_content} 等值命中）。
+ * {@link #findFavoritedContentIds}（**不 JOIN**、走 {@code idx_user_content} 等值命中）；
+ * **T11 补入为缓存而加的两条读** —— {@link #findAllFavoritedContentIds}（回填全量）/
+ * {@link #findContentIdsByFolderId}（删夹前取失效集）；
+ * **T12 补入批量重算的聚合** —— {@link #countDistinctUsersByContentIds}（一趟 GROUP BY，
+ * 与第 2 步 {@code ContentDao.updateFavoriteCounts} 组成「事务内批量重算」，§3.2）。
  * 一期读路径（T5 / T6）已齐；**不提前写无主 SQL**（每条 SQL 随任务补入）。
  *
  * <h2>写 SQL 前必须先读的四条口径（都是本域特有的坑，别照抄 like）</h2>
@@ -184,8 +189,12 @@ public interface FavoriteItemDao {
      * （T5 反向验证的注入点之一：去掉 {@code DISTINCT} ⇒ 计数用例变红）。
      *
      * <h2>★ 这是"唯一事实源"，也是二期冗余列的 oracle（R-06）</h2>
-     * 一期不读不写 {@code content.favorite_count} 列，实时算；二期上增量维护后必须满足
-     * {@code content.favorite_count == 本查询}。故一期这条"笨查询"**直接就是二期的验收基准**。
+     * 一期不读不写 {@code content.favorite_count} 列，实时算；二期启用列后必须满足
+     * {@code content.favorite_count == 本查询}。故一期这条"笨查询"**直接就是二期的验收基准**
+     * —— T12 的 oracle 用例按这条口径独立复算（不读接口回显、不读缓存）。
+     * ⚠️ **T12 后本方法退役**：读路径切到 {@code content.favorite_count} 列
+     * （{@code FavoriteCache#loadFavoriteCount} 单点切换），批量形态见
+     * {@link #countDistinctUsersByContentIds}；本方法的耗时基线仍是对照面（见下）。
      *
      * <h2>⚠️ 刻意不加 {@code content_id} 前导索引 —— 它的耗时基线是二期的对照</h2>
      * 表上只有 {@code idx_user_content (user_id, content_id)}（前导列是 {@code user_id}）、
@@ -400,4 +409,39 @@ public interface FavoriteItemDao {
      *         失效是幂等的，即便将来出现重复也无害
      */
     List<Long> findContentIdsByFolderId(@Param("folderId") long folderId);
+
+    // ========================================================================
+    // 收藏数冗余列的批量重算（T12：二期-3 —— 事务内批量重算，不做增量）
+    // ========================================================================
+
+    /**
+     * 一批内容的**按人去重收藏数**（T12，{@code recountFavoriteCounts} 的第 1 步）。
+     *
+     * <h2>★ 一趟聚合，不是 N 次点查</h2>
+     * {@code SELECT content_id, COUNT(DISTINCT user_id) … WHERE content_id IN (…) GROUP BY content_id}
+     * —— 与一期单内容那条 {@link #countDistinctUserByContentId} 同口径（按人去重，R-06），
+     * 但吃一整个 id 集。删夹可一次波及上千条内容 ⇒ "对每个 id 查一次"就是 N 次往返
+     * （{@code ContentStatusFiller} 类注释同款纪律：批量语义原样透传，不得循环调单条）。
+     * ⚠️ 别写成"逐条调 {@link #countDistinctUserByContentId}"——那正是本方法要治的形态。
+     *
+     * <h2>口径与分工</h2>
+     * <ul>
+     *   <li>★ <b>运行在调用方事务里</b>（同 {@link #findContentIdsByFolderId} 的口径）：
+     *       入参 id 集与 {@code favorite_item} 的本次增删在同一事务 ⇒ 聚合看到的是
+     *       **本事务改完之后**的状态（自己的写对自家事务可见）；</li>
+     *   <li>★ <b>聚合不出的 id 不在结果里</b>：该内容收藏清空 / 从未有人收藏 / 幽灵 id ⇒
+     *       GROUP BY 无行。调用方（{@code FavoriteService.recountFavoriteCounts}）按 0 补全后再走
+     *       第 2 步批量 UPDATE —— 不变量 {@code favorite_count == COUNT(DISTINCT user_id)}
+     *       对"清零"同样成立；</li>
+     *   <li>「只查本域表」纪律不变：本 SQL 只碰 {@code favorite_item}；content 列的写回是
+     *       第 2 步（{@code ContentDao.updateFavoriteCounts}，他域 DAO 薄依赖）；</li>
+     *   <li>⭐ 一期的 {@link #countDistinctUserByContentId}（单内容版）在 T12 读路径切换后退役，
+     *       它的耗时基线（loose index scan ≈17ms / 2 万行，设计篇 §3.2）仍是本查询的对照面。</li>
+     * </ul>
+     *
+     * @param contentIds 内容 id 集（**非空**；空集由 service 拦掉，否则 {@code IN ()} 是语法错；
+     *                   重复 id 由 service 去重，重复传入结果亦正确但白耗）
+     * @return (contentId → 按人去重收藏数) 的行集（只含**有收藏记录**的内容；可能为空集）
+     */
+    List<ContentFavoriteCount> countDistinctUsersByContentIds(@Param("contentIds") List<Long> contentIds);
 }

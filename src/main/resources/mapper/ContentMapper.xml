@@ -61,6 +61,34 @@
         UPDATE content SET like_count = like_count + #{delta} WHERE id = #{contentId}
     </update>
 
+    <!-- 收藏数批量重算（T12，与 like_count 增量式**刻意不同**）：一趟 CASE-WHEN 写回一批行的
+         favorite_count 绝对值，**不是** N 次单行 UPDATE（删夹可一次波及上千条内容，
+         逐行 UPDATE 就是 N 次往返 —— 收藏功能-分期与设计.md §3.2 强制探索的确认点）。
+         ★ 为什么写"绝对值"而不是 like_count 那样的 ±delta：收藏数按人去重
+           （COUNT(DISTINCT user_id)），而 favorite_item 的唯一键是 uk_folder_content（夹内唯一）
+           —— 同一人可把同一内容收进多夹 ⇒ add/remove 不必然 ±1、并发下判"第一次收藏"必然漏。
+           增量会漂移且永不自愈；重算是幂等复算，第二处事实源只在事务内被维护
+           （口径与排除理由见 收藏功能-分期与设计.md §3.2）。
+         ★ 入参每个 (contentId, favoriteCount) 对都来自**同一事务内**刚算出的聚合
+           （FavoriteService.recountFavoriteCounts）⇒ 本语句必须运行在调用方事务里
+           （与关系行的增删同进同退，否则计数与明细在提交窗口内不一致）。
+         ⚠️ 聚合不出的 id（收藏清空 / 从未有人收藏）由调用方补 0 后也在 IN 列表里
+           —— "清零"同样要落列，不变量对 0 成立。
+         ⚠️ 幽灵 id（content 行不存在）在 WHERE id IN 里匹配 0 行，自然无害。
+         ⚠️ 空列表会生成 CASE ... END 空体 / IN () 语法错 —— service 已拦空集（删空夹是合法路径）。 -->
+    <update id="updateFavoriteCounts">
+        UPDATE content
+        SET favorite_count = CASE id
+        <foreach collection="favoriteCounts" item="row">
+            WHEN #{row.contentId} THEN #{row.favoriteCount}
+        </foreach>
+        END
+        WHERE id IN
+        <foreach collection="favoriteCounts" item="row" open="(" separator="," close=")">
+            #{row.contentId}
+        </foreach>
+    </update>
+
     <!-- ============================ S5：读路径 ============================ -->
 
     <!-- TV: ContentDao.findContent —— 列顺序、`u.id AS user_id` 别名、`WHERE c.id=? AND is_deleted =0`

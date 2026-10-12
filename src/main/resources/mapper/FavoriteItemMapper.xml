@@ -76,6 +76,8 @@
     <!-- 某内容的收藏数（T5：GET /favorite/count）—— ★ 按人去重：COUNT(DISTINCT user_id)，
          同一人进多夹只算 1（需求篇 §六）。写成 COUNT(*) 会把"一人多夹"重复计数（T5 注入点之一）。
          ★ 一期实时算、不读 content.favorite_count 列（R-06）；这也是二期冗余列验收时的不变式右边。
+         ★ T12 后本条退役：读路径切到列（FavoriteCache#loadFavoriteCount 单点切换），
+           批量形态见下面 countDistinctUsersByContentIds；不变量 oracle 由测试独立复算。
          ⚠️ 刻意没有 content_id 前导索引（有意基线，别顺手加：先加就把二期"优化前"的对照毁了）。
            ★ T5 实测：本条并未退化成全表扫 —— EXPLAIN = type=range / key=idx_user_content /
            Extra="Using where; Using index for group-by (scanning)"（MySQL 8 的 **loose index scan**：
@@ -205,6 +207,34 @@
         SELECT content_id
         FROM favorite_item
         WHERE folder_id = #{folderId}
+    </select>
+
+    <!-- ==================================================================
+         T12（二期-3）：收藏数冗余列的批量重算 —— recountFavoriteCounts 第 1 步
+         ================================================================== -->
+
+    <!-- 一批内容的按人去重收藏数（一趟 GROUP BY，不是 N 次点查；口径 R-06 按人去重）。
+         ★ 必须运行在调用方事务里（与 favorite_item 的本次增删同事务）—— 聚合看到的是
+           本事务改完之后的状态（自己的写对自家事务可见）。
+         ★ 聚合不出的 id（收藏清空 / 从未有人收藏 / 幽灵 id）**不在结果里** —— 调用方
+           （FavoriteService.recountFavoriteCounts）按 0 补全后再走第 2 步批量 UPDATE，
+           "清零"同样要落列（不变量对 0 成立）。
+         ★ 别名 contentId / favoriteCount 对齐 ContentFavoriteCount 的属性名
+           （全局 map-underscore-to-camel-case = false ⇒ 靠别名自动映射，不需要 resultMap）。
+         ⚠️ 只碰本域表；content 列的写回在 ContentDao.updateFavoriteCounts（他域 DAO 薄依赖）。
+         ⚠️ 空列表会生成 IN () 语法错 —— service 已拦空集（删空夹是合法路径）。
+         ⚠️ 一期基线（单内容版 loose index scan ≈17ms / 2 万行，设计篇 §3.2）是本查询的对照面，
+           T12 实测数字回写同处。 -->
+    <select id="countDistinctUsersByContentIds"
+            resultType="io.github.yjhhhaaa06.videoweb.content.model.ContentFavoriteCount">
+        SELECT content_id AS contentId,
+               COUNT(DISTINCT user_id) AS favoriteCount
+        FROM favorite_item
+        WHERE content_id IN
+        <foreach collection="contentIds" item="contentId" open="(" separator="," close=")">
+            #{contentId}
+        </foreach>
+        GROUP BY content_id
     </select>
 
 </mapper>

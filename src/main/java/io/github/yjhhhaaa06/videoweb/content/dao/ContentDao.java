@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.content.dao;
 
 import io.github.yjhhhaaa06.videoweb.content.model.AuthorContentId;
+import io.github.yjhhhaaa06.videoweb.content.model.ContentFavoriteCount;
 import io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO;
 import io.github.yjhhhaaa06.videoweb.content.model.entity.Content;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.AdminContentVO;
@@ -108,6 +109,40 @@ public interface ContentDao {
      * @return 受影响行数
      */
     int updateLikeCount(@Param("contentId") long contentId, @Param("delta") int delta);
+
+    /**
+     * 收藏数**批量重算**（T12，收藏二期-3）：一趟 CASE-WHEN 把一批
+     * {@code (contentId, favoriteCount)} 对写回 {@code content.favorite_count} 绝对值。
+     *
+     * <h2>与 {@link #updateLikeCount} 的增量式刻意不同：写绝对值，不写 ±delta</h2>
+     * 点赞的一条关系行 ⟺ 一个赞（判定维度与唯一键同在 {@code content_like (user_id, content_id)}），
+     * 增量安全；收藏的唯一键是 {@code uk_folder_content}（<b>夹内</b>唯一），同一人可把同一内容
+     * 收进多夹 ⇒ add / remove 不必然 ±1、并发下判"第一次收藏"必然漏 ⇒ 增量会漂移且永不自愈。
+     * 重算（{@code COUNT(DISTINCT user_id)} 的幂等复算）一次消掉这四件事，口径与排除理由
+     * （不做增量 / 不用 {@code SELECT … FOR UPDATE}）见 {@code 收藏功能-分期与设计.md} §3.2。
+     *
+     * <h2>调用契约（⚠️ 写调用方前先读）</h2>
+     * <ul>
+     *   <li>★ <b>必须运行在调用方事务里</b>：入参来自同一事务内刚算出的聚合
+     *       （{@code FavoriteService.recountFavoriteCounts}），与 {@code favorite_item} 的增删
+     *       同进同退 —— 分属两个事务的话，计数与明细会在提交窗口内不一致；</li>
+     *   <li>★ 聚合不出的 id（收藏清空 / 从未有人收藏）由调用方补 {@code 0} 后**也在列表里**
+     *       —— "清零"同样要落列，不变量 {@code favorite_count == COUNT(DISTINCT user_id)} 对 0 成立；</li>
+     *   <li>幽灵 id（content 行不存在）在 {@code WHERE id IN} 里匹配 0 行，自然无害；</li>
+     *   <li><b>空列表不发</b>（{@code CASE … END} 空体 / {@code IN ()} 是语法错）——
+     *       service 已拦空集（删空夹是合法路径）。</li>
+     * </ul>
+     *
+     * <p>★ 这是继 {@link #updateLikeCount}（S3，like 域）之后第二条"他域**同事务**改本表计数列"的
+     * DAO 薄依赖——合法性口径同《模块边界与依赖》§三：同事务改计数/级联 ⇒ 允许 DAO 薄依赖。
+     * 入参类型 {@link ContentFavoriteCount} 放在本域 {@code content.model}（favorite → content
+     * 方向本就存在；放 favorite 会让 content 新增 {@code → favorite.model} 依赖边），
+     * 与 {@link AuthorContentId} 的放置理由同构。
+     *
+     * @param favoriteCounts 成对投影列表（非空；每对的值都是本事务内复算出的绝对值）
+     * @return 受影响行数（= 匹配到的 content 行数；幽灵 id 不计入）
+     */
+    int updateFavoriteCounts(@Param("favoriteCounts") List<ContentFavoriteCount> favoriteCounts);
 
     // ========================================================================
     // S5：读路径
