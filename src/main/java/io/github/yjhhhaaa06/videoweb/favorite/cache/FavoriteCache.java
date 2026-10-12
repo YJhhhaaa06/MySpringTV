@@ -4,6 +4,7 @@ import io.github.yjhhhaaa06.videoweb.common.cache.CacheKeys;
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheUnavailableException;
 import io.github.yjhhhaaa06.videoweb.common.cache.SingleFlight;
 import io.github.yjhhhaaa06.videoweb.common.config.FavoriteCacheProperties;
+import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
 import io.github.yjhhhaaa06.videoweb.favorite.dao.FavoriteItemDao;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -71,12 +72,14 @@ import java.util.Set;
  * 等价于一次新增收藏 ⇒ 保守走整体失效。代价是移动后该用户下次读要全量回源一次，
  * 与"move 是低频操作"相称（这条偏离了 T11 任务书那句"四个写点都条件写"，理由见 I-11）。
  *
- * <h2>★ 计数的回源是 T12 的唯一切换点</h2>
- * T12 之前回源走实时 {@code COUNT(DISTINCT user_id)}（一期基线 ≈17ms / 2 万行，
+ * <h2>★ 计数的回源（T12 起读冗余列）</h2>
+ * 一期回源走实时 {@code COUNT(DISTINCT user_id)}（≈17ms / 2 万行基线，
  * {@code 收藏功能-分期与设计.md} §3.2）；T12 落地后改读 {@code content.favorite_count} 列
- * （主键点查）。两者都收在 {@link #loadFavoriteCount} **一个调用点**里，切换时只改那一行；
- * 本类的 {@code DEL} 策略在 T12 之后反而更便宜（miss 从 17ms 降到点查），
- * 这也是"计数侧一律 DEL 而不是硬做 ±1"的经济理由。
+ * （主键点查，{@code ContentDao.findFavoriteCountById}）—— 列由收藏域四条写路径的
+ * 「事务内批量重算」（{@code FavoriteService.recountFavoriteCounts}）维护，不变量
+ * {@code 列 == COUNT(DISTINCT user_id)} 由 T12 的独立 oracle 钉住。
+ * 回源收在 {@link #loadFavoriteCount} **一个调用点**里；本类的 {@code DEL} 策略在
+ * 列读下更便宜（miss 从 17ms 聚合降到点查），这也是"计数侧一律 DEL 而不是硬做 ±1"的经济理由。
  *
  * <h2>代价（如实登记，G14）</h2>
  * 本仓**无真实流量**：这层缓存的可测收益拿不到基线证据（{@code SISMEMBER} vs
@@ -107,16 +110,20 @@ public class FavoriteCache {
 
     private final FavoriteRedisOps ops;
     private final FavoriteItemDao itemDao;
+    /** content 列读（T12：计数回源从实时聚合切到 {@code content.favorite_count} 点查）。 */
+    private final ContentDao contentDao;
     private final FavoriteCacheProperties props;
     /** 单飞（B1）：同 key 并发 miss 只回源一次。 */
     private final SingleFlight singleFlight;
 
     public FavoriteCache(FavoriteRedisOps ops,
                          FavoriteItemDao itemDao,
+                         ContentDao contentDao,
                          FavoriteCacheProperties props,
                          SingleFlight singleFlight) {
         this.ops = ops;
         this.itemDao = itemDao;
+        this.contentDao = contentDao;
         this.props = props;
         this.singleFlight = singleFlight;
     }
@@ -313,16 +320,18 @@ public class FavoriteCache {
     }
 
     /**
-     * 收藏数的**回源唯一调用点**（T12 的切换点）。
+     * 收藏数的**回源唯一调用点**（T12 已切换：实时聚合 → 冗余列点查）。
      *
-     * <p>现在（T12 未完成）：实时 {@code COUNT(DISTINCT user_id)}（按人去重，R-06），
-     * 耗时基线 ≈17ms / 2 万行（{@code 收藏功能-分期与设计.md} §3.2）。
-     * T12 落地后：改读 {@code content.favorite_count} 列（主键点查），
-     * 不变量 {@code 列 == COUNT(DISTINCT user_id)} 由 T12 的独立 oracle 钉住。
-     * ⚠️ 只改本方法体，别把 {@code COUNT} 或列名散到别处。
+     * <p>T12 之前：实时 {@code COUNT(DISTINCT user_id)}（按人去重，R-06；≈17ms / 2 万行基线，
+     * {@code 收藏功能-分期与设计.md} §3.2 —— 该查询已随切换退役删除）。
+     * T12 之后：读 {@code content.favorite_count} 列（主键点查，
+     * {@code ContentDao.findFavoriteCountById}）—— 列由四条写路径**事务内批量重算**维护
+     * （{@code FavoriteService.recountFavoriteCounts}），不变量
+     * {@code 列 == COUNT(DISTINCT user_id)} 由 T12 的独立 oracle 钉住。
+     * ⚠️ 回源点只此一处，别把列名或 COUNT 散到别处。
      */
     private long loadFavoriteCount(long contentId) {
-        return itemDao.countDistinctUserByContentId(contentId);
+        return contentDao.findFavoriteCountById(contentId);
     }
 
     // ==================== 回填（best-effort：失败不影响本次读结果） ====================

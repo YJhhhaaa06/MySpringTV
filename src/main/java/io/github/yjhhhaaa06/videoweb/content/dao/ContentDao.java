@@ -144,6 +144,28 @@ public interface ContentDao {
      */
     int updateFavoriteCounts(@Param("favoriteCounts") List<ContentFavoriteCount> favoriteCounts);
 
+    /**
+     * 读某内容的收藏数列（T12：{@code /favorite/count} 缓存 miss 的回源）。
+     *
+     * <h2>★ 这是收藏二期-3 的读切换点：实时聚合 → 冗余列点查</h2>
+     * 一期回源是 {@code COUNT(DISTINCT user_id)} 聚合（≈17ms / 2 万行基线，设计篇 §3.2）；
+     * T12 起列由收藏域四条写路径**事务内批量重算**维护（{@link #updateFavoriteCounts}），
+     * 回源降为**主键点查**。不变量 {@code favorite_count == COUNT(DISTINCT user_id)}
+     * 由 T12 的独立 oracle 用例钉住 —— 本方法的正确性完全建立在那个不变量上。
+     * ⚠️ 调用点唯一：{@code FavoriteCache#loadFavoriteCount}（别把列名散到别处）。
+     *
+     * <h2>口径：无行 ⇒ 0（不 404）</h2>
+     * 与一期实时 COUNT 的可观察语义一致（内容不存在 / 无人收藏都是 0，不给存在性开探测口）。
+     * ⚠️ SQL 写成 {@code COALESCE((SELECT …), 0)} **保证恒有一行**：裸
+     * {@code SELECT favorite_count FROM content WHERE id = ?} 在无行时 MyBatis 返回 null，
+     * 映射到原始 {@code long} 会 NPE（同 {@link #getContentStatus} 注释的实测口径，
+     * 那里因此用了包装类型——这里选择"SQL 端兜 0"，让"内容不存在 ⇒ 0"成为显式口径）。
+     *
+     * @param contentId 内容 id
+     * @return 收藏数（按人去重）；内容行不存在 ⇒ {@code 0}
+     */
+    long findFavoriteCountById(@Param("contentId") long contentId);
+
     // ========================================================================
     // S5：读路径
     // ========================================================================

@@ -635,15 +635,13 @@ public class FavoriteService {
     /**
      * 某内容的收藏数（{@code GET /favorite/count}）—— <b>按人去重</b>（R-06，需求篇 §六）。
      *
-     * <p>实时 {@code COUNT(DISTINCT user_id)}（口径与耗时基线见
-     * {@link FavoriteItemDao#countDistinctUserByContentId}）；一期不读不写
-     * {@code content.favorite_count} 列（R-06 —— 那列一期只建不用）。
-     *
-     * <p>★ <b>T11（二期-2）后走缓存</b>：{@code content:favoriteCount:{id}}（{@code GET}），
-     * miss 时**单飞回源**并回填、Redis 失败降级直查 DB（接口不 500）。回源仍是上面那条实时
-     * {@code COUNT(DISTINCT)}，到 **T12** 才切换成读 {@code content.favorite_count} 列
-     * （切换点是 {@code FavoriteCache#loadFavoriteCount} 一个方法，别把 COUNT / 列名散到别处）。
-     * 端点契约（路径 / 匿名可访问 / {@code 0} 而不是 404）**一字不变** —— 缓存是域内实现细节。
+     * <p>★ <b>T11 起走缓存</b>：{@code content:favoriteCount:{id}}（{@code GET}），
+     * miss 时**单飞回源**并回填、Redis 失败降级直查 DB（接口不 500）。
+     * ★ <b>T12 起回源读 {@code content.favorite_count} 列</b>（主键点查）—— 列由四条写路径的
+     * **事务内批量重算**（{@link #recountFavoriteCounts}）维护，一期那套实时
+     * {@code COUNT(DISTINCT)} 聚合已退役（其"笨查询"口径现在是 T12 oracle 用例的独立复算基准；
+     * 耗时基线与切换记录见 {@code 收藏功能-分期与设计.md} §3.2）。
+     * 端点契约（路径 / 匿名可访问 / {@code 0} 而不是 404）**一字不变** —— 缓存与列都是域内实现细节。
      *
      * <p>★ <b>公开数据、匿名可访问</b>：需求篇 §三「内容页显示"多少人收藏了它"」，而内容页
      * 匿名可看 ⇒ 本端点**无** {@code @RequiresLogin}、**无** {@code @CurrentUserId}。

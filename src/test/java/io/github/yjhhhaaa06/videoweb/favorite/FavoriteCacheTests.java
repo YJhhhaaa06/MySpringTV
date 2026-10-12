@@ -55,9 +55,11 @@ import static org.mockito.Mockito.verify;
  * </ul>
  *
  * <h2>★ 与 {@code FavoriteExistenceTests} / {@code FavoriteStatusAndCountTests} 的分工</h2>
- * 那两类的夹具是**直改 DB**（绕开服务写路径），因此它们的 {@code @BeforeEach} 清 Redis，
- * 只钉"判存在 / 计数"的口径；**缓存自身的时序与失效**由本类走**真实端点**覆盖
+ * 那两类的夹具在 T12 前是**直改 DB**（绕开服务写路径），因此它们的 {@code @BeforeEach} 清 Redis；
+ * ★ **T12 起那两类凡"要让 count 看见"的夹具也改走真实写路径**（列只由写路径的重算维护）——
+ * 分工变为：它们钉"判存在 / 计数口径"，本类钉**缓存自身的时序与失效**
  * （写路径 = {@code POST /favorite/{add,remove,move,folder/remove}}）—— 两边分工，不互相伪装。
+ * 本类仅剩的直插夹具（冷 miss 回填 / 删夹回滚两条）只服务**成员集**路径，对列无感知。
  *
  * <h2>★ 写路径口径（I-11 的判别力所在，本类逐个用例钉住）</h2>
  * 收藏的唯一键是 {@code uk_folder_content}（**夹内**唯一）⇒ 同一用户可把同一内容收在多个夹里：
@@ -126,6 +128,10 @@ class FavoriteCacheTests extends AbstractHttpIntegrationTest {
     @MockitoSpyBean
     private FavoriteRedisOps favoriteRedisOps;
 
+    /** spy：T12 起计数回源读 content.favorite_count 列（ContentDao）——"命中不回源 / 回源恰一次"与 DB 失败注入都指向它。 */
+    @MockitoSpyBean
+    private io.github.yjhhhaaa06.videoweb.content.dao.ContentDao contentDao;
+
     @BeforeEach
     void resetState() {
         // 在基类的 DELETE FROM users 之后执行（JUnit5 父类 @BeforeEach 先跑）。
@@ -133,7 +139,7 @@ class FavoriteCacheTests extends AbstractHttpIntegrationTest {
         jdbcTemplate.update("DELETE FROM favorite_folder");
         jdbcTemplate.update("DELETE FROM content");
         clearRedis();
-        Mockito.reset(itemDao, folderDao, favoriteRedisOps);
+        Mockito.reset(itemDao, folderDao, favoriteRedisOps, contentDao);
     }
 
     // ========================================================================
@@ -243,22 +249,23 @@ class FavoriteCacheTests extends AbstractHttpIntegrationTest {
         String countKey = CONTENT_FAVORITE_COUNT_KEY + content;
 
         // ① 无人收藏 ⇒ 0（不是 null、不是 404），且**不得**写空标记
+        //（★ T12：回源 = contentDao.findFavoriteCountById 列点查；一期那趟实时 COUNT 已退役）
         assertThat(favoriteService.getFavoriteCount(content)).isZero();
-        verify(itemDao, times(1)).countDistinctUserByContentId(anyLong());
+        verify(contentDao, times(1)).findFavoriteCountById(anyLong());
         assertThat(countValue(content)).as("回填的缓存值就是 \"0\"").isEqualTo("0");
         assertThat(hasKey(EMPTY_PREFIX + countKey))
                 .as("★ 计数 key 刻意无空标记：0 是合法值，写空标记会让'0 人收藏'与'未知'混淆")
                 .isFalse();
 
         // ② 命中态不再回源（0 也要能命中）
-        Mockito.clearInvocations(itemDao);
+        Mockito.clearInvocations(contentDao);
         assertThat(favoriteService.getFavoriteCount(content)).isZero();
-        verify(itemDao, never()).countDistinctUserByContentId(anyLong());
+        verify(contentDao, never()).findFavoriteCountById(anyLong());
 
-        // ③ 换一个内容：直插一人收藏 ⇒ 回源得 1
+        // ③ 换一个内容：走真实写路径收藏（T12：直插行对列不可见）⇒ 回源得 1
         long other = insertContent(me.id());
         long folder = insertFolder(me.id(), "计数的夹");
-        insertItem(folder, me.id(), other);
+        assertThat(addItem(folder, other, me.token()).getStatusCode().value()).isEqualTo(200);
         assertThat(favoriteService.getFavoriteCount(other)).isEqualTo(1L);
         assertThat(countValue(other)).isEqualTo("1");
         assertThat(favoriteService.getFavoriteCount(other))
@@ -412,7 +419,8 @@ class FavoriteCacheTests extends AbstractHttpIntegrationTest {
         TestUser me = register("13900001209", "t11-commit");
         long content = insertContent(me.id());
         long folder = insertFolder(me.id(), "正常删的夹");
-        insertItem(folder, me.id(), content);
+        // ★ T12：收藏走真实写路径（直插行对列不可见，count 预热读会拿 0）
+        assertThat(addItem(folder, content, me.token()).getStatusCode().value()).isEqualTo(200);
 
         assertThat(favoriteService.isFavorited(me.id(), content)).isTrue();
         assertThat(favoriteService.getFavoriteCount(content)).isEqualTo(1L);
@@ -432,7 +440,7 @@ class FavoriteCacheTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("★无事务写点（addItem/removeItems）提交后缓存确实被更新（AfterCommit 的\"立即执行\"分支）")
+    @DisplayName("★addItem/removeItems 写后返回时缓存确实已更新（T12 起两写点有事务 ⇒ AfterCommit 走 afterCommit 注册分支：提交即回调，先于 HTTP 响应）")
     void 无事务写点提交后缓存确实被更新() {
         TestUser me = register("13900001210", "t11-no-tx");
         long a = insertContent(me.id());
@@ -444,14 +452,15 @@ class FavoriteCacheTests extends AbstractHttpIntegrationTest {
         assertThat(favoriteService.isFavorited(me.id(), a)).isTrue();
         assertThat(setContains(me.id(), a)).isTrue();
 
-        // ① add（无事务）⇒ 条件 SADD 必须已经生效
+        // ① add（T12 起有事务：计数重算引入第二条写）⇒ afterCommit 回调在提交时执行，
+        //    先于方法返回 ⇒ 断言到达时条件 SADD 必须已生效
         assertThat(addItem(folder, b, me.token()).getStatusCode().value()).isEqualTo(200);
         assertThat(setContains(me.id(), b))
-                .as("★ 若 AfterCommit 在'无同步活动'时选择**跳过**（而不是立即执行）⇒ 这里为 false ⇒ 变红")
+                .as("★ 若缓存动作没挂在 AfterCommit 上（事务内直接碰 / 根本不执行）⇒ 这里为 false ⇒ 变红")
                 .isTrue();
         assertThat(favoriteService.isFavorited(me.id(), b)).isTrue();
 
-        // ② remove（无事务）⇒ 成员集整体失效（key 被删）
+        // ② remove ⇒ 成员集整体失效（key 被删）
         assertThat(removeItems(folder, List.of(a), me.token()).getStatusCode().value()).isEqualTo(200);
         assertThat(hasKey(USER_FAVORITE_SET_KEY + me.id()))
                 .as("移出后成员集整体失效（下次读回源）").isFalse();
@@ -469,7 +478,9 @@ class FavoriteCacheTests extends AbstractHttpIntegrationTest {
         TestUser me = register("13900001211", "t11-degrade");
         long content = insertContent(me.id());
         long folder = insertFolder(me.id(), "降级夹");
-        insertItem(folder, me.id(), content);
+        // ★ T12：收藏走真实写路径（列被重算为 1）—— 直插行对 content.favorite_count 不可见。
+        //   且要在 Redis 打桩**之前** add（写路径的缓存动作只 catch 降级，先写不碍事）。
+        assertThat(addItem(folder, content, me.token()).getStatusCode().value()).isEqualTo(200);
 
         doThrow(new CacheUnavailableException("模拟 Redis 挂")).when(favoriteRedisOps)
                 .existingOf(anyString(), anyString());
@@ -508,8 +519,9 @@ class FavoriteCacheTests extends AbstractHttpIntegrationTest {
                 .getString(anyString());
         doThrow(new DataAccessException("模拟 DB 失败") {
         }).when(itemDao).existsByUserAndContent(anyLong(), anyLong());
+        // ★ T12：计数回源已切到列读（ContentDao）—— DB 失败注入点随之换到这里
         doThrow(new DataAccessException("模拟 DB 失败") {
-        }).when(itemDao).countDistinctUserByContentId(anyLong());
+        }).when(contentDao).findFavoriteCountById(anyLong());
 
         assertThatThrownBy(() -> favoriteService.isFavorited(me.id(), content))
                 .as("★ 只 catch CacheUnavailableException：DB 异常必须原样上抛")

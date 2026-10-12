@@ -7,8 +7,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
 
 import java.sql.PreparedStatement;
@@ -60,6 +65,17 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <h2>独立性</h2>
  * 关键计数一律用**独立 oracle** 直查 {@code favorite_item} 复算（{@code COUNT(DISTINCT user_id)}），
  * 不信接口回显；且同时算出 {@code COUNT(*)} 对照 —— 两者之差正是"去重"这项契约的判别力所在。
+ *
+ * <h2>★ T12 边界注记（二期-3）：夹具一律走**真实写路径**，不再直插 favorite_item</h2>
+ * 一期回源是实时 {@code COUNT(DISTINCT user_id)}，"直插 DB 的行"对它可见；T12 起读路径切到
+ * {@code content.favorite_count} 列 —— 列只由**写路径的事务内批量重算**维护，直插行对列不可见。
+ * 故凡"要让 count 看见"的夹具一律改走 {@code POST /favorite/add} / {@code /favorite/remove}
+ * —— **业务断言一字未改**（G8 的第二个例外登记：仅夹具机制调整，用户 2026-10-12 拍板；
+ * 第一个例外是 T10）。仅两处保留直插，各有理由：**幽灵内容**（内容行不存在，无 API 可达 ——
+ * 其 count 期望值随语义改为 0，见 {@code 失效内容计数仍算状态仍显示} 的注释）与
+ * **内容软删**（先 add 再直改 {@code is_deleted}：内容侧操作本就不在收藏写路径里，
+ * 且"失效不可移入"意味着软删后 add 走不了）。
+ * "写路径会让缓存失效"的时序由 {@code FavoriteCacheTests} 覆盖 —— 两边分工，不互相伪装。
  */
 class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
 
@@ -83,11 +99,10 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
     }
 
     /**
-     * ★ T11 边界声明：本类的夹具是**直改 DB**（{@code insertItem} / {@code jdbcTemplate.update(DELETE ...)}），
-     * 而缓存只在**服务写路径**（add / remove / move / 删夹）上失效 ⇒ 直改 DB 之后缓存可能仍是旧值。
-     * 故凡"直改 DB ⇒ 随后读 {@code /favorite/count}"的地方都要先清 Redis：本类继续只钉**计数口径**
-     * （按人去重 / 含失效 / 空态），"写路径会让缓存失效"的时序由 {@code FavoriteCacheTests}
-     * 走**真实端点**覆盖 —— 两边分工，不互相伪装。
+     * ★ 用例前清 Redis：测试 Redis 是 support/Containers 的**进程级单例**，key 会跨用例残留
+     * （同 like 域纪律）。★ T12 后本类夹具已全部走真实写路径（见类注释）—— 写路径自身会让缓存
+     * 失效，用例中途**不再**需要手工 clearRedis（T11 时代"直改 DB ⇒ 缓存不失效"的那批中途调用
+     * 已随夹具改造一并移除）。
      */
     private void clearRedis() {
         Set<String> keys = redis.keys("*");
@@ -134,8 +149,9 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
         // 刻意先建**自建夹**、后建**默认夹**（默认夹 id 更大）—— 若排序按 id 而非 is_default，顺序会错
         long namedFolder = insertFolder(me.id, "稍后再看");
         long defaultFolder = insertDefaultFolder(me.id, "默认收藏夹");
-        insertItem(namedFolder, me.id, content);
-        insertItem(defaultFolder, me.id, content);
+        // ★ T12：夹具走真实写路径（add 经事务内重算维护 content.favorite_count，列读才可见）
+        assertThat(addItem(namedFolder, content, me.token).getStatusCode().value()).isEqualTo(200);
+        assertThat(addItem(defaultFolder, content, me.token).getStatusCode().value()).isEqualTo(200);
 
         // ---- status ----
         JsonNode data = Envelope.data(status(me.token, content));
@@ -173,9 +189,10 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
         long folderA = insertFolder(a.id, "甲的夹");
         long folderB = insertFolder(b.id, "乙的夹");
         long folderC = insertFolder(c.id, "丙的夹");
-        insertItem(folderA, a.id, content);
-        insertItem(folderB, b.id, content);
-        insertItem(folderC, c.id, otherContent);       // ★ 干扰记录：另一内容 + 另一人
+        // ★ T12：夹具走真实写路径（见类注释）—— 干扰记录（另一内容 + 另一人）也走 add
+        assertThat(addItem(folderA, content, a.token).getStatusCode().value()).isEqualTo(200);
+        assertThat(addItem(folderB, content, b.token).getStatusCode().value()).isEqualTo(200);
+        assertThat(addItem(folderC, otherContent, c.token).getStatusCode().value()).isEqualTo(200);
 
         // ★ count 的判别力：**必须有"另一个内容的收藏"作对照** ——
         //   否则全表 COUNT(DISTINCT user_id) 恰好等于"本内容"的人数，去掉 content_id 过滤仍绿（T8 F1）。
@@ -210,14 +227,12 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
         long content = insertContent(me.id);
         long folderA = insertFolder(me.id, "夹A");
         long folderB = insertFolder(me.id, "夹B");
-        insertItem(folderA, me.id, content);
-        insertItem(folderB, me.id, content);
+        // ★ T12：夹具走真实写路径（见类注释）
+        assertThat(addItem(folderA, content, me.token).getStatusCode().value()).isEqualTo(200);
+        assertThat(addItem(folderB, content, me.token).getStatusCode().value()).isEqualTo(200);
 
         // 移出 A：B 里还有 ⇒ 仍"已收藏"，且 count 仍是 1（同一人还没绝迹）
-        jdbcTemplate.update("DELETE FROM favorite_item WHERE folder_id = ? AND content_id = ?", folderA, content);
-        // ★ T11：这次"移出"是**直改 DB**（绕开服务写路径）⇒ 缓存不会失效 ⇒ 读 count 前先清 Redis，
-        //   否则这里读到的是缓存，本断言就变成"缓存恰好也是 1"的假绿（口径分工见 #clearRedis）。
-        clearRedis();
+        assertThat(removeItems(folderA, List.of(content), me.token).getStatusCode().value()).isEqualTo(200);
         JsonNode afterA = Envelope.data(status(me.token, content));
         assertThat(afterA.path("isFavorited").asBoolean()).isTrue();
         assertThat(names(afterA.path("folders"))).containsExactly("夹B");
@@ -225,8 +240,7 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
                 .as("同一人还在（别的夹里）⇒ 收藏数不变，仍是 1").isEqualTo(1L);
 
         // 全移出：回到未收藏
-        jdbcTemplate.update("DELETE FROM favorite_item WHERE folder_id = ? AND content_id = ?", folderB, content);
-        clearRedis();   // ★ 同上：直改 DB ⇒ 缓存不在场，本断言钉的是"计数口径"，不是缓存新鲜度
+        assertThat(removeItems(folderB, List.of(content), me.token).getStatusCode().value()).isEqualTo(200);
         JsonNode empty = Envelope.data(status(me.token, content));
         assertThat(empty.path("isFavorited").asBoolean()).isFalse();
         assertThat(empty.path("folders").size()).isZero();
@@ -242,10 +256,15 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
     @DisplayName("★失效内容：收藏数**仍计入**（R-07③）；status 仍显示它所在的夹（记录还在，脱敏归 T6）")
     void 失效内容计数仍算状态仍显示() {
         TestUser me = register("13800003007", "收着失效内容的人");
-        long softDeleted = insertContentWithState(me.id, 1);   // 1 = 作者删除
+        // ★ T12 夹具顺序：先**活体**收藏（写路径，列被重算为 1），再软删 ——
+        //   "失效不可移入"意味着软删后 add 走不了（404），只能这个顺序。
+        long softDeleted = insertContent(me.id);
         long folder = insertFolder(me.id, "含失效的夹");
-        insertItem(folder, me.id, softDeleted);                 // 软删内容
-        insertItem(folder, me.id, GHOST_CONTENT_ID);            // 内容行真没了
+        assertThat(addItem(folder, softDeleted, me.token).getStatusCode().value()).isEqualTo(200);
+        jdbcTemplate.update("UPDATE content SET is_deleted = 1 WHERE id = ?", softDeleted);
+        // 幽灵内容（内容行真没了）无 API 可达（add 校验 is_deleted = 0）⇒ 只能直插记录。
+        // ⚠️ T12 起它对**列**不可见（列只能存在于 content 行上）⇒ 下面的 count 期望值改为 0。
+        insertItem(folder, me.id, GHOST_CONTENT_ID);
 
         assertThat(oracleDistinctUserCount(softDeleted))
                 .as("独立 oracle：软删内容的记录仍在表里").isEqualTo(1L);
@@ -260,9 +279,16 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
                 .as("状态只答'收在哪些夹'，不判内容有效性（T6 才在内容侧渲染脱敏占位）")
                 .containsExactly("含失效的夹");
 
-        // 幽灵内容同理
+        // ★ T12 语义：幽灵内容（内容行不存在）的收藏数 = 0 —— 列只能存在于 content 行上，
+        //   无行 ⇒ 无处存值。一期它等于 1（实时 COUNT 看得见直插行），列读下不可表达。
+        //   该态无 API 可达（add 校验 is_deleted = 0、软删不删行 ⇒ 幽灵行只能由数据损坏/夹具产生）；
+        //   "无行时回退实时聚合"的混合方案不可取：那会把匿名端点的 17ms 聚合口子重新打开
+        //   （二期-3 要堵的就是它，§3.7"真正该防的是 /favorite/count"）。
+        //   R-07③"失效内容仍计入"由上面的**软删**用例钉住（软删内容行还在，列还在）。
+        //   （G8 第二例外的断言改动点 —— 期望值 1 → 0，用户 2026-10-12 拍板）
         assertThat(countOf(count(me.token, GHOST_CONTENT_ID)))
-                .as("幽灵 id（内容行不存在）的记录同样计入").isEqualTo(oracleDistinctUserCount(GHOST_CONTENT_ID));
+                .as("幽灵 id（内容行不存在）⇒ 列无处存 ⇒ 0（T12 语义；该态无 API 可达）")
+                .isZero();
     }
 
     // ========================================================================
@@ -275,7 +301,8 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
         TestUser me = register("13800003008", "鉴权用户");
         long content = insertContent(me.id);
         long folder = insertFolder(me.id, "夹");
-        insertItem(folder, me.id, content);
+        // ★ T12：夹具走真实写路径（见类注释）
+        assertThat(addItem(folder, content, me.token).getStatusCode().value()).isEqualTo(200);
 
         // status：私有状态，必须登录
         assertThat(status(null, content).getStatusCode().value())
@@ -393,23 +420,14 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
     }
 
     private long insertContent(long authorId) {
-        return insertContentRow(authorId, 0);
-    }
-
-    private long insertContentWithState(long authorId, int isDeleted) {
-        return insertContentRow(authorId, isDeleted);
-    }
-
-    private long insertContentRow(long authorId, int isDeleted) {
         GeneratedKeyHolder keyHolder = new GeneratedKeyHolder();
         jdbcTemplate.update(connection -> {
             PreparedStatement ps = connection.prepareStatement(
-                    "INSERT INTO content (user_id, type, title, description, is_deleted) VALUES (?, 1, ?, ?, ?)",
+                    "INSERT INTO content (user_id, type, title, description, is_deleted) VALUES (?, 1, ?, ?, 0)",
                     new String[]{"id"});
             ps.setLong(1, authorId);
             ps.setString(2, "T5 测试内容 " + authorId);
             ps.setString(3, "T5 测试描述");
-            ps.setInt(4, isDeleted);
             return ps;
         }, keyHolder);
         Number key = keyHolder.getKey();
@@ -441,9 +459,41 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
         return key.longValue();
     }
 
-    /** 直接插收藏记录（夹具）；{@code contentId} 不校验 —— 失效形态正是本类的被测对象。 */
+    /** 直接插收藏记录（夹具）；{@code contentId} 不校验 —— 失效形态正是本类的被测对象。
+     * ⚠️ T12 后**只**用于幽灵内容（内容行不存在，无 API 可达）——其余夹具一律走真实写路径（见类注释）。 */
     private void insertItem(long folderId, long userId, long contentId) {
         jdbcTemplate.update("INSERT INTO favorite_item (folder_id, user_id, content_id) VALUES (?, ?, ?)",
                 folderId, userId, contentId);
+    }
+
+    // ========================================================================
+    // HTTP（写 = POST + form，T12 夹具改造起本类也用；与 FavoriteCacheTests 同款）
+    // ========================================================================
+
+    private ResponseEntity<String> addItem(long folderId, long contentId, String token) {
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        form.add("folderId", String.valueOf(folderId));
+        form.add("contentId", String.valueOf(contentId));
+        return postForm("/favorite/add", form, token);
+    }
+
+    private ResponseEntity<String> removeItems(long folderId, List<Long> contentIds, String token) {
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        form.add("folderId", String.valueOf(folderId));
+        for (Long contentId : contentIds) {
+            form.add("contentIds", String.valueOf(contentId));
+        }
+        return postForm("/favorite/remove", form, token);
+    }
+
+    private ResponseEntity<String> postForm(String path, MultiValueMap<String, String> form, String token) {
+        return send(spec -> {
+            RestClient.RequestBodySpec request = spec.uri(path)
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED);
+            if (token != null) {
+                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+            }
+            return request.body(form);
+        });
     }
 }

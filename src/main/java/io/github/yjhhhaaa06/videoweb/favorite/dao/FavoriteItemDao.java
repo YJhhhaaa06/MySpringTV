@@ -17,7 +17,7 @@ import java.util.Set;
  * {@link #deleteByFolderId}（删夹一并删条目，R-02）；**T4 补入收藏与移出** ——
  * {@link #insertItem} / {@link #deleteByFolderAndContentIds}；
  * **T5 补入状态与计数** —— {@link #findFoldersByUserAndContent}（"收在哪些夹"）与
- * {@link #countDistinctUserByContentId}（收藏数，按人去重）；
+ * 单内容实时计数（收藏数，按人去重；★ T12 读路径切列时已退役删除，oracle 口径由测试 SQL 承接）；
  * **T6 补入夹内分页** —— {@link #countByFolderId}（total）+ {@link #findPageByFolderId}（页内行）；
  * **T9 补入判存在**（互动域组装详情 / 列表用）—— {@link #existsByUserAndContent} +
  * {@link #findFavoritedContentIds}（**不 JOIN**、走 {@code idx_user_content} 等值命中）；
@@ -43,11 +43,12 @@ import java.util.Set;
  *   <li>★ <b>分页单位是收藏记录行，不是"内容"</b>（G12）：{@code LIMIT/OFFSET} 作用在
  *       {@code favorite_item} 上，失效记录**占一条、返回一条占位**；一整页都是失效条目
  *       也照常返回（否则用户看不到 ⇒ 也就永远清不掉）。{@code total} **包含**失效条目。</li>
- *   <li><b>收藏数按人去重</b>（R-06）：{@code SELECT COUNT(DISTINCT user_id) FROM favorite_item
- *       WHERE content_id = ?} —— 同一人进多个夹只算 1。故 {@code user_id} 是本表的**冗余列**，
- *       判定"同一人是否收藏过"必须按 {@code (user_id, content_id)}，**不能按夹判**。
- *       ⚠️ 一期不加 {@code content_id} 前导索引：这个查询的耗时基线是**二期优化的对照**
- *       （T5 已实测记录，见 {@link #countDistinctUserByContentId}），先加索引就把基线毁了。</li>
+ *   <li><b>收藏数按人去重</b>（R-06）：{@code COUNT(DISTINCT user_id)} —— 同一人进多个夹只算 1。
+ *       故 {@code user_id} 是本表的**冗余列**，判定"同一人是否收藏过"必须按
+ *       {@code (user_id, content_id)}，**不能按夹判**。
+ *       ⚠️ 仍不加 {@code content_id} 前导索引：单内容版的耗时基线（loose index scan ≈17ms）
+ *       是**二期优化的对照**（T5 已实测记录，见 §3.2 与 {@link #countDistinctUsersByContentIds}），
+ *       先加索引就把基线毁了。</li>
  * </ol>
  *
  * <h2>表上的两个索引（各自服务什么）</h2>
@@ -179,49 +180,6 @@ public interface FavoriteItemDao {
      */
     List<FavoriteFolderBriefVO> findFoldersByUserAndContent(@Param("userId") long userId,
                                                             @Param("contentId") long contentId);
-
-    /**
-     * 某内容的收藏数（T5，{@code GET /favorite/count}）—— <b>按人去重</b>（R-06）。
-     *
-     * <h2>★ 口径：数的是"人"，不是"记录"</h2>
-     * {@code COUNT(DISTINCT user_id)} —— 同一人把同一内容收进 3 个夹也只算 **1**
-     * （需求篇 §六「按人去重」）。⚠️ 写成 {@code COUNT(*)} 会把"一人多夹"重复计数
-     * （T5 反向验证的注入点之一：去掉 {@code DISTINCT} ⇒ 计数用例变红）。
-     *
-     * <h2>★ 这是"唯一事实源"，也是二期冗余列的 oracle（R-06）</h2>
-     * 一期不读不写 {@code content.favorite_count} 列，实时算；二期启用列后必须满足
-     * {@code content.favorite_count == 本查询}。故一期这条"笨查询"**直接就是二期的验收基准**
-     * —— T12 的 oracle 用例按这条口径独立复算（不读接口回显、不读缓存）。
-     * ⚠️ **T12 后本方法退役**：读路径切到 {@code content.favorite_count} 列
-     * （{@code FavoriteCache#loadFavoriteCount} 单点切换），批量形态见
-     * {@link #countDistinctUsersByContentIds}；本方法的耗时基线仍是对照面（见下）。
-     *
-     * <h2>⚠️ 刻意不加 {@code content_id} 前导索引 —— 它的耗时基线是二期的对照</h2>
-     * 表上只有 {@code idx_user_content (user_id, content_id)}（前导列是 {@code user_id}）、
-     * {@code uk_folder_content (folder_id, content_id)} 与 {@code idx_folder_time (folder_id, create_time)}，
-     * **没有一条以 {@code content_id} 前导**。这是有意的：先加就把"优化前"的基线毁掉了。
-     *
-     * <p>★ <b>T5 实测基线（一次性探针，非断言；数字见 {@code 收藏功能-分期与设计.md} §3.2）</b>：
-     * 2 万行 / 目标 content 2000 个不同 user ⇒ {@code EXPLAIN} 是
-     * {@code type=range, key=idx_user_content, key_len=16, Extra="Using where; Using index for group-by (scanning)"}
-     * —— 即 MySQL 8 **没有**退化成全表扫，而是借 {@code idx_user_content} 做 **loose index scan**
-     * （{@code DISTINCT} 列 {@code user_id} 恰是索引最左前缀 ⇒ 满足 loose index scan 对
-     * {@code COUNT(DISTINCT)} 的适用条件；{@code (scanning)} 是它的一个变体）。
-     * ⚠️ 措辞别混：MySQL 的 **{@code INDEX_SKIP_SCAN}（{@code Using index for skip scan}）官方明确
-     * 不含 GROUP BY / DISTINCT** —— 本条走的是 loose index scan，**不是** skip scan。
-     * {@code EXPLAIN ANALYZE} 实际 ≈ 17ms，20 次实测 best ≈ 14ms / avg ≈ 19ms。
-     * ⚠️ **别照抄"无 {@code content_id} 索引 ⇒ 全表扫"**：这个查询形态
-     * （{@code COUNT(DISTINCT user_id)} + 恰好有 {user_id, content_id} 复合索引）能被 loose index scan 接住
-     * —— 这是 T5 实测**推翻**的初始假设。二期建 {@code content_id} 前导索引 / 上冗余列时，拿这组数字当对照。
-     *
-     * <p>⚠️ 不校验 {@code contentId} 存在性：内容不存在 / 从来没人收藏 ⇒ {@code 0}
-     * （{@code COUNT} 无匹配行返回 0，不是 null）；返回 0 而不是 404 —— 内容页对"没人收藏"
-     * 与"内容不存在"本就给不出不同答案，且 {@code /like/content/count} 同款。
-     *
-     * @param contentId 内容 id
-     * @return 收藏人数（同一人进多夹只算 1）；无人收藏 ⇒ {@code 0}
-     */
-    long countDistinctUserByContentId(@Param("contentId") long contentId);
 
     // ========================================================================
     // 夹内分页（T6：GET /favorite/list）
@@ -435,8 +393,14 @@ public interface FavoriteItemDao {
      *       对"清零"同样成立；</li>
      *   <li>「只查本域表」纪律不变：本 SQL 只碰 {@code favorite_item}；content 列的写回是
      *       第 2 步（{@code ContentDao.updateFavoriteCounts}，他域 DAO 薄依赖）；</li>
-     *   <li>⭐ 一期的 {@link #countDistinctUserByContentId}（单内容版）在 T12 读路径切换后退役，
-     *       它的耗时基线（loose index scan ≈17ms / 2 万行，设计篇 §3.2）仍是本查询的对照面。</li>
+     *   <li>⭐ 一期的单内容版 {@code countDistinctUserByContentId}（实时 COUNT，T5）在 T12
+     *       读路径切换时**退役删除**（无主 SQL 不留）；它的耗时基线是本查询的对照面：
+     *       2 万行 / 目标 content 2000 个不同 user ⇒ EXPLAIN {@code type=range, key=idx_user_content,
+     *       Extra="Using where; Using index for group-by (scanning)"}（**loose index scan** 的变体，
+     *       ≈17ms / 20 次 best≈14ms avg≈19ms）。⚠️ 两个易混措辞：它**不是** skip scan
+     *       （MySQL 的 INDEX_SKIP_SCAN 官方不含 GROUP BY/DISTINCT）；也别按"无 content_id 前导
+     *       索引 ⇒ 全表扫"推断（T5 实测推翻）——数字与教训全文见设计篇 §3.2，T12 的
+     *       GROUP BY IN 版实测也回写同处。</li>
      * </ul>
      *
      * @param contentIds 内容 id 集（**非空**；空集由 service 拦掉，否则 {@code IN ()} 是语法错；

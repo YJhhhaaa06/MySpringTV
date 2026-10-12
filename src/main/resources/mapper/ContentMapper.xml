@@ -89,6 +89,21 @@
         </foreach>
     </update>
 
+    <!-- 收藏数列读（T12：/favorite/count 缓存 miss 的回源，唯一调用点
+         FavoriteCache#loadFavoriteCount）。一期回源是实时 COUNT(DISTINCT user_id) 聚合
+         （≈17ms / 2 万行基线，收藏功能-分期与设计.md §3.2）；T12 起列由收藏域四条写路径的
+         「事务内批量重算」（上面的 updateFavoriteCounts）维护 ⇒ 回源降为点查。
+         ★ 不变量 favorite_count == COUNT(DISTINCT user_id) 由 T12 的独立 oracle 用例钉住
+           —— 本查询的正确性完全建立在那个不变量上。
+         ★ 写成 COALESCE((SELECT ...), 0) **保证恒有一行**：裸 SELECT 在内容行不存在时
+           MyBatis 返回 null，映射原始 long 会 NPE（ContentDao#getContentStatus 注释的实测口径）；
+           且"无行 ⇒ 0"与一期 COUNT 的可观察语义一致（不给内容存在性开探测口）。 -->
+    <select id="findFavoriteCountById" resultType="long">
+        SELECT COALESCE(
+                   (SELECT favorite_count FROM content WHERE id = #{contentId}),
+                   0)
+    </select>
+
     <!-- ============================ S5：读路径 ============================ -->
 
     <!-- TV: ContentDao.findContent —— 列顺序、`u.id AS user_id` 别名、`WHERE c.id=? AND is_deleted =0`
