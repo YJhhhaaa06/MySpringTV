@@ -8,6 +8,8 @@ import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentVO;
 import io.github.yjhhhaaa06.videoweb.content.service.ContentService;
+import io.github.yjhhhaaa06.videoweb.favorite.cache.AfterCommit;
+import io.github.yjhhhaaa06.videoweb.favorite.cache.FavoriteCache;
 import io.github.yjhhhaaa06.videoweb.favorite.dao.FavoriteFolderDao;
 import io.github.yjhhhaaa06.videoweb.favorite.dao.FavoriteItemDao;
 import io.github.yjhhhaaa06.videoweb.favorite.model.entity.FavoriteFolder;
@@ -21,10 +23,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * 收藏业务（收藏夹 CRUD / 收藏与移出 / 状态与计数 / 夹内分页）。
@@ -33,7 +33,8 @@ import java.util.Set;
  * 夹 CRUD = **T2**；私密开关 + 他人公开夹 = **T3**；写路径（收藏/移出/移动）= **T4**；
  * 状态与计数 = **T5**（本类 {@link #getFavoriteStatus} / {@link #getFavoriteCount}）；
  * 夹内分页 = **T6**（本类 {@link #listFolderItems}）；判存在（互动域的组装契约）= **T9**
- * （本类 {@link #isFavorited} / {@link #batchIsFavorited}）。
+ * （本类 {@link #isFavorited} / {@link #batchIsFavorited}）；
+ * 缓存层 = **T11**（{@code favorite.cache} 包；本类四条读 / 四个写点的接线，见下节"写路径的缓存时机"）。
  * 本类承担**装配关系**（controller → 本类 → 两个 DAO）与**边界声明**，其余方法随任务逐个补。
  *
  * <h2>一期红线（写方法前先读，别让实现把口径吃掉）</h2>
@@ -42,9 +43,11 @@ import java.util.Set;
  *       {@code ContentPublishedEvent}。feed 关注流的**唯一**驱动源是
  *       {@code ContentService} 发的该事件。⚠️ 这是"不要做某事"，**写成测试必假绿**（无实现可去掉），
  *       只能靠 review 守。</li>
- *   <li>🚫 <b>一期不写缓存、不写冗余计数</b>（G7）：没有 {@code favorite.cache} 包，
- *       不维护 {@code content.favorite_count}（R-06：一期实时
- *       {@code COUNT(DISTINCT user_id)}，二期才上冗余列）。发现自己需要缓存 ⇒ 先停下改分期。</li>
+ *   <li><b>一期不写缓存、不写冗余计数</b>（G7）—— ★ 那条**已在二期兑现一半**：
+ *       T11 落地 {@code favorite.cache} 包（{@code FavoriteCache} + {@code FavoriteRedisOps}，
+ *       设计篇 §3.7）；⭐ 而**冗余计数列仍不做**：{@code content.favorite_count} 一期建而不用
+ *       （R-06），由 **T12**（事务内批量重算，§3.2）启用。本类的缓存只缓存**实时算出来的值**，
+ *       回源唯一调用点在 {@code FavoriteCache#loadFavoriteCount}（T12 的切换点）。</li>
  *   <li>★ <b>{@code remove} 不校验内容存在性</b>（G11）：见 {@link #removeItems} 与
  *       {@code FavoriteItemDao} 的口径 1。失效条目**能移出**；反向：{@code add}/{@code move}
  *       照常校验（{@code isContentExist} 带 {@code is_deleted = 0}），
@@ -81,6 +84,34 @@ import java.util.Set;
  *       这是 page/size 分页的固有语义，**不是**靠事务能修的（真要一致得上快照隔离）；
  *       状态那条虽有"查目录 + 推导布尔"，但只是**一趟查询 + 一次 Java 推导**，不是两条写。</li>
  * </ul>
+ *
+ * <h2>★ 写路径的缓存时机（T11）：**DB 提交之后**才碰缓存</h2>
+ * 四个写点（{@link #addItem} / {@link #removeItems} / {@link #moveItem} / {@link #deleteFolder}）
+ * 都在 DB 写**成功返回之后**才调 {@link AfterCommit#run} 注册缓存动作，两条分支各自动作正确：
+ * <ul>
+ *   <li><b>有事务</b>（{@link #moveItem} / {@link #deleteFolder}）⇒ 登记 {@code afterCommit}
+ *       回调：事务回滚 ⇒ 回调**根本不执行** ⇒ 缓存不被污染（与 AFTER_COMMIT 监听器同样的
+ *       框架级保证）；</li>
+ *   <li><b>无事务</b>（{@link #addItem} / {@link #removeItems}，见上节"刻意不加 @Transactional"）
+ *       ⇒ **立即执行**：无事务 = 自动提交，DAO 返回时写已落库，此刻碰缓存正是"提交后"。</li>
+ * </ul>
+ * ⚠️ <b>不要为了"提交后"给这两个无事务写点加事务</b>，也不要改成 {@code favorite.event}
+ * 自域事件 —— 后者在 {@code @TransactionalEventListener} 的 {@code fallbackExecution=false}
+ * 默认值下会被**静默丢弃**（这两个写点没有事务），且与"收藏域不该有 event 包"的既有定位冲突。
+ * 取舍与代价登记在 {@code CURRENT_ISSUES.md} **I-11**。
+ *
+ * <h2>★ 写路径的缓存动作（T11）：只有 {@code add} 条件写，其余整体失效</h2>
+ * 起因是收藏的**夹内唯一**模型（{@code uk_folder_content}）：同一用户可把同一内容收在多个夹里 ⇒
+ * {@code add}/{@code remove} **不必然**改变"我收藏过"与收藏数，{@code move} 甚至可能是新增收藏。
+ * 故四个写点分两档（逐条理由见 {@code FavoriteCache} 类注释）：
+ * <ul>
+ *   <li>{@link #addItem} ⇒ 条件 {@code SADD}（单调、恒安全）+ 该内容计数 {@code DEL}；</li>
+ *   <li>{@link #removeItems} / {@link #moveItem} / {@link #deleteFolder} ⇒ 成员集**整体失效**
+ *       （{@code DEL} 数据 key + 空标记），计数 {@code DEL}（删夹按受影响内容集批量
+ *       {@code DEL}，见 {@link #deleteFolder}）。</li>
+ * </ul>
+ * ⚠️ 缓存动作**失败不影响已提交的业务**：{@code FavoriteCache} 的写/失效方法只 catch
+ * {@code CacheUnavailableException} 并记日志，交由 TTL 自愈（不回抛、不 500）。
  *
  * <h2>★ 懒建与"列表空态"为什么自洽（T2 前提自审）</h2>
  * R-01 拍板默认夹**懒建**（首次收藏时建，落点 T4），故"这个用户一个夹都没有"是**合法状态**：
@@ -152,12 +183,23 @@ public class FavoriteService {
     private final ContentDao contentDao;
     private final ContentService contentService;
 
+    /**
+     * 收藏缓存（T11）。⚠️ 注入点是**具体类型** {@code FavoriteCache}（不是抽象基类
+     * {@code RedisOps}）—— 后者标 {@code @Component} 就会 {@code NoUniqueBeanDefinitionException}
+     * （见 {@code RedisOps} 类注释）。
+     *
+     * <p>本类**只**经它读写缓存，不直接碰 Redis：键形状 / 三态 / 失效集都收在 {@code favorite.cache} 包内，
+     * 换实现不改本类（一期的测试是这层的回归网）。
+     */
+    private final FavoriteCache favoriteCache;
+
     public FavoriteService(FavoriteFolderDao folderDao, FavoriteItemDao itemDao, ContentDao contentDao,
-                           ContentService contentService) {
+                           ContentService contentService, FavoriteCache favoriteCache) {
         this.folderDao = folderDao;
         this.itemDao = itemDao;
         this.contentDao = contentDao;
         this.contentService = contentService;
+        this.favoriteCache = favoriteCache;
     }
 
     // ========================================================================
@@ -281,10 +323,21 @@ public class FavoriteService {
         if (folder.defaultFolder()) {
             throw new ConflictException("默认收藏夹不可删除");
         }
+        // ★ T11 缓存（1/2）：失效集必须**在删之前**取 —— 收藏数缓存是**内容维度**的
+        //   （content:favoriteCount:{id}），记录删掉后就再也查不出"刚才动了哪些内容"。
+        //   与下面两条 DELETE 同事务 ⇒ 取到的 id 集与实际删掉的行不会错位（并发收藏也不会）。
+        List<Long> affectedContentIds = itemDao.findContentIdsByFolderId(folderId);
         // 先删条目再删夹：同事务 ⇒ 要么都成，要么都不成。
         // 顺序上"先子后父"只为与将来的外键（若加）一致，当前无外键、顺序不影响正确性。
         itemDao.deleteByFolderId(folderId);
         folderDao.deleteById(folderId);
+        // ★ T11 缓存（2/2）：**提交后**才碰（本方法有事务 ⇒ 回滚则整个回调不执行，缓存不被污染）。
+        //   成员集整体失效（"删夹"使该用户的收藏集变化，逐条 SREM 无法表达"是否仍在别的夹"）
+        //   + 受影响内容的计数批量失效（一趟 DEL，不循环往返）。
+        AfterCommit.run(() -> {
+            favoriteCache.invalidateUserFavorites(userId);
+            favoriteCache.invalidateFavoriteCounts(affectedContentIds);
+        });
     }
 
     // ========================================================================
@@ -337,6 +390,16 @@ public class FavoriteService {
             targetFolderId = folderId;
         }
         itemDao.insertItem(targetFolderId, userId, contentId);
+        // ★ T11 缓存（提交后）：insertItem 已成功返回（本方法**无事务** ⇒ 自动提交，此刻即"提交后"；
+        //   409 路径在上一步就抛了，不会走到这里 ⇒ 被拒的请求不留缓存痕迹）。
+        //   ① 成员侧走**唯一**的条件写 SADD：收藏的变化是**单调**的（收藏过 ⇒ 写后仍收藏过；
+        //      "收进第二个夹"时 SADD 是幂等 no-op）⇒ 不需要知道"他以前是否收藏过这条"；
+        //   ② 计数侧一律 DEL：本方法可能把收藏数 +1，也可能**不变**（该内容他已在别的夹），
+        //      而我们不为此多查一次库 —— 失效让读回源永远给出正确答案。
+        AfterCommit.run(() -> {
+            favoriteCache.favoriteAdded(userId, contentId);
+            favoriteCache.invalidateFavoriteCount(contentId);
+        });
     }
 
     /**
@@ -374,6 +437,15 @@ public class FavoriteService {
         }
         requireOwnedFolder(userId, folderId);
         itemDao.deleteByFolderAndContentIds(folderId, contentIds);
+        // ★ T11 缓存（提交后）：成员集**整体失效** —— "从某个夹移出" **不等于**"取消收藏"
+        //   （同一内容可能仍收在别的夹里，逐条 SREM 会给出错的答案），而"这个人现在还收不收着它"
+        //   要额外查一次库；对低频的移出操作，整体失效（下次读回源一次）是更划算的正确选择。
+        //   ⚠️ 命中 0 行（陈旧页面 / 重复移出）**也照样失效**：失效是幂等的，
+        //   而"少失效一次"会让缓存留着一个已变的答案，危险得多。
+        AfterCommit.run(() -> {
+            favoriteCache.invalidateUserFavorites(userId);
+            favoriteCache.invalidateFavoriteCounts(contentIds);
+        });
     }
 
     /**
@@ -418,6 +490,15 @@ public class FavoriteService {
         // 先插后删：见方法注释"事务与顺序"。
         itemDao.insertItem(toFolderId, userId, contentId);
         itemDao.deleteByFolderAndContentIds(fromFolderId, List.of(contentId));
+        // ★ T11 缓存（提交后）：**也走整体失效**，而不是"净效应为零 ⇒ 不写"。
+        //   常态下 move 确实不改收藏态（人还是收着这条、收藏数也不变），但"源夹其实没含这条"
+        //   （陈旧页面 / 前端传错 from）时 insert 照样成功、源侧删 0 行 ⇒ 等价于一次**新增收藏**；
+        //   整体失效在那个边缘态下也给出正确答案，代价（移动后该用户下次读全量回源一次）
+        //   与 move 的低频相称。取舍见 CURRENT_ISSUES.md I-11。
+        AfterCommit.run(() -> {
+            favoriteCache.invalidateUserFavorites(userId);
+            favoriteCache.invalidateFavoriteCount(contentId);
+        });
     }
 
     // ========================================================================
@@ -463,6 +544,12 @@ public class FavoriteService {
      * {@link FavoriteItemDao#countDistinctUserByContentId}）；一期不读不写
      * {@code content.favorite_count} 列（R-06 —— 那列一期只建不用）。
      *
+     * <p>★ <b>T11（二期-2）后走缓存</b>：{@code content:favoriteCount:{id}}（{@code GET}），
+     * miss 时**单飞回源**并回填、Redis 失败降级直查 DB（接口不 500）。回源仍是上面那条实时
+     * {@code COUNT(DISTINCT)}，到 **T12** 才切换成读 {@code content.favorite_count} 列
+     * （切换点是 {@code FavoriteCache#loadFavoriteCount} 一个方法，别把 COUNT / 列名散到别处）。
+     * 端点契约（路径 / 匿名可访问 / {@code 0} 而不是 404）**一字不变** —— 缓存是域内实现细节。
+     *
      * <p>★ <b>公开数据、匿名可访问</b>：需求篇 §三「内容页显示"多少人收藏了它"」，而内容页
      * 匿名可看 ⇒ 本端点**无** {@code @RequiresLogin}、**无** {@code @CurrentUserId}。
      * ⚠️ 与 {@code /like/content/count} 的"需登录"**刻意不同**：那条是 TV 的
@@ -472,7 +559,7 @@ public class FavoriteService {
      * <p>不校验 {@code contentId} 存在性：不存在 / 无人收藏都是 {@code 0}（不 404）。
      */
     public long getFavoriteCount(long contentId) {
-        return itemDao.countDistinctUserByContentId(contentId);
+        return favoriteCache.getFavoriteCount(contentId);
     }
 
     // ========================================================================
@@ -565,9 +652,10 @@ public class FavoriteService {
      * 一趟 {@code idx_user_content} 等值点查（DAO 口径见
      * {@code FavoriteItemDao.existsByUserAndContent}）。
      *
-     * <p>★ <b>T11 的缓存落点就是本方法</b>：二期给"我是否收藏过"上 Redis Set 后
-     * （{@code SISMEMBER}），换的是本方法**内部**的实现，签名不变 —— 互动域只依赖
-     * 本 Service 契约，对它无感（{@code 模块边界与依赖.md} §四）。
+     * <p>★ <b>T11 的缓存落点就是本方法</b>：二期给"我是否收藏过"上了 Redis Set 后，
+     * 读路径变成"空标记 → {@code SISMEMBER} → miss 回源"，换的是本方法**内部**的实现，
+     * 签名与口径不变 —— 互动域只依赖本 Service 契约，对它无感（{@code 模块边界与依赖.md} §四）。
+     * 实现委托 {@link FavoriteCache#isFavorited}（三态 / 单飞 / 降级都在那里）。
      *
      * <h2>口径</h2>
      * <ul>
@@ -584,34 +672,26 @@ public class FavoriteService {
      * @return 收藏过 ⇒ {@code true}
      */
     public boolean isFavorited(long userId, long contentId) {
-        return itemDao.existsByUserAndContent(userId, contentId);
+        return favoriteCache.isFavorited(userId, contentId);
     }
 
     /**
      * 批量形态（T9）：入参每个内容都回一条、缺失补 {@code false}（完整映射，不重不漏）——
      * 供互动域的**批量契约**组装列表（R-10 §3.6）。
      *
-     * <p>★ <b>一趟查询，不循环调单条</b>：{@code findFavoritedContentIds} 一条
-     * {@code user_id = ? AND content_id IN (…)} 取命中子集，再在 Java 侧补 false ——
-     * 逐条调 {@link #isFavorited} 会让 100 条列表变 100 次点查（互动域类注释同款纪律）。
+     * <p>★ <b>一趟查询，不循环调单条</b>：命中态用**一趟 pipeline** 做 N×{@code SISMEMBER}；
+     * 降级态用一条 {@code user_id = ? AND content_id IN (…)} 取命中子集、再在 Java 侧补 false
+     * —— 逐条调 {@link #isFavorited} 会让 100 条列表变 100 次点查（互动域类注释同款纪律）。
      *
      * <p>口径与 {@link #isFavorited} 完全一致（不 JOIN / 不判内容有效性 / 按人去重）；
-     * T11 上缓存后本方法对应"一趟 {@code SMISMEMBER}"，签名同样不变。
+     * T11 上缓存后签名与返回形状**一字不变**，实现委托 {@link FavoriteCache#batchIsFavorited}。
      *
      * @param userId     当前登录用户
      * @param contentIds 内容 id 集（空 / {@code null} ⇒ 空 Map；**不**发查询 —— 空 IN 是语法错）
      * @return contentId → 是否已收藏（每个入参 id 恰好一条；重复 id 收敛为一条）
      */
     public Map<Long, Boolean> batchIsFavorited(long userId, List<Long> contentIds) {
-        if (contentIds == null || contentIds.isEmpty()) {
-            return Map.of();
-        }
-        Set<Long> favoritedIds = itemDao.findFavoritedContentIds(userId, contentIds);
-        Map<Long, Boolean> result = new LinkedHashMap<>();
-        for (Long contentId : contentIds) {
-            result.put(contentId, favoritedIds.contains(contentId));
-        }
-        return result;
+        return favoriteCache.batchIsFavorited(userId, contentIds);
     }
 
     // ========================================================================
