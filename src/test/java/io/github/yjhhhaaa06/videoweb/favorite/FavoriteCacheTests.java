@@ -59,7 +59,8 @@ import static org.mockito.Mockito.verify;
  * ★ **T12 起那两类凡"要让 count 看见"的夹具也改走真实写路径**（列只由写路径的重算维护）——
  * 分工变为：它们钉"判存在 / 计数口径"，本类钉**缓存自身的时序与失效**
  * （写路径 = {@code POST /favorite/{add,remove,move,folder/remove}}）—— 两边分工，不互相伪装。
- * 本类仅剩的直插夹具（冷 miss 回填 / 删夹回滚两条）只服务**成员集**路径，对列无感知。
+ * 本类仍保留的直插夹具共 4 处（冷 miss 回填 / 删夹回滚 / 无事务写点用例的预热行 / folders 不缓存），
+ * 全部只服务**成员集**路径，对列无感知。
  *
  * <h2>★ 写路径口径（I-11 的判别力所在，本类逐个用例钉住）</h2>
  * 收藏的唯一键是 {@code uk_folder_content}（**夹内**唯一）⇒ 同一用户可把同一内容收在多个夹里：
@@ -89,7 +90,9 @@ import static org.mockito.Mockito.verify;
  *   <tr><td>6</td><td>{@code AfterCommit.run} 换成事务体内直接调用</td>
  *       <td>{@code deleteFolder事务回滚后缓存不动}（1）</td></tr>
  *   <tr><td>7</td><td>{@code AfterCommit} 的"无同步活动 ⇒ 立即执行"改成**跳过**</td>
- *       <td>无事务写点相关 3 例</td></tr>
+ *       <td>T11 时：无事务写点相关 3 例。⚠️ <b>T12 后不可判别</b>：四写点全升级为有事务、
+ *       全走 afterCommit 注册分支，"立即执行"分支已无生产调用方 ⇒ 该注入**没有任何用例可变红**
+ *       （分支保留为通用机制语义，不再有专属判别力）</td></tr>
  *   <tr><td>8</td><td>不写空标记（去掉 {@code markEmptyIfAbsent}）</td><td>空标记相关 2 例</td></tr>
  *   <tr><td>9</td><td>降级 catch 改成 rethrow（Redis 失败不降级）</td><td>降级 + DB 上抛 2 例</td></tr>
  *   <tr><td>10</td><td>降级里把 DB 失败也吞成 {@code false}</td><td>{@code DB失败不被降级吞掉}（1）</td></tr>
@@ -441,7 +444,7 @@ class FavoriteCacheTests extends AbstractHttpIntegrationTest {
 
     @Test
     @DisplayName("★addItem/removeItems 写后返回时缓存确实已更新（T12 起两写点有事务 ⇒ AfterCommit 走 afterCommit 注册分支：提交即回调，先于 HTTP 响应）")
-    void 无事务写点提交后缓存确实被更新() {
+    void add与remove写后返回时缓存已更新() {
         TestUser me = register("13900001210", "t11-no-tx");
         long a = insertContent(me.id());
         long b = insertContent(me.id());

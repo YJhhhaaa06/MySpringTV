@@ -71,10 +71,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@code content.favorite_count} 列 —— 列只由**写路径的事务内批量重算**维护，直插行对列不可见。
  * 故凡"要让 count 看见"的夹具一律改走 {@code POST /favorite/add} / {@code /favorite/remove}
  * —— **业务断言一字未改**（G8 的第二个例外登记：仅夹具机制调整，用户 2026-10-12 拍板；
- * 第一个例外是 T10）。仅两处保留直插，各有理由：**幽灵内容**（内容行不存在，无 API 可达 ——
- * 其 count 期望值随语义改为 0，见 {@code 失效内容计数仍算状态仍显示} 的注释）与
+ * 第一个例外是 T10）。仅三处保留直插，各有理由：**幽灵内容**（内容行不存在，无 API 可达 ——
+ * 其 count 期望值随语义改为 0，见 {@code 失效内容计数仍算状态仍显示} 的注释）、
  * **内容软删**（先 add 再直改 {@code is_deleted}：内容侧操作本就不在收藏写路径里，
- * 且"失效不可移入"意味着软删后 add 走不了）。
+ * 且"失效不可移入"意味着软删后 add 走不了）与**形状契约**（{@code 状态形状契约} 的夹具
+ * 只喂 status 路径，对列无感知，直插即可）。
  * "写路径会让缓存失效"的时序由 {@code FavoriteCacheTests} 覆盖 —— 两边分工，不互相伪装。
  */
 class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {

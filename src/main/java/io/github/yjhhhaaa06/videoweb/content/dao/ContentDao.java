@@ -161,6 +161,12 @@ public interface ContentDao {
      * 映射到原始 {@code long} 会 NPE（同 {@link #getContentStatus} 注释的实测口径，
      * 那里因此用了包装类型——这里选择"SQL 端兜 0"，让"内容不存在 ⇒ 0"成为显式口径）。
      *
+     * <p>★ <b>域边界注记（T12）</b>：本方法是"favorite 读 content 表"的 DAO 纯读——
+     * 不在《模块边界与依赖》§三"读状态走对方 Service"的常规通道内，属**显式登记例外**
+     * （见该文档 §六"读表要点"）：回源点收在 {@code FavoriteCache} 域内实现细节里，
+     * 为它开 Service 契约是倒贴契约面；本查询是主键点查、不读任何业务语义，
+     * 与 {@link #isContentExist} 同一"窄到不构成耦合"的形态。扩散面由"回源点唯一"钉住。
+     *
      * @param contentId 内容 id
      * @return 收藏数（按人去重）；内容行不存在 ⇒ {@code 0}
      */

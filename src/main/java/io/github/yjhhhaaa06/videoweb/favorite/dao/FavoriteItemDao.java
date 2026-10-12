@@ -152,8 +152,8 @@ public interface FavoriteItemDao {
      * 同一内容可以躺在我的多个夹里（唯一键是 {@code (folder_id, content_id)}），故"在哪些夹"
      * 必须按**用户维度**取行 —— 正是 {@code idx_user_content (user_id, content_id)} 服务的查询
      * （该索引两列都被等值命中，**走索引**）。
-     * ⚠️ **别据此推断"计数那条用不上索引"** —— 见 {@link #countDistinctUserByContentId}：
-     * 那条同样能借这个索引（loose index scan），T5 实测非全表扫。
+     * ⚠️ **别据此推断"计数查询用不上索引"** —— 一期的单内容计数（实时 COUNT，T12 切列时已退役）
+     * 同样能借这个索引（loose index scan），T5 实测非全表扫（数字见设计篇 §3.2）。
      *
      * <h2>★ 为什么 {@code JOIN favorite_folder} 是安全的 —— ⚠️ 前提是"删夹事务在场"</h2>
      * {@code favorite_folder} 与 {@code favorite_item} **同属本域**，且删夹时条目**同事务一并删**
@@ -162,7 +162,7 @@ public interface FavoriteItemDao {
      * {@code FavoriteService.deleteFolder} 的 {@code @Transactional} 一处承担** —— 而那正是
      * {@code 收藏功能-分期与设计.md 附录A.3} <b>I-04</b> 登记为"零判别力、可被静默误删"的那处。
      * 前提失效（孤儿行 {@code folder_id} 指向已删夹）时可观察症状是**跨端点不一致**：这里 JOIN 不上
-     * ⇒ 丢行 ⇒ {@code status} 报"未收藏"；而 {@link #countDistinctUserByContentId} **不 JOIN**
+     * ⇒ 丢行 ⇒ {@code status} 报"未收藏"；而收藏数查询**不 JOIN**（一期实时版与 T12 列读同此口径）
      * ⇒ 仍把该孤儿算进收藏数（根治见 I-04：加外键或补失败注入用例）。
      * ⚠️ 本 SQL 不碰 content 表；T6 夹内列表**现在也不碰**（失效判定已整体走 content 装载契约
      * 折叠，见 {@code 收藏功能-分期与设计.md 附录A.2} R-11）—— 两条都不要回流成跨域 JOIN（I-07 ③）。
@@ -269,7 +269,7 @@ public interface FavoriteItemDao {
      * 服务 {@code /favorite/status} 的"收在哪些夹"）。本查询两列**等值**，正好命中
      * {@code idx_user_content (user_id, content_id)} 的点查。
      *
-     * <h2>口径：判"记录存在"，与收藏数（{@link #countDistinctUserByContentId}）同侧</h2>
+     * <h2>口径：判"记录存在"，与收藏数同侧</h2>
      * 判据是 {@code favorite_item} 行本身，**不判内容有效性**（失效内容的记录照样在，
      * R-03 / R-07 —— "我还收着它"是事实）。
      * ⚠️ 与 JOIN 版的唯一已知分叉 = "**孤儿行**"边缘态（夹被删而条目未删，无 API 可达；
@@ -377,10 +377,10 @@ public interface FavoriteItemDao {
      *
      * <h2>★ 一趟聚合，不是 N 次点查</h2>
      * {@code SELECT content_id, COUNT(DISTINCT user_id) … WHERE content_id IN (…) GROUP BY content_id}
-     * —— 与一期单内容那条 {@link #countDistinctUserByContentId} 同口径（按人去重，R-06），
+     * —— 与一期单内容的实时计数同口径（按人去重，R-06；该查询已随 T12 读切换退役），
      * 但吃一整个 id 集。删夹可一次波及上千条内容 ⇒ "对每个 id 查一次"就是 N 次往返
      * （{@code ContentStatusFiller} 类注释同款纪律：批量语义原样透传，不得循环调单条）。
-     * ⚠️ 别写成"逐条调 {@link #countDistinctUserByContentId}"——那正是本方法要治的形态。
+     * ⚠️ 别写成"逐条调单内容计数"——那正是本方法要治的形态。
      *
      * <h2>口径与分工</h2>
      * <ul>
