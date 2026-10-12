@@ -214,7 +214,7 @@
 
 ---
 
-### T12 `favorite_count` 冗余列启用 + 事务内批量重算（来源 能力 二期-3）【待执行】
+### T12 `favorite_count` 冗余列启用 + 事务内批量重算（来源 能力 二期-3）【已完成】
 
 > ⚠️ **先质疑（G14）**：
 > - **任务**：前提是"实时 `COUNT(DISTINCT user_id)` 慢到要治"。⚠️ **一期的 17ms 是在测试容器上造 2 万行 / 2000 人得到的**；若真实数据量下它本身很快，**停下回报**（别为假想瓶颈付冗余列的维护成本）。
@@ -245,7 +245,34 @@
   - ★ **对照夹具**：同一内容被**多个用户**收藏/取消后，count 仍等于 oracle（夹具要有"另一人"干扰行）
   - ★ **回填正确性**：V3 应用后全表一致（可复算 SQL）
   - ⏳ **实测数字**（`EXPLAIN` + 耗时）记录进设计篇 §3.2
-* **回写**：
+* **回写**：T12 完成（自拆 5 commit：T12-1 V3 迁移+版本认账 / T12-2 重算机制+四写路径接线 / T12-3 读切列+测试适配+新测试 / T12-4 审查修正+实测回写+I-12 / T12-5 回写）——
+  V3 一条聚合 UPDATE 回填（dev 库 content 51 行 / favorite_item 4 行，免分批；容器空库 no-op；落笔即冻结，注释只含不可变锚点）；
+  重算 = `FavoriteService.recountFavoriteCounts`（私有，运行在调用方事务）+ `FavoriteItemDao.countDistinctUsersByContentIds`
+  （1 趟 GROUP BY）+ `ContentDao.updateFavoriteCounts`（1 趟 CASE-WHEN 批量 UPDATE，**绝对值**而非 ±delta）；
+  接入路径 = **四条**（add / remove / move / deleteFolder——move 为 I-12 拍板补入：边缘态"源夹不含该内容"
+  等价新增收藏，任务书"三条"漏列）；`addItem`/`removeItems` 升级 `@Transactional`（两写同进同退，AfterCommit 仍提交后碰缓存）；
+  读路径在 `FavoriteCache#loadFavoriteCount` 单点切到 `ContentDao.findFavoriteCountById`（COALESCE 保恒一行，无行⇒0）；
+  一期实时 COUNT 已退役删除（oracle 口径由测试 SQL 承接）。
+  验证：新增 **10 例**（`FavoriteCountMaintenanceTests`：四路径不变量 oracle+对照夹具、清零补 0、绝对值自愈、读切换证明、
+  最后一步打桩回滚 ×2、批量单趟 verify），全量基线 **428 例**全绿（T11 基线 418）；既有用例两处机制级调整
+  （**G8 第二例外，I-12 拍板**）：T5 `FavoriteStatusAndCountTests` 夹具改走真实写路径（**业务断言一字未改**，
+  幽灵内容 count 期望 1→0——列只能存在于 content 行上，该态无 API 可达）＋ T11 `FavoriteCacheTests` 三处
+  （回源 verify/stub 换指向列读、两处 count 夹具改走写路径、成员集直插夹具保留）。
+  **6 条反向注入逐条实测变红并还原**（① 摘 addItem 事务 ⇒ add 回滚用例红；② 聚合不出改跳过 ⇒ 清零用例红；
+  ③ 批量 UPDATE 改增量形态 ⇒ 自愈用例红（+多夹/move 常态 2 例连坐）；④ 回源改回实时 COUNT ⇒ 读切换用例红
+  （T11 两例联动）；⑤ 批量改逐条循环 ⇒ 单趟 verify 红；⑥ move 摘重算 ⇒ move 边缘态 2 例红（T12+T11 双面））。
+  ⏳→✅ **实测**（探针一次性，数字与构造法已回写设计篇 §3.2）：单内容基线复测 ≈15ms（T5 的 ≈17ms 成立）；
+  批量版 `GROUP BY IN(10)` 稳态 ≈6.5ms（type=index 全索引扫描+filesort，**非** loose index scan）——
+  同规模逐条 10 次 ≈150ms ⇒ "1 趟聚合"的价值坐实。★ 残留并发窗口（异用户并发首收藏，后提交者写回陈旧值、
+  下次写自愈）已如实登记进 §3.2 与 `recountFavoriteCounts` 注释（G14）。
+  独立审查（subagent 只读）：**功能层零必修**；采纳必修 2 条（FavoriteItemDao 5 处悬空 `{@link}` /
+  `AfterCommit` 类注释整段 T11 旧口径）+ 建议 5 条（残留窗口登记、注入 7 判别力失效注记、两处夹具计数、
+  `content ⇄ favorite` 读边认账进《模块边界与依赖》§六），0 条不采纳。
+  文档同步：设计篇 §3.2（T12 落地实测块）、《事务边界》§1.1（favorite 行 + 合计 31）、《模块边界与依赖》§六、
+  `CURRENT_ISSUES.md` I-12。dev 库冒烟：`spring-boot:run` 应用 V3 后全表一致性 SQL 复算通过（见下方补记）。
+  **dev 冒烟补记（2026-10-12）**：Flyway 日志 `Migrating schema spring_tv to version "3 - backfill favorite count"` → `Successfully applied 1 migration (00:00.027s)`；
+  全表复算 `SELECT COUNT(*) FROM content c LEFT JOIN (聚合) t … WHERE c.favorite_count <> COALESCE(t.cnt,0)` = **0 行错位**；
+  4 条内容各得收藏数 1（与 favorite_item 4 行自洽）；`flyway_schema_history` = 0(baseline)→1→2→3 全 success。
 
 ---
 
