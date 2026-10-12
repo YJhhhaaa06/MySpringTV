@@ -55,7 +55,7 @@ class InfrastructureConnectivityTests extends AbstractIntegrationTest {
     }
 
     @Test
-    void Flyway_在空库上跑V1与V2建出全部17张业务表() throws Exception {
+    void Flyway_在空库上跑V1至V3建出全部17张业务表() throws Exception {
         try (var conn = dataSource.getConnection();
              var st = conn.createStatement();
              var rs = st.executeQuery(
@@ -66,8 +66,9 @@ class InfrastructureConnectivityTests extends AbstractIntegrationTest {
             assertThat(rs.getInt(1)).isEqualTo(18);
         }
         // Flyway 元数据：空库路径按版本号顺序应用**全部**脚本（baseline-on-migrate 只对非空 schema 生效）。
-        // ⚠️ 断言全部版本而非只看首行：只看首行时，"新增的 V2 没被应用"是**察觉不到的**
+        // ⚠️ 断言全部版本而非只看首行：只看首行时，"新增的 V2/V3 没被应用"是**察觉不到的**
         //（首行永远是 V1）—— 那正是这条锚点最该拦住的情形。
+        // V3 = favorite_count 存量回填（数据迁移，无结构变化 ⇒ 表计数仍是 18）。
         try (var conn = dataSource.getConnection();
              var st = conn.createStatement();
              var rs = st.executeQuery(
@@ -80,7 +81,7 @@ class InfrastructureConnectivityTests extends AbstractIntegrationTest {
                 types.add(rs.getString("type"));
                 successes.add(rs.getBoolean("success"));
             }
-            assertThat(versions).as("脚本清单（每加一个 V<n> 都要在这里显式认账）").containsExactly("1", "2");
+            assertThat(versions).as("脚本清单（每加一个 V<n> 都要在这里显式认账）").containsExactly("1", "2", "3");
             assertThat(types).containsOnly("SQL");
             assertThat(successes).containsOnly(true);
         }
