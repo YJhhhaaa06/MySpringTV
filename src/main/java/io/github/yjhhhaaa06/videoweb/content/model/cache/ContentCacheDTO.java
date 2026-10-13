@@ -14,7 +14,8 @@ import java.util.List;
  *       {@code findAllContent} 的结果类型（{@code resultMap} 显式映射）；</li>
  *   <li><b>Redis 值</b>：{@code content:{id}} 的 JSON 载荷（{@link io.github.yjhhhaaa06.videoweb.common.cache.JsonCodec}）；</li>
  *   <li><b>VO 的父类</b>：{@link io.github.yjhhhaaa06.videoweb.content.model.vo.ContentVO}
- *       / {@code ContentDetailVO} 在此基础上加 {@code isLiked} / {@code isFollowed}。</li>
+ *       / {@code ContentDetailVO} 在此基础上**只加一个** {@code interaction} 子对象
+ *       （互动态，见 {@code InteractionStatusVO}；T13 起两个 VO 同形）。</li>
  * </ol>
  *
  * <h2>★ 字段集是冻结契约（JSON 形状）</h2>

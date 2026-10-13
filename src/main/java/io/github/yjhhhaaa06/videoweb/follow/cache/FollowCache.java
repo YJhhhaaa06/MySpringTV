@@ -463,7 +463,7 @@ public class FollowCache {
     }
 
     // ========================================================================
-    // 读：批量关注状态（列表条目的 isFollowed）
+    // 读：批量关注状态（列表条目的 interaction.isFollowed / 详情页）
     // ========================================================================
 
     /**
@@ -543,7 +543,8 @@ public class FollowCache {
      *
      * <p><b>S5 补入</b>（S4 时它没有调用方——F-7 明确记："单条 {@code isFollowing}
      * 的调用方是 S5 的 {@code ContentStatusFiller}/{@code ProfileService}"）。
-     * 现由详情页的 {@code isFollowed} 使用。
+     * 现由**详情页**的 {@code interaction.isFollowed} 与**首页**（{@code /start} 只带关注维，
+     * R-13）使用 —— 其余列表面不带关注维 ⇒ 不查本域。
      */
     public boolean isFollowing(long userId, long followedUserId) {
         String dataKey = followingKey(userId);

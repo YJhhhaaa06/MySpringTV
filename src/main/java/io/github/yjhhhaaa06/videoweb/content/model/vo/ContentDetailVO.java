@@ -19,8 +19,11 @@ import io.github.yjhhhaaa06.videoweb.interaction.model.vo.InteractionStatusVO;
  * {@code false}）——"没登录"与"登录但零互动"由此可区分，是 R-10 相对顶层平铺的**表达力增益**。
  * ⚠️ 公共计数 / 内容属性（{@code likeCount} / {@code commentCount} / {@code createTime} …）
  * **刻意不在子对象内**：它们是**请求无关**的，只有"我的状态"才属于互动域。
- * ⚠️ 列表 VO（{@link ContentVO}）**刻意不改**——它仍把 {@code isLiked} / {@code isFollowed}
- * 放在顶层（两者不同，别一起改）。
+ * <p>★ T13 起**列表 VO（{@link ContentVO}）与本类同形**（同样内嵌 {@code interaction}、
+ * 同样"匿名 ⇒ {@code null}"）—— 互动态在全仓**只有一处定义**；差别只在"**各带哪几维**"
+ * （详情恒三维，列表按面选，见 {@link ContentVO} 类注释的常量表）。
+ * ⚠️ 本类走 {@code InteractionService.getStatus}（单条、**无**维度入参 —— R-13 刻意
+ * 不为详情扩大契约面，见 {@code InteractionService} 类注释）。
  *
  * <p>旧 pytest {@code S-06}/{@code S-08} 断言 {@code title} 存在、且
  * {@code videoUrl} 或 {@code imageUrls} 至少有一个存在（按 type 决定）——已固化为测试。

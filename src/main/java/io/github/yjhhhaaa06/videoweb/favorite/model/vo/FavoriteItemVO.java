@@ -45,7 +45,7 @@ import java.time.LocalDateTime;
  * <h2>⚠️ 为什么 {@code invalid} 用包装类型 {@code Boolean}</h2>
  * 同 {@code FavoriteFolderVO}：属性名 {@code invalid} 配 {@code boolean} 会让 Lombok 生成
  * {@code isInvalid()}，Jackson 对 {@code isXxx()} 的推导虽在本例恰好得到 {@code invalid}，
- * 但一旦改名就静默漂（{@code ContentVO.isLiked} 就踩成 {@code liked}）。用包装类型 ⇒ getter
+ * 但一旦改名就静默漂（{@code CommentVO.isLiked} 就踩成 {@code liked}）。用包装类型 ⇒ getter
  * 恒为 {@code getInvalid()} ⇒ JSON 键逐字是 {@code invalid}，不需要 {@code @JsonProperty} 兜底。
  *
  * <h2>一个形状两个角色</h2>

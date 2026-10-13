@@ -18,6 +18,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -39,12 +40,15 @@ import static org.mockito.Mockito.verify;
  *       例如"开关生效了"不是看响应，而是直查 {@code content.comment_enabled} 列。</li>
  * </ol>
  *
- * <h2>★ 互动态的位置（R-10 / T10）</h2>
+ * <h2>★ 互动态的位置（R-10 / T10 / **T13**）</h2>
  * 详情响应的互动态收在 {@code interaction} 子对象（顶层 {@code isLiked}/{@code isFollowed}
  * 已在 T10 删除——这是 R-10 有意的 breaking 面，见 {@code 收藏功能-分期与设计.md} §3.6）；
  * **匿名 ⇒ {@code "interaction": null}**（不是 {@code {}}、不是三个 {@code false}）。
- * 列表路径（{@code /start} / {@code /search/keywordSearch}）**顶层键集不变**，仍填
- * {@code isLiked}/{@code isFollowed}（只换数据来源，见 {@code ContentStatusFiller} 的薄壳职责）。
+ * <p>★ **T13（R-13）起列表同形**：{@code /start} / {@code /search/keywordSearch} 也把互动态
+ * 收进 {@code interaction}（顶层两键删除），且**三维三态** —— {@code null} = 本面不查该维：
+ * {@code /start} 只带 {@code {关注}}、{@code /search/keywordSearch} 带 **0 维**（对象仍在、
+ * 三维全 {@code null}）。详见 {@code ContentVO} 类注释的常量表。
+ * ⚠️ 0 维的"对象仍在"是刻意的：{@code interaction: null} 是**匿名**的语义，两者必须可区分。
  */
 class ContentReadTests extends AbstractContentIntegrationTest {
 
@@ -328,8 +332,8 @@ class ContentReadTests extends AbstractContentIntegrationTest {
     // ========================================================================
 
     @Test
-    @DisplayName("列表：/start 与 keywordSearch 仍把互动态填在顶层（来源改走互动域）；匿名 ⇒ false 且键仍在")
-    void 列表_互动态仍填顶层() {
+    @DisplayName("列表：互动态收进 interaction 子对象（顶层两键已删）；/start 只带关注维、/search 0 维（对象仍在）")
+    void 列表_互动态收进interaction子对象() {
         String token = registerAndGetToken(OTHER_PHONE, OTHER);
         registerAndGetToken(AUTHOR_PHONE, AUTHOR);
         long authorId = userIdOf(AUTHOR_PHONE);
@@ -340,21 +344,38 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         jdbcTemplate.update("INSERT INTO follow (user_id, followed_user_id) VALUES (?, ?)",
                 viewerId, authorId);
 
+        // ---- /start：只带 {关注} ----
         JsonNode startItem = itemOf(Envelope.data(get("/start", token)), contentId);
-        assertThat(startItem.path("isLiked").asBoolean()).as("/start 顶层 isLiked（登录且已赞）").isTrue();
-        assertThat(startItem.path("isFollowed").asBoolean()).as("/start 顶层 isFollowed（已关注作者）").isTrue();
+        assertThat(startItem.has("isLiked")).as("顶层 isLiked 已删除（T13）").isFalse();
+        assertThat(startItem.has("isFollowed")).as("顶层 isFollowed 已删除（T13）").isFalse();
+        JsonNode startInteraction = startItem.path("interaction");
+        assertThat(keysOf(startInteraction)).as("子对象键集恒三维（不靠缺键表达'不查'）")
+                .containsExactlyInAnyOrder("isLiked", "isFavorited", "isFollowed");
+        assertThat(startInteraction.path("isFollowed").asBoolean())
+                .as("/start 带关注维 ⇒ 已关注作者为真").isTrue();
+        assertThat(startInteraction.path("isLiked").isNull())
+                .as("★ /start 不带赞维 ⇒ null（**不是 false**——false 会是撒谎）").isTrue();
+        assertThat(startInteraction.path("isFavorited").isNull()).as("/start 不带收藏维").isTrue();
 
+        // ---- /search/keywordSearch：0 维 ----
         JsonNode searchItem = itemOf(
                 Envelope.data(get("/search/keywordSearch?keyword=zqtb", token)).path("list"), contentId);
-        assertThat(searchItem.path("isLiked").asBoolean()).as("keywordSearch 顶层 isLiked").isTrue();
-        assertThat(searchItem.path("isFollowed").asBoolean()).as("keywordSearch 顶层 isFollowed").isTrue();
+        JsonNode searchInteraction = searchItem.path("interaction");
+        assertThat(searchInteraction.isObject())
+                .as("★ 0 维：**对象仍在**（若为 null 就与匿名不可区分了）").isTrue();
+        assertThat(keysOf(searchInteraction)).containsExactlyInAnyOrder(
+                "isLiked", "isFavorited", "isFollowed");
+        assertThat(searchInteraction.path("isLiked").isNull()).as("0 维 ⇒ 赞维 null").isTrue();
+        assertThat(searchInteraction.path("isFavorited").isNull()).as("0 维 ⇒ 藏维 null").isTrue();
+        assertThat(searchInteraction.path("isFollowed").isNull())
+                .as("★ 0 维 ⇒ 关注维 null —— 不再是 TV/旧实现那个恒 false 的谎言").isTrue();
 
-        // 匿名：两键仍在顶层、值为 false（不是 null、不是缺键——列表键集是冻结契约）
-        JsonNode anonItem = itemOf(Envelope.data(get("/start", null)), contentId);
-        assertThat(anonItem.has("isLiked")).as("列表顶层 isLiked 键必须在").isTrue();
-        assertThat(anonItem.has("isFollowed")).as("列表顶层 isFollowed 键必须在").isTrue();
-        assertThat(anonItem.path("isLiked").asBoolean()).isFalse();
-        assertThat(anonItem.path("isFollowed").asBoolean()).isFalse();
+        // ---- 匿名 ⇒ 整对象为 null（与 0 维可区分）----
+        JsonNode anonStart = itemOf(Envelope.data(get("/start", null)), contentId);
+        assertThat(anonStart.path("interaction").isNull()).as("匿名 ⇒ interaction 为 null").isTrue();
+        JsonNode anonSearch = itemOf(
+                Envelope.data(get("/search/keywordSearch?keyword=zqtb", null)).path("list"), contentId);
+        assertThat(anonSearch.path("interaction").isNull()).as("匿名 ⇒ interaction 为 null").isTrue();
     }
 
     @Test
@@ -373,7 +394,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
 
         // ★ 判别力：把 ContentStatusFiller 改成"逐条调 getStatus"，这两个断言立即变红
         //   （T9 红线的同一纪律：100 条列表不得退化为 100 次往返；反向注入实测见 T10 回写）
-        verify(interactionService, times(1)).batchGetStatus(eq(viewerId), anyList());
+        verify(interactionService, times(1)).batchGetStatus(eq(viewerId), anyList(), anySet());
         verify(interactionService, never()).getStatus(any(), anyLong(), anyLong(), anyInt());
     }
 

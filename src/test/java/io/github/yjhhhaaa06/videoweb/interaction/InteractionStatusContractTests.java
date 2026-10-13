@@ -2,6 +2,7 @@ package io.github.yjhhhaaa06.videoweb.interaction;
 
 import io.github.yjhhhaaa06.videoweb.favorite.service.FavoriteService;
 import io.github.yjhhhaaa06.videoweb.follow.service.FollowService;
+import io.github.yjhhhaaa06.videoweb.interaction.model.InteractionDimension;
 import io.github.yjhhhaaa06.videoweb.interaction.model.InteractionTarget;
 import io.github.yjhhhaaa06.videoweb.interaction.model.vo.InteractionStatusVO;
 import io.github.yjhhhaaa06.videoweb.interaction.service.InteractionService;
@@ -17,6 +18,7 @@ import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.sql.PreparedStatement;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -81,6 +83,13 @@ import static org.mockito.Mockito.verifyNoInteractions;
 class InteractionStatusContractTests extends AbstractHttpIntegrationTest {
 
     private static final String PASSWORD = "abc123456";
+
+    /**
+     * 既有用例（T9 立的）一律按"**全量三维**"调用 —— 它们钉的是"三维归属 / 不重不漏 / 批量透传"，
+     * 与 T13 的维度选择正交；维度选择的专属用例见本类末尾那一组（{@link #只选关注维则另外两维不查}）。
+     */
+    private static final Set<InteractionDimension> ALL_DIMENSIONS =
+            EnumSet.allOf(InteractionDimension.class);
 
     @Autowired
     private InteractionService interactionService;
@@ -237,7 +246,7 @@ class InteractionStatusContractTests extends AbstractHttpIntegrationTest {
                 new InteractionTarget(untouched, otherAuthor.id(), 1),
                 new InteractionTarget(liked, author.id(), 1));      // ★ 重复 id：收敛为一条
 
-        Map<Long, InteractionStatusVO> result = interactionService.batchGetStatus(viewer.id(), targets);
+        Map<Long, InteractionStatusVO> result = interactionService.batchGetStatus(viewer.id(), targets, ALL_DIMENSIONS);
 
         assertThat(result.keySet())
                 .as("★ 不重不漏：入参 4 条（含重复）⇒ 恰好 3 个唯一 key")
@@ -276,7 +285,7 @@ class InteractionStatusContractTests extends AbstractHttpIntegrationTest {
                 new InteractionTarget(c1, author.id(), 1),
                 new InteractionTarget(c2, author.id(), 1),
                 new InteractionTarget(c3, otherAuthor.id(), 1),
-                new InteractionTarget(c1, author.id(), 1)));        // 重复 id
+                new InteractionTarget(c1, author.id(), 1)), ALL_DIMENSIONS);        // 重复 id
 
         // ★ 三维各**恰好一趟**批量：内容 id 去重后 3 个、作者去重后 2 个（入参 4 条含重复）
         //   ——逐条调用会让这里的 times(1) 变 times(N)、never() 变 N 次（判别力就在这两个断言）。
@@ -303,7 +312,7 @@ class InteractionStatusContractTests extends AbstractHttpIntegrationTest {
 
         Mockito.reset(likeService, favoriteService, followService);
         Map<Long, InteractionStatusVO> result = interactionService.batchGetStatus(null, List.of(
-                new InteractionTarget(content, author.id(), 1)));
+                new InteractionTarget(content, author.id(), 1)), ALL_DIMENSIONS);
 
         assertThat(result)
                 .as("★ 匿名 ⇒ null（不是空 Map、更不是全 false 映射）—— 两个契约同款语义")
@@ -322,7 +331,7 @@ class InteractionStatusContractTests extends AbstractHttpIntegrationTest {
 
         Map<Long, InteractionStatusVO> result = interactionService.batchGetStatus(viewer.id(), List.of(
                 new InteractionTarget(known, author.id(), 1),
-                new InteractionTarget(unknown, 0L, 1)));            // 作者未知
+                new InteractionTarget(unknown, 0L, 1)), ALL_DIMENSIONS);            // 作者未知
 
         assertThat(result.get(known).getIsFollowed()).isTrue();
         assertThat(result.get(unknown).getIsFollowed())
@@ -331,8 +340,93 @@ class InteractionStatusContractTests extends AbstractHttpIntegrationTest {
 
         // 全部作者未知 ⇒ 关注维度**整趟不发**（不为空作者集发 IN () 查询）
         Mockito.reset(followService);
-        interactionService.batchGetStatus(viewer.id(), List.of(new InteractionTarget(known, 0L, 1)));
+        interactionService.batchGetStatus(viewer.id(), List.of(new InteractionTarget(known, 0L, 1)),
+                ALL_DIMENSIONS);
         verify(followService, never()).batchIsFollowing(anyLong(), anyList());
+    }
+
+    // ========================================================================
+    // ★ 维度选择（R-13 / T13）
+    //
+    // 期望值怎么来的：{@link InteractionDimension} 类注释的三态口径 + "未选中的维度不查"
+    // （R-13 的初衷：简略 VO 不需要的字段就不查，省下的那一位是 null、前端静默忽略）。
+    // 盖住实现也写得出来：给 {FOLLOW} 就只该有 follow 那一趟、另外两位是 null。
+    //
+    // ★ 判别力（反向注入）：把 {@code InteractionService#batchGetStatus} 里三处
+    //   {@code dims.contains(...)} 守卫**去掉**（改回无条件三维全查）⇒ 下面前两条立即变红
+    //   —— 值断言（null）也会红（干扰行已造好"赞 / 藏有数据在场"）。
+    // ========================================================================
+
+    @Test
+    @DisplayName("★只选 {关注} ⇒ 赞 / 藏两域一趟都不查，且那两位是 null（不是 false）")
+    void 只选关注维则另外两维不查() {
+        TestUser viewer = register("13900009020", "t13-follow-only");
+        TestUser author = register("13900009021", "t13-follow-only-author");
+        long content = insertContent(author.id(), 1);
+        // ★ 干扰行：赞 / 藏都有数据在场 ⇒ 若实现"虽然没选但仍查了"，值断言也会跟着错
+        likeService.likeContent(viewer.id(), content);
+        favoriteService.addItem(viewer.id(), null, content);
+        followService.follow(viewer.id(), author.id());
+
+        Mockito.reset(likeService, favoriteService, followService);
+        Map<Long, InteractionStatusVO> result = interactionService.batchGetStatus(viewer.id(),
+                List.of(new InteractionTarget(content, author.id(), 1)),
+                EnumSet.of(InteractionDimension.FOLLOW));
+
+        InteractionStatusVO status = result.get(content);
+        assertThat(status.getIsFollowed()).as("选中的维度 ⇒ 真值").isTrue();
+        assertThat(status.getIsLiked())
+                .as("★ 未选中 ⇒ null（不是 false —— 点赞数据明明在场，填 false 是撒谎）").isNull();
+        assertThat(status.getIsFavorited()).as("未选中 ⇒ null（收藏数据也在场）").isNull();
+
+        // ★ 判别力：去掉 dims.contains 守卫 ⇒ 这两条立即变红（不是"值对就行"）
+        verify(likeService, never()).batchIsContentLiked(anyLong(), anyList());
+        verify(likeService, never()).isContentLiked(anyLong(), anyLong());
+        verify(favoriteService, never()).batchIsFavorited(anyLong(), anyList());
+        verify(favoriteService, never()).isFavorited(anyLong(), anyLong());
+        verify(followService, times(1)).batchIsFollowing(eq(viewer.id()), anyList());
+    }
+
+    @Test
+    @DisplayName("★0 维：三域一趟都不查，但仍返回「对象在、三维全 null」（与匿名的 null 可区分）")
+    void 零维_不查任何域但对象仍在() {
+        TestUser viewer = register("13900009022", "t13-zero-dim");
+        TestUser author = register("13900009023", "t13-zero-dim-author");
+        long content = insertContent(author.id(), 1);
+        likeService.likeContent(viewer.id(), content);
+        favoriteService.addItem(viewer.id(), null, content);
+        followService.follow(viewer.id(), author.id());
+
+        Mockito.reset(likeService, favoriteService, followService);
+        Map<Long, InteractionStatusVO> result = interactionService.batchGetStatus(viewer.id(),
+                List.of(new InteractionTarget(content, author.id(), 1)), Set.of());
+
+        InteractionStatusVO status = result.get(content);
+        assertThat(status).as("★ 0 维：对象仍在（若返回 null 就与「匿名」不可区分了）").isNotNull();
+        assertThat(status.getIsLiked()).isNull();
+        assertThat(status.getIsFavorited()).isNull();
+        assertThat(status.getIsFollowed()).isNull();
+        verifyNoInteractions(likeService, favoriteService, followService);
+    }
+
+    @Test
+    @DisplayName("dimensions == null ⇒ 按全量三维处理（漏传的代价是「多查」，不是「少给」）")
+    void dimensions为null按全量处理() {
+        TestUser viewer = register("13900009024", "t13-null-dims");
+        TestUser author = register("13900009025", "t13-null-dims-author");
+        long content = insertContent(author.id(), 1);
+        followService.follow(viewer.id(), author.id());
+
+        Map<Long, InteractionStatusVO> result = interactionService.batchGetStatus(viewer.id(),
+                List.of(new InteractionTarget(content, author.id(), 1)), null);
+
+        InteractionStatusVO status = result.get(content);
+        assertThat(status.getIsLiked()).as("兜底为全量 ⇒ 三维恒有真值，不是 null").isFalse();
+        assertThat(status.getIsFavorited()).isFalse();
+        assertThat(status.getIsFollowed()).isTrue();
+        verify(likeService, times(1)).batchIsContentLiked(eq(viewer.id()), anyList());
+        verify(favoriteService, times(1)).batchIsFavorited(eq(viewer.id()), anyList());
+        verify(followService, times(1)).batchIsFollowing(eq(viewer.id()), anyList());
     }
 
     // ========================================================================

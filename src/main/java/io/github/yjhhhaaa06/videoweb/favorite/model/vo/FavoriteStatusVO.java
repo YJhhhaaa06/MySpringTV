@@ -53,7 +53,7 @@ public class FavoriteStatusVO {
      * <p>⚠️ 用包装类型 {@code Boolean}（同 {@code FavoriteFolderVO} 的口径）：属性名
      * {@code isFavorited} 配 {@code boolean} 会让 Lombok 生成 {@code isFavorited()} ⇒ Jackson 属性名
      * 漂成 {@code favorited}；包装类型下 getter 是 {@code getIsFavorited()} ⇒ JSON 键逐字
-     * {@code isFavorited}（与详情页的 {@code isLiked} 同形）。
+     * {@code isFavorited}（与详情页 {@code interaction.isLiked} 同形）。
      */
     private Boolean isFavorited;
 

@@ -2,6 +2,7 @@ package io.github.yjhhhaaa06.videoweb.interaction.service;
 
 import io.github.yjhhhaaa06.videoweb.favorite.service.FavoriteService;
 import io.github.yjhhhaaa06.videoweb.follow.service.FollowService;
+import io.github.yjhhhaaa06.videoweb.interaction.model.InteractionDimension;
 import io.github.yjhhhaaa06.videoweb.interaction.model.InteractionTarget;
 import io.github.yjhhhaaa06.videoweb.interaction.model.vo.InteractionStatusVO;
 import io.github.yjhhhaaa06.videoweb.like.service.LikeService;
@@ -9,6 +10,7 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -44,15 +46,26 @@ import java.util.Set;
  *
  * <h2>两种契约（单条 + 批量）与各自的消费面</h2>
  * <ul>
- *   <li>{@link #getStatus} —— 单条（详情路径）；</li>
- *   <li>{@link #batchGetStatus} —— 批量（列表路径）。★ 它的存在理由：只给单条会让列表退回
- *       "逐条调用"（100 条推荐页 = 200 次往返，正是 {@code ContentStatusFiller} 当年要治的问题）；
- *       故批量必须**原样透传批量语义**，三维各一趟批量、**不得循环调单条**。</li>
+ *   <li>{@link #getStatus} —— 单条（详情路径）。★ R-13 **刻意不给它加维度入参**：
+ *       只有详情用它、且详情恒要三维，不为它扩大 T9 刚钉死的契约面；</li>
+ *   <li>{@link #batchGetStatus} —— 批量（列表路径），**带维度集合**入参（R-13）。
+ *       ★ 它的存在理由：只给单条会让列表退回"逐条调用"（100 条推荐页 = 200 次往返，
+ *       正是 {@code ContentStatusFiller} 当年要治的问题）；故批量必须**原样透传批量语义**，
+ *       每个被选中的维度各一趟批量、**不得循环调单条**。</li>
  * </ul>
  *
+ * <h2>★ 维度选择（R-13，2026-10-13）</h2>
+ * 批量契约的 {@code dimensions} 由调用方给（编译期常量，见 {@link InteractionDimension}）：
+ * **没被选中的维度不查**（对应 {@code InteractionStatusVO} 里那一位是 {@code null}）。
+ * 四个列表面今天的取值：{@code /start} = {@code {FOLLOW}}、{@code /search/keywordSearch} =
+ * **空集**、{@code /feed} 与 {@code /profile} = {@code {LIKE}}（各面常量写在各自调用点上）。
+ * ⚠️ **空集（0 维）是合法入参**：一趟都不查，但**仍返回对象**（三维全 {@code null}），
+ * 不是返回 {@code null} —— 后者是"匿名"的语义（见下），两者必须可区分。
+ *
  * <h2>匿名语义（userId == null）</h2>
- * **不查任何互动域，直接返回 {@code null}**（不是三个 {@code false}、不是空 Map）——
- * "没有登录态"与"登录但无互动"必须可区分（R-10 §3.6）。两个契约同款。
+ * **不查任何互动域，直接返回 {@code null}**（不是三个 {@code false}、不是空 Map、
+ * 也不是"三维全 null 的空壳对象"）—— "没有登录态"与"登录但无互动"必须可区分（R-10 §3.6）。
+ * 两个契约同款。
  *
  * <p>本类全是**纯读**（三趟缓存 / DB 读）⇒ 不加 {@code @Transactional}（事务边界篇 §四）。
  */
@@ -118,16 +131,29 @@ public class InteractionService {
     }
 
     /**
-     * 批量互动状态（T10 之后列表路径改调本方法）—— 入参 N 个目标，返回 **N 条映射，不重不漏**。
+     * 批量互动状态（T10 之后列表路径改调本方法；T13 起带维度集合）—— 入参 N 个目标，
+     * 返回 **N 条映射，不重不漏**。
      *
-     * <h2>★ 批量语义：三维各一趟，绝不循环调单条</h2>
-     * 不论入参多少条，本方法对三个互动域**各只调一次**批量契约：
+     * <h2>★ 批量语义：每个被选中的维度各一趟，绝不循环调单条</h2>
+     * 不论入参多少条，本方法对**被选中的**维度、各只调一次批量契约：
      * {@code LikeService.batchIsContentLiked} / {@code FavoriteService.batchIsFavorited} /
      * {@code FollowService.batchIsFollowing}（关注维度按**去重后的作者集**查，多个内容同作者只查一次）。
      * ⚠️ 这是本域存在的核心约束（原 {@code ContentStatusFiller} 类注释的既有纪律，
      * T10 后由本域与 content 侧的薄壳共同承接）：
      * 改成"逐条调单条"会让 100 条推荐页变 200+ 次往返。判别力见
      * {@code InteractionStatusContractTests} 的调用次数断言。
+     *
+     * <h2>★ 维度选择（R-13）</h2>
+     * 只有 {@code dimensions} 里的维度会去查；**没选中的维度在返回的
+     * {@link InteractionStatusVO} 里是 {@code null}**（= "本面不查该维"，见
+     * {@link InteractionDimension} 的三态口径）。
+     * <ul>
+     *   <li>⚠️ **空集（0 维）⇒ 一趟都不查**，但**仍为每个入参 id 返回一个对象**
+     *       （三维全 {@code null}）—— 不是返回 {@code null}（那是匿名语义）；</li>
+     *   <li>⚠️ {@code dimensions == null} 按**全量三维**处理：漏传的代价是"多查"，
+     *       而不是"少给"（与本域"匿名 ⇒ 不查"同款取向：宁可保守、不静默丢信息）。
+     *       调用点应当显式传常量，不要依赖这个兜底。</li>
+     * </ul>
      *
      * <h2>键集口径（不重不漏）</h2>
      * <ul>
@@ -137,17 +163,22 @@ public class InteractionService {
      *       只回一条）；同一内容携带不同作者 / 类型属调用方数据不自洽，不作校验。</li>
      * </ul>
      *
-     * @param userId  当前登录用户；{@code null} = 匿名 ⇒ 返回 {@code null}（不查任何互动域）
-     * @param targets 目标列表（可为空 ⇒ 空 Map；{@code null} 同空处理）
+     * @param userId     当前登录用户；{@code null} = 匿名 ⇒ 返回 {@code null}（不查任何互动域）
+     * @param targets    目标列表（可为空 ⇒ 空 Map；{@code null} 同空处理）
+     * @param dimensions 要查的维度集合（{@code null} ⇒ 全量三维；空集 ⇒ 一趟不查但对象仍在）
      * @return contentId → 三维状态（每个入参 id 恰好一条）；匿名 ⇒ {@code null}
      */
-    public Map<Long, InteractionStatusVO> batchGetStatus(Long userId, List<InteractionTarget> targets) {
+    public Map<Long, InteractionStatusVO> batchGetStatus(Long userId, List<InteractionTarget> targets,
+                                                        Set<InteractionDimension> dimensions) {
         if (userId == null) {
             return null;
         }
         if (targets == null || targets.isEmpty()) {
             return Map.of();
         }
+        Set<InteractionDimension> dims = (dimensions == null)
+                ? EnumSet.allOf(InteractionDimension.class)
+                : dimensions;
         // 去重：contentId 唯一（首次出现的作者 / 类型为准），另收去重后的非正作者集
         Map<Long, InteractionTarget> byContentId = new LinkedHashMap<>();
         Set<Long> authorIdSet = new LinkedHashSet<>();
@@ -159,20 +190,32 @@ public class InteractionService {
         }
         List<Long> contentIds = new ArrayList<>(byContentId.keySet());
 
-        // ★ 三维各一趟批量（见方法注释"批量语义"）——不得改成循环调单条
-        Map<Long, Boolean> likedMap = likeService.batchIsContentLiked(userId, contentIds);
-        Map<Long, Boolean> favoritedMap = favoriteService.batchIsFavorited(userId, contentIds);
-        Map<Long, Boolean> followedMap = authorIdSet.isEmpty()
-                ? Map.of()
-                : followService.batchIsFollowing(userId, new ArrayList<>(authorIdSet));
+        // ★ 被选中的维度各一趟批量（见方法注释"批量语义"）——不得改成循环调单条；
+        //   未选中的维度**一趟都不发**（这正是 R-13 要省的"分类性浪费"）。
+        Map<Long, Boolean> likedMap = dims.contains(InteractionDimension.LIKE)
+                ? likeService.batchIsContentLiked(userId, contentIds)
+                : Map.of();
+        Map<Long, Boolean> favoritedMap = dims.contains(InteractionDimension.FAVORITE)
+                ? favoriteService.batchIsFavorited(userId, contentIds)
+                : Map.of();
+        Map<Long, Boolean> followedMap = (dims.contains(InteractionDimension.FOLLOW) && !authorIdSet.isEmpty())
+                ? followService.batchIsFollowing(userId, new ArrayList<>(authorIdSet))
+                : Map.of();
 
         Map<Long, InteractionStatusVO> result = new LinkedHashMap<>();
         for (Map.Entry<Long, InteractionTarget> entry : byContentId.entrySet()) {
             InteractionStatusVO status = new InteractionStatusVO();
-            status.setIsLiked(Boolean.TRUE.equals(likedMap.get(entry.getKey())));
-            status.setIsFavorited(Boolean.TRUE.equals(favoritedMap.get(entry.getKey())));
-            long authorId = entry.getValue().authorId();
-            status.setIsFollowed(authorId > 0 && Boolean.TRUE.equals(followedMap.get(authorId)));
+            // ★ 三态：选中 ⇒ 查得的布尔；未选中 ⇒ 保持 null（"本面不查该维"，不是 false）
+            if (dims.contains(InteractionDimension.LIKE)) {
+                status.setIsLiked(Boolean.TRUE.equals(likedMap.get(entry.getKey())));
+            }
+            if (dims.contains(InteractionDimension.FAVORITE)) {
+                status.setIsFavorited(Boolean.TRUE.equals(favoritedMap.get(entry.getKey())));
+            }
+            if (dims.contains(InteractionDimension.FOLLOW)) {
+                long authorId = entry.getValue().authorId();
+                status.setIsFollowed(authorId > 0 && Boolean.TRUE.equals(followedMap.get(authorId)));
+            }
             result.put(entry.getKey(), status);
         }
         return result;
