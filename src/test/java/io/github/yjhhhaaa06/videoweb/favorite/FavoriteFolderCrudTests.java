@@ -67,7 +67,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * ⚠️ <b>{@code deleteFolder} 的事务回滚语义不在本类</b>（两条顺序 DELETE 都成功 ⇒ 去掉注解仍绿，
  * 本类只钉"两次写都成功"的终态）—— 已由 T8 用 {@code @MockitoSpyBean} 打桩"删夹行失败"在
  * {@code FavoriteTransactionTests.删夹第二步失败时删条目回滚} 中补上判别力（去掉 {@code @Transactional}
- * 即变红）。原 {@code 收藏功能-分期与设计.md 附录A.3} <b>I-04</b> 由此收口。
+ * 即变红）。原 {@code 收藏功能-编号索引.mdA.3} <b>I-04</b> 由此收口。
  */
 class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
 

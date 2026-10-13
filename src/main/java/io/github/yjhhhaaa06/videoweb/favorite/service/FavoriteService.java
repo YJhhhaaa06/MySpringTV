@@ -105,7 +105,7 @@ import java.util.Set;
  * {@code @TransactionalEventListener} 的 {@code fallbackExecution=false} 默认值下，"无事务也要执行"
  * 的场景一旦出现（T12 之前曾有：{@code addItem}/{@code removeItems} 刻意无事务）事件会被
  * **静默丢弃**，且与"收藏域不该有 event 包"的既有定位冲突。取舍与代价登记在
- * {@code 收藏功能-分期与设计.md 附录 A.3} **I-11**。
+ * {@code 收藏功能-编号索引.md A.3} **I-11**。
  *
  * <h2>★ 写路径的缓存动作（T11）：只有 {@code add} 条件写，其余整体失效</h2>
  * 起因是收藏的**夹内唯一**模型（{@code uk_folder_content}）：同一用户可把同一内容收在多个夹里 ⇒
@@ -528,7 +528,7 @@ public class FavoriteService {
         //   常态下 move 确实不改收藏态（人还是收着这条、收藏数也不变），但"源夹其实没含这条"
         //   （陈旧页面 / 前端传错 from）时 insert 照样成功、源侧删 0 行 ⇒ 等价于一次**新增收藏**；
         //   整体失效在那个边缘态下也给出正确答案，代价（移动后该用户下次读全量回源一次）
-        //   与 move 的低频相称。取舍见 {@code 收藏功能-分期与设计.md 附录 A.3} I-11。
+        //   与 move 的低频相称。取舍见 {@code 收藏功能-编号索引.md A.3} I-11。
         AfterCommit.run(() -> {
             favoriteCache.invalidateUserFavorites(userId);
             favoriteCache.invalidateFavoriteCount(contentId);
@@ -684,7 +684,7 @@ public class FavoriteService {
      * {@link ContentService#loadContentVOs}（缓存支撑——跨域只走对方 Service 契约，
      * 见 {@code 模块边界与依赖.md} §四）取展示字段；**契约"取不到"即失效** ——
      * 不存在 / 已删下架 / 媒体损坏 / 未知类型统一渲染占位
-     * （口径"看不了 ≈ 失效"，{@code 收藏功能-分期与设计.md 附录A.2} **R-11**）。
+     * （口径"看不了 ≈ 失效"，{@code 收藏功能-编号索引.mdA.2} **R-11**）。
      * 占位形态仍是本域的显示决策：标题 = 「内容已失效」、封面与作者 = {@code null}
      * ——"内容可不可用"归 content 域、"失效长什么样"归本域，两个注入点独立（反向验证都能红）。
      * ⚠️ 别把这段搬去复用 {@code ProfileService} 的填充逻辑：那处是"取不到就跳过"，

@@ -117,7 +117,7 @@ Migration checksum mismatch for migration version 2
 3. **迁移脚本里不要写"会漂移的指向"**：宁可不写文档名，或写**不可变锚点**（如「见《数据与Schema演进》§四」）。
    ⚠️ **已写下的历史指向不要回头去改** —— 让**目标文档**承接重定向
    （例：`V2__favorite_tables.sql:18` 至今仍写 `CURRENT_NEEDS.md R-01~R-08`，而 `CURRENT_NEEDS.md` §三
-   已注明这批编号转到了分期篇附录 —— **一跳可解析**即可，不必触碰冻结文件）。
+   已注明这批编号转到了编号索引 —— **一跳可解析**即可，不必触碰冻结文件）。
 4. `flyway repair` 只用于"本地脚本确需修正、且**所有环境都能同步**"的场合；本仓口径是**一律不回写**，
    所以首选手段永远是**还原**。
 
@@ -225,7 +225,7 @@ V1 共定义 **15 张业务表**，V2 再增 **2 张**（收藏一期，见下�
 | 落地验证（可复算） | dev 库 `spring-boot:run` 日志 `Successfully applied 1 migration`；全表复算 `SELECT COUNT(*) FROM content c LEFT JOIN (…) t … WHERE c.favorite_count <> COALESCE(t.cnt,0)` = **0 行错位**；`flyway_schema_history` = 0(baseline) → 1 → 2 → 3 全 success |
 | 冻结状态 | ✅ **已应用 ⇒ 逐字节冻结**（§2.4：连注释都不能改） |
 
-> 📌 本表出现的 `R-##` / `T#` 编号见 `收藏功能-分期与设计.md` **附录「编号索引」**（编号的唯一查证入口）。
+> 📌 本表出现的 `R-##` / `T#` 编号见 [收藏功能-编号索引.md](../../task/收藏功能-编号索引.md)（编号的唯一查证入口）。
 
 > 落地形态的两处非显然设计（都是"一次到位 / 别在下游重复推导"的东西）：
 > ① `favorite_folder.default_uniq` 是 **VIRTUAL 生成列**（默认夹 `1`、自建夹 `NULL`），

@@ -6,7 +6,7 @@
 > **需求来源**：`CURRENT_NEEDS.md`（N# / R-##）；**执行中发现的问题** → `CURRENT_ISSUES.md`。
 >
 > ★ **膨胀控制（2026-10-11 起执行）**：任务完成即标注，**期收尾时清出本文件**（归宿 = git commit）。
-> 清出前**必须先把该编号收进** [收藏功能-分期与设计.md](收藏功能-分期与设计.md) **附录「编号索引」** ——
+> 清出前**必须先把该编号收进** [收藏功能-编号索引.md](收藏功能-编号索引.md) ——
 > 代码 / mapper / 测试注释里有**数百处** `T#` / `R-##` / `I-##` / `G#` 引用，那份索引是它们**唯一**的查证入口。
 > **编号不回收**（下期顺延）；**登记台文件复用、不改名**（改名会让外部引用悬空）。
 
@@ -14,12 +14,13 @@
 
 ## 周期头（每窗开读）
 
-* **方向**：收藏 —— 一期（有无）✅（T1–T8，2026-10-08 → 2026-10-11）｜二期（性能 + R-10 契约演进）✅ **已收尾**（T9–T12，2026-10-11 → 2026-10-12）｜**下一期方向待拍板** ⇒ `CURRENT_NEEDS.md` §三 **R-12**
-* **本周期**：`2026-10-12` 起 · **第 3 张清单**（编号 **T13 起**，**不回收 T1–T12**）
-* ⚠️ **本张清单尚未登记任务**：按 `C-1`（窗口内需求**先登记再动手**），等 `CURRENT_NEEDS.md` §三 **R-12** 拍板后再拆 `T#`。
-  候选素材两处：`CURRENT_NEEDS.md` §二（新需求 / 痛点）+ `FURTHER_ISSUES.md`（结转池 **F-16 ~ F-19** 是二期收尾现转的）
+* **方向**：**第 3 张清单 —— 跨域性能与契约收口**（`CURRENT_NEEDS.md` §三 **R-12 已拍板** 2026-10-13；**本期纳入 / 反面清单见其 §四**）：
+  **T13** 列表互动态形态统一（**R-13**）｜**T14** 评论读路径有界化（**F-20 ②**）｜**T15** 收藏缓存层重判（**F-17**）。
+  ⚠️ **限流不做** —— 已补登记 `FURTHER_ISSUES.md` **F-22**，与 **F-01 / F-02** 同属"上线准备度"**专项**（理由见 §四 反面清单）。
+* **历史**：收藏一期（有无）✅ T1–T8（2026-10-08 → 2026-10-11）｜收藏二期（性能 + R-10 契约演进）✅ 已收尾 T9–T12（2026-10-11 → 2026-10-12）
+* **本周期**：`2026-10-13` 起 · **第 3 张清单**（编号 **T13 起**，**不回收 T1–T12**）
 * **收尾 checklist**（下一期开窗时逐条打勾）：☐ 回归基线全绿 · ☐ 完成态已清出（记入 git）· ☐ 问题已结转（`FURTHER_ISSUES.md`）· ☐ 工作树干净
-* **回归基线（2026-10-12 二期收尾实测）**：`python tools/run_tests.py` → **428 例全绿**（默认排除 `resilience`）；`--group resilience` → **34 例**全绿（合计 **462**）
+* **回归基线（2026-10-12 二期收尾实测 = 本张清单开窗基线）**：`python tools/run_tests.py` → **428 例全绿**（默认排除 `resilience`）；`--group resilience` → **34 例**全绿（合计 **462**）—— 收尾时须 **≥** 该数
 
 ---
 
@@ -33,11 +34,11 @@
 | G4 | 一任务 = 四要素 + 三句以内回写；探索过程 / 失败尝试 / 中间稿一律走 git，不进本文件 |
 | G5 | **声明式机制必须配契约测试**：断言通过 ≠ 机制生效；写「证明某机制」的用例前先自问「去掉那行实现会红吗」（详见仓库根 `AGENTS.md`「测试纪律」节） |
 | G6 | 改 schema 走 Flyway **最高版本 +1**（V1 冻结、V2 / **V3 已应用** ⇒ 下一次是 **V4**）；⚠️ **已应用的迁移文件逐字节冻结**（**连注释都不能改**，见 `architecture/tech/数据与Schema演进.md` §2.4）；测试用 DB 时钟造时间窗、关键计数走独立 oracle 查列 |
-| G8 | ★ **跨期约定（升格保留）**：一期的测试必须只断言可观察行为（HTTP 状态 + body + DB 终态）—— 二期换实现时测试**不许改**；改了就说明测试在抄实现（纪律①）。⚠️ **例外有且只有两个**：**R-10**（有意契约演进）与 **I-12**（读切列 ⇒ 夹具改走真实写路径，业务断言一字未改）—— 见设计篇附录 A.4 |
+| G8 | ★ **跨期约定（升格保留）**：一期的测试必须只断言可观察行为（HTTP 状态 + body + DB 终态）—— 二期换实现时测试**不许改**；改了就说明测试在抄实现（纪律①）。⚠️ **例外有且只有两个**：**R-10**（有意契约演进）与 **I-12**（读切列 ⇒ 夹具改走真实写路径，业务断言一字未改）—— 见[收藏功能-编号索引.md](收藏功能-编号索引.md)A.4 |
 | G13 | ★ **跨期约定（升格保留）**：清单只给方向与红线，不写死实现步骤 —— 有些问题**只有执行期才看得见**。把执行者当**勤快的外包**。执行中发现清单前提不成立 / 与既有实现冲突 / 有更好的拆法 ⇒ **自行决断或停下登记 `CURRENT_ISSUES.md` I-##**，不硬扛、也不擅自扩大范围 |
 | G14 | ★ **每个任务都显式标注「可质疑」（2026-10-11 用户要求；**同日校准口径**）**：**任务可被质疑**（前提不成立 / 需求已被既有实现覆盖 / 执行时机不对）；**设计也可被质疑**（弊大于利 / 有更合适的方案 / 更便宜的拆法）。⚠️ **但本项目是学习项目、无真实流量**（见 `AGENTS.md`「项目定位与优化口径」）⇒ **质疑成立 ≠ 停做**：**先把代价写进回写**；若仍做，注明"**已知代价后选择做**"（理由可以是"展示决策"）。**只有质疑指向真实缺陷**（与既有实现冲突 / 会引入数据错误 / 真会成环）**才必须停下回报** |
 
-> **一期 / 二期专属约定已随各自收尾清出**（收编进 [设计篇](收藏功能-分期与设计.md) **附录 A.4**）：
+> **一期 / 二期专属约定已随各自收尾清出**（收编进 [编号索引](收藏功能-编号索引.md) **A.4**）：
 > `G7` 一期不写缓存 / 不做冗余计数增量维护（✅ **二期已解除**：T11 / T12）；`G9` `favorite` 必须登记进 `ArchitectureTests.DOMAINS`（已落地）；
 > `G10` 🚫 收藏不得接 feed（**长期红线**，代码直接引用该号）；`G11` `/favorite/remove` 不得校验内容存在性（**长期红线**）；
 > `G12` 夹内列表分页按 `favorite_item` 行（**长期红线**）。
@@ -56,7 +57,50 @@
 > 本项目**无真实流量**（见仓库根 `AGENTS.md`「项目定位与优化口径」）⇒ 这些代价**本身就是学习与展示的对象**：
 > 能说清"我付了什么代价、换到什么、什么条件下不值得"，就是收益。
 
-**⏳ 本张清单暂无任务** —— 等 `CURRENT_NEEDS.md` §三 **R-12**（下一期方向）拍板后按下面模板逐条登记。
+### T13 列表互动态形态统一（来源 R-13）【待执行】
+
+> ⚠️ **先质疑（G14）**：
+> - **任务**：R-13 已拍板（2026-10-13）；4 个列表面**前端零消费** ⇒ 本次破坏**前端代价 = 0**。⚠️ 但收益仍是"**决策展示**"（本仓无流量），**不是"更快"** —— 别写成性能改善。
+> - **设计**：它是**原子改动** —— 只统一形态、不给"三态 + 维度集合"，会落在**两头不靠**的中间态（破了契约却仍留 `false` 歧义）；只做"维度选择"不动形态，则 `feed`/`profile` **无法表达"本面不查"**，只能继续填 `false`（**换个地方撒谎**）。反向方案（只删浪费不动契约 = 甲）**已被否决**，理由见 `CURRENT_NEEDS.md` §三 R-13。
+
+* **入口线索**：`content/model/vo/ContentVO.java`（删顶层两字段、加 `interaction`）· `content/model/vo/ContentDetailVO.java`（**形态样板，不改**）· `interaction/model/vo/InteractionStatusVO.java`（`boolean` → `Boolean`）· `interaction/service/InteractionService.java#batchGetStatus`（加维度集合重载）· `content/service/ContentStatusFiller.java` · `feed/service/FeedService.java#renderPage` · `content/service/ProfileService.java#getProfile`。骨架 = 设计篇 **§3.6** 的「列表侧形态统一（R-13）」节
+* **目标**：① `ContentVO` **删顶层** `isLiked`/`isFollowed`、改内嵌 `interaction`（与 `ContentDetailVO` 同形）；② `InteractionStatusVO` 三维改 **`Boolean` 三态**（`null` = **本面不查该维**）；③ 互动域**只给批量契约**加维度集合（`getStatus` 单条**不动**）；④ 调用点传**编译期常量**：`/start` = `{关注}`、`/search/keywordSearch` = `{赞}`、`/feed` = `{赞}`、`/profile` = `{赞}`、详情 = 三维；⑤ `feed`/`profile` **改走互动域** ⇒ 兑现 **F-16**（R-10 的"content 不再直接依赖 like/follow"补齐另一半）
+* **红线边界**：① ⚠️ `interaction` **只挂 `ContentVO`（子类），绝不进 `ContentCacheDTO`** —— 那是缓存形状，进去 = 互动态**被缓存** = **跨用户污染**；② ⚠️ **不加 `@JsonInclude(NON_NULL)`**（本仓三态惯例 = "`Boolean` + **显式 `null`**"，且详情用例断言匿名时 `interaction` **键必须在**）；③ ⚠️ **不许"选 0 维"**（`interaction: null` 会与"匿名"不可区分）；④ `authorId <= 0` **保持 `false`** ⇒ **详情 JSON 零变化**；⑤ `getStatus` 单条契约 / `ContentDetailVO` 结构 / 类级鉴权**都不得动**
+* **强制探索**：① 复算"列表字段前端零消费"（`grep -rn "isLiked\|isFollowed\|interaction" src/main/resources/static/static/js/` ⇒ 只有 `detail.js` 读 `interaction`；`user.js` 读的是 `ProfileVO.isFollowed` 这**另一个字段**）；② 确认 `ContentCache.toContentVO` 产出的 `interaction` **恒为 `null`**（互动态**只能在请求期**由 filler / Service 填）；③ `ContentReadTests` 两条要改的用例改成**更强**的断言（"列表顶层两键必须在 / 匿名两键为 false" ⇒ "匿名 ⇒ 每条 `interaction` 为 `null`"）
+* **验收**：① 4 个列表面新形状（顶层无 `isLiked`/`isFollowed`、有 `interaction`）；② 匿名 ⇒ 每条 `"interaction": null`（不是 `{}`、不是三 `false`）；③ ★ **`/start`、`/search` 批读次数 3 → 2**（`@MockitoSpyBean` 数 like/favorite/follow 三域被调次数；**反向注入"改回全量维度"必须变红**）；④ ★ **详情响应 JSON 逐字不变**（含匿名 `interaction: null`）—— 用现有详情用例回归即可作证；⑤ `feed`/`profile` 仍**一趟批量**（不退化）
+* **回写**：（完成后三句内写清改了什么、验证结果；探索过程不写）
+
+### T14 `/comment/replies` 游标化（来源 F-20 ②）【待执行】
+
+> ⚠️ **先质疑（G14）**：
+> - **任务**：本项**破 `page` 契约**（用户 2026-10-13 已明确接受）。⚠️ 但**必须先查前端**：`detail.js` 现在怎么翻楼中楼 —— 若前端也在用 `page`，改契约就要**同步改前端 + `api.js`**。
+> - **设计**：`LIMIT offset, n` 仍是 **O(offset)** 扫描 ⇒ 只有 **keyset** 能做到"负载 ∝ 本页"；代价是响应要给 `nextCursor`。**"保持 page 语义"无法解决 O(offset)** —— 这正是接受破坏契约的理由。
+
+* **入口线索**：`comment/service/CommentService.java#getRepliesForRoot`（现传 `afterCommentId=0L` + `limit = page*pageSize` + 私有 `slicePage`/`toLimit`/`MAX_REPLY_WINDOW`）· `mapper/CommentMapper.xml#getRepliesInTreeByRoot`（**已支持 keyset**：`c.comment_id > #{afterCommentId} ... ORDER BY c.comment_id LIMIT #{limit}`）· `comment/controller/CommentController.java` · 前端 `static/js/views/detail.js`
+* **目标**：入参 `page` → `cursor`（上一页末条 `commentId`），响应加 `nextCursor`；SQL **原样用 keyset**（不再传 `0`）；**删掉**内存切片与 `MAX_REPLY_WINDOW` 兜底；`total` 语义**不变**（仍是主楼 `reply_count`）
+* **红线边界**：① **信封形状变更必须同步前端**（契约差异按 `.docs/INDEX.md` §一 ① 的规矩记录）；② `total` 与 `list` 顺序语义（`comment_id` 升序、页间不重不漏）**不得变**；③ **无 schema 变更** —— 本任务不许碰 `db/migration/**`；④ 不得顺手改 `likeCount` / 点赞态填充（**那部分已批量，无需动**）
+* **强制探索**：① ★ **先按 C-6 造基线**（造 2 万条回复，扫"末页"用时与 **DB 返回行数**，证明现状 ∝ 页码；优化后应"平"）；② 契约破面清单（谁在传 `page`：前端 / 旧 pytest / 测试）；③ `shortPageMeansEnd:false` 这类末页判据是否受影响
+* **验收**：① **独立 oracle 复算**页间不重不漏（DB 行集 vs 接口回显集）；② ★ **基线对照**：优化后"DB 行数 ∝ 页码"消失（曲线变平）；③ 末页 / 越界 / 非法 `cursor` 的兜底用例；④ 前端联调（或明确记录"前端改动同批交付"）
+* **回写**：（完成后三句内写清改了什么、验证结果；探索过程不写）
+
+### T15 收藏缓存层收口 + `/favorite/status` 短路（来源 F-17）【待执行】
+
+> ★★ **范围两定（2026-10-13 用户拍板）**：**② 计数侧「值不值得缓存」→ 保留**（判据 = **成本比较**、**不造数**：
+> `FavoriteCache` 类注释已登记"`SISMEMBER` vs `idx_user_content` 点查**在本机是同一量级**"⇒ 造数也定不了；
+> 依据三条 = 收益测不出 / 写频率低 ⇒ 命中率高 / 拆除是净风险；已回写设计篇 §3.7）；
+> **① `/favorite/status` 短路 → 做**（判据 = **同一语义不该有两个来源** —— 详情页按钮走**缓存**、本端点走 **DB**，
+> `detail.js` 的 `initFavorite()` 与 `openPicker()` **已经在同一个按钮上混用**）。⇒ 本任务**有代码变更**。
+
+> ⚠️ **先质疑（G14）**：
+> - **任务**：★ ① 的判据是"**统一来源**"，**不是"省钱"**（本仓无流量、省的是亚毫秒点查 ⇒ 收益测不出）—— **别写成性能改善**。
+> - **设计**：★ 它是"**在保住响应自洽（`isFavorited ≡ !folders.isEmpty()`）前提下能做到的最大统一**" —— `true` 分支仍**必须**由 DB 的 `folders` 推导；⚠️ **"完全统一到缓存"会打破响应自洽**（会出现 `{isFavorited:true, folders:[]}`），**不要那样做**。
+
+* **入口线索**：`favorite/cache/FavoriteCache.java` / `FavoriteRedisOps.java` · `favorite/service/FavoriteService.java#isFavorited / batchIsFavorited / countFavorites` · `/favorite/status`（`FavoriteController`）· 设计篇 **§3.7**（含 T11 落地表与那两行 ⏳）· 回归锚点 `FavoriteCacheTests` / `FavoriteCountMaintenanceTests`
+* **目标**：① 实现短路 —— **仅当** `user:favoriteSet:{userId}` 的 **key 存在且 `SISMEMBER` 明确为 `false`** 时短路（返回 `{false, []}`、**不查库**）；**miss 不短路**（走 DB + 回填）；**Redis 挂 ⇒ 降级走 DB**（退回现状）；② **重写** `FavoriteStatusVO` 类注释（现论证"同源"，之后要论证"**与详情页按钮同源**"+ 明确**容忍度边界**）；③ 评测现有 status / count 用例是否需清 Redis（按既有惯例：用 Redis 的测试 `@BeforeEach` 清 Redis）；④ ✅ **已办**：F-17 ② 的结论与依据已回写设计篇 **§3.7**（含"限流前提强度下降"的补充）
+* **红线边界**：① ★ **重判前不许先改实现**（F-17 明写）；② 若拆 ⇒ 必须同步处置 `FavoriteCacheTests` 并说明**判别力去向**（不许静默删用例）；③ 不得破坏 `isFavorited ≡ !folders.isEmpty()`（T5 不变量）；④ 不得顺手改 `favorite_count` 的维护口径（T12 口径与不变量不动）
+* **强制探索**：① 复算"详情页按钮走**缓存**"这条路与**同一个 key**：`detail.js#initFavorite` 读 `interaction.isFavorited` → `InteractionService#getStatus` → `FavoriteService#isFavorited`（**`FavoriteCache` 支撑**）→ `user:favoriteSet:{userId}`；② 列出**三个不同的触发面**：**多端并发** / **失效失败的静默降级**（T11 的 warn 后靠 TTL 自愈）/ **绕过写路径直接改库**（测试夹具、数据修复）—— 用户接受的是第 1 类，**别把三件混成一件**；③ ⚠️ 不要为"计数侧"再造数测耗时（同量级、测不出，见 `FavoriteCache` 类注释）
+* **验收**：① ★ **"未收藏时不查库"可观察** —— `@MockitoSpyBean` 对 `FavoriteItemDao.findFoldersByUserAndContent` 断言 **0 次调用**（这是**性能契约**的观测手段；先例 = `ContentReadTests` 用 spy 断言 `batchGetStatus` 的调用次数）；② **夹具带对照**：一个"未收藏"内容 + 一个"已收藏"内容 ⇒ 前者短路、后者落库且 `folders` 正确；③ ★ **响应自洽**：在"直插 DB 但缓存陈旧"时仍保证 `isFavorited ≡ !folders.isEmpty()`（**用例里显式写明"不保证与 DB 一致"** —— 这是本次口径变更的边界）；④ **反向注入**：去掉短路 ⇒ ① 变红；⑤ 详情页按钮态与弹窗态在同一场景下**不再互相打架**（前端联调或接口级对照）
+* **回写**：（完成后三句内写清改了什么、验证结果；探索过程不写）
 
 ```
 ### T# <任务名>（来源 N# / R-## / 能力 x期-x）【待执行】
@@ -79,7 +123,7 @@
 ## 上一张清单（收藏二期，2026-10-11 → 2026-10-12）
 
 > 四要素 / 强制探索 / 反向注入逐条实测 / 独立审查记录的**正文已清出**（历史在 git）；
-> 逐条编号索引（结论 + 归宿）见 [设计篇](收藏功能-分期与设计.md) **附录 A.1（T9–T12）/ A.2（R-10）/ A.3（I-09~I-12）**。
+> 逐条编号索引（结论 + 归宿）见 [收藏功能-编号索引.md](收藏功能-编号索引.md) **A.1（T9–T12）/ A.2（R-10）/ A.3（I-09~I-12）**。
 
 | 任务 | 产出 | 验证（当时） | 收口 |
 |------|------|------------|------|
@@ -91,11 +135,13 @@
 > 回归基线轨迹：391（一期收尾）→ 402（T9）→ 404（T10）→ 418（T11）→ **428（T12）**。
 > ⏳ **二期唯一遗留**：`/favorite/status` 的"未收藏短路"未做 + "T12 后计数侧还值不值得缓存"未重判 ⇒ 已合并结转 `FURTHER_ISSUES.md` **F-17**。
 
-> 收藏一期（T1–T8，2026-10-08 → 2026-10-11）一览同样已清出，见设计篇附录 A.1。
+> 收藏一期（T1–T8，2026-10-08 → 2026-10-11）一览同样已清出，见 `收藏功能-编号索引.md` A.1。
 
 ---
 
 ## 结转与留池（下一期开窗时重建）
 
-> 二期收尾（2026-10-12）时本表已**逐行处理完毕**：进下一期候选 / 转 `FURTHER_ISSUES.md`（**F-16 ~ F-19**）/ 废弃。
-> 明细随正文清出（历史在 git）。**下一期开窗时按 `CURRENT_TASKS模板.md` 重建本表** —— 不允许静默跳过任何已登记项。
+> **本期（第 3 张清单，T13–T15）已按 G14 逐条标注「先质疑」**，范围见 `CURRENT_NEEDS.md` §四；
+> ★ **反面清单同时在 `CURRENT_NEEDS.md` §四**（那里是唯一事实源，本文件不复述）。
+> 本表本期**无新增结转项**：二期收尾（2026-10-12）那批已逐行处理完毕（进候选 / 转 `FURTHER_ISSUES.md` **F-16 ~ F-22** / 废弃），明细随正文清出（历史在 git）。
+> ⚠️ **本张清单收尾时按 `CURRENT_TASKS模板.md` 重建本表** —— 不允许静默跳过任何已登记项。

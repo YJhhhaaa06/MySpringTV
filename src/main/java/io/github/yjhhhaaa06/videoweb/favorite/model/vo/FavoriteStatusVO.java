@@ -27,7 +27,7 @@ import java.util.List;
  * 实则**依赖"每条收藏记录都指向一个存在的夹"** —— 而 {@code favorite_item} 与
  * {@code favorite_folder} **之间没有外键**（V2 刻意与 V1 一致），DB 不兜底；这个保证**只由
  * {@code FavoriteService.deleteFolder} 的 {@code @Transactional} 一处**承担，而它正是
- * {@code 收藏功能-分期与设计.md 附录A.3} <b>I-04</b> 登记为"零判别力、可被静默误删"的那处。
+ * {@code 收藏功能-编号索引.mdA.3} <b>I-04</b> 登记为"零判别力、可被静默误删"的那处。
  * ⚠️ 一旦出现孤儿记录（夹已删、条目残留）：本端点（{@code folders} 走 INNER JOIN 夹）会**漏报**
  * 成"未收藏"，而 {@code /favorite/count}（不 JOIN）**仍把它计入** —— 两条读端点口径就此不一致。
  * 根治见 I-04（给 {@code folder_id} 加外键，或补删夹失败的注入用例）。
