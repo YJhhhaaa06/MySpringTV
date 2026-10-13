@@ -1,6 +1,9 @@
 package io.github.yjhhhaaa06.videoweb.content;
 
+import io.github.yjhhhaaa06.videoweb.favorite.service.FavoriteService;
+import io.github.yjhhhaaa06.videoweb.follow.service.FollowService;
 import io.github.yjhhhaaa06.videoweb.interaction.service.InteractionService;
+import io.github.yjhhhaaa06.videoweb.like.service.LikeService;
 import io.github.yjhhhaaa06.videoweb.support.Envelope;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -61,10 +64,24 @@ class ContentReadTests extends AbstractContentIntegrationTest {
     @MockitoSpyBean
     private InteractionService interactionService;
 
+    /**
+     * ★ T13：钉"**按维度常量收敛批读趟数**" —— 直接数三个被聚合域被调了几次。
+     * 不 spy {@link InteractionService} 而 spy 它的下游，是因为要验的是"**真省掉了哪几趟**"
+     * （互动域被调 1 次不代表底层只查 1 趟）。
+     */
+    @MockitoSpyBean
+    private LikeService likeService;
+
+    @MockitoSpyBean
+    private FavoriteService favoriteService;
+
+    @MockitoSpyBean
+    private FollowService followService;
+
     @BeforeEach
     void 重置spy() {
         // spy 是单例 bean，调用记录会跨用例累积 ⇒ 每测清零（真实行为不受影响）
-        Mockito.reset(interactionService);
+        Mockito.reset(interactionService, likeService, favoriteService, followService);
     }
 
     // ========================================================================
@@ -396,6 +413,43 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         //   （T9 红线的同一纪律：100 条列表不得退化为 100 次往返；反向注入实测见 T10 回写）
         verify(interactionService, times(1)).batchGetStatus(eq(viewerId), anyList(), anySet());
         verify(interactionService, never()).getStatus(any(), anyLong(), anyLong(), anyInt());
+    }
+
+    @Test
+    @DisplayName("★维度常量生效：/start 只查关注域一趟（赞/藏零次）；/search 0 维 ⇒ 三域零次")
+    void 列表_批读趟数按维度常量收敛() {
+        String token = registerAndGetToken(OTHER_PHONE, OTHER);
+        registerAndGetToken(AUTHOR_PHONE, AUTHOR);
+        long authorId = userIdOf(AUTHOR_PHONE);
+        long viewerId = userIdOf(OTHER_PHONE);
+        long contentId = insertPostContent(authorId, "pdtb 批读趟数内容");
+
+        // ★ 三维数据**全部在场**（赞 / 藏 / 关注）⇒ "省下的那几趟"是真查询，不是"本来就没数据可查"
+        insertContentLike(viewerId, contentId);
+        favoriteService.addItem(viewerId, null, contentId);
+        jdbcTemplate.update("INSERT INTO follow (user_id, followed_user_id) VALUES (?, ?)",
+                viewerId, authorId);
+
+        // ---- /start：维度常量 = {关注} ⇒ 3 趟收敛为 1 趟 ----
+        Mockito.reset(interactionService, likeService, favoriteService, followService);
+        assertThat(idsOf(Envelope.data(get("/start", token))))
+                .as("本用例需非空列表才有判别力").contains(contentId);
+        verify(followService, times(1)).batchIsFollowing(eq(viewerId), anyList());
+        // ★ 判别力：把 START_DIMENSIONS 改回全量三维 ⇒ 下面四条立即变红
+        verify(likeService, never()).batchIsContentLiked(anyLong(), anyList());
+        verify(likeService, never()).isContentLiked(anyLong(), anyLong());
+        verify(favoriteService, never()).batchIsFavorited(anyLong(), anyList());
+        verify(favoriteService, never()).isFavorited(anyLong(), anyLong());
+
+        // ---- /search/keywordSearch：维度常量 = 空集 ⇒ 3 趟收敛为 0 趟 ----
+        Mockito.reset(interactionService, likeService, favoriteService, followService);
+        assertThat(idsOf(Envelope.data(get("/search/keywordSearch?keyword=pdtb", token)).path("list")))
+                .as("本用例需非空列表才有判别力").contains(contentId);
+        // ★ 0 维必须**仍调**互动域一趟（要拿"对象在、三维全 null"），但底层三域一趟都不发
+        verify(interactionService, times(1)).batchGetStatus(eq(viewerId), anyList(), anySet());
+        verify(likeService, never()).batchIsContentLiked(anyLong(), anyList());
+        verify(favoriteService, never()).batchIsFavorited(anyLong(), anyList());
+        verify(followService, never()).batchIsFollowing(anyLong(), anyList());
     }
 
     // ========================================================================
