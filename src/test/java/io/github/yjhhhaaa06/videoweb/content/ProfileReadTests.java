@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.content;
 
+import io.github.yjhhhaaa06.videoweb.interaction.service.InteractionService;
 import io.github.yjhhhaaa06.videoweb.support.Envelope;
 import io.github.yjhhhaaa06.videoweb.user.dao.UserDao;
 import org.junit.jupiter.api.BeforeEach;
@@ -14,7 +15,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anySet;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -40,9 +47,13 @@ class ProfileReadTests extends AbstractContentIntegrationTest {
     @MockitoSpyBean
     private UserDao userDao;
 
+    /** ★ T13：主页条目互动态改走**互动域**（F-16 兑现）；用 spy 钉"走互动域 + 批量一趟"。 */
+    @MockitoSpyBean
+    private InteractionService interactionService;
+
     @BeforeEach
     void resetStubs() {
-        Mockito.reset(userDao);
+        Mockito.reset(userDao, interactionService);
     }
 
     // ========================================================================
@@ -72,6 +83,56 @@ class ProfileReadTests extends AbstractContentIntegrationTest {
         assertThat(keys).as("信封必须嵌在 contentPage 里").containsExactlyInAnyOrder(
                 "list", "total", "page", "pageSize", "totalPages");
         assertThat(page.path("total").asInt()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("★T13（R-13）：主页内容条目内嵌 interaction 且只带赞维；改走互动域（F-16 兑现）")
+    void 内容条目互动态_只带赞维() {
+        registerAndGetToken(AUTHOR_PHONE, AUTHOR);
+        String viewerToken = registerAndGetToken(VIEWER_PHONE, VIEWER);
+        long authorId = userIdOf(AUTHOR_PHONE);
+        long viewerId = userIdOf(VIEWER_PHONE);
+        long liked = insertVideoContent(authorId, "主页已赞内容");
+        long untouched = insertVideoContent(authorId, "主页未赞内容");
+        insertContentLike(viewerId, liked);            // ★ 对照：只有 liked 被赞
+
+        Mockito.reset(interactionService);
+        JsonNode page = Envelope.data(get("/profile?userId=" + authorId, viewerToken))
+                .path("contentPage");
+
+        JsonNode likedView = itemOf(page.path("list"), liked).path("interaction");
+        assertThat(likedView.isObject()).as("登录 ⇒ interaction 是对象（不是 null）").isTrue();
+        assertThat(likedView.path("isLiked").asBoolean()).as("已赞 ⇒ true").isTrue();
+        assertThat(likedView.path("isFavorited").isNull()).as("主页不带收藏维 ⇒ null").isTrue();
+        assertThat(likedView.path("isFollowed").isNull())
+                .as("★ 主页不带关注维 ⇒ null —— 关注态由 ProfileVO.isFollowed 给出，条目上不重复查").isTrue();
+
+        // ★ 对照：未赞的那条 ⇒ isLiked 是 **false**（不是 null）——"不查"与"查了是否"必须可区分
+        JsonNode untouchedView = itemOf(page.path("list"), untouched).path("interaction");
+        assertThat(untouchedView.path("isLiked").asBoolean()).as("未赞 ⇒ false（不是 null）").isFalse();
+
+        // ★ F-16 兑现的可观察证明：主页改走互动域（旧实现直连 LikeService 批量）
+        //   —— 且仍是一趟批量，不是逐条
+        verify(interactionService, times(1)).batchGetStatus(eq(viewerId), anyList(), anySet());
+        verify(interactionService, never()).getStatus(any(), anyLong(), anyLong(), anyInt());
+    }
+
+    @Test
+    @DisplayName("★T13：匿名访问主页 ⇒ 内容条目的 interaction 为 null（不是三维 false）")
+    void 匿名访问_内容条目无互动态() {
+        registerAndGetToken(AUTHOR_PHONE, AUTHOR);
+        long authorId = userIdOf(AUTHOR_PHONE);
+        long contentId = insertVideoContent(authorId, "主页匿名内容");
+
+        Mockito.reset(interactionService);
+        JsonNode item = itemOf(Envelope.data(get("/profile?userId=" + authorId, null))
+                .path("contentPage").path("list"), contentId);
+
+        assertThat(item.path("interaction").isNull())
+                .as("匿名 ⇒ interaction 为 null（与 0 维的「对象在、三维全 null」可区分）").isTrue();
+        // 匿名 ⇒ 互动域一趟都不该发（"没有我的状态"）
+        verify(interactionService, never()).batchGetStatus(any(), anyList(), anySet());
+        verify(interactionService, never()).getStatus(any(), anyLong(), anyLong(), anyInt());
     }
 
     @Test
@@ -246,5 +307,15 @@ class ProfileReadTests extends AbstractContentIntegrationTest {
         Integer n = jdbcTemplate.queryForObject(
                 "SELECT follower_count FROM users WHERE id = ?", Integer.class, userId);
         return n == null ? -1 : n;
+    }
+
+    /** 从列表里取指定 id 的条目（找不到直接失败——防"夹具没造上/被过滤掉"的假绿）。 */
+    private static JsonNode itemOf(JsonNode list, long contentId) {
+        for (JsonNode node : list) {
+            if (node.path("id").asLong() == contentId) {
+                return node;
+            }
+        }
+        throw new AssertionError("列表里应包含内容 " + contentId + "，实际：" + list);
     }
 }
