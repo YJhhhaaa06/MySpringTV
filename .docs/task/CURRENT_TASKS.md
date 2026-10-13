@@ -21,6 +21,7 @@
 * **本周期**：`2026-10-13` 起 · **第 3 张清单**（编号 **T13 起**，**不回收 T1–T12**）
 * **收尾 checklist**（下一期开窗时逐条打勾）：☐ 回归基线全绿 · ☐ 完成态已清出（记入 git）· ☐ 问题已结转（`FURTHER_ISSUES.md`）· ☐ 工作树干净
 * **回归基线（2026-10-12 二期收尾实测 = 本张清单开窗基线）**：`python tools/run_tests.py` → **428 例全绿**（默认排除 `resilience`）；`--group resilience` → **34 例**全绿（合计 **462**）—— 收尾时须 **≥** 该数
+  > 📌 **当前实测（T13 交付后，2026-10-13）**：**436 例全绿**（428 + 8 条新增，见 T13 回写）。
 
 ---
 
@@ -57,18 +58,20 @@
 > 本项目**无真实流量**（见仓库根 `AGENTS.md`「项目定位与优化口径」）⇒ 这些代价**本身就是学习与展示的对象**：
 > 能说清"我付了什么代价、换到什么、什么条件下不值得"，就是收益。
 
-### T13 列表互动态形态统一（来源 R-13）【待执行】
+### T13 列表互动态形态统一（来源 R-13）【已完成】
 
 > ⚠️ **先质疑（G14）**：
 > - **任务**：R-13 已拍板（2026-10-13）；4 个列表面**前端零消费** ⇒ 本次破坏**前端代价 = 0**。⚠️ 但收益仍是"**决策展示**"（本仓无流量），**不是"更快"** —— 别写成性能改善。
 > - **设计**：它是**原子改动** —— 只统一形态、不给"三态 + 维度集合"，会落在**两头不靠**的中间态（破了契约却仍留 `false` 歧义）；只做"维度选择"不动形态，则 `feed`/`profile` **无法表达"本面不查"**，只能继续填 `false`（**换个地方撒谎**）。反向方案（只删浪费不动契约 = 甲）**已被否决**，理由见 `CURRENT_NEEDS.md` §三 R-13。
 
 * **入口线索**：`content/model/vo/ContentVO.java`（删顶层两字段、加 `interaction`）· `content/model/vo/ContentDetailVO.java`（**形态样板，不改**）· `interaction/model/vo/InteractionStatusVO.java`（`boolean` → `Boolean`）· `interaction/service/InteractionService.java#batchGetStatus`（加维度集合重载）· `content/service/ContentStatusFiller.java` · `feed/service/FeedService.java#renderPage` · `content/service/ProfileService.java#getProfile`。骨架 = 设计篇 **§3.6** 的「列表侧形态统一（R-13）」节
-* **目标**：① `ContentVO` **删顶层** `isLiked`/`isFollowed`、改内嵌 `interaction`（与 `ContentDetailVO` 同形）；② `InteractionStatusVO` 三维改 **`Boolean` 三态**（`null` = **本面不查该维**）；③ 互动域**只给批量契约**加维度集合（`getStatus` 单条**不动**）；④ 调用点传**编译期常量**：`/start` = `{关注}`、`/search/keywordSearch` = `{赞}`、`/feed` = `{赞}`、`/profile` = `{赞}`、详情 = 三维；⑤ `feed`/`profile` **改走互动域** ⇒ 兑现 **F-16**（R-10 的"content 不再直接依赖 like/follow"补齐另一半）
-* **红线边界**：① ⚠️ `interaction` **只挂 `ContentVO`（子类），绝不进 `ContentCacheDTO`** —— 那是缓存形状，进去 = 互动态**被缓存** = **跨用户污染**；② ⚠️ **不加 `@JsonInclude(NON_NULL)`**（本仓三态惯例 = "`Boolean` + **显式 `null`**"，且详情用例断言匿名时 `interaction` **键必须在**）；③ ⚠️ **不许"选 0 维"**（`interaction: null` 会与"匿名"不可区分）；④ `authorId <= 0` **保持 `false`** ⇒ **详情 JSON 零变化**；⑤ `getStatus` 单条契约 / `ContentDetailVO` 结构 / 类级鉴权**都不得动**
+* **目标**：① `ContentVO` **删顶层** `isLiked`/`isFollowed`、改内嵌 `interaction`（与 `ContentDetailVO` 同形）；② `InteractionStatusVO` 三维改 **`Boolean` 三态**（`null` = **本面不查该维**）；③ 互动域**只给批量契约**加维度集合（`getStatus` 单条**不动**）；④ 调用点传**编译期常量**：`/start` = `{关注}`、**`/search/keywordSearch` = 空集（0 维）**、`/feed` = `{赞}`、`/profile` = `{赞}`、详情 = 三维；⑤ `feed`/`profile` **改走互动域** ⇒ 兑现 **F-16**
+  > ★ **④ 的三条口径已于 2026-10-13 由用户拍板**（见 `CURRENT_NEEDS.md` §三 R-13）：维度按 **B站** 的实际展示面取（首页只显示「已关注」、搜索结果卡片什么都不显示、动态流与个人主页只显示点赞）；**搜索页取 0 维**，表示 = **对象在、三维全 `null`**（不是 `interaction: null`，那会与匿名不可区分）。
+  > ⚠️ **原任务书此处与验收③ / 反面清单互相打架**（目标④+建议① 写 `/start`=`{关注}`、`/search`=`{赞}`；而收益①只点了"收藏集"那趟、验收③写"3→2"、反面清单写"不减少返回内容"）⇒ 已登记 `CURRENT_ISSUES.md` **I-13**；最终按用户拍板（B站 口径）执行，验收数字随之改为 **`/start` 3→1、`/search` 3→0**。
+* **红线边界**：① ⚠️ `interaction` **只挂 `ContentVO`（子类），绝不进 `ContentCacheDTO`** —— 那是缓存形状，进去 = 互动态**被缓存** = **跨用户污染**；② ⚠️ **不加 `@JsonInclude(NON_NULL)`**（本仓三态惯例 = "`Boolean` + **显式 `null`**"，且详情用例断言匿名时 `interaction` **键必须在**）；③ ⚠️ **0 维仍必须调用互动域** —— 拿到"**对象在、三维全 `null`**"；**跳过调用会得到 `interaction: null`，与"匿名"不可区分**（★ 这是 2026-10-13 对原红线"不许选 0 维"的**解禁条件**：解的是**字面**，红线括号里的**理由**仍有效）；④ `authorId <= 0` **保持 `false`** ⇒ **详情 JSON 零变化**；⑤ `getStatus` 单条契约 / `ContentDetailVO` 结构 / 类级鉴权**都不得动**
 * **强制探索**：① 复算"列表字段前端零消费"（`grep -rn "isLiked\|isFollowed\|interaction" src/main/resources/static/static/js/` ⇒ 只有 `detail.js` 读 `interaction`；`user.js` 读的是 `ProfileVO.isFollowed` 这**另一个字段**）；② 确认 `ContentCache.toContentVO` 产出的 `interaction` **恒为 `null`**（互动态**只能在请求期**由 filler / Service 填）；③ `ContentReadTests` 两条要改的用例改成**更强**的断言（"列表顶层两键必须在 / 匿名两键为 false" ⇒ "匿名 ⇒ 每条 `interaction` 为 `null`"）
-* **验收**：① 4 个列表面新形状（顶层无 `isLiked`/`isFollowed`、有 `interaction`）；② 匿名 ⇒ 每条 `"interaction": null`（不是 `{}`、不是三 `false`）；③ ★ **`/start`、`/search` 批读次数 3 → 2**（`@MockitoSpyBean` 数 like/favorite/follow 三域被调次数；**反向注入"改回全量维度"必须变红**）；④ ★ **详情响应 JSON 逐字不变**（含匿名 `interaction: null`）—— 用现有详情用例回归即可作证；⑤ `feed`/`profile` 仍**一趟批量**（不退化）
-* **回写**：（完成后三句内写清改了什么、验证结果；探索过程不写）
+* **验收**：① ✅ 4 个列表面新形状（顶层无 `isLiked`/`isFollowed`、有 `interaction`）；② ✅ 匿名 ⇒ 每条 `"interaction": null`（不是 `{}`、不是三 `false`）；③ ✅ ★ **批读趟数按维度常量收敛**（`/start` 3→**1**、`/search` 3→**0**；`@MockitoSpyBean` 数 like/favorite/follow 三域**被调次数**；★ **反向注入"改回全量维度"实测变红**）；④ ✅ **详情响应 JSON 逐字不变**（含匿名 `interaction: null`）—— 既有的详情用例回归通过作证；⑤ ✅ `feed`/`profile` 仍**一趟批量**（不退化）
+* **回写**：① 形态与维度全部落地（`InteractionDimension` 枚举 + `batchGetStatus` 换三参签名 + `ContentVO` 内嵌 `interaction` + 四个面的编译期常量），`feed`/`profile` 改走互动域后 `LikeService` 直连被移除 ⇒ **F-16 兑现**，`/feed` 条目的 `isFollowed` 由"恒 `false`（谎言）"变为 `null`。② 新增 8 例（互动域维度 3 / `ContentReadTests` 批读趟数 1 / `FeedReadTests` 2 / `ProfileReadTests` 2），**三条反向注入实测变红并还原**（全量维度 ×2、0 维跳过填充、feed 改逐条调单条）；全量回归 **436 例全绿**（428 基线 + 8）。③ 三条连带处置已登记：**I-13**（任务书内部口径打架）、**F-15** 补注（首页/搜索页将来要做前端展示须先加回维度）、设计篇 §3.6 红线③ 的解禁条件。
 
 ### T14 `/comment/replies` 游标化（来源 F-20 ②）【待执行】
 

@@ -25,6 +25,10 @@ import { showToast } from './utils.js';
 //   ★ T10（R-10）：详情互动态（赞 / 藏 / 关注作者）**内联在 /search/IdSearch 响应的
 //     `interaction` 子对象**里（匿名 ⇒ null），**没有新端点**；`favorite/status` 仍被收藏弹窗
 //     用于取"收在哪些夹"（folders），详情按钮初始态不再单发它。
+//   ★ T13（R-13）：**列表**四个面（`/start`、`/search/keywordSearch`、`/feed`、`/profile.contentPage`）
+//     的条目同样是 `interaction` 子对象（与详情**同形**），且**三维三态** —— `null` = 本面不查该维，
+//     前端静默忽略即可。各面带哪几维是后端常量：首页只给关注、搜索页**一维都不给**（对象仍在、
+//     三维全 null）、动态流与个人主页只给赞。⚠️ 匿名 ⇒ `interaction` 为 `null`。
 // ----------------------------------------------------------------------------
 
 export async function request(path, options = {}) {

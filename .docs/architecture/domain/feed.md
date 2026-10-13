@@ -109,13 +109,16 @@ GET /feed ─► FeedController ─► FeedService.getFeed
 ### 3.3 两条读路径共享的装载（`renderPage`）
 
 窗口切页与纯拉两条路径的**内容装载完全共用** `FeedService.renderPage`：**事务外**批量读内容
-（`ContentService.loadContentVOs`）+ 批量读点赞态（`LikeService.batchIsContentLiked`），按原序跳过 null。
+（`ContentService.loadContentVOs`）+ 批量读互动态（**T13 起走互动域** `InteractionService.batchGetStatus`，
+本域不再直连 `LikeService`），按原序跳过 null。
 
 两个**有意为之**的契约点：
 
-- **只填 `isLiked`，不填 `isFollowed`**。feed 条目刻意不做关注态批量填充——"顺手"改用
-  `ContentStatusFiller.fillLikeAndFollowBatch`（T10 后它是 content 侧薄壳、数据来自互动域）
-  会给 feed 条目的 `isFollowed` 填上值，属响应值改动，故不做。
+- **只填 `isLiked`**（`interaction` 子对象的赞维；另两维是 `null`）。★ T13（R-13）之前这里直连
+  `LikeService.batchIsContentLiked`，而条目的关注态只能留着 Java 默认的 `false` —— 那是个**谎言**
+  （feed 里都是已关注作者的内容）。T13 的三态 `Boolean` 解开了这个死结：未选中的维度是 `null`
+  （= 本面不查），于是既能走互动域、又**不再撒谎**。各面带哪几维是**编译期常量**，见
+  `收藏功能-分期与设计.md` **§3.6**。
 - **跳过 null 会让返回页短于 `pageSize`**（内容已软删 / 缓存空标记）。这不是"到底"，前端已按
   `shortPageMeansEnd:false` 处置。
 
@@ -314,7 +317,7 @@ fanout:
 ```
 
 - **跨域只走对方的 Service 契约**：`ContentService.loadContentVOs`、`FollowService.getFollowingIds`、
-  `LikeService.batchIsContentLiked`。
+  `InteractionService.batchGetStatus`（★ T13 起条目互动态改走**互动域**，本域不再直连 `LikeService`）。
 - **外加 DAO 薄依赖**：`content.dao.ContentDao`、`follow.dao.FollowDao`、`user.dao.UserDao`
   （读侧窗口 / 重建 / 大V判定所需）。
 - **禁止跨域触碰 `cache` 包**（不得读 `follow.cache`）——由 ArchUnit 规则 2 变成会失败的测试。
