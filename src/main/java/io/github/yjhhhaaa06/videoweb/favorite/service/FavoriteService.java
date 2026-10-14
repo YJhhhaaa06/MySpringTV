@@ -317,6 +317,58 @@ public class FavoriteService {
     }
 
     /**
+     * 他人**公开**收藏夹内的内容分页（{@code GET /favorite/folder/items?folderId=X}，T18）——
+     * 需求篇 §二「看别人的收藏夹」的"点开看内容"那一半（一期 R-08 只给了"名称 + 数量"）。
+     *
+     * <h2>★ 与 {@link #listFolderItems} 的关系：同一条装配、不同的"准入闸"</h2>
+     * {@link #listFolderItems} 是"<b>我的</b>夹内视角"（闸 = 夹属于当前用户 ⇒ 404/403）；
+     * 本方法是"<b>他人公开</b>夹内视角"（闸 = 夹存在且 {@code is_private = 0}）。两者在拿到
+     * 一个合法 {@code folderId} 之后**逐字同款**：都经 {@link #assembleFolderItems} 取页与装配
+     * （{@code findPageByFolderId} + {@code ContentService.loadContentVOs} + 失效占位）——
+     * 「失效长什么样」只有一份实现（R-03 / R-11），两条路径自然同口径。
+     *
+     * <h2>★ 拒绝口径：私密夹与不存在的夹**同码同文案**（T18 拍板 = 404）</h2>
+     * 两种情况都抛 {@link NotFoundException}「收藏夹不存在」⇒ 都是 <b>404</b>，响应**逐字相同**。
+     * 若写成"私密 ⇒ 403、不存在 ⇒ 404"，就等于对外给"**这个夹存在且是私密的**"开了一个
+     * <b>可探测信号</b>（<b>先试探出夹存在、再针对性尝试</b>）—— 这正是一期 R-08 与类注释
+     * "私密语义"节反复强调的"不因私密与否改变可观察差异"。⇒ 唯一合法答案是**不可区分**。
+     * ⚠️ 用 404 而非 403 的理由：本域 403 的既有语义是"**存在但不是我的**"
+     * （{@link #requireOwnedFolder}），而这里被拒的原因是"**不公开**"、与"归不归我"无关
+     * —— 套 403 会借来一个不对的语义，且"不存在 ⇒ 403"也与本仓"不存在 ⇒ 404"的惯例相悖。
+     * ★ 由用例钉住：私密夹与不存在夹的 status 与 msg **断言相等**。
+     *
+     * <h2>★ 匿名可访问（同 {@link #listPublicFolders}）</h2>
+     * 看别人的**公开**夹与"我是谁"无关 ⇒ Controller **无 {@code @RequiresLogin}、也不注入
+     * {@code @CurrentUserId}**（没有个性化需求）。⚠️ 由此**不能**复用 {@link #listFolderItems}
+     * （它按当前用户判归属）—— 那条路径表达的是"我的"，本条是"他人的"，两条不能互相冒充。
+     * 也⚠️ <b>绝不</b>把"是夹主本人就放行私密"这类分支写进来：分支一写错即泄露，而本条没有该需求
+     * （"我的"走 {@link #listFolderItems}）。
+     *
+     * <h2>其余口径（与 {@link #listFolderItems} 逐字一致，此处不复制论证）</h2>
+     * <ul>
+     *   <li>出参**复用** {@code PageResult&lt;FavoriteItemVO&gt;}，**不新造形状**（T18 红线④）；</li>
+     *   <li>分页单位是 {@code favorite_item} 行（G12），{@code total} **含**失效条目（R-07）；</li>
+     *   <li>失效条目按 R-03 脱敏占位（标题「内容已失效」、封面与作者 {@code null}），
+     *       照常返回 {@code contentId}（可见 ⇒ 可定位）；</li>
+     *   <li>空公开夹 ⇒ {@code list=[]} + {@code total=0}（**不 404**，空态是合法状态）；</li>
+     *   <li>纯读 ⇒ **不加事务**（与 {@link #listFolderItems} 同款：本域两条 SELECT + 一次 content
+     *       契约批量读，无原子性需求）。</li>
+     * </ul>
+     *
+     * @param folderId 目标夹（**匿名者的任意夹 id**）；不存在 / 是私密夹 ⇒ 404（两者同口径）
+     * @param page     页码（≥1，由 Controller 归一）
+     * @param pageSize 页大小（1..域级上限，由 Controller 归一）
+     */
+    public PageResult<FavoriteItemVO> listPublicFolderItems(long folderId, int page, int pageSize) {
+        FavoriteFolder folder = folderDao.findById(folderId);
+        // ★ 私密与不存在**合并成同一条拒绝**（同码同文案）—— 见方法注释"拒绝口径"节。
+        if (folder == null || Boolean.TRUE.equals(folder.getIsPrivate())) {
+            throw new NotFoundException("收藏夹不存在");
+        }
+        return assembleFolderItems(folderId, page, pageSize);
+    }
+
+    /**
      * 部分更新：改名 / 私密开关（**给了才改**；T2 的"只改名且 name 必填"在 T3 升级为本形态）。
      *
      * <p>分期篇 §3.3 把该端点画成"改名 / 简介 / 私密开关（部分更新）"，三者归属：
@@ -822,8 +874,9 @@ public class FavoriteService {
      * <h2>归属与不存在的口径</h2>
      * 复用 {@link #requireOwnedFolder}：夹不存在 ⇒ 404、不是我的 ⇒ 403
      * （与改名 / 删除 / 移出同一口径，见类注释的表）。
-     * ⚠️ 本端点是**"我的"视角**，他人视角一期只有 {@link #listPublicFolders}
-     * （名称 + 视频数，没有夹 id ⇒ 打不开别人的夹，R-08）。
+     * ⚠️ 本端点是**"我的"视角**；他人视角一期只有 {@link #listPublicFolders}
+     * （名称 + 视频数）；★ **T18 起"看他人公开夹的内容"是另一条端点**
+     * （{@link #listPublicFolderItems}，闸 = 夹公开 ⇒ 与"我的"归属闸**不是一回事**）。
      *
      * <h2>刻意不做</h2>
      * <ul>
@@ -843,10 +896,35 @@ public class FavoriteService {
      */
     public PageResult<FavoriteItemVO> listFolderItems(long userId, long folderId, int page, int pageSize) {
         requireOwnedFolder(userId, folderId);
+        return assembleFolderItems(folderId, page, pageSize);
+    }
+
+    /**
+     * 夹内分页的**唯一装配**（T18 起被 {@link #listFolderItems}（"我的"）与
+     * {@link #listPublicFolderItems}（"他人公开"）共用）——两条路径各自只负责**准入闸**，
+     * 拿到合法的 {@code folderId} 之后走同一条装配：「失效长什么样」因此只有一份实现。
+     *
+     * <p>⚠️ 它是**私有**的、且被同类 public 方法调用（自调用绕过代理）—— 刻意**不打**
+     * {@code @Transactional}（它只读、不界定事务边界）。
+     *
+     * <h2>步骤</h2>
+     * <ol>
+     *   <li>{@link FavoriteItemDao#countByFolderId} —— 本域一条 SELECT（total，含失效条目）；</li>
+     *   <li>{@link FavoriteItemDao#findPageByFolderId} —— 本域一条页内行 SELECT（收藏时间倒序）；</li>
+     *   <li>{@link ContentService#loadContentVOs} —— 一趟批量读 content 展示字段；
+     *       "取不到"即失效 ⇒ {@link #toItemVO} 渲染占位（R-11）。</li>
+     * </ol>
+     *
+     * <p>⚠️ 用 long 防 int 溢出：{@code page} 没有上限（PageParams 只归一 ≤0 与非数字），
+     * {@code page=2147483647} 时 {@code (page-1)*pageSize} 会溢出成负数 ⇒ {@code OFFSET -200}
+     * 是 SQL 语法错 ⇒ 500。一个"翻到不存在的页"的请求不该 500 —— 与 FeedService / CommentService 同款写法。
+     *
+     * @param folderId 目标夹（调用方保证：已通过自己的准入闸 —— 归属（"我的"）或公开性（"他人"））
+     * @param page     页码（≥1，由 Controller 归一）
+     * @param pageSize 页大小（1..域级上限，由 Controller 归一）
+     */
+    private PageResult<FavoriteItemVO> assembleFolderItems(long folderId, int page, int pageSize) {
         int total = itemDao.countByFolderId(folderId);
-        // ⚠️ 用 long 防 int 溢出：`page` 没有上限（PageParams 只归一 ≤0 与非数字），
-        //    page=2147483647 时 (page-1)*pageSize 会溢出成负数 ⇒ `OFFSET -200` 是 SQL 语法错 ⇒ 500。
-        //    一个"翻到不存在的页"的请求不该 500 —— 与 FeedService / CommentService 同款写法。
         long offset = (long) (page - 1) * pageSize;
         List<FavoriteItemVO> rows = itemDao.findPageByFolderId(folderId, offset, pageSize);
         // ★ 一趟批量读 content 基本信息（缓存支撑；一次请求一次调用，不逐条 —— 批量语义原样透传）。

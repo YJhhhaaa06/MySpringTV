@@ -35,11 +35,12 @@
         <result property="itemCount" column="item_count"/>
     </resultMap>
 
-    <!-- 他人视角列表行映射（PublicFavoriteFolderVO）：**只有 name + itemCount**
-         （R-08「一期只给名称 + 视频数」；刻意没有 id / isPrivate / isDefault，
+    <!-- 他人视角列表行映射（PublicFavoriteFolderVO）：**id + name + itemCount**
+         （T18 加 id —— 消费方是"点开他人公开夹看内容"；刻意仍无 isPrivate / isDefault，
          加字段前先读 PublicFavoriteFolderVO 的类注释与 FavoritePrivacyTests 的键集断言）。 -->
     <resultMap id="publicFavoriteFolderVoMap"
                type="io.github.yjhhhaaa06.videoweb.favorite.model.vo.PublicFavoriteFolderVO">
+        <id property="id" column="id"/>
         <result property="name" column="name"/>
         <result property="itemCount" column="item_count"/>
     </resultMap>
@@ -74,14 +75,14 @@
         ORDER BY f.is_default DESC, f.id ASC
     </select>
 
-    <!-- 他人视角的公开夹列表（T3）。
+    <!-- 他人视角的公开夹列表（T3；★ T18 起出参多一列 f.id —— 供前端"点开公开夹"）。
          ★ 与"我的夹列表"逐字同款，只多一条 `AND f.is_private = 0` —— 这条过滤就是"私密"的
            全部可观察行为，故它是 T3 反向验证**唯一的注入点**（去掉它 ⇒ FavoritePrivacyTests 变红）。
          ★ 用 `= 0`（确认为公开）而非 `!= 1`：将来值域若扩（如 2=草稿），对外默认不泄露。
          ★ GROUP BY 列写全（ONLY_FULL_GROUP_BY 下无歧义），ORDER BY 与"我的夹列表"复用同一顺序
            （默认夹置顶 + id 升序）—— 顺序是契约，两处不许各排一半。 -->
     <select id="findPublicByUserIdWithItemCount" resultMap="publicFavoriteFolderVoMap">
-        SELECT f.name, COUNT(i.id) AS item_count
+        SELECT f.id, f.name, COUNT(i.id) AS item_count
         FROM favorite_folder f
         LEFT JOIN favorite_item i ON i.folder_id = f.id
         WHERE f.user_id = #{userId} AND f.is_private = 0

@@ -29,6 +29,7 @@ import java.util.List;
  *   <tr><td>{@code POST /favorite/folder/add|update|remove}</td><td rowspan="2">夹 CRUD = <b>T2</b></td><td rowspan="2">✅ 本任务落地</td></tr>
  *   <tr><td>{@code GET /favorite/folder/list}</td></tr>
  *   <tr><td>{@code GET /favorite/folder/public?userId=X}</td><td>T3</td><td>✅ 本任务落地（匿名可访问）</td></tr>
+ *   <tr><td>{@code GET /favorite/folder/items?folderId=X}</td><td>T18</td><td>✅ 本任务落地（匿名可访问；看他人公开夹的内容）</td></tr>
  *   <tr><td>{@code POST /favorite/add}</td><td rowspan="3">收藏写路径 = <b>T4</b></td><td>✅ 本任务落地</td></tr>
  *   <tr><td>{@code POST /favorite/remove}（批量）</td><td>✅ 本任务落地</td></tr>
  *   <tr><td>{@code POST /favorite/move}</td><td>✅ 本任务落地</td></tr>
@@ -56,11 +57,12 @@ import java.util.List;
  *
  * <p>★ <b>T5 又加了一条匿名端点</b>（{@link #contentCount}）：{@code /favorite/count} 是
  * 公开展示数（需求篇 §三「内容页显示"多少人收藏了它"」），同样**不注入** {@code @CurrentUserId}
- * ——它不需要个性化。两条匿名端点（{@code /folder/public}、{@code /count}）都**没有**任何
+ * ——它不需要个性化。★ <b>T18 再加第三条</b>（{@link #publicFolderItems}，他人公开夹的内容）。
+ * 三条匿名端点（{@code /folder/public}、{@code /folder/items}、{@code /count}）都**没有**任何
  * 鉴权注解，{@code JwtAuthFilter} 对 {@code requiresLogin == false} 的请求按匿名放行。
- * 判别力由 {@code SecurityContractTests.favorite状态与计数鉴权} 守着（status {@code true} /
- * count {@code false} 的**成对**断言 —— 否则"整个 {@code /favorite} 被放行"与"逐端点声明正确"
- * 在断言上无法区分）。
+ * 判别力由 {@code SecurityContractTests} 守着（status {@code true} / count {@code false} 的
+ * **成对**断言 + {@code /folder/public}、{@code /folder/items} 的 {@code false} 断言 ——
+ * 否则"整个 {@code /favorite} 被放行"与"逐端点声明正确"在断言上无法区分）。
  *
  * <h2>请求形态：写 {@code POST} + {@code x-www-form-urlencoded}、读 {@code GET} + query</h2>
  * 沿袭 {@code /like/*} 与 {@code /follow/*} 的既有风格（见 T1 时本类的注释）。
@@ -187,7 +189,7 @@ public class FavoriteController {
         return ApiResponse.success(favoriteService.listMyFolders(userId));
     }
 
-    // ==================== 他人视角公开夹（T3：读 = GET + query，**匿名可访问**） ====================
+    // ==================== 他人视角公开夹（T3：读 = GET + query，**匿名可访问**；T18 补"点开看内容"） ====================
 
     /**
      * 看他人（或任何人）的**公开**收藏夹 —— 私密夹完全不出现（R-08，即"私密"一期的可观察落点）。
@@ -207,6 +209,37 @@ public class FavoriteController {
     @GetMapping("/folder/public")
     public ApiResponse<List<PublicFavoriteFolderVO>> publicFolders(@RequestParam long userId) {
         return ApiResponse.success(favoriteService.listPublicFolders(userId));
+    }
+
+    /**
+     * 看他人**公开**收藏夹里的内容（{@code GET /favorite/folder/items?folderId=X}，T18）——
+     * 需求篇 §二「看别人的收藏夹」的"点开看内容"（一期 R-08 只给了"名称 + 数量"那一半）。
+     *
+     * <p>★ <b>匿名可访问</b>（与 {@link #publicFolders} 同款）：本方法**没有任何鉴权注解**、
+     * 也不注入 {@code @CurrentUserId} —— 看别人的**公开**夹与"我是谁"无关。⚠️ <b>绝不</b>图省事
+     * 给本类加类级 {@code @RequiresLogin}：那会把 {@code /folder/public} 与本条一并误拦成 401
+     * （见类注释"鉴权"节 —— 一期 §3.3 已专门警告，本类逐端点声明是为此刻准备的）。
+     *
+     * <p>★ <b>私密夹与不存在的夹返回同一口径</b>（<b>404 + 同一文案</b>）—— 服务端强制
+     * {@code is_private = 0}，两者**不可区分**；若给"私密"单独一个 403，就等于对外暴露
+     * "该夹存在且是私密的"这个可探测信号（详见 {@code FavoriteService.listPublicFolderItems}）。
+     *
+     * <p>{@code data} 是分页信封 {@code PageResult<FavoriteItemVO>}（与 {@code /favorite/list} **同形**，
+     * **不新造** T18 红线④）：失效条目照常返回脱敏占位（R-03）；{@code total} **含**失效条目（R-07）；
+     * 空公开夹 ⇒ {@code list=[]} + {@code total=0}（不 404）。
+     *
+     * @param folderId 目标夹（必传）；**不存在 / 是私密夹 ⇒ 同为 404**（不可区分）
+     * @param page     页码（缺省/非数字/≤0 → 1，由 {@code PageParams} 归一）
+     * @param pageSize 页大小（同上 → 缺省 {@value #FAVORITE_PAGE_SIZE_DEFAULT}，恒 ≤
+     *                 {@value #FAVORITE_PAGE_SIZE_MAX}）
+     */
+    @GetMapping("/folder/items")
+    public ApiResponse<PageResult<FavoriteItemVO>> publicFolderItems(@RequestParam long folderId,
+                                                                     @RequestParam(required = false) String page,
+                                                                     @RequestParam(required = false) String pageSize) {
+        return ApiResponse.success(favoriteService.listPublicFolderItems(folderId,
+                PageParams.normalizePage(page),
+                PageParams.normalizePageSize(pageSize, FAVORITE_PAGE_SIZE_MAX, FAVORITE_PAGE_SIZE_DEFAULT)));
     }
 
     // ==================== 收藏写路径（T4：写 = POST + form） ====================
