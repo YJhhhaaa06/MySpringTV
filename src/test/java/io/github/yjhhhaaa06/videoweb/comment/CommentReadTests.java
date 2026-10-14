@@ -1,16 +1,26 @@
 package io.github.yjhhhaaa06.videoweb.comment;
 
+import io.github.yjhhhaaa06.videoweb.comment.dao.CommentDao;
 import io.github.yjhhhaaa06.videoweb.content.AbstractContentIntegrationTest;
 import io.github.yjhhhaaa06.videoweb.support.Envelope;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import tools.jackson.databind.JsonNode;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeSet;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 
 /**
  * S5：comment **读路径**的 HTTP 契约测试（{@code /comment/show}、{@code /comment/replies}）。
@@ -24,6 +34,14 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       {@code /comment/replies}，其 {@code total} 与 {@code replyCount} **同口径**；</li>
  *   <li>越界页 → 空 list 但 **total 保留**（前端据此判末页）。</li>
  * </ul>
+ *
+ * <h2>★ T14（F-20 ②）：{@code /comment/replies} 由 offset 分页改**游标（keyset）分页**</h2>
+ * 上方那几条 offset 契约**除外**于 {@code /comment/replies}：它现在入参 {@code cursor}、
+ * 出参加 {@code nextCursor}（{@code null} = 到底）。改的理由 = offset 的
+ * {@code LIMIT page*pageSize} 让**负载 ∝ 页码**；游标只取本页。本类的
+ * {@code 性能契约_本页DB取行数不随游标深度增长} 用 spy 钉住该不变量的**判别力**；
+ * {@code 游标翻页不重不漏} 用独立 oracle 钉住"页间不重不漏"（不因改实现而变化）。
+ * <p>⚠️ 旧的 {@code page} 参数不再被识别（传了退化为第 1 页）；前端 {@code detail.js} 已同批改游标。
  *
  * <h2>★ 两类"看似 bug、实为规格"的行为（必须有测试钉住）</h2>
  * <ol>
@@ -45,6 +63,23 @@ class CommentReadTests extends AbstractContentIntegrationTest {
     private String authorToken;
     private final List<Long> mainIds = new ArrayList<>();
     private long firstRootWithReplies;
+
+    /**
+     * ★ T14：钉"**本页向 DB 取的行数只由 pageSize 决定、与游标深度无关**"（性能契约的观测手段）。
+     *
+     * <p>为什么 spy **DAO** 而不是断言响应体：负载 ∝ 页码 的病灶在"**DB 返回了 page*pageSize 行**"，
+     * 这在响应体上**看不见**（多取的行被内存切片丢掉了）⇒ 只能观测"向 DB 要了多少行"。
+     * 先例 = `ContentReadTests` 用 spy 数下游被调次数（T13 的批读趟数契约）。
+     */
+    @MockitoSpyBean
+    private CommentDao commentDao;
+
+    @BeforeEach
+    void 重置spy() {
+        // spy 是单例 bean，调用记录跨用例累积 ⇒ 每测清零（真实行为不受影响）。
+        // ⚠️ reset 必须在"被测请求"之前：写在之后会把待验证的调用记录一起清掉（T13 实测踩到）。
+        Mockito.reset(commentDao);
+    }
 
     private void seed() {
         authorToken = registerAndGetToken(AUTHOR_PHONE, AUTHOR);
@@ -189,32 +224,138 @@ class CommentReadTests extends AbstractContentIntegrationTest {
     // ========================================================================
 
     @Test
-    @DisplayName("展开：信封 total = 主楼 reply_count；升序；越界保留 total")
+    @DisplayName("展开：游标信封 {list,total,pageSize,nextCursor}；升序；nextCursor=null 即到底；越界空页保留 total")
     void 展开回复() {
         seed();
-        JsonNode data = Envelope.data(
-                get("/comment/replies?rootId=" + firstRootWithReplies + "&page=1&pageSize=50", null));
-        assertThat(data.path("total").asInt()).isEqualTo(3);
-        List<Long> ids = new ArrayList<>();
-        for (JsonNode node : data.path("list")) {
-            ids.add(node.path("commentId").asLong());
-        }
-        assertThat(ids).as("comment_id 升序").isSorted();
-        assertThat(ids.size()).isEqualTo(3);
+        // 一页装下 ⇒ 直接到底
+        JsonNode onePage = Envelope.data(
+                get("/comment/replies?rootId=" + firstRootWithReplies + "&pageSize=50", null));
+        assertThat(onePage.path("total").asInt()).isEqualTo(3);
+        assertThat(onePage.path("pageSize").asInt()).isEqualTo(50);
+        assertThat(rootIds(onePage.path("list"))).as("comment_id 升序").isSorted().hasSize(3);
+        assertThat(onePage.path("nextCursor").isNull()).as("一页装下 3 条 ⇒ 到底").isTrue();
 
-        JsonNode second = Envelope.data(
-                get("/comment/replies?rootId=" + firstRootWithReplies + "&page=2&pageSize=2", null));
-        assertThat(second.path("list").size()).isEqualTo(1);
-        assertThat(second.path("total").asInt()).isEqualTo(3);
+        // 两页：nextCursor 逐页推进，末页为 null
+        JsonNode p1 = Envelope.data(
+                get("/comment/replies?rootId=" + firstRootWithReplies + "&pageSize=2", null));
+        List<Long> firstIds = rootIds(p1.path("list"));
+        assertThat(firstIds).hasSize(2);
+        long cursor2 = p1.path("nextCursor").asLong();
+        assertThat(cursor2).as("nextCursor = 本页末条 commentId").isEqualTo(firstIds.get(1));
 
+        JsonNode p2 = Envelope.data(
+                get("/comment/replies?rootId=" + firstRootWithReplies + "&cursor=" + cursor2 + "&pageSize=2", null));
+        assertThat(p2.path("list").size()).isEqualTo(1);
+        assertThat(p2.path("total").asInt()).isEqualTo(3);
+        assertThat(p2.path("nextCursor").isNull()).as("末页 ⇒ nextCursor=null").isTrue();
+
+        // 缺省 pageSize = 评论域信封 200（本条语义未变）
+        JsonNode byDefault = Envelope.data(get("/comment/replies?rootId=" + firstRootWithReplies, null));
+        assertThat(byDefault.path("pageSize").asInt()).as("缺省信封 200（T11-B）").isEqualTo(200);
+
+        // 越界游标：空 list + nextCursor=null，但 total 仍为真值（与 offset 分页"越界页"同构）
         JsonNode beyond = Envelope.data(
-                get("/comment/replies?rootId=" + firstRootWithReplies + "&page=99&pageSize=2", null));
+                get("/comment/replies?rootId=" + firstRootWithReplies + "&cursor=999999999&pageSize=2", null));
         assertThat(beyond.path("list").size()).isZero();
-        assertThat(beyond.path("total").asInt()).as("越界页保留真实 total").isEqualTo(3);
+        assertThat(beyond.path("total").asInt()).as("越界游标保留真实 total").isEqualTo(3);
+        assertThat(beyond.path("nextCursor").isNull()).isTrue();
+    }
 
-        JsonNode byPageOnly = Envelope.data(
-                get("/comment/replies?rootId=" + firstRootWithReplies + "&page=1", null));
-        assertThat(byPageOnly.path("pageSize").asInt()).as("缺省信封 200（T11-B）").isEqualTo(200);
+    @Test
+    @DisplayName("★ 独立 oracle：游标逐条翻页 → 页间不重不漏、顺序与 DB 行集一致（含二级间接回复）")
+    void 游标翻页不重不漏() {
+        seed();
+        // 造一条二级间接回复（挂到首条直接回复下）—— 覆盖 SQL 的"直接回复 + 二级间接回复"谓词
+        Long direct1 = jdbcTemplate.queryForObject(
+                "SELECT MIN(comment_id) FROM comment WHERE parent_id = ?", Long.class, firstRootWithReplies);
+        insertComment(contentId, authorId, "二级间接回复", direct1, authorId);
+        setReplyCount(firstRootWithReplies, 4);
+
+        // 独立 oracle：从**原始行集**在 Java 侧重建"该主楼的回复集"（不照抄被测 SQL 的两层谓词）
+        Map<Long, List<Long>> childrenOf = new LinkedHashMap<>();
+        TreeSet<Long> direct = new TreeSet<>();
+        for (Map<String, Object> r : jdbcTemplate.queryForList(
+                "SELECT comment_id, parent_id FROM comment WHERE content_id = ? AND is_deleted = 0", contentId)) {
+            Object parentObj = r.get("parent_id");
+            if (parentObj == null) {
+                continue;
+            }
+            long id = ((Number) r.get("comment_id")).longValue();
+            long parent = ((Number) parentObj).longValue();
+            childrenOf.computeIfAbsent(parent, k -> new ArrayList<>()).add(id);
+            if (parent == firstRootWithReplies) {
+                direct.add(id);
+            }
+        }
+        TreeSet<Long> expected = new TreeSet<>(direct);
+        for (Long d : direct) {
+            expected.addAll(childrenOf.getOrDefault(d, List.of()));
+        }
+        assertThat(expected).as("前置：该主楼共 4 条回复（3 直接 + 1 二级间接）").hasSize(4);
+
+        // pageSize=1 逐条翻页 —— 最严格地暴露"重 / 漏 / 错序"
+        List<Long> walked = new ArrayList<>();
+        long cursor = 0;
+        for (int guard = 0; guard < 100; guard++) {
+            JsonNode data = Envelope.data(get("/comment/replies?rootId=" + firstRootWithReplies
+                    + "&cursor=" + cursor + "&pageSize=1", null));
+            assertThat(data.path("total").asInt()).as("total 每页恒为 reply_count").isEqualTo(4);
+            for (JsonNode node : data.path("list")) {
+                walked.add(node.path("commentId").asLong());
+            }
+            if (data.path("nextCursor").isNull()) {
+                break;
+            }
+            long next = data.path("nextCursor").asLong();
+            assertThat(next).as("游标必须严格前进").isGreaterThan(cursor);
+            cursor = next;
+        }
+        assertThat(walked).as("页间不重不漏、升序、与独立 oracle 行集一致")
+                .isEqualTo(new ArrayList<>(expected)).doesNotHaveDuplicates();
+    }
+
+    @Test
+    @DisplayName("兜底：缺省 / 非数字 / 非正 cursor 静默归一到楼头（第 1 页），不报错")
+    void 非法游标兜底() {
+        seed();
+        for (String c : new String[]{"", "abc", "-5", "0"}) {
+            JsonNode data = Envelope.data(get("/comment/replies?rootId=" + firstRootWithReplies
+                    + "&cursor=" + c + "&pageSize=50", null));
+            assertThat(data.path("list").size()).as("cursor=[%s] 应回到第 1 页", c).isEqualTo(3);
+            assertThat(data.path("nextCursor").isNull()).isTrue();
+        }
+    }
+
+    @Test
+    @DisplayName("★ 性能契约：向 DB 取的行数 = pageSize+1，且与游标深度无关（负载 ∝ 本页，不再 ∝ 页码）")
+    void 性能契约_本页DB取行数不随游标深度增长() {
+        seed();
+        // 该主楼再补 25 条直接回复（seed 已有 3 条）⇒ 共 28 条，令 pageSize=10 时可翻 3 页
+        for (int i = 0; i < 25; i++) {
+            insertComment(contentId, authorId, "补 " + i, firstRootWithReplies, null);
+        }
+        setReplyCount(firstRootWithReplies, 28);
+        Mockito.reset(commentDao);   // ⚠️ 前置夹具（建内容 / 建回复）的 DAO 调用不计入
+
+        JsonNode p1 = Envelope.data(
+                get("/comment/replies?rootId=" + firstRootWithReplies + "&pageSize=10", null));
+        assertThat(p1.path("list").size()).isEqualTo(10);
+        long c2 = p1.path("nextCursor").asLong();
+
+        JsonNode p2 = Envelope.data(get("/comment/replies?rootId=" + firstRootWithReplies
+                + "&cursor=" + c2 + "&pageSize=10", null));
+        assertThat(p2.path("list").size()).isEqualTo(10);
+        long c3 = p2.path("nextCursor").asLong();
+
+        JsonNode p3 = Envelope.data(get("/comment/replies?rootId=" + firstRootWithReplies
+                + "&cursor=" + c3 + "&pageSize=10", null));
+        assertThat(p3.path("list").size()).isEqualTo(8);
+        assertThat(p3.path("nextCursor").isNull()).as("28 条 / 每页 10 ⇒ 第 3 页到底").isTrue();
+
+        // 三次请求都只向 DB 取 pageSize+1 = 11 行；旧实现（LIMIT page*pageSize）会随页码增长 ⇒ 变红
+        verify(commentDao).getRepliesInTreeByRoot(anyLong(), eq(firstRootWithReplies), eq(0L), eq(11));
+        verify(commentDao).getRepliesInTreeByRoot(anyLong(), eq(firstRootWithReplies), eq(c2), eq(11));
+        verify(commentDao).getRepliesInTreeByRoot(anyLong(), eq(firstRootWithReplies), eq(c3), eq(11));
     }
 
     @Test
@@ -236,12 +377,12 @@ class CommentReadTests extends AbstractContentIntegrationTest {
         String viewerToken = registerAndGetToken(VIEWER_PHONE, VIEWER);
         long viewerId = userIdOf(VIEWER_PHONE);
         JsonNode all = Envelope.data(
-                get("/comment/replies?rootId=" + firstRootWithReplies + "&page=1&pageSize=50", null));
+                get("/comment/replies?rootId=" + firstRootWithReplies + "&pageSize=50", null));
         long secondReplyId = all.path("list").get(1).path("commentId").asLong();
         insertCommentLike(viewerId, secondReplyId);
 
         JsonNode data = Envelope.data(get("/comment/replies?rootId=" + firstRootWithReplies
-                + "&page=1&pageSize=50", viewerToken));
+                + "&pageSize=50", viewerToken));
         assertThat(data.path("list").get(0).path("isLiked").asBoolean()).isFalse();
         assertThat(data.path("list").get(1).path("isLiked").asBoolean()).isTrue();
     }

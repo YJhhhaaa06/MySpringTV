@@ -29,6 +29,10 @@ import { showToast } from './utils.js';
 //     的条目同样是 `interaction` 子对象（与详情**同形**），且**三维三态** —— `null` = 本面不查该维，
 //     前端静默忽略即可。各面带哪几维是后端常量：首页只给关注、搜索页**一维都不给**（对象仍在、
 //     三维全 null）、动态流与个人主页只给赞。⚠️ 匿名 ⇒ `interaction` 为 `null`。
+//   ★ T14（F-20 ②）：`/comment/replies` **改游标分页** —— 入参 `cursor`（上页末条 commentId，缺省 0）、
+//     出参 `{list,total,pageSize,nextCursor}`；`nextCursor=null` 即到底 ⇒ 前端翻到它为止（旧 `page`
+//     参数不再被识别）。**其余分页端点（follow/search/profile/feed、`/comment/show`）仍是 `page` 信封**，
+//     不要照搬到 `chunkedList`（后者是 offset 语义）。
 // ----------------------------------------------------------------------------
 
 export async function request(path, options = {}) {

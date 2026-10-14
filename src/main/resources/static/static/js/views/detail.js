@@ -25,7 +25,7 @@ export function mount(container, params) {
     content: null,
     commentList: null,      // T10-B：createChunkedList 实例（评论主楼大 chunk + 本地小批）
     displayedComments: 0,   // 已展示条数（本地小批累积）
-    expandedRoots: {},      // T10-B：rootId → { replies, page, totalPages }（展开的楼中楼）
+    expandedRoots: {},      // T10-B：rootId → { replies }（已展开的楼中楼全量；T14 起游标拉齐后重灌）
     related: [],
     parentId: null,
     isFavorited: false,      // 收藏按钮态（T7；T10 起初始值读详情内联 interaction.isFavorited，弹窗仍走 /favorite/status 取 folders）
@@ -490,20 +490,21 @@ function createCommentItem(comment, isReply) {
   return wrapper;
 }
 
-// 展开主楼全部回复：分页拉 /comment/replies（页间与 children 前 K 重叠去重）并增量渲染；
+// 展开主楼全部回复：★T14 游标（keyset）翻页拉 /comment/replies（页间与 children 前 K 重叠去重）并增量渲染；
 // 结果存入 state.expandedRoots[rootId]={replies:[...]}，供 render 重建后重灌（review L2）
 async function ensureRootExpanded(comment, wrapper) {
   const rootId = comment.commentId;
   const box = wrapper.querySelector('.comment-replies');
   const known = new Map();
   (comment.children || []).forEach((c) => known.set(c.commentId, c));
-  let page = 1;
+  let cursor = 0;
   for (;;) {
-    // T11-B：只传 page（信封大小后端定 200，比原先硬传 50 少 4 倍往返，取齐结果不变）
-    const data = await request(`comment/replies?rootId=${rootId}&page=${page}`);
+    // T14：游标翻页——cursor 缺省 0（楼头）；后端 nextCursor=null 即到底（不再有 page/totalPages）
+    const data = await request(`comment/replies?rootId=${rootId}&cursor=${cursor}`);
     (data.list || []).forEach((r) => { known.set(r.commentId, r); });
-    if (page >= (data.totalPages || 1)) break;
-    page += 1;
+    const next = data.nextCursor;
+    if (!next || next <= cursor) break;   // 到底；`next <= cursor` 为防御性兜底（防不前进的死循环）
+    cursor = next;
   }
   if (!known.has(rootId) && known.size === 0) return; // 无任何行
   state.expandedRoots[rootId] = { replies: Array.from(known.values()) };
