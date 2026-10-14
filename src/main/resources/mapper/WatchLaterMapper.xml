@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  稍后再看 Mapper（表 watch_later，V4 建，收藏三期 T17）。
+
+  ⚠️ 全局 `map-underscore-to-camel-case: false` —— 读语句的列名要么无下划线、要么用显式别名，
+     故下面的分页读用 resultMap 显式映射（content_id → contentId、create_time → addedTime）。
+     写语句（INSERT/DELETE）无列映射需求。
+
+  ★ 三条口径（见 WatchLaterDao 类注释，写改动前先读）：
+    ① add = upsert（撞 uk_user_content 只刷 create_time ⇒ 移到最前），不写"先查后插"；
+    ② remove 不校验内容存在性（G11）—— 失效条目必须删得掉；幂等；
+    ③ 容量判据排除自身（countByUserIdExcludingContent 的 content_id <> ?）。
+-->
+<mapper namespace="io.github.yjhhhaaa06.videoweb.favorite.dao.WatchLaterDao">
+
+    <!-- 加入稍后再看（T17）：insert 或"移到最前"。
+         ★ ON DUPLICATE KEY UPDATE 撞 uk_user_content(user_id, content_id) 时只改 create_time
+           —— 不新增行、不改 id ⇒ 按 create_time DESC 重排即到最前（B 站实测，需求篇 §六）。
+         ⚠️ 不写"先查后插"（并发下必然漏）；内容存在性/是否视频与容量由 service 先校验。 -->
+    <insert id="upsert">
+        INSERT INTO watch_later (user_id, content_id)
+        VALUES (#{userId}, #{contentId})
+        ON DUPLICATE KEY UPDATE create_time = CURRENT_TIMESTAMP
+    </insert>
+
+    <!-- 从稍后再看批量移出（T17）。
+         ★ 单条 DELETE ... IN 原生原子；★ 刻意**不带**任何 content 联结/存在性条件（G11 红线）：
+           失效条目必须删得掉。幂等：0 行不算错。
+         ⚠️ 空列表会在 MySQL 里生成 IN () 语法错 —— service 已拦空集为 400，别放开。 -->
+    <delete id="deleteByUserAndContentIds">
+        DELETE FROM watch_later
+        WHERE user_id = #{userId}
+          AND content_id IN
+        <foreach collection="contentIds" item="contentId" open="(" separator="," close=")">
+            #{contentId}
+        </foreach>
+    </delete>
+
+    <!-- 池内条数、排除给定内容自身（T17 容量判据）。
+         ★ content_id <> ? 是"移到最前"语义的关键：已在池中的内容重复 add 时它自己不算"新增名额"
+           ⇒ 已满（100）时仍加得进去；只有"加新内容且已满"才 400。
+         命中 uk_user_content(user_id, content_id) 前导列。 -->
+    <select id="countByUserIdExcludingContent" resultType="int">
+        SELECT COUNT(*) FROM watch_later WHERE user_id = #{userId} AND content_id &lt;&gt; #{contentId}
+    </select>
+
+    <!-- 池内总条数（T17：列表 total）。数的是 watch_later **行** —— 失效条目照常计入/占位（G12/R-07）。 -->
+    <select id="countByUserId" resultType="int">
+        SELECT COUNT(*) FROM watch_later WHERE user_id = #{userId}
+    </select>
+
+    <!-- 稍后再看一页（加入时间倒序）。★ 只查本域两列；title/coverUrl/authorName/invalid 由
+         WatchLaterService.list 经 ContentService.loadContentVOs 组装（R-11"看不了 ≈ 失效"）。
+         ① 判失效**不在这里**（别回流成 JOIN content，测不出"视频行缺失/未知 type"，且违模块边界 I-07③）；
+         ② 分页单位是 watch_later 行：整页失效也照常返回（跳过 ⇒ 看不到 ⇒ 永远清不掉）；
+         ③ 顺序 create_time DESC, id DESC —— create_time 是秒精度，同秒并列补 id DESC 稳定 tie-breaker。 -->
+    <resultMap id="watchLaterItemVoMap"
+               type="io.github.yjhhhaaa06.videoweb.favorite.model.vo.WatchLaterItemVO">
+        <result property="contentId" column="content_id"/>
+        <result property="addedTime" column="added_time"/>
+    </resultMap>
+
+    <select id="findPageByUserId" resultMap="watchLaterItemVoMap">
+        SELECT w.content_id AS content_id,
+               w.create_time AS added_time
+        FROM watch_later w
+        WHERE w.user_id = #{userId}
+        ORDER BY w.create_time DESC, w.id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+</mapper>

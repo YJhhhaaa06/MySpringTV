@@ -39,6 +39,15 @@
         SELECT EXISTS(SELECT 1 FROM content WHERE id = #{contentId} AND is_deleted = 0)
     </select>
 
+    <!-- 读未软删内容的类型（收藏三期 T17：稍后再看"只能加视频"的门禁）。
+         ★ 与 isContentExist 同一形态，只是带回 type —— 一趟覆盖 add/move 的 404（无行）与
+           400（非视频）两条拒因。
+         ⚠️ 返回 Integer（包装）：无行 / 已软删 ⇒ null；声明成 int 会在无行时 NPE（同 getContentStatus）。
+         ⚠️ 口径 = content.type（1 视频 / 2 图文；媒体表的 3 封面与这里无关）。 -->
+    <select id="findAliveContentType" resultType="java.lang.Integer">
+        SELECT type FROM content WHERE id = #{contentId} AND is_deleted = 0
+    </select>
+
     <!-- TV: UPDATE content SET comment_count = comment_count + ? WHERE id = ?
          ⚠️ 一字未改——**没有**防负守卫（对比 comment.updateReplyCount 有），保留 TV 原样行为。
          已知尖锐处见 ContentDao#updateCommentCount 的 Javadoc（int unsigned 下溢）。 -->

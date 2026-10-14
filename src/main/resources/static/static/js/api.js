@@ -33,6 +33,12 @@ import { showToast } from './utils.js';
 //     出参 `{list,total,pageSize,nextCursor}`；`nextCursor=null` 即到底 ⇒ 前端翻到它为止（旧 `page`
 //     参数不再被识别）。**其余分页端点（follow/search/profile/feed、`/comment/show`）仍是 `page` 信封**，
 //     不要照搬到 `chunkedList`（后者是 offset 语义）。
+//   ★ T17（收藏三期）：**稍后再看**四端点（**独立于收藏**，四端点**全部需登录**，逐端点声明）——
+//     读 `GET watchlater/list`（`page` 信封，出参新形状 `{contentId,addedTime,invalid,title,coverUrl,authorName}`）；
+//     写 `POST watchlater/{add,remove,move}`（form 参数走 query，同 `favorite/*` 写风格）。
+//     ★ 语义：`add` **只收视频**、重复 add ⇒ **移到最前**；池满 100 时加新内容 400、"已在池中"重复 add 仍成功；
+//       `move` 的 `folderId` **缺省 = 默认夹**。⚠️ **除 `list` 外任何地方都看不出"是否在稍后再看"**
+//       （没有 status 端点、不在 `interaction` 里）——前端**不得**给按钮做"已加入"持久态（UI = T19）。
 // ----------------------------------------------------------------------------
 
 export async function request(path, options = {}) {

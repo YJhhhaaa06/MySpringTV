@@ -177,6 +177,10 @@ video:
     default-folder-max-items: ${FAVORITE_DEFAULT_FOLDER_MAX_ITEMS:5000}
     custom-folder-max-items: ${FAVORITE_CUSTOM_FOLDER_MAX_ITEMS:500}
     custom-folder-max-count: ${FAVORITE_CUSTOM_FOLDER_MAX_COUNT:20}
+    # 稍后再看上限（收藏三期 T17；B 站 实测 100、未公示 ⇒ 取实测值）。
+    # ⚠️ 口径同 T16：**软上限**（判据 COUNT → INSERT 非原子）；★ 判据用 `content_id <> ?` **排除自身**
+    #    ⇒ "已在池中的内容再次加入（移到最前）"在**已满时仍成功**，只有"加新内容且已满"才 400。
+    watch-later-max-items: ${FAVORITE_WATCH_LATER_MAX_ITEMS:100}
 
   # 缓存（决策⑤：显式封装层，不用 @Cacheable）
   # 口径对齐 TV AppConfig.getLikeTtlSeconds() ← app.properties 的 cache.like.ttlMinutes=15。

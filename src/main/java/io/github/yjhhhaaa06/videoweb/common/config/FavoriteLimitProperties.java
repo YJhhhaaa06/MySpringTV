@@ -3,14 +3,15 @@ package io.github.yjhhhaaa06.videoweb.common.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * 收藏夹容量上限（收藏三期 <b>T16</b>）。
+ * 收藏域容量上限（收藏三期 <b>T16</b> 收藏夹 + <b>T17</b> 稍后再看）。
  *
  * <p>与 {@link FavoriteCacheProperties} / {@link LikeCacheProperties} 同款：标准配置绑定 +
  * 环境变量可覆盖，放在 {@code common.config}（本项目的 {@code @ConfigurationProperties} 记录
  * 都收在这里，与域代码分离）。
  *
  * <p>★ <b>上限刻意不进 schema</b>（T16 红线④）：它是业务常量、不是结构 ——
- * 改数不动代码，也不需要新迁移（**V4 留给 T17 的 {@code watch_later}**）。
+ * 改数不动代码，也不需要新迁移（**V4 留给 T17 的 {@code watch_later} 表本身**）。
+ * 稍后再看的上限 {@link #watchLaterMaxItems} 同族（T17 决策 D5：**扩展本类**而非新建类）。
  *
  * <h2>数字的来源（别照抄 B 站）</h2>
  * B 站实测为 默认夹 5 万 / 单夹 1000 / 自建夹 99，且**官方未公示**
@@ -58,14 +59,16 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param defaultFolderMaxItems 默认夹内容上限（5000；每用户至多一个默认夹）
  * @param customFolderMaxItems  自建夹内容上限（500）
  * @param customFolderMaxCount  自建夹**个数**上限（20；默认夹不计入）
+ * @param watchLaterMaxItems    **稍后再看**上限（100；T17，B 站 实测值）
  */
 @ConfigurationProperties(prefix = "video.favorite")
-public record FavoriteLimitProperties(int defaultFolderMaxItems, int customFolderMaxItems, int customFolderMaxCount) {
+public record FavoriteLimitProperties(int defaultFolderMaxItems, int customFolderMaxItems, int customFolderMaxCount,
+                                      int watchLaterMaxItems) {
 
     /**
      * 绑定期校验"必须为正"（同 {@link UploadProperties#root} 的空值 fail-fast 纪律）。
      *
-     * <p>★ 三个字段都是 {@code int}**原生类型** ⇒ 键名 / 前缀写错时**不报错、只绑成 0**
+     * <p>★ 四个字段都是 {@code int}**原生类型** ⇒ 键名 / 前缀写错时**不报错、只绑成 0**
      * —— 而 0 会把每一次新增 / 新建都判成 400。故这里**故意让它响亮失败**（上下文起不来），
      * 而不是留一个"应用看着在跑、其实全 400"的静默态。
      */
@@ -73,6 +76,7 @@ public record FavoriteLimitProperties(int defaultFolderMaxItems, int customFolde
         requirePositive(defaultFolderMaxItems, "video.favorite.default-folder-max-items");
         requirePositive(customFolderMaxItems, "video.favorite.custom-folder-max-items");
         requirePositive(customFolderMaxCount, "video.favorite.custom-folder-max-count");
+        requirePositive(watchLaterMaxItems, "video.favorite.watch-later-max-items");
     }
 
     private static void requirePositive(int value, String key) {
