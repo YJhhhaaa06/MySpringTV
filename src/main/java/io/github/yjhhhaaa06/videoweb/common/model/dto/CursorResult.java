@@ -25,8 +25,9 @@ import java.util.List;
  *       否则本页已到楼尾 ⇒ 前端**一次请求即可知到底**，无需再发一次空请求。</li>
  * </ul>
  *
- * <p>⚠️ 游标本身**不做服务端校验**：非法 / 越界的游标由"取不到行 ⇒ 空 list + {@code nextCursor=null}"
- * 自然兜底（与 offset 分页"越界页空 list"同构）。
+ * <p>⚠️ 游标**不做服务端有效性校验**：**非数字 / ≤0** ⇒ 归一到 0（= 第 1 页，见
+ * {@code PageParams.normalizeCursor}）；**数值越界**（大于目标楼最大 id）⇒ 取不到行 ⇒
+ * 空 {@code list} + {@code nextCursor=null}（与 offset 分页"越界页空 list"同构）。
  *
  * @param list       当前页的条目
  * @param total      条目总数（与 {@link PageResult} 同一业务口径）

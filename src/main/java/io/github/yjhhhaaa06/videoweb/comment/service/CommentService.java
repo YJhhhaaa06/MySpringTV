@@ -207,14 +207,21 @@ public class CommentService {
      * {@code nextCursor} = 本页第 {@code pageSize} 条的 {@code commentId}；否则本页即楼尾 ⇒
      * {@code nextCursor = null}。前端**一次请求即可知到底**，无需再发一次空请求。
      *
-     * <p>⚠️ 越界 / 非法游标不报错：取不到行 ⇒ 空 {@code list} + {@code nextCursor=null}
-     * （{@code total} 仍为真实值，与 offset 分页"越界页空 list 但 total 保留"同构）。
+     * <p>⚠️ 游标异常**不报错**：**非数字 / ≤0** 在 controller 层已归一到 0（⇒ 第 1 页，
+     * 见 {@code PageParams.normalizeCursor}）；**数值越界**（大于本楼最大 id）⇒ 取不到行 ⇒
+     * 空 {@code list} + {@code nextCursor=null}（{@code total} 仍为真实值，与 offset 分页
+     * "越界页空 list 但 total 保留"同构）。
      *
      * <p><b>决策表 G-3：⚠️ 有意改进——去掉事务。</b>TV 用两个 {@code transactionTemplate.execute}
      * 各包一条**纯读**（{@code findMainById} / {@code getRepliesInTreeByRoot}），
      * 无原子性需求，事务只是"取连接的手段"（同 U-3/U-4、C-2/C-3、L-5、F-3、G-2）。
      */
     public CursorResult<CommentVO> getRepliesForRoot(long rootId, Long userId, long cursor, int pageSize) {
+        // 防御性兜底（HTTP 路径由 controller 的 normalizePageSize 保证 ≥1；此处护住非 HTTP 直连调用方，
+        // 否则 pageSize<1 会走到 rows.subList(0, 0) 后 get(-1) 越界）。
+        if (pageSize < 1) {
+            return new CursorResult<>(new ArrayList<>(), 0, pageSize, null);
+        }
         CommentCacheDTO root = commentDao.findMainById(rootId);
         if (root == null) {
             throw new NotFoundException("评论不存在或已删除");

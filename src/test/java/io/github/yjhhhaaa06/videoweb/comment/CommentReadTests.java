@@ -271,6 +271,17 @@ class CommentReadTests extends AbstractContentIntegrationTest {
         insertComment(contentId, authorId, "二级间接回复", direct1, authorId);
         setReplyCount(firstRootWithReplies, 4);
 
+        // ★ 夹具带"对照"（仓库根 AGENTS.md「测试纪律」）：造"应被过滤掉"的干扰行，否则去掉该过滤仍全绿。
+        //   ① 另一主楼（mainIds[1]）下的回复 —— 验证 `parent_id = rootId OR parent_id IN (…)` 谓词；
+        //   ② 本主楼下一**软删**回复 —— 验证 `is_deleted = 0`。
+        //   ⚠️ `content_id = ?` 未带对照：其干扰行（parent 指向本楼、却属另一 content）在生产不可达
+        //      —— `addComment` 校验"被回复评论属于该内容"，故不造这种假数据。
+        for (int i = 0; i < 2; i++) {
+            insertComment(contentId, authorId, "他楼回复 " + i, mainIds.get(1), null);
+        }
+        long deletedReply = insertComment(contentId, authorId, "已删回复", firstRootWithReplies, null);
+        jdbcTemplate.update("UPDATE comment SET is_deleted = 1 WHERE comment_id = ?", deletedReply);
+
         // 独立 oracle：从**原始行集**在 Java 侧重建"该主楼的回复集"（不照抄被测 SQL 的两层谓词）
         Map<Long, List<Long>> childrenOf = new LinkedHashMap<>();
         TreeSet<Long> direct = new TreeSet<>();
@@ -326,6 +337,14 @@ class CommentReadTests extends AbstractContentIntegrationTest {
         }
     }
 
+    /**
+     * ★ 性能契约（T14）：钉"**本页向 DB 取的行数只由 pageSize 决定、与游标深度无关**"。
+     *
+     * <p>⚠️ **这条断言的作用域要说清**：它是 **DAO 参数级** 的（`@MockitoSpyBean` 看的是"服务向
+     * DAO 要了多少行"），**不覆盖** SQL 侧 / 执行计划侧（"MySQL 实际只扫了本页"）。
+     * "负载 ∝ 本页"的**设计级证据**是一次性基线与改造后对照（见 `CURRENT_TASKS.md` T14 回写：
+     * 优化前 DB 返 2 / 20000 行、HTTP 21ms / 68ms；改造后 ≤ pageSize+1 行、HTTP 20ms / 8ms）。
+     */
     @Test
     @DisplayName("★ 性能契约：向 DB 取的行数 = pageSize+1，且与游标深度无关（负载 ∝ 本页，不再 ∝ 页码）")
     void 性能契约_本页DB取行数不随游标深度增长() {
@@ -356,6 +375,23 @@ class CommentReadTests extends AbstractContentIntegrationTest {
         verify(commentDao).getRepliesInTreeByRoot(anyLong(), eq(firstRootWithReplies), eq(0L), eq(11));
         verify(commentDao).getRepliesInTreeByRoot(anyLong(), eq(firstRootWithReplies), eq(c2), eq(11));
         verify(commentDao).getRepliesInTreeByRoot(anyLong(), eq(firstRootWithReplies), eq(c3), eq(11));
+    }
+
+    @Test
+    @DisplayName("契约破面：旧 page 参数不再被识别（静默退化为第 1 页，不报错）；信封不再有 page/totalPages")
+    void 旧page参数不再被识别() {
+        seed();
+        JsonNode withPage = Envelope.data(
+                get("/comment/replies?rootId=" + firstRootWithReplies + "&page=99&pageSize=2", null));
+        assertThat(withPage.path("list").size()).as("page=99 被忽略 ⇒ 仍返回第 1 页 2 条").isEqualTo(2);
+        assertThat(withPage.path("list").get(0).path("commentId").asLong())
+                .as("第 1 条 = 楼内最小 id")
+                .isEqualTo(jdbcTemplate.queryForObject(
+                        "SELECT MIN(comment_id) FROM comment WHERE parent_id = ?",
+                        Long.class, firstRootWithReplies));
+        assertThat(withPage.path("page").isMissingNode()).as("信封不再有 page 字段").isTrue();
+        assertThat(withPage.path("totalPages").isMissingNode()).as("信封不再有 totalPages 字段").isTrue();
+        assertThat(withPage.path("nextCursor").isNumber()).as("信封有 nextCursor（还有下一页）").isTrue();
     }
 
     @Test
