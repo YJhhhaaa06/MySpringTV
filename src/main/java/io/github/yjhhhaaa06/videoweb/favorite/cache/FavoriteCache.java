@@ -212,6 +212,24 @@ public class FavoriteCache {
      * <p>签名与 {@code FavoriteService.isFavorited(userId, contentId)} 一致（返回 {@code boolean}）：
      * 缓存是**域内实现细节**，互动域只依赖 Service 契约、对它无感
      * （{@code 模块边界与依赖.md} §四）。
+     *
+     * <h2>★ T15 起本方法也是 {@code /favorite/status} 的唯一来源</h2>
+     * {@code FavoriteService.getFavoriteStatus} 用本方法的**返回值**做短路：{@code false} ⇒
+     * 直接答 {@code {false, []}}、**不查库**；{@code true} ⇒ 它必须再去取 {@code folders}，
+     * 布尔改由 {@code folders.isEmpty()} 推导（否则会破坏响应自洽
+     * {@code isFavorited ≡ !folders.isEmpty()}）。
+     * <ul>
+     *   <li><b>为什么每个 {@code false} 都可信</b>：本方法返回 {@code false} 只有四种来路 ——
+     *       空标记命中、热集合的 {@code SISMEMBER=false}、<b>冷 miss 的单飞回源</b>（刚从 DB 读出）、
+     *       <b>Redis 挂时的降级点查</b>（同样刚从 DB 读出）。<b>没有</b>"不知道就当没有"这一条 ⇒
+     *       短路不会把"读不到"降级成"未收藏"。</li>
+     *   <li><b>为什么冷 miss 要回填而不是白读一趟</b>：回填让冷状态**自愈** ——
+     *       否则本端点会退化成"**每请求一次点查且永不收敛**"。这条取舍的完整论证与代价登记在
+     *       {@code FavoriteService.getFavoriteStatus} 的 javadoc（那里是它的唯一事实源）。</li>
+     *   <li><b>判据不是"更快"</b>：本仓无流量，省下来的是亚毫秒级点查，**收益测不出**。
+     *       这么做的理由是"**同一个语义不该有两个来源**"（见 {@code FURTHER_ISSUES.md} <b>F-17</b>）。
+     *       ⚠️ 别把它写成性能优化 —— 与类注释末节"代价"同一口径。</li>
+     * </ul>
      */
     public boolean isFavorited(long userId, long contentId) {
         String setKey = userFavoriteSetKey(userId);

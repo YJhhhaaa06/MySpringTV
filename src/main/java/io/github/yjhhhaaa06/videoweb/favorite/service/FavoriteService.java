@@ -612,12 +612,48 @@ public class FavoriteService {
      * 当前用户对某内容的收藏状态（{@code GET /favorite/status}）——需求篇 §三「打开内容页能看到
      * "已收藏"，并知道**收在了哪些夹**」。
      *
-     * <h2>★ 一趟查询 + 一次推导，{@code isFavorited} 不是第二处事实源</h2>
-     * 只打一次 {@link FavoriteItemDao#findFoldersByUserAndContent} 拿"收在哪些夹"，
-     * {@code isFavorited} 由 {@code folders.isEmpty()} **推导**（收藏必有归属 ⇒
-     * 已收藏 ⟺ 至少落在一个夹里，结构性成立）。不另发一条 {@code EXISTS} ——
-     * 两条查询会引入"两处事实源"，且毫无必要。不变量由
-     * {@code FavoriteStatusAndCountTests} 钉死。
+     * <h2>★ T15：先问成员集，"未收藏"这一支一次库都不查</h2>
+     * <pre>
+     * 未收藏（成员集确定不含它）⇒ {false, []}            —— 短路，**不查库**
+     * 已收藏                   ⇒ 查 folders，布尔由它推导 —— 一趟 JOIN，与 T15 之前同
+     * </pre>
+     * 判断自身完全委托 {@link FavoriteCache#isFavorited}（= {@link #isFavorited} 那条路径）
+     * —— 三态读 / 单飞 / 回填 / Redis 挂降级都在那里，本方法不重写任何一条。
+     *
+     * <p><b>为什么只在"未收藏"这一支短路</b>：一旦要去取 {@code folders}，布尔就只能由它定 ——
+     * 反过来做（照成员集答 true 却不去 JOIN）会得到 {@code {isFavorited:true, folders:[]}}，
+     * <b>打破响应自洽</b>（T5 不变量 {@code isFavorited ≡ !folders.isEmpty()}）。
+     * ⇒ 本方法做的是"**在保住自洽前提下能做到的最大统一**"，不是"完全统一到缓存"。
+     *
+     * <p><b>★ 为什么这么做（用户 2026-10-13 的判据，见 {@code FURTHER_ISSUES.md} F-17）</b>：
+     * <b>同一个语义不该有两个来源</b>。而这个语义**此前已经分裂**：详情页收藏按钮读详情内联的
+     * {@code interaction.isFavorited}（走缓存成员集），收藏弹窗读本端点（走 DB），
+     * 前端 {@code detail.js#initFavorite} 与 {@code #loadPicker} 正把两个答案写进**同一个按钮态**。
+     * T15 之后二者读的是**同一个 key** 的同一段判断 ⇒ 本动作是**消灭**第二来源，不是引入它。
+     *
+     * <h2>★ miss 走 DB + 回填（为什么不要求"冷 key 更便宜"）</h2>
+     * 冷 key 时 {@link FavoriteCache#isFavorited} 的成员集尚未装载 ⇒ 它会走<b>单飞回源</b>：
+     * 一趟 {@link FavoriteItemDao#findAllFavoritedContentIds}（该用户**全量**收藏 id）+ 原子回填。
+     * ⚠️ 于是本端点在冷 miss 这一支的成本**高于** T15 之前（那时是一次 {@code (user_id, content_id)}
+     * 点查）—— 这是<b>已知代价后选择做</b>（G14），理由是它换来两个性质：
+     * <ol>
+     *   <li><b>冷状态会自愈</b>：回填之后，该用户的后续请求都命中 ⇒ 不再有"每请求必一次点查、
+     *       **永不收敛**"的形态。⚠️ 这是移除一个"每请求、不自愈的查库口子"，
+     *       <b>不是安全收益</b> —— 限流（{@code FURTHER_ISSUES.md} <b>F-22</b>）仍不可替代，
+     *       回填也挡不住"换个端点刷"；它只是把本端点的放大倍数钉住。</li>
+     *   <li><b>与详情页按钮逐字同源</b>：同上 —— 这正是本条改动被批准的那个判据本身。</li>
+     * </ol>
+     * 代价面<b>对正常用户几乎不触发</b>：收藏弹窗长在详情页里，而详情页的内联填充已经把这个 key
+     * 预热过；真正落到冷 miss 的只有"详情页挂机到 TTL 过期再开弹窗"（约每 TTL 一次）。
+     * ⚠️ 前一轮评审曾提出"miss 不回填"的更省方案，本轮**否决**（理由即上面两条）；这条岔路登记在此，
+     * 免得后来者再走一遍 —— 那次选择会让未收藏路径退化成"每请求一次点查且永不自愈"。
+     *
+     * <h2>⚠️ 响应自洽（保证）与"与 DB 一致"（不再保证）</h2>
+     * <b>自洽</b>（响应内 {@code isFavorited ≡ !folders.isEmpty()}）在**每个分支**都成立，
+     * 短路分支给的就是 {@code false + []}。<br>
+     * <b>一致</b>（响应 vs DB 真相）★ T15 起<b>不再无条件成立</b>：成员集陈旧时会答 {@code {false, []}}
+     * 而 DB 里有记录。三类触发面（失效失败 / 绕开写路径直改库 / 孤儿行）与边界的完整论证在
+     * {@link FavoriteStatusVO} 类注释 —— <b>那里是这层口径的唯一事实源</b>。
      *
      * <h2>刻意不做的事</h2>
      * <ul>
@@ -633,6 +669,11 @@ public class FavoriteService {
      * 与匿名可访问的 {@link #getFavoriteCount} 是**两条**端点、两个信任边界。
      */
     public FavoriteStatusVO getFavoriteStatus(long userId, long contentId) {
+        // ★ T15：未收藏 ⇒ 短路（返回值约定见 FavoriteStatusVO#notFavorited）
+        if (!favoriteCache.isFavorited(userId, contentId)) {
+            return FavoriteStatusVO.notFavorited();
+        }
+        // 已收藏 ⇒ 布尔只能由 folders 推导（照成员集答 true 而不 JOIN 会打破响应自洽）
         List<FavoriteFolderBriefVO> folders = itemDao.findFoldersByUserAndContent(userId, contentId);
         FavoriteStatusVO status = new FavoriteStatusVO();
         status.setFolders(folders);
