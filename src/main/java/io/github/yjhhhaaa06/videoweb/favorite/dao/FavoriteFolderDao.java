@@ -31,11 +31,12 @@ import java.util.List;
  *       （R-05：后补要 V3 + 存量回填）；私密的**可观察落点**不在这里，而在他人视角端点。</li>
  * </ul>
  *
- * <h2>SQL 清单（各端点用哪条；T2 五条 + T3 一条 + T4 两条，更新路径在 T3 由 {@code updateName} 升级为部分更新）</h2>
+ * <h2>SQL 清单（各端点用哪条；T2 五条 + T3 一条 + T4 两条 + T16 一条，更新路径在 T3 由 {@code updateName} 升级为部分更新）</h2>
  * <table>
  *   <caption>方法 ↔ 端点</caption>
  *   <tr><th>方法</th><th>服务于</th></tr>
  *   <tr><td>{@link #insertFolder}</td><td>{@code POST /favorite/folder/add}</td></tr>
+ *   <tr><td>{@link #countCustomFoldersByUserId}</td><td>{@code POST /favorite/folder/add} 的**个数上限**判定（T16；无对应端点）</td></tr>
  *   <tr><td>{@link #findByUserIdWithItemCount}</td><td>{@code GET /favorite/folder/list}（含私密）</td></tr>
  *   <tr><td>{@link #findPublicByUserIdWithItemCount}</td><td>{@code GET /favorite/folder/public}（<b>过滤私密</b>）</td></tr>
  *   <tr><td>{@link #findById}</td><td>改名 / 改私密 / 删除 / 收藏与移动前的归属与类别校验</td></tr>
@@ -118,6 +119,46 @@ public interface FavoriteFolderDao {
      * @param userId 被查看的用户 id（**与当前登录用户无关**；匿名请求也走这条）
      */
     List<PublicFavoriteFolderVO> findPublicByUserIdWithItemCount(@Param("userId") long userId);
+
+    /**
+     * 该用户的**自建夹个数**（T16：夹数上限的判定面 —— 只被写路径消费）。
+     *
+     * <h2>★ 为什么另起一条窄 COUNT，而不是复用列表查询的"点数"</h2>
+     * {@link #findByUserIdWithItemCount} 是 {@code LEFT JOIN + GROUP BY} 的**聚合**
+     * （它的产物是"每夹条目数"，为 {@code /folder/list} 而写）⇒ 借它数个数要付两次代价：
+     * 一趟聚合 + 一堆用不上的条目数，而这里要的只是一个整数。
+     * 同 {@code FavoriteItemDao.existsByUserAndContent} 的取舍 ——"**为轻量判定另起一条窄查询**"，
+     * 别把别的用途的 SQL 借过来凑（顺手改它的列还会连带影响那条端点的形状）。
+     *
+     * <h2>口径（{@code 收藏功能-三期设计.md} §三）</h2>
+     * <ul>
+     *   <li>★ <b>只数自建夹</b>（{@code is_default = 0}）：默认夹**不计入** 20 的上限 ——
+     *       它由 R-01 懒建、用户删不掉，若计入就会出现"（夹数满时）默认夹建不出来"这类
+     *       <b>不自愈的死局</b>（会重演 I-08 的前端互锁）；</li>
+     *   <li>只按 {@code user_id} 过滤 ⇒ 命中 {@code uk_user_default (user_id, default_uniq)}
+     *       的<b>前导列</b>（表上刻意没有单独的 {@code idx_user}，见 V2 的注释）。
+     *       ⚠️ <b>实测（dev 库 {@code EXPLAIN}，2026-10-14）</b>：{@code type=ref} /
+     *       {@code key=uk_user_default} / {@code Extra="Using where"} —— <b>不是覆盖索引</b>
+     *       （{@code is_default} 不在该索引里 ⇒ 要回表取行再过滤）。写成
+     *       {@code default_uniq IS NULL}（在值域 0/1 下与 {@code is_default = 0} 等价）才能拿到
+     *       {@code Extra="Using where; Using index"}，但那把查询**绑到生成列的语义**上
+     *       ⇒ 沿用显式可读的 {@code is_default = 0}（同公开夹那条用 {@code is_private = 0}
+     *       而不是 {@code != 1} 的理由）。
+     *       ⚠️ 代价量级 = 候选行 = 该用户的夹数（上限 21 行）⇒ 回表无所谓。
+     *       ★ <b>别按索引形状推断访问计划</b>（I-06 的教训）—— 本行是实测值，不是推断值；</li>
+     *   <li><b>不碰</b> {@code favorite_item}：夹数是"夹的行数"，与夹内有多少内容无关
+     *       （后者走 {@code FavoriteItemDao.countByFolderId}）。</li>
+     * </ul>
+     *
+     * <p>⚠️ <b>它是"软上限"的判定输入</b>：本查询与随后的 {@code INSERT} 之间没有锁，
+     * 真并发下可越界（≤ 并发请求数、越界后自限）。这是用户 2026-10-14 拍板接受的取舍，
+     * 完整论证（含"为什么不上行锁"）见 {@code FavoriteLimitProperties} 类注释与
+     * {@code FURTHER_ISSUES.md} <b>F-23</b>。
+     *
+     * @param userId 当前登录用户
+     * @return 自建夹个数（一个都没有 ⇒ 0）
+     */
+    int countCustomFoldersByUserId(@Param("userId") long userId);
 
     /**
      * 部分更新：改名 / 私密开关（**给了才改**，至少给一个 —— 空更新由 service 拦成 400）。

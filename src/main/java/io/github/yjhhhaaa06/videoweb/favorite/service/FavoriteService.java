@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.favorite.service;
 
+import io.github.yjhhhaaa06.videoweb.common.config.FavoriteLimitProperties;
 import io.github.yjhhhaaa06.videoweb.common.exception.ConflictException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ForbiddenException;
 import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
@@ -39,6 +40,9 @@ import java.util.Set;
  * 夹内分页 = **T6**（本类 {@link #listFolderItems}）；判存在（互动域的组装契约）= **T9**
  * （本类 {@link #isFavorited} / {@link #batchIsFavorited}）；
  * 缓存层 = **T11**（{@code favorite.cache} 包；本类四条读 / 四个写点的接线，见下节"写路径的缓存时机"）。
+ * ★ <b>容量上限 = T16</b>（收藏三期）：{@link #createFolder} 的**夹数**上限（20，默认夹不计入）+
+ * {@link #addItem} / {@link #moveItem} 的**夹内条数**上限（默认夹 5000 / 自建夹 500）——
+ * 阈值一律从 {@link FavoriteLimitProperties} 读，**不得**在方法里写死数字。
  * 本类承担**装配关系**（controller → 本类 → 两个 DAO）与**边界声明**，其余方法随任务逐个补。
  *
  * <h2>一期红线（写方法前先读，别让实现把口径吃掉）</h2>
@@ -142,6 +146,8 @@ import java.util.Set;
  *   <tr><td>是默认夹还要删</td><td>{@link ConflictException}「默认收藏夹不可删除」</td><td>409</td></tr>
  *   <tr><td>名称给了但为空 / 超长</td><td>{@link ParamException}</td><td>400</td></tr>
  *   <tr><td>更新时 name 与 isPrivate <b>一个都没给</b></td><td>{@link ParamException}</td><td>400</td></tr>
+ *   <tr><td>自建夹个数已达上限（T16）</td><td>{@link ParamException}</td><td>400</td></tr>
+ *   <tr><td>目标夹条目已达上限（T16；默认夹 5000 / 自建夹 500）</td><td>{@link ParamException}</td><td>400</td></tr>
  * </table>
  * "不存在 404 / 不是自己的 403"是本仓既有口径（{@code CommentService.deleteCommentByUser}、
  * {@code ContentService} 的作者写路径同款），**刻意不改成"一律 404"**：
@@ -150,6 +156,11 @@ import java.util.Set;
  * <p>⚠️ <b>更新路径上 400 判在 403/404 之前</b>（"参数形态"先于"资源归属"）。这不影响正常前端
  * （它不会拿非法名字去改别人的夹），但**必须钉死并写进测试**：否则两者都会"看起来对"，
  * 而将来重构时谁先谁后会随手漂移。口径理由见 {@link #updateFolder} 方法体注释。
+ *
+ * <p>★ <b>T16 补上这条规则的另半边：状态型 400（容量）判在 403/404 <b>之后</b></b>。
+ * 两者不矛盾而是**分类**——"参数型 400"先于归属（不碰库、不随资源状态漂移）；
+ * "状态型 400"后于归属（容量是资源状态，提前判会把"他人夹满/未满"变成可探测信号）。
+ * 完整论证与用例落点见 {@link #addItem} 的"为什么容量 400 判在归属之后"节。
  *
  * <h2>★ 私密（{@code is_private}）的语义 —— 它的可观察落点只有一条：他人视角端点</h2>
  * 自己的夹自己永远看得见（{@code /folder/list} **含私密**），所以"设私密"这个动作
@@ -200,13 +211,23 @@ public class FavoriteService {
      */
     private final FavoriteCache favoriteCache;
 
+    /**
+     * 容量上限（T16）—— 三个数字的**唯一来源**（{@code video.favorite.*}）。
+     *
+     * <p>⚠️ 阈值必须从它读，**不得**在方法里写死数字字面量：上限是**对外契约**
+     * （同"默认公开"），而常量化的全部意义就是"改数不动代码"（{@code 收藏功能-三期设计.md} §三）。
+     */
+    private final FavoriteLimitProperties limits;
+
     public FavoriteService(FavoriteFolderDao folderDao, FavoriteItemDao itemDao, ContentDao contentDao,
-                           ContentService contentService, FavoriteCache favoriteCache) {
+                           ContentService contentService, FavoriteCache favoriteCache,
+                           FavoriteLimitProperties limits) {
         this.folderDao = folderDao;
         this.itemDao = itemDao;
         this.contentDao = contentDao;
         this.contentService = contentService;
         this.favoriteCache = favoriteCache;
+        this.limits = limits;
     }
 
     // ========================================================================
@@ -220,19 +241,41 @@ public class FavoriteService {
      * （{@code /like/*}、{@code /follow/*}、{@code /comment/*} 都是中文文案，不是对象）。
      * 前端建完夹要拿 id 的话**重新拉一次列表**即可（列表本就带 id），不值得为此改信封形状。
      *
-     * <h2>刻意不做的三件事</h2>
+     * <h2>★ 个数上限（T16）：自建夹至多 {@code customFolderMaxCount}（20）个</h2>
+     * 超限 ⇒ 400「收藏夹数量已达上限（最多 20 个）」。三条口径：
+     * <ul>
+     *   <li>★ <b>默认夹不计入</b>（只数 {@code is_default = 0}）：默认夹用户删不掉，
+     *       若计入就等于"夹数一满，默认夹再也建不出来"——那是**不可自愈**的死局
+     *       （{@link #addItem} 不选夹时无处可收，前端的"默认收藏夹·首次收藏时创建"占位行
+     *       也永远建不出来，重演 I-08 的互锁）；</li>
+     *   <li>★ <b>顺序：参数形态先于资源状态</b>——{@link #requireValidName} 先判（**不碰库**），
+     *       再数夹个数（一次 COUNT），最后才写。两者都是 400，但理由不同：前者是"你给的名字不合法"
+     *       （与资源状态无关），后者是"资源已到上限"。⚠️ 顺序即契约，由用例钉住
+     *       （"夹名空 **且** 夹数已满"必须报名称那条）；</li>
+     *   <li>⚠️ <b>软上限</b>：{@code COUNT → INSERT} 非原子 ⇒ 真并发下可越界
+     *       （≤ 并发请求数、且越界后自限）。用户 2026-10-14 拍板接受，
+     *       完整论证见 {@link FavoriteLimitProperties} 类注释。</li>
+     * </ul>
+     *
+     * <h2>刻意不做的两件事</h2>
      * <ol>
-     *   <li><b>不查重名</b>：表上没有 {@code (user_id, name)} 唯一键 ⇒ 同名夹是合法状态
-     *       （B 站未公示该规则，属"治理"，三期谈）。故**不能**写"先 SELECT 同名再 INSERT"——
-     *       那既拦不住并发，又平白多一次查询，还会把"允许重名"这个事实伪装成"碰巧没撞上"。</li>
-     *   <li><b>不做容量上限</b>：一期反面清单明确不做（B 站数字未公示，别照抄）。</li>
-     *   <li><b>不建默认夹</b>：R-01 懒建，落点是 T4 的首次收藏。</li>
+     *   <li><b>不查重名 —— "允许重名"是契约，不是"碰巧没撞上"</b>：表上没有
+     *       {@code (user_id, name)} 唯一键，同名夹是合法状态（<b>B 站实测确认</b>，
+     *       用户 2026-10-14 拍板 ⇒ 这是 {@code FURTHER_ISSUES.md} F-11 里"是否拒重名"那个
+     *       问号的答案）。⇒ <b>不得</b>加唯一键、也<b>不得</b>写"先 SELECT 同名再 INSERT"：
+     *       后者既拦不住并发，又平白多一次查询，还会把"允许重名"伪装成"碰巧没撞上"。
+     *       ⚠️ T16 只**补契约测试**钉住它（同一用户两个同名夹都建得成）；
+     *       结构侧由 {@code FavoriteSchemaTests} 的"索引全集"断言守着（加键即红）；</li>
+     *   <li><b>不建默认夹</b>：R-01 懒建，落点是首次收藏（{@link #ensureDefaultFolder}，T4）。</li>
      * </ol>
      *
-     * @param name 夹名；空白或超长 ⇒ 400
+     * @param name 夹名；空白或超长 ⇒ 400 · 自建夹个数已达 {@code video.favorite.custom-folder-max-count} ⇒ 400
      */
     public void createFolder(long userId, String name) {
-        folderDao.insertFolder(userId, requireValidName(name));
+        // ★ 顺序即契约（见方法注释）：参数形态先判（不碰库）→ 资源状态（一次 COUNT）→ 写。
+        String validName = requireValidName(name);
+        requireFolderCountBelowLimit(userId);
+        folderDao.insertFolder(userId, validName);
     }
 
     /**
@@ -368,10 +411,33 @@ public class FavoriteService {
      *       ★ 放在**最前**还有一个懒建路径特有的理由：见下文"刻意不做"；</li>
      *   <li><b>夹归属 → 404/403</b>（显式夹时）：复用 {@link #requireOwnedFolder}，
      *       与改名/删除同一口径；</li>
+     *   <li><b>容量 → 400</b>（T16）：目标夹已达上限（默认夹 {@code defaultFolderMaxItems} =
+     *       5000 / 自建夹 {@code customFolderMaxItems} = 500，**按 {@code is_default} 分流**）
+     *       ⇒ 400。★ <b>排在归属之后</b>，理由见下节；</li>
      *   <li><b>重复收藏 → 409</b>：不预查，撞唯一键 {@code uk_folder_content} 由
      *       {@code DuplicateKeyException} 全局映射（并发安全，"幂等拒绝"——
      *       第二次收藏不产生副作用、也不算错误状态被 500 化）。</li>
      * </ol>
+     *
+     * <h2>★ 为什么容量 400 判在"夹归属 403/404"<b>之后</b>（T16 的关键口径）</h2>
+     * 既有惯例是"<b>参数型</b> 400 先于 403/404"（夹名空白/超长，见 {@link #updateFolder}），
+     * 它的理由有两条：① 参数校验<b>不碰库</b>；② 让"非法输入 ⇒ 400"不随资源状态漂移。
+     * <b>容量 400 两条都不适用</b> —— 它是"资源状态"而不是"参数形态"（必须查库、而且要先知道
+     * 是哪个夹）。若照搬把判定提前，会得到两个坏性质：
+     * <ul>
+     *   <li>别人的<b>已满</b>夹 ⇒ 400、别人的<b>未满</b>夹 ⇒ 403 ⇒ <b>可以区分他人夹的满/未满</b>
+     *       （私密夹的夹内尺寸也被侧面暴露）；</li>
+     *   <li>要对<b>非本人</b>的夹发计数查询 —— 与本仓"归属先校验、再按 id 写"的既定纪律相反
+     *       （见 {@code FavoriteFolderDao#updateNameAndPrivacy} 的口径）。</li>
+     * </ul>
+     * ⇒ 口径定为"<b>参数型 400 先于归属；状态型 400 后于归属</b>"，两类各按自己的理由排序，
+     * 而不是把"400"当成一个整体。★ 由用例钉住：往**他人已满的夹** add ⇒ <b>403（不是 400）</b>。
+     *
+     * <h2>★ 满夹时"重复收藏"返回 400 而非 409（已知副作用，T16 钉住）</h2>
+     * 容量检查在 {@code insertItem} <b>之前</b>，而"重复"是靠撞 {@code uk_folder_content}
+     * <b>自然产生</b>的（不预查）⇒ 夹已满时，"这条内容其实早就在夹里"也照样得到 400。
+     * 想反过来（先判重复）就必须"先查后插"—— 那正是本仓明确拒绝的形态（并发下必漏 + 多一次查询）。
+     * ⇒ 取"夹满 ⇒ 一律 400"这个<b>更简单、不变量更强</b>的口径，并用"现行为钉子"式用例写死。
      *
      * <h2>★ {@code folderId == null}：默认夹懒建（R-01 的唯一落点）</h2>
      * 需求篇 §二：「收藏时没选夹，内容自动进默认收藏夹」。新用户**没有任何途径**
@@ -399,12 +465,21 @@ public class FavoriteService {
             throw new NotFoundException("内容不存在");
         }
         long targetFolderId;
+        boolean targetIsDefault;
         if (folderId == null) {
             targetFolderId = ensureDefaultFolder(userId);
+            // 懒建的产物恒是默认夹（R-01）⇒ 走默认夹那一档上限。
+            targetIsDefault = true;
         } else {
-            requireOwnedFolder(userId, folderId);
-            targetFolderId = folderId;
+            // ★ 归属校验（404/403）只取一次行：顺带把 is_default 带走，供容量分流 —— 不重复查。
+            FavoriteFolder target = requireOwnedFolder(userId, folderId);
+            targetFolderId = target.getId();
+            targetIsDefault = target.defaultFolder();
         }
+        // ★ 容量（T16）：判在**归属之后、插入之前** —— 理由见方法注释"为什么容量 400 判在归属之后"。
+        //   懒建路径同样过这一关：刚建出来的默认夹必然是 0 条（空表索引点查）——
+        //   省掉它就要区分"刚建 / 本来就存在"，多一个分支不值得省一次 COUNT。
+        requireFolderCapacity(targetFolderId, targetIsDefault);
         itemDao.insertItem(targetFolderId, userId, contentId);
         // ★ T12 计数重算（本事务内）：插入已生效 ⇒ 聚合看到"收完之后"的状态。
         //   409 路径在上一步就抛了（事务回滚），不会走到这里 ⇒ 被拒的请求不留计数痕迹。
@@ -498,6 +573,10 @@ public class FavoriteService {
      *   <li><b>内容存在性校验</b>（同 {@link #addItem}）：失效内容 → 404，条目**留在原位**
      *       ——「失效不可移动」自然产生；</li>
      *   <li><b>两个夹都校验归属</b>（404/403）：源夹与目标夹都得是我的；</li>
+     *   <li>★ <b>目标夹容量 → 400</b>（T16）：<b>必须判</b> —— 漏掉它就能"<b>绕道 move 把夹撑爆</b>"
+     *       （从源夹腾出位置、目标夹却没有任何闸）。判定位置与关数同 {@link #addItem}：
+     *       <b>归属之后、插入之前</b>，按目标夹的 {@code is_default} 分流 500 / 5000。
+     *       ⚠️ 源夹**不判**（move 只会让它变小）；</li>
      *   <li><b>移动后的收藏时间是新的</b>：实现是"目标夹新增一行 + 源夹删一行"，
      *       新行的 {@code create_time} 是移动时刻（可读作"收进目标夹的时间"）——
      *       需求篇对"移动是否保留原收藏时间"无约定，取最简单且自洽的实现（T6 夹内列表
@@ -506,7 +585,7 @@ public class FavoriteService {
      *
      * @param userId       当前登录用户
      * @param fromFolderId 源夹；不存在 → 404、不是我的 → 403
-     * @param toFolderId   目标夹；同上；已有同内容 → 409（源夹保留）
+     * @param toFolderId   目标夹；同上；已有同内容 → 409（源夹保留）、已达上限 → 400
      * @param contentId    内容 id；不存在或已失效 → 404（条目留在源夹）
      */
     @Transactional
@@ -515,7 +594,10 @@ public class FavoriteService {
             throw new NotFoundException("内容不存在");
         }
         requireOwnedFolder(userId, fromFolderId);
-        requireOwnedFolder(userId, toFolderId);
+        // ★ 目标夹取回**实体**（不只是校验归属）：容量判定要它的 is_default（分流 500 / 5000）。
+        FavoriteFolder target = requireOwnedFolder(userId, toFolderId);
+        // ★ 容量（T16）：判在目标夹归属之后、插入之前 —— 漏掉这条就能绕道 move 撑爆目标夹。
+        requireFolderCapacity(target.getId(), target.defaultFolder());
         // 先插后删：见方法注释"事务与顺序"。
         itemDao.insertItem(toFolderId, userId, contentId);
         itemDao.deleteByFolderAndContentIds(fromFolderId, List.of(contentId));
@@ -894,6 +976,69 @@ public class FavoriteService {
             throw new IllegalStateException("默认夹懒建后查不到行（uk_user_default 应保证行存在）");
         }
         return id;
+    }
+
+    /**
+     * 夹数上限（T16）：自建夹已达 {@code video.favorite.custom-folder-max-count} ⇒ 400「收藏夹数量已达上限」。
+     *
+     * <h2>三条口径</h2>
+     * <ul>
+     *   <li>★ <b>只数自建夹</b>（{@code FavoriteFolderDao#countCustomFoldersByUserId} 里
+     *       {@code AND is_default = 0}）：默认夹<b>不计入</b> 20。默认夹是懒建出来的、用户删不掉，
+     *       计入就等于"夹数一满，默认夹再也建不出来"——而 {@link #addItem} 不选夹时无处可收，
+     *       那是 <b>不可自愈</b>的死局（且会重演 I-08 的前端互锁）。★ 由用例钉住
+     *       （"19 个自建夹 + 1 个默认夹 ⇒ 还能建第 20 个"）；</li>
+     *   <li><b>400 而不是 409</b>：与"夹名空 / 格式非法 ⇒ 400"同族（{@code 收藏功能-三期设计.md} §三）；
+     *       409 在本域留给"撞唯一键的重复收藏"与"默认夹不可删"两处；</li>
+     *   <li>⚠️ <b>软上限</b>：本方法与随后的 {@code INSERT} 之间没有锁 ⇒ 真并发下可越界
+     *       （≤ 并发请求数、越界后自限）。用户 2026-10-14 拍板接受 ——
+     *       完整论证（含"为什么不上用户行锁"）见 {@link FavoriteLimitProperties} 类注释。</li>
+     * </ul>
+     *
+     * <p>⚠️ 本方法**只**被 {@link #createFolder} 调用：夹数上限不该拦默认夹的懒建
+     * （{@link #ensureDefaultFolder}）—— 那是另一条路径、另一条口径。
+     *
+     * @param userId 当前登录用户
+     */
+    private void requireFolderCountBelowLimit(long userId) {
+        int max = limits.customFolderMaxCount();
+        if (folderDao.countCustomFoldersByUserId(userId) >= max) {
+            throw new ParamException("收藏夹数量已达上限（最多 " + max + " 个）");
+        }
+    }
+
+    /**
+     * 夹内条目上限（T16）：目标夹已达上限 ⇒ 400「收藏夹已满」。
+     *
+     * <h2>四条口径</h2>
+     * <ul>
+     *   <li>★ <b>两档分流</b>：默认夹 {@code defaultFolderMaxItems}（5000）、自建夹
+     *       {@code customFolderMaxItems}（500）—— 判据是目标夹行的 {@code is_default}，
+     *       由调用方取行时一并带下来（**不重复查库**）；</li>
+     *   <li>★ <b>数的是 {@code favorite_item} 行（含失效条目）</b>：
+     *       {@code FavoriteItemDao.countByFolderId} **不碰 content 表** ⇒ 与
+     *       {@code FavoriteFolderVO#itemCount}、{@code /favorite/list} 的 {@code total}
+     *       天然同一口径。别换成一个"还要问内容在不在"的数 —— 那会让"夹里显示 3 条、
+     *       却提示已满"这类自相矛盾成为可能；</li>
+     *   <li>判据是 {@code >=} ⇒ 夹**恰好能装到上限**（第 {@code limit} 条可进，第
+     *       {@code limit + 1} 条被拒）；</li>
+     *   <li>⚠️ <b>软上限</b>：{@code COUNT → INSERT} 非原子（同 {@link #requireFolderCountBelowLimit}）。</li>
+     * </ul>
+     *
+     * <p>⚠️ <b>调用时机是契约</b>：只在**归属已校验之后**调用 —— 否则"他人的夹"会按满没满
+     * 分出 400 / 403，等于给他人夹（含私密夹）的夹内尺寸开探测口
+     * （完整论证见 {@link #addItem} 的"为什么容量 400 判在归属之后"节）。
+     *
+     * @param folderId 目标夹（调用方保证：已校验存在且属于当前用户）
+     * @param isDefault 目标夹是否为默认夹（分流两档上限）
+     */
+    private void requireFolderCapacity(long folderId, boolean isDefault) {
+        int max = isDefault ? limits.defaultFolderMaxItems() : limits.customFolderMaxItems();
+        if (itemDao.countByFolderId(folderId) >= max) {
+            throw new ParamException(isDefault
+                    ? "默认收藏夹已满（最多 " + max + " 条）"
+                    : "收藏夹已满（最多 " + max + " 条）");
+        }
     }
 
     /**

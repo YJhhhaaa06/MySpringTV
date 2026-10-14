@@ -77,8 +77,10 @@ import java.util.List;
  * <h2>错误码</h2>
  * 404 夹不存在 / 内容不存在或已失效（add / move） · 403 不是自己的夹 ·
  * 409 默认夹不可删 / 重复收藏 · 400 夹名为空或超长 / 更新时一个字段都没给 /
- * {@code isPrivate} 格式非法 / 移出内容列表为空 · 401 未登录
+ * {@code isPrivate} 格式非法 / 移出内容列表为空 / <b>夹数或夹内条数超上限（T16）</b> · 401 未登录
  * —— 分界线与理由见 {@code FavoriteService} 的类注释。
+ * ⚠️ T16 的容量 400 判在 403/404 **之后**（与"参数型 400 先于归属"刻意分家）：
+ * 容量是资源状态、不是参数形态，提前判会把"他人夹满/未满"变成可探测信号。
  *
  * <p>⚠️ <b>两条读端点（{@code /status}、{@code /count}）刻意没有 404</b>：内容不存在 /
  * 从未被收藏 ⇒ 分别是"未收藏（{@code folders=[]}）"与 {@code 0}，都是合法状态。
@@ -116,7 +118,8 @@ public class FavoriteController {
      * 默认夹由首次收藏懒建（R-01，T4），本端点不碰它。
      *
      * @param name 夹名；缺参 → 400（Spring 抛 {@code MissingServletRequestParameterException}）、
-     *             空白 / 超长 → 400（service 侧 {@code ParamException}）
+     *             空白 / 超长 → 400（service 侧 {@code ParamException}）、
+     *             自建夹已达 20 个 → 400（T16；默认夹不计入，见 {@code FavoriteLimitProperties}）
      */
     @RequiresLogin
     @PostMapping("/folder/add")
@@ -214,7 +217,8 @@ public class FavoriteController {
      * <p>★ <b>{@code folderId} 可不传 = 收进默认夹</b>（需求篇 §二「没选夹自动进默认收藏夹」）；
      * 默认夹不存在时**就地懒建**（R-01，全系统唯一建默认夹的路径 —— 新用户拿不到
      * 默认夹 id，夹列表对他是空态）。口径：失效内容 404（不可移入）、
-     * 重复收藏 409（撞 {@code uk_folder_content} 的幂等拒绝）、他人的夹 403。
+     * 重复收藏 409（撞 {@code uk_folder_content} 的幂等拒绝）、他人的夹 403、
+     * <b>目标夹已满 400</b>（T16；判在 403/404 **之后** —— 容量是资源状态、不是参数形态）。
      * 详见 {@code FavoriteService.addItem}。
      *
      * @param contentId 内容 id（必传）
@@ -256,7 +260,8 @@ public class FavoriteController {
      *
      * <p>独立端点而非前端的 remove + add 两连击：两次调用之间没有原子性，
      * add 失败会让条目从源夹消失（失效内容本该"不可移动但**保留原位**"，R-07）。
-     * 口径：失效内容 404、目标夹已有同内容 409（源夹保留）、from == to 也是 409；
+     * 口径：失效内容 404、目标夹已有同内容 409（源夹保留）、from == to 也是 409、
+     * <b>目标夹已满 400</b>（T16 —— 不判就能"绕道 move 把夹撑爆"）；
      * 两条写在同一事务（{@code FavoriteService.moveItem}）。
      *
      * @param fromFolderId 源夹；不存在 → 404、不是我的 → 403

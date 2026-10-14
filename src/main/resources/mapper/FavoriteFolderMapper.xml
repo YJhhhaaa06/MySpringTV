@@ -89,6 +89,22 @@
         ORDER BY f.is_default DESC, f.id ASC
     </select>
 
+    <!-- 自建夹个数（T16：夹数上限的判定面，服务 POST /favorite/folder/add）。
+         ★ 只数 `is_default = 0` —— 默认夹**不计入** 20（三期设计 §三）：它是懒建出来的、用户删不掉，
+           计入就会出现"夹数满 ⇒ 默认夹建不出来"这类不自愈的死局（会重演 I-08 的互锁）。
+         ★ 命中 uk_user_default(user_id, default_uniq) 的**前导列**（表上刻意没有单独的 idx_user）。
+         ⚠️ 实测 EXPLAIN（dev 库，2026-10-14）：type=ref / key=uk_user_default / Extra="Using where"
+           —— **不是覆盖索引**（is_default 不在索引里 ⇒ 回表过滤）。写成 default_uniq IS NULL
+           （值域 0/1 下等价）才能拿到 "Using index"，但那把查询绑到生成列语义上
+           ⇒ 沿用显式可读的 is_default = 0（同公开夹那条用 is_private = 0 而非 != 1 的理由）。
+           代价量级 = 该用户的夹数（≤ 21 行）⇒ 回表无所谓。别按索引形状推断计划（I-06）。
+         ★ 不碰 favorite_item（夹数与夹内内容数无关）。
+         ⚠️ 与随后的 INSERT 之间没有锁 ⇒ 真并发下可越界（软上限，≤ 并发请求数、越界后自限）：
+           用户 2026-10-14 拍板接受，论证见 FavoriteLimitProperties 类注释与 FURTHER_ISSUES.md F-23。 -->
+    <select id="countCustomFoldersByUserId" resultType="int">
+        SELECT COUNT(*) FROM favorite_folder WHERE user_id = #{userId} AND is_default = 0
+    </select>
+
     <!-- 部分更新：改名 / 私密开关（T3，**给了才改**）。
          ★ 动态 <set>：null = 本次不动该字段；两个都给时仍生成**一条** SQL（单写即原子，
            不需要 @Transactional；理由见 FavoriteFolderDao.updateNameAndPrivacy）。

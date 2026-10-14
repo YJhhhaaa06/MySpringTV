@@ -202,6 +202,16 @@ public interface FavoriteItemDao {
      * ⚠️ 反向：谁若"顺手"给这条 SQL 加 {@code JOIN content}，两个端点会一起错，
      * 且错得非常安静（只是数变小）。
      *
+     * <h2>★ 访问计划（实测，2026-10-14；★ T16 起它多了第二个消费方 = 容量判定）</h2>
+     * dev 库 {@code EXPLAIN}：{@code type=ref} / {@code key=idx_folder_time} / {@code key_len=8} /
+     * {@code Extra="Using index"} —— <b>覆盖索引扫描</b>（{@code folder_id} 是
+     * {@code uk_folder_content} 与 {@code idx_folder_time} 的共同前导列，两列都在索引里 ⇒ 不回表）。
+     * 代价量级 = <b>∝ 夹内条数</b>，而条数上限本身就是 500 / 5000 ⇒ 单次判定最坏也只扫 5000 个索引项。
+     * ⚠️ <b>耗时未计时</b>（T16 的 5000 行夹具只证明功能、没做计时）—— 将来若要论证
+     * "给 {@code favorite_folder} 加 {@code item_count} 计数列"，按 {@code CURRENT_NEEDS.md}
+     * <b>C-6</b> <b>先补耗时基线</b>再下结论（本行只是计划形态，不是性能结论）。
+     * 口径与取舍见 {@code 收藏功能-三期设计.md} §三.3。
+     *
      * @param folderId 目标夹（调用方保证存在且属于当前用户）
      * @return 收藏记录条数（**含**失效内容的记录）
      */
