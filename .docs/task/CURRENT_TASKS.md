@@ -15,13 +15,15 @@
 ## 周期头（每窗开读）
 
 * **方向**：**第 3 张清单 —— 跨域性能与契约收口**（`CURRENT_NEEDS.md` §三 **R-12 已拍板** 2026-10-13；**本期纳入 / 反面清单见其 §四**）：
-  **T13** 列表互动态形态统一（**R-13**）｜**T14** 评论读路径有界化（**F-20 ②**）｜**T15** 收藏缓存层重判（**F-17**）。
+  **T13** 列表互动态形态统一（**R-13**）✅｜**T14** 评论读路径有界化（**F-20 ②**）✅｜**T15** 收藏缓存层重判（**F-17**）✅ **三题全部交付（2026-10-14）**。
   ⚠️ **限流不做** —— 已补登记 `FURTHER_ISSUES.md` **F-22**，与 **F-01 / F-02** 同属"上线准备度"**专项**（理由见 §四 反面清单）。
 * **历史**：收藏一期（有无）✅ T1–T8（2026-10-08 → 2026-10-11）｜收藏二期（性能 + R-10 契约演进）✅ 已收尾 T9–T12（2026-10-11 → 2026-10-12）
 * **本周期**：`2026-10-13` 起 · **第 3 张清单**（编号 **T13 起**，**不回收 T1–T12**）
 * **收尾 checklist**（下一期开窗时逐条打勾）：☐ 回归基线全绿 · ☐ 完成态已清出（记入 git）· ☐ 问题已结转（`FURTHER_ISSUES.md`）· ☐ 工作树干净
-* **回归基线（2026-10-12 二期收尾实测 = 本张清单开窗基线）**：`python tools/run_tests.py` → **428 例全绿**（默认排除 `resilience`）；`--group resilience` → **34 例**全绿（合计 **462**）—— 收尾时须 **≥** 该数
-  > 📌 **当前实测（T13 交付后，2026-10-13）**：**436 例全绿**（428 + 8 条新增，见 T13 回写）。
+* **回归基线**：`python tools/run_tests.py` → **445 例全绿**（T15 交付后实测 2026-10-14，440 + 5 新增）；`--group resilience` → **34 例**全绿
+  > 📌 ★ **基线更正（2026-10-14 T15 交付时核出）**：本文件此前记的 **439** 少算了 1 —— T14 的 `c63d1ed`（补 `page` 忽略用例）
+  > 加了一条测试但没同步总数。双重印证：① `@Test` 计数 471（T14-1）→ 472（T14-2）→ 477（T15 后，+5）；
+  > ② `INDEX.md` §一 已按 **440**（436 + 4 = `CommentReadTests` 10→14）记账。⇒ **本张清单的基线 = 440**，与 INDEX 一致。
 
 ---
 
@@ -90,7 +92,7 @@
   ④ **契约变更登记**：这是**有意破 `page` 契约**（用户 2026-10-13 接受）⇒ 按 `.docs/INDEX.md` §一 ① 的规矩**同批改前端**，并把新形状登记在注释（`CursorResult` 类注释 / `CommentController#replies` / `api.js`）；旧 `page` **静默退化为第 1 页**（已加用例钉住，不报错）。★ 既有 `/comment/replies` 用例**因契约变更如实改形状**（非"测试迎合"）：**"页间不重不漏"的业务断言未削弱**，且换成独立 oracle。
   ⑤ **连带处置**：审查提出的三处口径问题已修（注释把"非法"与"越界"混为一谈；oracle 夹具缺对照；补 `page` 忽略用例）；`F-20` 的 **② 已交付**（①③④⑤⑥ 仍留池）。
 
-### T15 收藏缓存层收口 + `/favorite/status` 短路（来源 F-17）【待执行】
+### T15 收藏缓存层收口 + `/favorite/status` 短路（来源 F-17）【已完成】
 
 > ★★ **范围两定（2026-10-13 用户拍板）**：**② 计数侧「值不值得缓存」→ 保留**（判据 = **成本比较**、**不造数**：
 > `FavoriteCache` 类注释已登记"`SISMEMBER` vs `idx_user_content` 点查**在本机是同一量级**"⇒ 造数也定不了；
@@ -103,11 +105,38 @@
 > - **设计**：★ 它是"**在保住响应自洽（`isFavorited ≡ !folders.isEmpty()`）前提下能做到的最大统一**" —— `true` 分支仍**必须**由 DB 的 `folders` 推导；⚠️ **"完全统一到缓存"会打破响应自洽**（会出现 `{isFavorited:true, folders:[]}`），**不要那样做**。
 
 * **入口线索**：`favorite/cache/FavoriteCache.java` / `FavoriteRedisOps.java` · `favorite/service/FavoriteService.java#isFavorited / batchIsFavorited / countFavorites` · `/favorite/status`（`FavoriteController`）· 设计篇 **§3.7**（含 T11 落地表与那两行 ⏳）· 回归锚点 `FavoriteCacheTests` / `FavoriteCountMaintenanceTests`
-* **目标**：① 实现短路 —— **仅当** `user:favoriteSet:{userId}` 的 **key 存在且 `SISMEMBER` 明确为 `false`** 时短路（返回 `{false, []}`、**不查库**）；**miss 不短路**（走 DB + 回填）；**Redis 挂 ⇒ 降级走 DB**（退回现状）；② **重写** `FavoriteStatusVO` 类注释（现论证"同源"，之后要论证"**与详情页按钮同源**"+ 明确**容忍度边界**）；③ 评测现有 status / count 用例是否需清 Redis（按既有惯例：用 Redis 的测试 `@BeforeEach` 清 Redis）；④ ✅ **已办**：F-17 ② 的结论与依据已回写设计篇 **§3.7**（含"限流前提强度下降"的补充）
+* **目标**：① ✅ 实现短路 —— 落到 `getFavoriteStatus` 的"先问成员集"：`FavoriteCache.isFavorited` 返回 `false` ⇒ 返回 `{false, []}`、**不查库**；**miss 走 DB + 回填**（回填 = 采纳 (b)，见下方范围决策）；**Redis 挂 ⇒ 降级走 DB**；
+  ② ✅ **重写** `FavoriteStatusVO` 类注释 —— 现论证"**与详情页按钮同源**" + 明确**容忍度边界**（自洽保证 / 与 DB 一致不再保证 + 三类触发面）；
+  ③ ✅ 评测现有 status / count 用例是否需清 Redis —— **结论：无需新增**。三个会打到 status 的测试类（`FavoriteStatusAndCountTests` / `FavoriteCacheTests` / `FavoriteExistenceTests`）本来就 `@BeforeEach` 清 Redis；且本仓 user / content 自增 id 不会复用 ⇒ 即便跨类残留也撞不上 key。⭐ **回答"不用改"也要给出判据**，别只写结论。
+  ④ ✅ **已办**：F-17 ② 的结论与依据已回写设计篇 **§3.7**（含"限流前提强度下降"的补充）
 * **红线边界**：① ★ **重判前不许先改实现**（F-17 明写）；② 若拆 ⇒ 必须同步处置 `FavoriteCacheTests` 并说明**判别力去向**（不许静默删用例）；③ 不得破坏 `isFavorited ≡ !folders.isEmpty()`（T5 不变量）；④ 不得顺手改 `favorite_count` 的维护口径（T12 口径与不变量不动）
 * **强制探索**：① 复算"详情页按钮走**缓存**"这条路与**同一个 key**：`detail.js#initFavorite` 读 `interaction.isFavorited` → `InteractionService#getStatus` → `FavoriteService#isFavorited`（**`FavoriteCache` 支撑**）→ `user:favoriteSet:{userId}`；② 列出**三个不同的触发面**：**多端并发** / **失效失败的静默降级**（T11 的 warn 后靠 TTL 自愈）/ **绕过写路径直接改库**（测试夹具、数据修复）—— 用户接受的是第 1 类，**别把三件混成一件**；③ ⚠️ 不要为"计数侧"再造数测耗时（同量级、测不出，见 `FavoriteCache` 类注释）
-* **验收**：① ★ **"未收藏时不查库"可观察** —— `@MockitoSpyBean` 对 `FavoriteItemDao.findFoldersByUserAndContent` 断言 **0 次调用**（这是**性能契约**的观测手段；先例 = `ContentReadTests` 用 spy 断言 `batchGetStatus` 的调用次数）；② **夹具带对照**：一个"未收藏"内容 + 一个"已收藏"内容 ⇒ 前者短路、后者落库且 `folders` 正确；③ ★ **响应自洽**：在"直插 DB 但缓存陈旧"时仍保证 `isFavorited ≡ !folders.isEmpty()`（**用例里显式写明"不保证与 DB 一致"** —— 这是本次口径变更的边界）；④ **反向注入**：去掉短路 ⇒ ① 变红；⑤ 详情页按钮态与弹窗态在同一场景下**不再互相打架**（前端联调或接口级对照）
-* **回写**：（完成后三句内写清改了什么、验证结果；探索过程不写）
+* **验收**：① ✅ "未收藏时不查库"可观察 —— `@MockitoSpyBean` 对 `FavoriteItemDao.findFoldersByUserAndContent` 断言 **0 次调用**（另加 `findAllFavoritedContentIds` / `existsByUserAndContent` 两个入口也 `never` ⇒ 三个入口钉死"真的一次没查"）；
+  ② ✅ **夹具带对照** —— 同一用户两个内容：已收藏的照旧落库取 `folders`、未收藏的零查库（同一用例内成对出现）；
+  ③ ✅ **响应自洽** —— 陈旧场景下仍保证 `isFavorited ≡ !folders.isEmpty()`，且**用例里显式写明"不保证与 DB 一致"**；
+  ④ ✅ **反向注入** —— 去掉短路 ⇒ **5 例全红**（不止 ① 一条，实测比任务书预期更宽）；
+  ⑤ ✅ 详情页按钮态与弹窗态**不再互相打架** —— 接口级对照：三种状态（未收藏 / 已收藏 / 移出后）二者一致，并补了**陈旧场景**这一支（旧实现下会一个 true 一个 false ⇒ 用例 5 曾因此只有 4 例红，补了第 ④ 步才做到"必红"）
+* **回写**：① **改了什么**：`getFavoriteStatus` 改为"先问成员集" —— `if (!favoriteCache.isFavorited(u,c)) return FavoriteStatusVO.notFavorited();`，已收藏则仍去 `itemDao.findFoldersByUserAndContent` 取 `folders`、布尔照旧由 `folders.isEmpty()` 推导 ⇒ **没有新增 `FavoriteCache` 方法**（三态读 / 单飞 / 回填 / 降级全部复用 `isFavorited`）；`FavoriteStatusVO.notFavorited()` 承载短路返回值；VO 类注释重写为"**与详情页按钮同源** + 容忍度边界"。👇 见下方"范围决策"。
+  ② **验证**：新增 `FavoriteStatusShortCircuitTests` **5 例**；**4 条反向注入逐条实测变红并还原**（去掉短路 ⇒ **5 例全红** / true 分支也短路 ⇒ 2 例红 / miss 不回填 ⇒ 4 例红 / Redis 不降级 ⇒ 1 例红）；favorite 域 **96 例**、全量 **445 例**全绿（440 + 5）。
+  ③ **连带处置**：`FavoriteCacheTests` 两处过时注释已更正；`FavoriteExistenceTests` 补了 T15 后的因果链说明；审查提出的"回填可能覆盖并发失效"这一反向代价已登记进 `getFavoriteStatus` javadoc；oracle 已改为**带 `user_id`**。
+
+> **★★ 范围决策（2026-10-14 用户拍板：miss 分支到底回不回填）**
+> 任务书写的是"**miss 不短路（走 DB + 回填）**"，但"回填"有两种互斥实现，裁决时把用户分成两类看：
+> <table>
+>   <caption>(a) 不回填 vs (b) 回填</caption>
+>   <tr><th></th><th>正常用户</th><th>不正常用户（多账号、卡在限流判定线下的低频骚扰）</th></tr>
+>   <tr><td><b>(a) 不回填</b></td><td>冷 miss 仍是 1 次点查，最省</td>
+>       <td>★ <b>冷状态永不自愈</b> ⇒ 每请求稳定换 1 次查库，<b>上限只取决于账号数</b></td></tr>
+>   <tr><td><b>(b) 回填</b>（采纳）</td><td>冷 miss 变成 1 次成员集装载（约每 TTL 一次，且详情页通常已预热）</td>
+>       <td>一次装载后<b>自愈</b>；且攻击者账号零收藏 ⇒ 那趟装载查出空集、写完空标记后连后续 60s 都免了</td></tr>
+> </table>
+> ⇒ **采纳 (b)**。⚠️ **正当性要写准**：它不是"能挡住攻击者"，而是"**移除一个每请求、不自愈的查库口子**"；
+> **限流（F-22）仍不可替代**（回填挡不住"换个端点刷"），别把它写成安全收益。
+> ★ 副作用是本题的判据本身兑现得更彻底：未收藏分支的答案与详情页按钮**逐字同源**（同一份成员集）——
+> 按 (a) 做只在 key 恰好是热的时候同源，那就把"同一语义不该有两个来源"做了一半。
+> ⚠️ (b) 相对拍板原文**更宽**：除"key 存在且 `SISMEMBER` 明确 false"外，`FavoriteCache.isFavorited` 的
+> **空标记命中**与**冷 miss 新鲜回源**同样会走进短路分支 —— 两者证据都**不弱于** `SISMEMBER=false`
+> （前者更强、后者本就是刚从 DB 读出）。用户 2026-10-14 采纳该口径，已在 §3.7 / F-17 同步。
 
 ```
 ### T# <任务名>（来源 N# / R-## / 能力 x期-x）【待执行】
