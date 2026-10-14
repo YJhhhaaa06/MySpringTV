@@ -73,7 +73,7 @@
 * **验收**：① ✅ 4 个列表面新形状（顶层无 `isLiked`/`isFollowed`、有 `interaction`）；② ✅ 匿名 ⇒ 每条 `"interaction": null`（不是 `{}`、不是三 `false`）；③ ✅ ★ **批读趟数按维度常量收敛**（`/start` 3→**1**、`/search` 3→**0**；`@MockitoSpyBean` 数 like/favorite/follow 三域**被调次数**；★ **反向注入"改回全量维度"实测变红**）；④ ✅ **详情响应 JSON 逐字不变**（含匿名 `interaction: null`）—— 既有的详情用例回归通过作证；⑤ ✅ `feed`/`profile` 仍**一趟批量**（不退化）
 * **回写**：① 形态与维度全部落地（`InteractionDimension` 枚举 + `batchGetStatus` 换三参签名 + `ContentVO` 内嵌 `interaction` + 四个面的编译期常量），`feed`/`profile` 改走互动域后 `LikeService` 直连被移除 ⇒ **F-16 兑现**，`/feed` 条目的 `isFollowed` 由"恒 `false`（谎言）"变为 `null`。② 新增 8 例（互动域维度 3 / `ContentReadTests` 批读趟数 1 / `FeedReadTests` 2 / `ProfileReadTests` 2），**三条反向注入实测变红并还原**（全量维度 ×2、0 维跳过填充、feed 改逐条调单条）；全量回归 **436 例全绿**（428 基线 + 8）。③ 三条连带处置已登记：**I-13**（任务书内部口径打架）、**F-15** 补注（首页/搜索页将来要做前端展示须先加回维度）、设计篇 §3.6 红线③ 的解禁条件。
 
-### T14 `/comment/replies` 游标化（来源 F-20 ②）【待执行】
+### T14 `/comment/replies` 游标化（来源 F-20 ②）【已完成】
 
 > ⚠️ **先质疑（G14）**：
 > - **任务**：本项**破 `page` 契约**（用户 2026-10-13 已明确接受）。⚠️ 但**必须先查前端**：`detail.js` 现在怎么翻楼中楼 —— 若前端也在用 `page`，改契约就要**同步改前端 + `api.js`**。
@@ -83,8 +83,12 @@
 * **目标**：入参 `page` → `cursor`（上一页末条 `commentId`），响应加 `nextCursor`；SQL **原样用 keyset**（不再传 `0`）；**删掉**内存切片与 `MAX_REPLY_WINDOW` 兜底；`total` 语义**不变**（仍是主楼 `reply_count`）
 * **红线边界**：① **信封形状变更必须同步前端**（契约差异按 `.docs/INDEX.md` §一 ① 的规矩记录）；② `total` 与 `list` 顺序语义（`comment_id` 升序、页间不重不漏）**不得变**；③ **无 schema 变更** —— 本任务不许碰 `db/migration/**`；④ 不得顺手改 `likeCount` / 点赞态填充（**那部分已批量，无需动**）
 * **强制探索**：① ★ **先按 C-6 造基线**（造 2 万条回复，扫"末页"用时与 **DB 返回行数**，证明现状 ∝ 页码；优化后应"平"）；② 契约破面清单（谁在传 `page`：前端 / 旧 pytest / 测试）；③ `shortPageMeansEnd:false` 这类末页判据是否受影响
-* **验收**：① **独立 oracle 复算**页间不重不漏（DB 行集 vs 接口回显集）；② ★ **基线对照**：优化后"DB 行数 ∝ 页码"消失（曲线变平）；③ 末页 / 越界 / 非法 `cursor` 的兜底用例；④ 前端联调（或明确记录"前端改动同批交付"）
-* **回写**：（完成后三句内写清改了什么、验证结果；探索过程不写）
+* **验收**：① ✅ **独立 oracle 复算**页间不重不漏（游标逐条翻页的 DB 行集 vs 接口回显集；**夹具带"他楼 / 软删"对照行**）；② ✅ ★ **基线对照**：优化后"DB 行数 ∝ 页码"消失（基线 DB 返 2 / 20000 行 → 改造后 ≤ `pageSize+1`；HTTP 21 / 68ms → 20 / **8ms**，第 1 页本就须从楼头起扫故持平）；③ ✅ 末页 / 越界 / 非法 `cursor` 兜底用例；④ ✅ **前端改动同批交付**（`detail.js` 改游标循环；无独立联调环境 ⇒ 改由接口级对照 + 信封字段断言钉住）。
+* **回写**：① **改了什么**：`/comment/replies` 由 offset 改为 **keyset 游标** —— 入参 `page` → `cursor`（= 上一页末条 `commentId`）、出参 `PageResult` → 新增 `CursorResult{list,total,pageSize,nextCursor}`；`CommentService#getRepliesForRoot` 删 `afterCommentId=0` / 内存切片 `slicePage` / `toLimit` / `MAX_REPLY_WINDOW`，改 `LIMIT pageSize+1` **一次判到底**；前端 `detail.js#ensureRootExpanded` 改游标循环。**未动** `CommentMapper.xml`（SQL 早已支持 keyset）/ 点赞态填充 / schema。
+  ② **验证结果**：`CommentReadTests` 10 → **14** 例（新增：独立 oracle 不重不漏 / 非法游标兜底 / ★性能契约 spy / 旧 `page` 忽略）；**全量回归 439 例全绿**（436 + 3）；**反向注入 2 条实测变红并还原**（本页 `LIMIT` 改成与游标无关的大值 ⇒ 性能契约红；SQL 忽略游标恒传 `0` ⇒ 不重不漏 + 展开回复 + 性能契约 **3 条**红）。
+  ③ ★ **C-6 基线 + 对照**（Testcontainers MySQL 8.4，单楼 2 万条回复）：优化前 HTTP 第 1 页 **21ms** / 末页 **68ms**、DB 返 **2 / 20000** 行；改造后 **20ms / 8ms**、DB 返 ≤ `pageSize+1` 行（`EXPLAIN ANALYZE`：现状 `LIMIT 20000 → rows=20000`；游标末页 `index condition (comment_id > …) → rows=2`）。
+  ④ **契约变更登记**：这是**有意破 `page` 契约**（用户 2026-10-13 接受）⇒ 按 `.docs/INDEX.md` §一 ① 的规矩**同批改前端**，并把新形状登记在注释（`CursorResult` 类注释 / `CommentController#replies` / `api.js`）；旧 `page` **静默退化为第 1 页**（已加用例钉住，不报错）。★ 既有 `/comment/replies` 用例**因契约变更如实改形状**（非"测试迎合"）：**"页间不重不漏"的业务断言未削弱**，且换成独立 oracle。
+  ⑤ **连带处置**：审查提出的三处口径问题已修（注释把"非法"与"越界"混为一谈；oracle 夹具缺对照；补 `page` 忽略用例）；`F-20` 的 **② 已交付**（①③④⑤⑥ 仍留池）。
 
 ### T15 收藏缓存层收口 + `/favorite/status` 短路（来源 F-17）【待执行】
 
