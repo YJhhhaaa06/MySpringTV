@@ -219,10 +219,14 @@ public class FavoriteCache {
      * 布尔改由 {@code folders.isEmpty()} 推导（否则会破坏响应自洽
      * {@code isFavorited ≡ !folders.isEmpty()}）。
      * <ul>
-     *   <li><b>为什么每个 {@code false} 都可信</b>：本方法返回 {@code false} 只有四种来路 ——
-     *       空标记命中、热集合的 {@code SISMEMBER=false}、<b>冷 miss 的单飞回源</b>（刚从 DB 读出）、
-     *       <b>Redis 挂时的降级点查</b>（同样刚从 DB 读出）。<b>没有</b>"不知道就当没有"这一条 ⇒
-     *       短路不会把"读不到"降级成"未收藏"。</li>
+ *   <li><b>为什么 {@code false} 从不来自"读不到"</b>（这是能拿它做短路判据的前提）：返回 {@code false}
+ *       只有四种来路 —— 空标记命中、热集合的 {@code SISMEMBER=false}、<b>冷 miss 的单飞回源</b>（刚从
+ *       DB 读出）、<b>Redis 挂时的降级点查</b>（同样刚从 DB 读出）。<b>没有</b>"不知道就当没有"这一条
+ *       ⇒ 短路不会把"读不到"降级成"未收藏"（= {@code cache/DB} 失败语义的收口处，见类注释
+ *       "两种失败必须区分"）。<br>
+ *       ⚠️ <b>但别读成"false = 当下 DB 真相"</b>：空标记与 {@code SISMEMBER} 都可能是失效失败后的
+ *       <b>陈旧结论</b>（≤ TTL）。这是 {@code /favorite/status} 容忍度边界的根源，完整论证在
+ *       {@code FavoriteStatusVO} 类注释 —— 那里是这层口径的唯一事实源，本段不复述。</li>
      *   <li><b>为什么冷 miss 要回填而不是白读一趟</b>：回填让冷状态**自愈** ——
      *       否则本端点会退化成"**每请求一次点查且永不收敛**"。这条取舍的完整论证与代价登记在
      *       {@code FavoriteService.getFavoriteStatus} 的 javadoc（那里是它的唯一事实源）。</li>

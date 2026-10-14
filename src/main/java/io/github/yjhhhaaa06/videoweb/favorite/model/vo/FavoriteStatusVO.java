@@ -92,11 +92,14 @@ public class FavoriteStatusVO {
     private List<FavoriteFolderBriefVO> folders;
 
     /**
-     * T15 短路分支的**唯一**构造点：未收藏（{@code false} + 空 {@code folders}）。
+     * T15 <b>短路</b>分支的构造点：未收藏（{@code false} + 空 {@code folders}）。
      *
-     * <p>收在这里是为了让"自洽"不会被某个分支各自手写漏掉 ——
-     * 短路分支**也必须**给 {@code folders=[]}（不是 {@code null}、不是省略），
+     * <p>收在这里是为了让"自洽"不会被某个分支各自手写时漏掉 ——
+     * 短路分支**同样必须**给 {@code folders=[]}（不是 {@code null}、不是省略），
      * 否则前端 {@code st.folders.length} 会 NPE（契约形状见类注释的 JSON 段）。
+     * ⚠️ 它**不是**本响应的唯一出口：已收藏那一支要在拿到 DB 的 {@code folders} 之后自行构造
+     * （{@code FavoriteService.getFavoriteStatus}）—— 那支必须先赋值 {@code folders}，
+     * 布尔随后由 {@code folders.isEmpty()} 推导，构造顺序反过来故不适用本工厂。
      */
     public static FavoriteStatusVO notFavorited() {
         FavoriteStatusVO status = new FavoriteStatusVO();

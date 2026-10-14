@@ -69,14 +69,17 @@ import static org.mockito.Mockito.verify;
  *   <caption>注入 → 变红</caption>
  *   <tr><th>#</th><th>注入</th><th>变红用例</th></tr>
  *   <tr><td>1</td><td>去掉短路（{@code getFavoriteStatus} 回到"只查 DB"）</td>
- *       <td>{@code 未收藏第二次请求零查库}（1）</td></tr>
+ *       <td><b>5 例全红</b>（含用例 5 的陈旧对照：旧实现下 status 答 true、详情答 false ⇒ 打架）</td></tr>
  *   <tr><td>2</td><td>短路放宽成"照缓存答 true 也不取 folders"</td>
- *       <td>{@code 已收藏内容仍取folders…}（1）—— 会得到 {@code {isFavorited:true, folders:[]}}</td></tr>
+ *       <td>{@code 已收藏内容仍取folders…} + {@code Redis挂降级走DB…}（<b>2</b>）——
+ *           会得到 {@code {isFavorited:true, folders:[]}}</td></tr>
  *   <tr><td>3</td><td>miss 不回填（把冷 miss 换成一次目标点查）</td>
- *       <td>{@code 未收藏第二次请求零查库}（1）—— 冷状态不再自愈，第二次仍打 DB</td></tr>
+ *       <td>除 {@code Redis挂降级走DB…} 外 <b>4 例</b>红 —— 冷状态不再自愈，第二次仍打 DB</td></tr>
  *   <tr><td>4</td><td>Redis 异常改为 rethrow（不降级）</td>
- *       <td>{@code Redis挂降级走DB且接口不500}（1）</td></tr>
+ *       <td>{@code Redis挂降级走DB且接口不500}（<b>1</b>）</td></tr>
  * </table>
+ * ⚠️ 上表的数字是**逐条实测**的（不是推演）：注入 1 实测时曾只有 4 例红 —— 用例 5 当时只覆盖了
+ * "正常态一致"，对短路本身无判别力；补了第 ④ 步陈旧对照后才做到"去掉实现必红"。
  */
 class FavoriteStatusShortCircuitTests extends AbstractHttpIntegrationTest {
 
@@ -160,7 +163,7 @@ class FavoriteStatusShortCircuitTests extends AbstractHttpIntegrationTest {
         long folder = insertFolder(me.id(), "T15 对照夹");
         // ★ T12 起的规矩：夹具走**真实写路径**（列只由写路径的重算维护）
         assertThat(addItem(folder, favorited, me.token()).getStatusCode().value()).isEqualTo(200);
-        assertThat(oracleRecordCount(favorited)).as("独立 oracle：确实有一条收藏记录").isEqualTo(1L);
+        assertThat(oracleOwnRecordCount(me.id(), favorited)).as("独立 oracle：确实有一条收藏记录").isEqualTo(1L);
 
         // ① 已收藏：必须取 folders，布尔由它推导（而不是照缓存答 true）
         Mockito.clearInvocations(itemDao);
@@ -200,7 +203,7 @@ class FavoriteStatusShortCircuitTests extends AbstractHttpIntegrationTest {
 
         // ② 绕开写路径**直接改库**（= 数据修复 / 测试夹具这类场景）⇒ 缓存完全不知情
         insertItem(folder, me.id(), content);
-        assertThat(oracleRecordCount(content)).as("★ DB 真相：这里确实有一条收藏记录").isEqualTo(1L);
+        assertThat(oracleOwnRecordCount(me.id(), content)).as("★ DB 真相：这里确实有一条收藏记录").isEqualTo(1L);
 
         // ③ 本端点仍答"未收藏" —— ★ 这就是本次被接受的口径边界
         Mockito.clearInvocations(itemDao);
@@ -230,11 +233,11 @@ class FavoriteStatusShortCircuitTests extends AbstractHttpIntegrationTest {
         // 写在打桩**之前**（否则写路径自己的缓存动作也会被桩打挂）
         assertThat(addItem(folder, content, me.token()).getStatusCode().value()).isEqualTo(200);
 
-        // ★ 降级的注入点是 {@code existingOf}（三态读的第一段）；一并打挂 SISMEMBER 支路
+        // ★ 降级的注入点就是 {@code existingOf}（三态读的第一段）—— 它一抛，`FavoriteCache.isFavorited`
+        //   在函数入口就被 catch 住并转去降级点查，后面的 {@code SISMEMBER} 支路根本走不到，
+        //   故**不需要**再给它打桩（打桩也是死代码）。
         doThrow(new CacheUnavailableException("模拟 Redis 挂")).when(favoriteRedisOps)
                 .existingOf(anyString(), anyString());
-        doThrow(new CacheUnavailableException("模拟 Redis 挂")).when(favoriteRedisOps)
-                .setIsMember(anyString(), anyLong());
 
         Mockito.clearInvocations(itemDao);
         ResponseEntity<String> resp = status(me.token, content);
@@ -271,6 +274,19 @@ class FavoriteStatusShortCircuitTests extends AbstractHttpIntegrationTest {
         assertThat(removeItems(folder, List.of(video), me.token()).getStatusCode().value()).isEqualTo(200);
         assertThat(detailIsFavorited(video, me.token())).as("详情页按钮").isFalse();
         assertThat(statusIsFavorited(video, me.token())).as("收藏弹窗").isFalse();
+
+        // ④ ★ 陈旧场景 —— 这才是验收⑤真正要证的东西。
+        //    绕开写路径**直插**一条收藏记录（= 数据修复 / 夹具）：DB 真相是"已收藏"，
+        //    但两个入口读的是**同一个 key** ⇒ 即便与 DB 不一致，**彼此也不打架**。
+        //    ⚠️ 反向注入点：去掉短路（status 回到纯 DB）⇒ 这里会一个答 true 一个答 false ⇒ 变红。
+        insertItem(folder, me.id(), video);
+        assertThat(oracleOwnRecordCount(me.id(), video)).as("DB 真相：确实有一条收藏记录").isEqualTo(1L);
+        boolean detail = detailIsFavorited(video, me.token());
+        boolean picker = statusIsFavorited(video, me.token());
+        assertThat(picker)
+                .as("★ 陈旧时二者仍一致（detail.js 不会再拿 status 把按钮态写回去）⇒ 都不打架")
+                .isEqualTo(detail);
+        assertThat(detail).as("且二者此刻都答 false（判据见用例 3 的容忍度边界）").isFalse();
     }
 
     // ========================================================================
@@ -356,10 +372,17 @@ class FavoriteStatusShortCircuitTests extends AbstractHttpIntegrationTest {
                 folderId, userId, contentId);
     }
 
-    /** ★ 独立 oracle：DB 真相（不读缓存、不读接口回显）。 */
-    private long oracleRecordCount(long contentId) {
+    /**
+     * ★ 独立 oracle：DB 真相（不读缓存、不读接口回显）——**按人**数。
+     *
+     * <p>⚠️ 为什么必须带 {@code user_id}：本类 5 例都是**单用户**夹具，只会按 {@code content_id}
+     * 数的 oracle 抓不到"生产 SQL 漏了 {@code user_id} 谓词"这类错（把别人的收藏混进来仍然一样红不了）。
+     * 带上它之后，这一条才对"判据是 (当前用户, 内容)"这个契约有判别力。
+     */
+    private long oracleOwnRecordCount(long userId, long contentId) {
         Long n = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM favorite_item WHERE content_id = ?", Long.class, contentId);
+                "SELECT COUNT(*) FROM favorite_item WHERE user_id = ? AND content_id = ?",
+                Long.class, userId, contentId);
         return n == null ? 0L : n;
     }
 

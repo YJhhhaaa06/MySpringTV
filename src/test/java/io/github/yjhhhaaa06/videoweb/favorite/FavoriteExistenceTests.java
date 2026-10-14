@@ -206,6 +206,9 @@ class FavoriteExistenceTests extends AbstractHttpIntegrationTest {
                 .as("★ 不 JOIN：记录存在 ⇒ true（本契约服务'我收藏过没有'这个事实，与收藏数同侧）")
                 .isTrue();
         // 对照：JOIN 版（/favorite/status）在孤儿态丢行 ⇒ false。
+        // ⚠️ T15 后因果链多了一步（结论未变）：status 现在**先问成员集**（不 JOIN ⇒ 孤儿算"已收藏"）
+        //    ⇒ 才会落到 JOIN 取 folders ⇒ 丢行 ⇒ false。也就是说它是靠"JOIN 丢行"把布尔拉回 false，
+        //    而不是靠成员集；本用例因此仍然钉得住这条分叉（注入把 status 改成 LEFT JOIN 仍会红）。
         // 该分叉是 I-04 已登记的已知边缘态 —— 双向上锁，防止将来悄悄改侧。
         // ⚠️ status 是 @RequiresLogin 端点：必须带 token，否则 401 的"缺 data"会被 asBoolean()
         //    读成 false，把一个假绿伪装成"分叉成立"。

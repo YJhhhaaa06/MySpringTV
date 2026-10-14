@@ -310,7 +310,11 @@ class FavoriteCacheTests extends AbstractHttpIntegrationTest {
         assertThat(countViaHttp(content))
                 .as("★ 无条件 DECR 会在这里答 0：同一人还在（别的夹里）")
                 .isEqualTo(1L);
-        // 状态端点（直查 DB、不吃缓存）必须与缓存侧给同一个答案
+        // 状态端点必须与缓存侧给同一个答案
+        // ⚠️ T15 起：**不再**是"直查 DB、不吃缓存" —— getFavoriteStatus 的"未收藏"分支会先问
+        //    FavoriteCache.isFavorited（同一个 user:favoriteSet:{userId}），命中 ⇒ 不查库。
+        //    本行仍能成立是因为 removeItems 的写路径已把成员集整体失效 ⇒ 这里必然落到 DB 分支。
+        //   （"状态端点读什么"的完整契约见 FavoriteStatusShortCircuitTests）
         assertThat(Envelope.data(statusViaHttp(content, me.token())).path("isFavorited").asBoolean()).isTrue();
 
         // ④ 最后一个夹也移出 ⇒ 回到未收藏、收藏数 0
@@ -538,8 +542,12 @@ class FavoriteCacheTests extends AbstractHttpIntegrationTest {
     // ========================================================================
 
     @Test
-    @DisplayName("★/favorite/status 的 folders 仍走 DB：Redis 里不得出现任何 folders 相关 key")
+    @DisplayName("★/favorite/status 的 folders 不被缓存：Redis 里不得出现任何 folders 相关 key")
     void folders不被缓存() {
+        // ⚠️ T15 之后本用例名要说清一件事："folders 不被缓存"**不等于**"本端点必查 DB" ——
+        //    getFavoriteStatus 的"未收藏"分支会先问 FavoriteCache.isFavorited，命中 ⇒ folders 根本不查
+        //    （契约见 FavoriteStatusShortCircuitTests）。本用例站的正是**另一半**：它的夹具让成员集
+        //    判定为"已收藏" ⇒ 必须落到 DB 取 folders，于是"folders 有没有被顺手写进 Redis"才是可观察的。
         TestUser me = register("13900001213", "t11-folders");
         long content = insertContent(me.id());
         long folder = insertFolder(me.id(), "不缓存的夹");
