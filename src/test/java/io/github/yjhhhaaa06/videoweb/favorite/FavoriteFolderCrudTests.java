@@ -29,6 +29,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>★ 删夹**一并删条目**（R-02，同事务）；</li>
  *   <li>★ 无夹时列表返回 {@code []} **而非报错**（R-01 懒建 ⇒ 空态合法）；</li>
  *   <li>★ 每夹条目数用**独立 oracle 复算**，且**含失效内容的记录**（R-07）；</li>
+ *   <li>★ <b>T16 补：允许重名</b>——同一用户两个同名夹都得建得成、且是两条不同记录
+ *       （B 站实测确认，用户 2026-10-14 拍板；题面见 T16 目标④）；</li>
  *   <li>归属（403）/ 不存在（404）/ 名称非法（400）/ 未登录（401）四条错误线。</li>
  * </ul>
  *
@@ -63,6 +65,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       四个端点都收 {@code @CurrentUserId}（默认 {@code required = true}，取不到即 401），
  *       去掉注解仍得 401。这与 {@code SecurityContractTests} 类注释写的是同一件事：
  *       "401 是谁给的"必须直接对 {@code RequestMappingLookup} 求值才看得见。</li>
+ *   <li>★ <b>T16 补</b>：给 {@code favorite_folder} 加 {@code (user_id, name)} 唯一键 ⇒
+ *       {@code 允许重名} 变红（第二个同名夹会撞键 ⇒ 409），**且** {@code FavoriteSchemaTests}
+ *       的"索引全集"断言一并变红 —— 两处各按自己的理由守着"允许重名"这条契约。</li>
  * </ul>
  * ⚠️ <b>{@code deleteFolder} 的事务回滚语义不在本类</b>（两条顺序 DELETE 都成功 ⇒ 去掉注解仍绿，
  * 本类只钉"两次写都成功"的终态）—— 已由 T8 用 {@code @MockitoSpyBean} 打桩"删夹行失败"在
@@ -152,6 +157,31 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
 
         assertThat(folderRows(me.id)).as("只有 100 字符那条落库").hasSize(1);
         assertThat(folderRows(me.id).get(0).name).as("落库的是原文，不被截断").isEqualTo(exactly100);
+    }
+
+    @Test
+    @DisplayName("★允许重名（T16 契约钉子）：同一用户两个同名夹都得建得成，且是**两条不同记录**")
+    void 允许重名() {
+        TestUser me = register("13800001015", "重名用户");
+
+        // ★ 期望值出自业务口径（B 站实测可重名，用户 2026-10-14 拍板），**不是**抄实现：
+        //   它是 FURTHER_ISSUES.md F-11 里"是否拒重名"那个问号的答案 ⇒ 同名是**合法状态**，
+        //   不得加 (user_id, name) 唯一键，也不得写"先 SELECT 同名再 INSERT"。
+        assertThat(addFolder("同名夹", me.token).getStatusCode().value()).isEqualTo(200);
+        assertThat(addFolder("同名夹", me.token).getStatusCode().value())
+                .as("第二个同名夹必须建得成（唯一键只约束默认夹 uk_user_default）").isEqualTo(200);
+
+        List<FolderRow> rows = folderRows(me.id);
+        assertThat(rows).as("同名是合法状态 ⇒ 库里就该有两行").hasSize(2);
+        assertThat(rows).allSatisfy(row -> assertThat(row.name).as("两行名字一字不差").isEqualTo("同名夹"));
+        assertThat(rows.get(0).id).as("★ 两条**不同**记录（各有 id），不是同一条被改了名")
+                .isNotEqualTo(rows.get(1).id);
+        assertThat(Envelope.data(listFolders(me.token))).as("读路径不因重名去重：列表里两条都在")
+                .hasSize(2);
+
+        // 反向对照：改名到"另一个已存在的同名"也合法（同一口径的另一半）
+        assertThat(renameFolder(rows.get(0).id, "同名夹", me.token).getStatusCode().value())
+                .as("把夹改成已存在的同名也必须 200（重名在改名路径上同样合法）").isEqualTo(200);
     }
 
     // ========================================================================
