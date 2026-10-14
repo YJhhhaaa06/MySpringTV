@@ -659,6 +659,8 @@ body.drawer-open .drawer-backdrop { opacity: 1; pointer-events: auto; }
 .sheet-close:hover { color: var(--text-1); transform: rotate(90deg); }
 .sheet-list { overflow-y: auto; flex: 1; padding: 8px 22px; }
 .sheet-empty { text-align: center; padding: 60px 20px; color: var(--text-3); font-size: 14px; }
+/* 他人公开夹内容的卡片网格（T18：复用 sheet 抽屉；抽屉窄 ⇒ 两列） */
+.sheet-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px 12px; padding: 6px 0; }
 
 /* ==========================================================================
    登录 / 注册
@@ -990,6 +992,9 @@ body.drawer-open .drawer-backdrop { opacity: 1; pointer-events: auto; }
 .user-fav-title { font-size: 14px; font-weight: 700; margin-bottom: 10px; }
 .user-fav-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line-soft); font-size: 14px; }
 .user-fav-item:last-child { border-bottom: none; }
+/* T18：他人公开夹可点开（点开走 sheet 抽屉看内容） */
+.user-fav-item.clickable { cursor: pointer; }
+.user-fav-item.clickable:hover .uf-name { color: var(--brand); }
 .uf-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .uf-count { flex-shrink: 0; color: var(--text-3); font-size: 12px; }
 

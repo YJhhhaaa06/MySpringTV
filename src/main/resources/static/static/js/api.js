@@ -20,8 +20,12 @@ import { showToast } from './utils.js';
 // T7 收藏域端点清单（前端在此登记；**不新增封装层** —— 各视图沿用
 // `request('路径', { method, jsonBody })` 的既有调用风格，与 like / follow / comment 同款）。
 //   写：POST favorite/folder/{add,update,remove} · favorite/{add,remove,move}（form 参数走 query）
-//   读：GET  favorite/folder/list · favorite/folder/public · favorite/status · favorite/count · favorite/list
+//   读：GET  favorite/folder/list · favorite/folder/public · favorite/folder/items · favorite/status · favorite/count · favorite/list
 //   ★ 鉴权差异：folder/public、count 匿名可访问；其余需登录（后端逐端点声明，别照抄 like 的类级注解）。
+//   ★ T18（收藏三期）：他人公开夹**可点开** —— `GET favorite/folder/items?folderId=X`（**匿名可访问**）
+//     出参 `PageResult<FavoriteItemVO>`（与 `favorite/list` **同形**：条目 7 键、失效脱敏占位）；
+//     `folder/public` 的条目**新增 id**（据此打开）。⚠️ 服务端强制 `is_private = 0`：私密夹与不存在的夹
+//     **同为 404 且同文案**（不可区分）——前端**不要**据此区分"夹存在与否"；UI = user.js 的公开夹卡片区。
 //   ★ T10（R-10）：详情互动态（赞 / 藏 / 关注作者）**内联在 /search/IdSearch 响应的
 //     `interaction` 子对象**里（匿名 ⇒ null），**没有新端点**；`favorite/status` 仍被收藏弹窗
 //     用于取"收在哪些夹"（folders），详情按钮初始态不再单发它。

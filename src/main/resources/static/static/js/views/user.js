@@ -17,6 +17,11 @@ const PROFILE_BATCH_SIZE = 10;
 // chunkSize 仅用于「本 chunk 是否已到末页」的本地判定，与后端信封保持一致。
 const SHEET_CHUNK_SIZE = 100;
 const SHEET_BATCH_SIZE = 10;
+// T18：他人公开夹内容的卡片网格（复用下方同一个 sheet 抽屉）。
+// 失效占位图标 = 内联 SVG（代码合成、零请求、零素材；与 favorite.js 同款，样式归三期 F-15 家族）。
+const ICON_INVALID = '<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.4" '
+  + 'stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="11" width="34" height="26" rx="4"/>'
+  + '<path d="M7 32l9-9 7 7"/><circle cx="32" cy="20" r="3"/><path d="M8 7l32 32"/></svg>';
 let state = null;
 
 export function mount(container, params) {
@@ -39,9 +44,9 @@ export function mount(container, params) {
     currentUserId: isLoggedIn() ? meId : null,
     isFollowed: null,
     profile: null,      // T11-B：最近一次 /profile 响应（头部信息随任一页返回）
-    listType: 'following',
     contentList: null,  // T11-B：创作网格 createChunkedList 实例（大 chunk + 本地小批）
-    sheetList: null,    // T11-A：关注/粉丝 sheet 实例
+    sheetList: null,    // T11-A：关注/粉丝 sheet 实例；★ T18 起也承载"他人公开夹内容"
+    sheetRender: null,  // T18：当前 sheet 的内容渲染器（用户列表 / 公开夹卡片），由 openSheet 决定
   };
   state.isSelf = state.currentUserId != null && state.currentUserId === profileUserId;
   render();
@@ -192,10 +197,10 @@ function renderProfileHead() {
   renderFollowBtn();
 }
 
-// ---------- 收藏夹模块（T7） ----------
+// ---------- 收藏夹模块（T7；T18 他人公开夹可点开） ----------
 // 本人：只给"我的收藏夹"入口（私人夹在收藏页里管理，个人空间不展开）；
-// 他人：只列**公开**夹（R-08：一期只给名称 + 视频数，无 id ⇒ 不打开展示；
-//       私密夹由后端 /favorite/folder/public 过滤掉，前端看不到也不需要过滤）。
+// 他人：只列**公开**夹（后端 /favorite/folder/public 已过滤私密；★ T18 起出参加 id ⇒ **可点开**）。
+//       点开走 GET /favorite/folder/items?folderId=X（匿名可访问）⇒ 复用页面既有的 sheet 抽屉展示内容，**只读**。
 async function loadUserFav() {
   const box = state.container.querySelector('#userFav');
   if (!box) return;
@@ -216,9 +221,17 @@ async function loadUserFav() {
   if (!folders.length) { box.innerHTML = ''; return; }
   box.innerHTML = `<div class="user-fav-card">
       <div class="user-fav-title">公开收藏夹</div>
-      ${folders.map((f) => `<div class="user-fav-item"><span class="uf-name">${escapeHtml(f.name)}</span>`
+      ${folders.map((f) => `<div class="user-fav-item clickable" data-fid="${f.id}">`
+        + `<span class="uf-name">${escapeHtml(f.name)}</span>`
         + `<span class="uf-count">${f.itemCount} 个内容</span></div>`).join('')}
     </div>`;
+  // T18：点开某个公开夹 → 抽屉里看内容（同一套 sheet 骨架，渲染器换成卡片）
+  box.querySelectorAll('.user-fav-item').forEach((row) => {
+    row.addEventListener('click', () => {
+      const folder = folders.find((f) => String(f.id) === row.dataset.fid);
+      if (folder) openFolderItems(folder);
+    });
+  });
 }
 
 function renderContentGrid(list) {
@@ -285,28 +298,48 @@ function updateFollowerCount(delta) {
   if (!Number.isNaN(cur)) el.textContent = cur + delta;
 }
 
-// ---------- 关注/粉丝列表（T7 后端有序分页 → T11-A 接公共 chunkedList） ----------
-// 信封大小由后端 follow 域常量决定（200），请求**只传 `page`**；本地按 10 条小批消费，
+// ---------- 抽屉（sheet）：关注/粉丝列表 与 他人公开夹内容（T18 复用同一骨架） ----------
+// 信封大小由后端域常量决定（100），请求**只传 `page`**；本地按 10 条小批消费，
 // 本地余量足够时「加载更多」0 请求（N15 收敛点，helper 见 js/chunkedList.js）。
 async function openUserList(type) {
   if (!state.profileUserId) return;
-  state.listType = type;
-  const c = state.container;
-  c.querySelector('#sheetTitle').textContent = type === 'following' ? '关注' : '粉丝';
-  c.querySelector('#sheetList').innerHTML = '<div class="sheet-empty">加载中...</div>';
-  c.querySelector('#sheetMore').innerHTML = '';
-  c.querySelector('#sheetOverlay').classList.remove('hidden');
   // 每次打开重建实例（等价 reset）：本地余量与已展示集清空，防 following/followers 串台
-  state.sheetList = createChunkedList({
+  const list = createChunkedList({
     fetchChunk: async (page) => request(
-      `follow/${state.listType}?userId=${state.profileUserId}&page=${page}`),
+      `follow/${type}?userId=${state.profileUserId}&page=${page}`),
     chunkSize: SHEET_CHUNK_SIZE,
     batchSize: SHEET_BATCH_SIZE,
     keyOf: (u) => u.userId,
   });
+  await openSheet(type === 'following' ? '关注' : '粉丝', list, renderUserList);
+}
+
+/**
+ * T18：他人公开夹「点开看内容」—— **只读**卡片列表（复用同一抽屉）。
+ * ⚠️ 不显示任何互动态、也没有「移出」（不是自己的夹）；失效条目照常渲染占位。
+ */
+async function openFolderItems(folder) {
+  const list = createChunkedList({
+    fetchChunk: async (page) => request(`favorite/folder/items?folderId=${folder.id}&page=${page}`),
+    chunkSize: SHEET_CHUNK_SIZE,
+    batchSize: SHEET_BATCH_SIZE,
+    keyOf: (it) => it.contentId,
+  });
+  await openSheet(folder.name || '公开收藏夹', list, renderFolderItems);
+}
+
+// 抽屉通用骨架：标题 + 一份分块列表 + 一个渲染器（打开时重建实例 = 本地余量/已展示集清空）
+async function openSheet(title, list, render) {
+  const c = state.container;
+  c.querySelector('#sheetTitle').textContent = title;
+  c.querySelector('#sheetList').innerHTML = '<div class="sheet-empty">加载中...</div>';
+  c.querySelector('#sheetMore').innerHTML = '';
+  c.querySelector('#sheetOverlay').classList.remove('hidden');
+  state.sheetList = list;
+  state.sheetRender = render;
   try {
-    const batch = await state.sheetList.nextBatch();
-    renderUserList(batch, false);
+    const batch = await list.nextBatch();
+    render(batch, false);
     renderSheetMore();
   } catch (e) {
     c.querySelector('#sheetList').innerHTML = '<div class="sheet-empty">加载失败</div>';
@@ -314,13 +347,13 @@ async function openUserList(type) {
   }
 }
 
-// 「加载更多」：本地余量足够则不发请求；不足才由 helper 拉下一个 chunk
-async function loadMoreUserList(btn) {
+// 「加载更多」：本地余量足够则不发请求；不足才由 helper 拉下一个 chunk（渲染器由 openSheet 决定）
+async function loadMoreSheet(btn) {
   btn.disabled = true;
   btn.textContent = '加载中...';
   try {
     const batch = await state.sheetList.nextBatch();
-    renderUserList(batch, true);
+    state.sheetRender(batch, true);
     renderSheetMore();
   } catch (e) {
     btn.disabled = false;
@@ -340,7 +373,7 @@ function renderSheetMore() {
   const btn = document.createElement('button');
   btn.className = 'load-more-btn';
   btn.textContent = '加载更多';
-  btn.addEventListener('click', () => loadMoreUserList(btn));
+  btn.addEventListener('click', () => loadMoreSheet(btn));
   box.appendChild(btn);
 }
 
@@ -372,6 +405,77 @@ function renderUserList(users, append) {
     }
     box.appendChild(item);
   });
+}
+
+// T18：他人公开夹内容的卡片网格（只读）。★ 失效条目照常渲染占位 —— 后端 FavoriteItemVO 已给
+// invalid=true + 占位标题「内容已失效」（前端不做二次判断，与一期夹内列表同口径）。
+function renderFolderItems(items, append) {
+  const box = state.container.querySelector('#sheetList');
+  let grid = box.querySelector('.sheet-grid');
+  if (!append) {
+    if (!items.length) { box.innerHTML = '<div class="sheet-empty">这个收藏夹还是空的</div>'; return; }
+    box.innerHTML = '';
+    grid = document.createElement('div');
+    grid.className = 'sheet-grid';
+    box.appendChild(grid);
+  } else if (!grid) {
+    return;
+  }
+  items.forEach((it) => grid.appendChild(createFolderItemCard(it)));
+}
+
+/**
+ * 公开夹里的一条内容卡片：**只读** —— 不显示点赞 / 关注 / 收藏等互动态，也没有「移出」按钮
+ * （不是自己的夹）。失效条目走占位（灰底 + 内联 SVG 破图图标），**不可点开详情**。
+ * ⚠️ 打开内容用 {@code contentId}（后端 {@code FavoriteItemVO.id} 是**收藏记录行 id**，不是内容 id）。
+ */
+function createFolderItemCard(item) {
+  const card = document.createElement('div');
+  card.className = 'v-card' + (item.invalid ? ' invalid-card' : '');
+
+  const cover = document.createElement('div');
+  cover.className = 'v-card-cover';
+  if (item.invalid) {
+    cover.classList.add('invalid-cover');
+    cover.innerHTML = ICON_INVALID;
+  } else {
+    const fallback = document.createElement('div');
+    fallback.className = 'cover-fallback';
+    fallback.textContent = initialChar(item.title || item.authorName);
+    fallback.style.background = avatarColor(item.title || item.authorName);
+    cover.appendChild(fallback);
+    if (item.coverUrl) {
+      const img = document.createElement('img');
+      img.className = 'cover-img';
+      img.src = item.coverUrl;
+      img.alt = '';
+      img.loading = 'lazy';
+      img.addEventListener('error', () => img.remove());
+      cover.appendChild(img);
+    }
+  }
+  card.appendChild(cover);
+
+  const body = document.createElement('div');
+  body.className = 'v-card-body';
+  const title = document.createElement('div');
+  title.className = 'v-card-title';
+  title.textContent = item.title || '';
+  const meta = document.createElement('div');
+  meta.className = 'v-card-meta';
+  const up = document.createElement('span');
+  up.className = 'up-name';
+  up.textContent = item.authorName || '';
+  meta.appendChild(up);
+  body.appendChild(title);
+  body.appendChild(meta);
+  card.appendChild(body);
+
+  // 失效条目不可点开（内容已打不开）；正常条目按 **contentId** 打开详情
+  if (!item.invalid) {
+    card.addEventListener('click', () => navigate('/video/' + item.contentId));
+  }
+  return card;
 }
 
 async function toggleUserFollow(u, btn) {
