@@ -32,7 +32,17 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       （往他人已满的夹 add ⇒ <b>403 而非 400</b>）；</li>
  *   <li>★ <b>20 上限不拦默认夹懒建</b>（满 20 个自建夹的用户，不选夹收藏仍 ⇒ 200 且默认夹建出来）
  *       —— 这是最尖锐的一条：若被拦住就是**不可自愈**的死局（重演 I-08 的互锁）；</li>
- *   <li>★ 满夹时"重复收藏"⇒ <b>400 而非 409</b>（已知副作用的钉子，见 {@code FavoriteService.addItem}）。</li>
+ *   <li>★ 满夹时"重复收藏"⇒ <b>400 而非 409</b>（已知副作用的钉子，见 {@code FavoriteService.addItem}）；</li>
+ *   <li>★ <b>条数只看目标夹</b>：源夹已满而目标夹未满 ⇒ 移入必须成功（误数源夹 / 数全局都会红）。</li>
+ * </ul>
+ *
+ * <h2>★ 夹具必带"对照"（AGENTS.md；T16 收口由独立审查补上）</h2>
+ * 三处对照是**为了打出"谓词写错"这类缺陷**（少了它们，用例只是"碰巧绿"）：
+ * <ul>
+ *   <li>夹数：<b>另一个用户也有 20 个自建夹</b> —— 否则去掉 {@code user_id} 谓词后"全局计数 === 我的计数"，用例照绿；</li>
+ *   <li>条数（500 档）：另有一个夹也有 1 条 —— 否则去掉 {@code folder_id} 谓词后"全局计数 === 该夹计数"；</li>
+ *   <li>条数（5000 档）：另一个夹塞 4500 条 —— 让"默认夹 500 条仍可加"这一步在数全局时被误拒；</li>
+ *   <li>move：源夹恰好 500 而目标夹 1 条 —— 一次夹具同时排除"误数源夹"与"数全局"两种写错。</li>
  * </ul>
  *
  * <h2>★ 期望值怎么来的（规避"迎合型伪测试"）</h2>
@@ -54,8 +64,18 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>去掉 {@code addItem} / {@code moveItem} 的容量判定 ⇒ <b>4 例红</b>（自建夹条数上限 ·
  *       默认夹条数上限与自建夹分流 · 满夹时重复收藏返回 400 · 移动到已满的夹被拒）；</li>
  *   <li>把夹数 SQL 的 {@code AND is_default = 0} 去掉（改成数全部夹）⇒ <b>1 例红</b>（默认夹不计入个数上限）；</li>
- *   <li>把容量判定挪到夹归属<b>之前</b> ⇒ <b>1 例红</b>（他人已满的夹返回 403 而非 400）。</li>
+ *   <li>把容量判定挪到夹归属<b>之前</b> ⇒ <b>1 例红</b>（他人已满的夹返回 403 而非 400）；</li>
+ *   <li>★ <b>去掉夹数 SQL 的 {@code user_id} 谓词</b>（改成数全站自建夹）⇒ <b>1 例红</b>（自建夹个数上限）；</li>
+ *   <li>★ <b>去掉 {@code countByFolderId} 的 {@code WHERE folder_id = ?}</b>（改成数全表）⇒ <b>3 例红</b>
+ *       （自建夹条数上限 · 默认夹条数上限与自建夹分流 · 源夹满而目标夹未满仍可移入）。</li>
  * </ul>
+ * ⚠️ 后两条是**独立审查（2026-10-14）指出"夹具缺对照"之后补的**：那时这两句谓词写错**无一条会红**
+ * （全局计数恰好等于被查对象）—— 补上对照夹具 + 补测后才变红。★ 这正是 AGENTS.md「夹具必须带对照」的实例，
+ * 也说明**"用例全绿"不等于"谓词写对了"**。
+ *
+ * <p>另：最后一条注入（"加 {@code (user_id, name)} 唯一键"）在
+ * {@code FavoriteFolderCrudTests#允许重名} 的类注释里 —— 红 **2 例**：重名用例 +
+ * {@code FavoriteSchemaTests} 的索引全集断言。
  * ⚠️ <b>读注入结果时注意判别力的分布</b>：① "默认夹不计入个数上限"会被**两种**注入打红 ——
  * 第 1 条（判定整体被拿掉时，它后半段"再建一个必须 400"的**对照断言**失败）与第 3 条（谓词写宽时，
  * 它前半段"'第 20 个自建夹' 必须 200"失败）；② "满夹时重复收藏 400" 只由 {@code addItem} 那条打红
@@ -90,12 +110,20 @@ class FavoriteCapacityTests extends AbstractHttpIntegrationTest {
     @DisplayName("★自建夹至多 20 个：第 20 个可建、第 21 个 ⇒ 400（且库里仍是 20 行）")
     void 自建夹个数上限() {
         TestUser me = register("13800007001", "夹数用户甲");
+        // ★ **对照**（AGENTS.md「夹具必须带对照」）：另一个用户也有 20 个自建夹。
+        //   没有它，去掉 SQL 里的 user_id 谓词后"全局计数"恰好等于"我的计数" ⇒ 用例仍绿（假绿）。
+        TestUser other = register("13800007011", "夹数旁人");
+        for (int i = 0; i < CUSTOM_FOLDER_MAX_COUNT; i++) {
+            insertFolder(other.id, "旁人的夹" + i, 0);
+        }
         for (int i = 0; i < CUSTOM_FOLDER_MAX_COUNT - 1; i++) {
             insertFolder(me.id, "夹" + i, 0);
         }
 
         ResponseEntity<String> twentieth = addFolder("第 20 个", me.token);
-        assertThat(twentieth.getStatusCode().value()).as("恰好到上限必须建得成（否则先被自己拦掉）").isEqualTo(200);
+        assertThat(twentieth.getStatusCode().value())
+                .as("恰好到上限必须建得成（否则先被自己拦掉）—— ★ 判据只算**我自己**的夹（旁人那 20 个不算）")
+                .isEqualTo(200);
         assertThat(countCustomFolders(me.id)).as("库里恰好 20 个自建夹").isEqualTo(CUSTOM_FOLDER_MAX_COUNT);
 
         ResponseEntity<String> twentyFirst = addFolder("第 21 个", me.token);
@@ -103,6 +131,7 @@ class FavoriteCapacityTests extends AbstractHttpIntegrationTest {
         assertThat(Envelope.code(twentyFirst)).isEqualTo(400);
         assertThat(Envelope.msg(twentyFirst)).as("文案要能自解释（用户看得到）").contains("上限");
         assertThat(countCustomFolders(me.id)).as("被拒的请求不得留下第 21 行").isEqualTo(CUSTOM_FOLDER_MAX_COUNT);
+        assertThat(countCustomFolders(other.id)).as("旁人的 20 个夹也必须原样不动").isEqualTo(CUSTOM_FOLDER_MAX_COUNT);
     }
 
     @Test
@@ -153,6 +182,9 @@ class FavoriteCapacityTests extends AbstractHttpIntegrationTest {
         TestUser me = register("13800007004", "条数用户甲");
         long folder = insertFolder(me.id, "快满的夹", 0);
         insertItemsBulk(folder, me.id, 800001L, CUSTOM_FOLDER_MAX_ITEMS - 1);
+        // ★ **对照**：另有一个夹也有 1 条 —— 去掉 countByFolderId 的 folder_id 谓词时（数全局），
+        //   下面"第 500 条"这一步会被误拒（499 + 1 = 500 ≥ 500）⇒ 本用例才会红。
+        insertItemRow(insertFolder(me.id, "有 1 条的干扰夹", 0), me.id, 899999L);
         long contentA = insertContent(me.id);
         long contentB = insertContent(me.id);
 
@@ -174,6 +206,10 @@ class FavoriteCapacityTests extends AbstractHttpIntegrationTest {
         TestUser me = register("13800007005", "条数用户乙");
         long defaultFolder = insertFolder(me.id, "默认收藏夹", 1);
         insertItemsBulk(defaultFolder, me.id, 810001L, CUSTOM_FOLDER_MAX_ITEMS);
+        // ★ **对照**：另一个自建夹塞 4500 条 —— 去掉 folder_id 谓词时全局 = 500 + 4500 = 5000 ≥ 5000，
+        //   下面"默认夹 500 条仍可加"会被误拒 ⇒ 本用例才会红（否则它与"我的计数"恰好相等，是假绿）。
+        insertItemsBulk(insertFolder(me.id, "别人的体量（干扰夹）", 0), me.id, 860001L,
+                DEFAULT_FOLDER_MAX_ITEMS - CUSTOM_FOLDER_MAX_ITEMS);
         long contentA = insertContent(me.id);
         long contentB = insertContent(me.id);
 
@@ -207,6 +243,29 @@ class FavoriteCapacityTests extends AbstractHttpIntegrationTest {
         assertThat(Envelope.code(resp)).isEqualTo(400);
         assertThat(itemRowCount(source, content)).as("被拒的移动必须**留在原位**（同 409 的口径）").isOne();
         assertThat(oracleItemCount(fullTarget)).as("目标夹一行都没多").isEqualTo(CUSTOM_FOLDER_MAX_ITEMS);
+    }
+
+    @Test
+    @DisplayName("★条数只看**目标夹**：源夹已满、目标夹未满 ⇒ 移入必须成功（误数源夹 / 数全局 ⇒ 必红）")
+    void 源夹满而目标夹未满仍可移入() {
+        TestUser me = register("13800007012", "移动对照用户");
+        long fullSource = insertFolder(me.id, "已满的源夹", 0);
+        long target = insertFolder(me.id, "未满的目标夹", 0);
+        long content = insertContent(me.id);
+        // ★ **对照**：源夹恰好 500（含本条）+ 目标夹 1 条 ⇒
+        //   ① 正确实现看目标夹（1 < 500）⇒ 200；
+        //   ② 若误数**源夹**（500）或数**全局**（502）⇒ 400 ⇒ 本用例红 —— 这条夹具同时排除两种写错。
+        insertItemsBulk(fullSource, me.id, 870001L, CUSTOM_FOLDER_MAX_ITEMS - 1);
+        insertItemRow(fullSource, me.id, content);
+        insertItemRow(target, me.id, 870999L);
+
+        assertThat(moveItem(me.token, fullSource, target, content).getStatusCode().value())
+                .as("★ 判据是**目标夹**的条数（1 < 500）：源夹满、别的夹满都不该拦这次移动")
+                .isEqualTo(200);
+        assertThat(itemRowCount(target, content)).as("目标夹收下这一条").isOne();
+        assertThat(itemRowCount(fullSource, content)).as("源夹腾出这一条").isZero();
+        assertThat(oracleItemCount(target)).as("目标夹 1 + 1 = 2").isEqualTo(2);
+        assertThat(oracleItemCount(fullSource)).as("源夹 500 - 1 = 499").isEqualTo(CUSTOM_FOLDER_MAX_ITEMS - 1);
     }
 
     @Test

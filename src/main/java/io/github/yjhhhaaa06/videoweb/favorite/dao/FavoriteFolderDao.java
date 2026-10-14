@@ -78,7 +78,8 @@ public interface FavoriteFolderDao {
      * 我的收藏夹列表（含每夹条目数），**含私密夹**（分期篇 §3.3）。
      *
      * <h2>为什么用 LEFT JOIN + GROUP BY 而不是"先查夹再逐夹 COUNT"</h2>
-     * 后者是 N+1（自建夹一期不设上限）。这里一条 SQL 取回全部，
+     * 后者是 N+1（★ T16 起自建夹有 20 个的个数上限 ⇒ N ≤ 21，量已可控，但"一条 SQL 取回全部"仍是对的形态 ——
+     * 逐夹 COUNT 要多付 N 次往返）。这里一条 SQL 取回全部，
      * 且 {@code COUNT(i.id)} 挂在 {@code LEFT JOIN} 上：
      * <ul>
      *   <li>空夹得 {@code 0} 而不是**整行消失**（{@code INNER JOIN} 会让空夹从列表里掉出去，
