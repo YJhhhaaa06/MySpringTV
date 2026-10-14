@@ -242,7 +242,7 @@ class FavoritePrivacyTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("★公开端点条目形状：恰好 name + itemCount 两键（R-08「一期只给名称 + 视频数」）")
+    @DisplayName("★公开端点条目形状：恰好 id + name + itemCount 三键（T18 加入 id；isPrivate / isDefault 仍不给）")
     void 公开端点条目形状() {
         TestUser me = register("13800002009", "形状用户");
         long folder = insertFolder(me.id, "公开夹", false, false);
@@ -251,13 +251,19 @@ class FavoritePrivacyTests extends AbstractHttpIntegrationTest {
 
         assertThat(data.size()).as("本用例需非空列表才有判别力").isEqualTo(1);
         JsonNode item = data.get(0);
+        assertThat(item.path("id").asLong())
+                .as("★ T18 加 id 并**正向断出真值** —— path().asLong() 对缺失键返回 0，"
+                        + "只断'键存在'是假绿；断出等于夹具夹 id 才证明映射链（resultMap → getter → JSON 键）整条是通的")
+                .isEqualTo(folder);
         assertThat(item.path("name").asString()).isEqualTo("公开夹");
         assertThat(item.path("itemCount").asLong()).isEqualTo(oracleItemCount(folder));
-        // ★ 键集是契约：多一个键 = 可能把"我的夹"的信息（如 isPrivate/isDefault/id）泄露到公开面；
-        //   少一个键 = 破坏"名称 + 视频数"。两端都要拦（同 FollowFlowTests "字段形状是契约"）。
+        // ★ 键集是契约：多一个键 = 可能把"我的夹"的信息（如 isPrivate/isDefault）泄露到公开面；
+        //   少一个键 = 破坏"打开他人公开夹"或"名称 + 数量"的消费方。两端都要拦
+        //   （同 FollowFlowTests "字段形状是契约"）。
         assertThat(item.propertyNames())
-                .as("公开面字段集由 R-08 冻结（含 id 都不给：一期他人公开夹没有任何按 id 的消费方）")
-                .containsExactlyInAnyOrder("name", "itemCount");
+                .as("★ 公开面字段集（R-08 → T18 演进）：id 供'打开他人公开夹'，name + itemCount 供展示；"
+                        + "isPrivate / isDefault 仍**不得**出现（私密恒被过滤 ⇒ 放进去是噪声/泄露信号）")
+                .containsExactlyInAnyOrder("id", "name", "itemCount");
     }
 
     @Test

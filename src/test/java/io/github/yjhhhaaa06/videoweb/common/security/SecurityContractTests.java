@@ -183,6 +183,19 @@ class SecurityContractTests extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("收藏三期 T18：他人公开夹内容端点**不得**判为需登录（匿名可访问；与上面四端点 true 构成成对断言）")
+    void favorite公开夹内容端点不得判为需登录() {
+        // ★ T18 新增的第三条匿名端点（"点开他人公开夹看内容"）：与 /folder/public 同为**他人视角的公开读**，
+        //   与"我是谁"无关 ⇒ 必须匿名可访问。
+        //   机制级断言的**独立价值**同 T3 那条：直接回答"这个 401 是谁要求的"，不依赖 HTTP 用例覆盖面
+        //   （T2 教训：机制失效时 401 常由参数解析器兜出，端到端看起来全对）。★ 反向：若给本类误加
+        //   类级 @RequiresLogin，本类是**最先**变红的那条（HTTP 侧同样会红 —— 见 PublicFolderItemsTests 匿名用例）。
+        assertThat(requiresLogin("GET", "/favorite/folder/items"))
+                .as("T18 冻结契约：看他人公开夹的内容匿名可访问（服务端另以 is_private = 0 兜隐私）")
+                .isFalse();
+    }
+
+    @Test
     @DisplayName("收藏一期 T4：收藏写路径三端点判为需登录（方法级注解，与 T2/T3 同一口径）")
     void favorite收藏写路径端点需登录() {
         // 三个**全登录**端点。T2 的教训在这里同样适用：三个端点都收 @CurrentUserId
