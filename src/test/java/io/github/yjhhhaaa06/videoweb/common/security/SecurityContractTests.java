@@ -226,6 +226,20 @@ class SecurityContractTests extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("收藏三期 T17：稍后再看四端点判为需登录（**方法级**注解；本域没有公开面）")
+    void watchlater四端点需登录() {
+        // ★ 稍后再看是"我的私有池"（无公开面）——即便如此也**逐端点**声明、**绝不用类级**：
+        //   该域将来若长出匿名端点（如将来做"公开的稍后再看"），类级会静默误拦。
+        //   本组是 T17 鉴权口径的**机制级**保证：四个端点都收 @CurrentUserId（取不到即 401）⇒
+        //   HTTP 用例对 @RequiresLogin 机制是**假绿**（401 可能来自参数解析器而非注解，
+        //   见 T2 教训）——"这个 401 是谁要求的"只有本类能回答。
+        assertThat(requiresLogin("GET", "/watchlater/list")).isTrue();
+        assertThat(requiresLogin("POST", "/watchlater/add")).isTrue();
+        assertThat(requiresLogin("POST", "/watchlater/remove")).isTrue();
+        assertThat(requiresLogin("POST", "/watchlater/move")).isTrue();
+    }
+
+    @Test
     @DisplayName("未映射的路径返回 false：真正的 404 由 DispatcherServlet 产生，本机制不越权处理路由")
     void 未映射路径不需登录() {
         assertThat(requiresLogin("GET", "/no/such/endpoint")).isFalse();
