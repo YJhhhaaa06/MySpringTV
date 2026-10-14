@@ -72,7 +72,7 @@ V1 一旦在任一库上被应用，就写进了该库的 `flyway_schema_history
 
 **结论**：V1 是**冻结**的。它是一份"已经发生过的历史"，不是可以被编辑的当前状态。
 
-### 2.3 下次演进：走 V2
+### 2.3 增量演进：逐版本新增（当前已应用到 V4）
 
 要改结构，**新增一个版本号更高的脚本**，绝不回写 V1：
 
@@ -81,7 +81,8 @@ db/migration/
 ├── V1__baseline_tv_schema.sql        ← 冻结，永不再改
 ├── V2__favorite_tables.sql           ← 已应用（2026-10-08 收藏一期 T1），同样冻结
 ├── V3__backfill_favorite_count.sql   ← 已应用（2026-10-12 收藏二期 T12）：**只改数据、不改结构**
-└── V4__<描述>.sql                    ← 下一次演进写这里（编号递增，绝不回写 V1~V3）
+├── V4__watch_later.sql               ← 已应用（2026-10-14 收藏三期 T17）：稍后再看建表
+└── V5__<描述>.sql                    ← 下一次演进写这里（编号递增，绝不回写 V1~V4）
 ```
 
 - V2 在**所有环境**都会被执行（活库：V1 已应用 ⇒ 只有 V2 是新的，会真正跑；空库：V1→V2 顺序跑完）。
@@ -90,8 +91,9 @@ db/migration/
 - ★ **现状（2026-10-08）**：首个增量脚本 **`V2__favorite_tables.sql`** 已落地（收藏一期 T1，
   见 §四"V2 增量"）。它同时是这条策略的**首个实例**：活库走"baseline 0 + V1 no-op + 只跑 V2"，
   空库/测试容器走"V1 → V2 顺序跑完"。
-- ★ **现状更新（2026-10-12）**：收藏二期 T12 又落了 **`V3__backfill_favorite_count.sql`**（数据迁移，见 §四）
-  ⇒ **下一次演进走 V4**；V2 / V3 同 V1 一样**逐字节冻结**。
+- ★ **现状更新（2026-10-12）**：收藏二期 T12 又落了 **`V3__backfill_favorite_count.sql`**（数据迁移，见 §四）。
+- ★ **现状更新（2026-10-14）**：收藏三期 T17 落了 **`V4__watch_later.sql`**（稍后再看建表，见 §四）
+  ⇒ **下一次演进走 V5**；V2 / V3 / V4 同 V1 一样**逐字节冻结**。
 
 ### 2.4 ★ 已应用的迁移**连注释也不能改**（2026-10-11 实测踩到）
 
@@ -185,9 +187,9 @@ registry.add("video.upload.root", AbstractIntegrationTest::testMediaRoot); // �
 
 ## 四、表结构总览
 
-V1 共定义 **15 张业务表**，V2 再增 **2 张**（收藏一期，见下表后"V2 增量"）；
+V1 共定义 **15 张业务表**，V2 再增 **2 张**（收藏一期），V4 再增 **1 张**（收藏三期 T17 稍后再看）；
 **当前**活库/测试库的 `information_schema`
-（`table_type='BASE TABLE'`）计数 = **18** = 17 张业务表 + 1 张 Flyway 元表 `flyway_schema_history`
+（`table_type='BASE TABLE'`）计数 = **19** = 18 张业务表 + 1 张 Flyway 元表 `flyway_schema_history`
 （与 `InfrastructureConnectivityTests` 的断言一致）。按归属域列出（归属判据见 [模块边界与依赖](./模块边界与依赖.md)）：
 
 | # | 表 | 归属域 | 用途（一句） |
@@ -224,6 +226,12 @@ V1 共定义 **15 张业务表**，V2 再增 **2 张**（收藏一期，见下�
 | 为什么单独一个版本 | 它**不新增表/列**（列是 V2 建的），只把 V2 时"全是 0 或空"的列填成真值 ⇒ 属**数据迁移**；与结构变更分开，回滚与审计都清楚 |
 | 落地验证（可复算） | dev 库 `spring-boot:run` 日志 `Successfully applied 1 migration`；全表复算 `SELECT COUNT(*) FROM content c LEFT JOIN (…) t … WHERE c.favorite_count <> COALESCE(t.cnt,0)` = **0 行错位**；`flyway_schema_history` = 0(baseline) → 1 → 2 → 3 全 success |
 | 冻结状态 | ✅ **已应用 ⇒ 逐字节冻结**（§2.4：连注释都不能改） |
+
+**V4 增量（`V4__watch_later.sql`，2026-10-14 收藏三期 T17）**：
+
+| # | 表 | 归属域 | 用途（一句） | 口径 |
+|---|---|---|---|---|
+| 18 | `watch_later` | favorite | 稍后再看：`uk_user_content (user_id, content_id)` 幂等（重复 add 撞它 ⇒ `ON DUPLICATE KEY UPDATE create_time` **移到最前**）+ `idx_user_time (user_id, create_time)` 服务倒序分页 | **独立于收藏夹**（不共表）；**只存视频**（写入侧校验，不进结构）；无外键（同 V1/V2 其余表） |
 
 > 📌 本表出现的 `R-##` / `T#` 编号见 [收藏功能-编号索引.md](../../task/收藏功能-编号索引.md)（编号的唯一查证入口）。
 
