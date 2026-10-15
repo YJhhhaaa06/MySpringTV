@@ -82,6 +82,7 @@ ROOT = Path(__file__).resolve().parent.parent   # tools/ 的上一级
 |------|------|--------|
 | `doc_stats.py` | 度量 `.docs` 体量，按文件与 H2 章节归因，找出膨胀源 | ✅ 只读 |
 | `doc_links.py` | **校验 `.docs` 交叉引用是否指得到**（悬空指针 / 改名遗留 / 旧章节引用） | ✅ 只读 |
+| `doc_refs.py` | **校验 `src/` 里代码注释的文档引用**：`.md` 引用可解析 + **别名黑名单**（`需求篇`/`设计篇`/`骨架 §`…）+ **裸名只解析到 `archive/` 副本**也算违规；跳 `db/migration/**`（冻结） | ✅ 只读 |
 | `doc_archive.py` | 把已完成阶段的历史明细从正文抽到 `.docs/archive/`，正文留指针 | ❌ 会写（**默认只预演**，加 `--apply` 才落盘） |
 | ★ **迁移期 5 个**（`endpoint_matrix` / `migration_matrix` / `flyway_parity` / `realdata_probe` / `tvconf`） | **已归档**到 `.docs/archive/migration/tools/`（2026-10-06）——用途见 §六；**需要复算迁移结论时才去那里跑** | ✅ 只读 |
 | `run_tests.py` | **一键跑测试**：全量 `clean verify` / `--group` 选跑 / `--test` 单类；完整输出落盘 + 摘要回显 | ✅ 只读（仅写 `target/test-reports/`） |
@@ -102,6 +103,7 @@ python tools/doc_stats.py                  # 文档体量报告
 python tools/doc_stats.py --top 6          # 对最大的 6 份做章节拆解
 python tools/doc_links.py                  # 校验文档交叉引用（归档后必跑）
 python tools/doc_links.py --strict         # 把"尚未创建"也计为失败
+python tools/doc_refs.py                   # 校验 src/ 代码注释的文档引用与别名（挪家后必跑，见 INDEX §五.5）
 python tools/doc_archive.py --plan temp-script/doc-plan.json            # 归档预演（不落盘）
 python tools/doc_archive.py --plan temp-script/doc-plan.json --apply     # 归档落盘
 # ★ 迁移期的复算命令（endpoint_matrix / migration_matrix / flyway_parity / realdata_probe）
