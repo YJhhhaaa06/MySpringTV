@@ -4,7 +4,7 @@ import io.github.yjhhhaaa06.videoweb.comment.model.dto.AddCommentRequest;
 import io.github.yjhhhaaa06.videoweb.comment.model.vo.CommentVO;
 import io.github.yjhhhaaa06.videoweb.comment.service.CommentService;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
-import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
+import io.github.yjhhhaaa06.videoweb.common.model.dto.CursorResult;
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
@@ -59,7 +59,8 @@ import org.springframework.web.bind.annotation.RestController;
  * {@code GET /comment/show}：**S6-B2d 起实现在 {@code CommentService}**（此前在 ContentService）——
  * 门禁"能不能看评论"仍由内容域回答（{@code ContentService.isCommentReadable}），
  * 但评论树与 VO 组装回到本域，消除了 {@code content⇄comment} 双向环。
- * {@code GET /comment/replies}：实现在 {@code CommentService.getRepliesForRoot}。
+ * {@code GET /comment/replies}：实现在 {@code CommentService.getRepliesForRoot}
+ * （★ <b>T14 起为游标（keyset）分页</b>：入参 {@code cursor}、出参加 {@code nextCursor}，见方法注释）。
  */
 @RestController
 @RequestMapping("/comment")
@@ -145,23 +146,34 @@ public class CommentController {
     }
 
     /**
-     * 展开某主楼的全部回复（{@code GET /comment/replies?rootId=[&page][&pageSize]}，T10-B）。
+     * 展开某主楼的全部回复（{@code GET /comment/replies?rootId=[&cursor][&pageSize]}，T10-B / ★T14）。
      *
-     * <p>**总是**返回分页信封（没有"缺省全量"的兼容包袱——它是新接口）；
-     * {@code total} = 该主楼 {@code reply_count}。
+     * <h2>★ T14 起为**游标分页**（有意破 {@code page} 契约，见 F-20 ②）</h2>
+     * <pre>
+     * 旧：?page=2&pageSize=2  → 信封 {list,total,page,pageSize,totalPages}（DB 返 page*pageSize 行）
+     * 新：?cursor=<上页末条 commentId>&pageSize=2
+     *     → 信封 {list,total,pageSize,nextCursor}（DB 只取本页）
+     * </pre>
+     * {@code cursor} 缺省 = 0（从楼头开始，即旧的第 1 页）；{@code nextCursor = null} ⇒ 已到底。
+     * ⚠️ 旧的 {@code page} 参数**不再被识别**（传了会被忽略 ⇒ 退化为第 1 页）——
+     * 前端 {@code detail.js} 已同批改为游标翻页（本次契约变更**同批交付前端**，见 `.docs/INDEX.md` §一 ①）。
      *
-     * <p>缺 / 非法 {@code rootId} → 400；主楼不存在或已删 → 404。
+     * <p>**总是**返回信封（没有"缺省全量"的兼容包袱——它是新接口）；
+     * {@code total} = 该主楼 {@code reply_count}（语义**不变**）。
+     *
+     * <p>缺 / 非法 {@code rootId} → 400；主楼不存在或已删 → 404；
+     * 非法 / 越界 {@code cursor} → 静默归一到 0 或空页（**不报错**，见 {@code PageParams.normalizeCursor}）。
      */
     @GetMapping("/replies")
-    public ApiResponse<PageResult<CommentVO>> replies(@CurrentUserId(required = false) Long userId,
-                                                      @RequestParam(required = false) Long rootId,
-                                                      @RequestParam(required = false) String page,
-                                                      @RequestParam(required = false) String pageSize) {
+    public ApiResponse<CursorResult<CommentVO>> replies(@CurrentUserId(required = false) Long userId,
+                                                        @RequestParam(required = false) Long rootId,
+                                                        @RequestParam(required = false) String cursor,
+                                                        @RequestParam(required = false) String pageSize) {
         if (rootId == null) {
             throw new ParamException("rootId不能为空");
         }
         return ApiResponse.success(commentService.getRepliesForRoot(rootId, userId,
-                PageParams.normalizePage(page),
+                PageParams.normalizeCursor(cursor),
                 PageParams.normalizePageSize(pageSize, COMMENT_PAGE_SIZE_MAX, COMMENT_PAGE_SIZE_DEFAULT)));
     }
 }

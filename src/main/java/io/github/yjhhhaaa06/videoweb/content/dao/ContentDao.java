@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.content.dao;
 
 import io.github.yjhhhaaa06.videoweb.content.model.AuthorContentId;
+import io.github.yjhhhaaa06.videoweb.content.model.ContentFavoriteCount;
 import io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO;
 import io.github.yjhhhaaa06.videoweb.content.model.entity.Content;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.AdminContentVO;
@@ -60,6 +61,27 @@ public interface ContentDao {
     boolean isContentExist(@Param("contentId") long contentId);
 
     /**
+     * 读**未软删**内容的类型（收藏三期 T17：稍后再看的"只能加视频"门禁）。
+     *
+     * <p>与 {@link #isContentExist} 的差别只有一条：它**带回 {@code type}**。既可判"存在"
+     * （无行 ⇒ {@code null}），又可判"是不是视频"（{@code type != 1}）—— 一趟查询覆盖
+     * 稍后再看 {@code add}/{@code move} 的 404 / 400 两条拒因，省掉一次往返。
+     * 口径 = {@code content.type}（见 {@code 数据与Schema演进.md} §七：**内容的 type 只有 1 视频 / 2 图文**；
+     * 媒体表的 type 另有 3 封面，与这里无关）。
+     *
+     * <p>★ 这是 favorite → content 的又一条 **DAO 薄依赖**（同 {@link #isContentExist} 的形态：
+     * 同事务内一条窄查询、只读一列、不碰对方 service/model/cache），合法性见
+     * {@code 模块边界与依赖.md} §三。
+     *
+     * <p>⚠️ 返回类型是**包装类型** {@code Integer}：无行 / 已软删 ⇒ {@code null}（调用方据此 404）。
+     * 若声明成 {@code int}，MyBatis 在无行时返回 null 会 NPE（同 {@link #getContentStatus} 的实测口径）。
+     *
+     * @param contentId 内容 id
+     * @return {@code 1} 视频 / {@code 2} 图文；内容不存在或已软删 ⇒ {@code null}
+     */
+    Integer findAliveContentType(@Param("contentId") long contentId);
+
+    /**
      * 评论数增减。TV: {@code UPDATE content SET comment_count = comment_count + ? WHERE id = ?}
      *
      * <p><b>本方法无防负守卫</b>（对比 {@code CommentDao.updateReplyCount} 有），这是 TV 原样行为，
@@ -108,6 +130,68 @@ public interface ContentDao {
      * @return 受影响行数
      */
     int updateLikeCount(@Param("contentId") long contentId, @Param("delta") int delta);
+
+    /**
+     * 收藏数**批量重算**（T12，收藏二期-3）：一趟 CASE-WHEN 把一批
+     * {@code (contentId, favoriteCount)} 对写回 {@code content.favorite_count} 绝对值。
+     *
+     * <h2>与 {@link #updateLikeCount} 的增量式刻意不同：写绝对值，不写 ±delta</h2>
+     * 点赞的一条关系行 ⟺ 一个赞（判定维度与唯一键同在 {@code content_like (user_id, content_id)}），
+     * 增量安全；收藏的唯一键是 {@code uk_folder_content}（<b>夹内</b>唯一），同一人可把同一内容
+     * 收进多夹 ⇒ add / remove 不必然 ±1、并发下判"第一次收藏"必然漏 ⇒ 增量会漂移且永不自愈。
+     * 重算（{@code COUNT(DISTINCT user_id)} 的幂等复算）一次消掉这四件事，口径与排除理由
+     * （不做增量 / 不用 {@code SELECT … FOR UPDATE}）见 {@code favorite.md} §四。
+     *
+     * <h2>调用契约（⚠️ 写调用方前先读）</h2>
+     * <ul>
+     *   <li>★ <b>必须运行在调用方事务里</b>：入参来自同一事务内刚算出的聚合
+     *       （{@code FavoriteService.recountFavoriteCounts}），与 {@code favorite_item} 的增删
+     *       同进同退 —— 分属两个事务的话，计数与明细会在提交窗口内不一致；</li>
+     *   <li>★ 聚合不出的 id（收藏清空 / 从未有人收藏）由调用方补 {@code 0} 后**也在列表里**
+     *       —— "清零"同样要落列，不变量 {@code favorite_count == COUNT(DISTINCT user_id)} 对 0 成立；</li>
+     *   <li>幽灵 id（content 行不存在）在 {@code WHERE id IN} 里匹配 0 行，自然无害；</li>
+     *   <li><b>空列表不发</b>（{@code CASE … END} 空体 / {@code IN ()} 是语法错）——
+     *       service 已拦空集（删空夹是合法路径）。</li>
+     * </ul>
+     *
+     * <p>★ 这是继 {@link #updateLikeCount}（S3，like 域）之后第二条"他域**同事务**改本表计数列"的
+     * DAO 薄依赖——合法性口径同《模块边界与依赖》§三：同事务改计数/级联 ⇒ 允许 DAO 薄依赖。
+     * 入参类型 {@link ContentFavoriteCount} 放在本域 {@code content.model}（favorite → content
+     * 方向本就存在；放 favorite 会让 content 新增 {@code → favorite.model} 依赖边），
+     * 与 {@link AuthorContentId} 的放置理由同构。
+     *
+     * @param favoriteCounts 成对投影列表（非空；每对的值都是本事务内复算出的绝对值）
+     * @return 受影响行数（= 匹配到的 content 行数；幽灵 id 不计入）
+     */
+    int updateFavoriteCounts(@Param("favoriteCounts") List<ContentFavoriteCount> favoriteCounts);
+
+    /**
+     * 读某内容的收藏数列（T12：{@code /favorite/count} 缓存 miss 的回源）。
+     *
+     * <h2>★ 这是收藏二期-3 的读切换点：实时聚合 → 冗余列点查</h2>
+     * 一期回源是 {@code COUNT(DISTINCT user_id)} 聚合（≈17ms / 2 万行基线，favorite.md §四）；
+     * T12 起列由收藏域四条写路径**事务内批量重算**维护（{@link #updateFavoriteCounts}），
+     * 回源降为**主键点查**。不变量 {@code favorite_count == COUNT(DISTINCT user_id)}
+     * 由 T12 的独立 oracle 用例钉住 —— 本方法的正确性完全建立在那个不变量上。
+     * ⚠️ 调用点唯一：{@code FavoriteCache#loadFavoriteCount}（别把列名散到别处）。
+     *
+     * <h2>口径：无行 ⇒ 0（不 404）</h2>
+     * 与一期实时 COUNT 的可观察语义一致（内容不存在 / 无人收藏都是 0，不给存在性开探测口）。
+     * ⚠️ SQL 写成 {@code COALESCE((SELECT …), 0)} **保证恒有一行**：裸
+     * {@code SELECT favorite_count FROM content WHERE id = ?} 在无行时 MyBatis 返回 null，
+     * 映射到原始 {@code long} 会 NPE（同 {@link #getContentStatus} 注释的实测口径，
+     * 那里因此用了包装类型——这里选择"SQL 端兜 0"，让"内容不存在 ⇒ 0"成为显式口径）。
+     *
+     * <p>★ <b>域边界注记（T12）</b>：本方法是"favorite 读 content 表"的 DAO 纯读——
+     * 不在《模块边界与依赖》§三"读状态走对方 Service"的常规通道内，属**显式登记例外**
+     * （见该文档 §六"读表要点"）：回源点收在 {@code FavoriteCache} 域内实现细节里，
+     * 为它开 Service 契约是倒贴契约面；本查询是主键点查、不读任何业务语义，
+     * 与 {@link #isContentExist} 同一"窄到不构成耦合"的形态。扩散面由"回源点唯一"钉住。
+     *
+     * @param contentId 内容 id
+     * @return 收藏数（按人去重）；内容行不存在 ⇒ {@code 0}
+     */
+    long findFavoriteCountById(@Param("contentId") long contentId);
 
     // ========================================================================
     // S5：读路径

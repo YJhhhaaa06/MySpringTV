@@ -1,16 +1,32 @@
 package io.github.yjhhhaaa06.videoweb.feed;
 
+import io.github.yjhhhaaa06.videoweb.favorite.service.FavoriteService;
+import io.github.yjhhhaaa06.videoweb.follow.service.FollowService;
+import io.github.yjhhhaaa06.videoweb.interaction.service.InteractionService;
+import io.github.yjhhhaaa06.videoweb.like.service.LikeService;
 import io.github.yjhhhaaa06.videoweb.support.Envelope;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import tools.jackson.databind.JsonNode;
 
 import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anySet;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 /**
  * {@code GET /feed} 的**读路径契约**测试（S9）——覆盖 TV {@code FeedService} 的两种路径：
@@ -29,6 +45,28 @@ class FeedReadTests extends AbstractFeedIntegrationTest {
 
     private static final String PHONE_VIEWER = "13900009001";
     private static final String PHONE_AUTHOR = "13900009002";
+
+    /**
+     * ★ T13：feed 的条目互动态改走**互动域**（F-16 兑现，本域不再直连 like）。
+     * spy 它才能证明"走的是互动域 + 批量一趟"，而不只是"值对"（直连 like 也能得到对的值）。
+     */
+    @MockitoSpyBean
+    private InteractionService interactionService;
+
+    @MockitoSpyBean
+    private LikeService likeService;
+
+    @MockitoSpyBean
+    private FavoriteService favoriteService;
+
+    @MockitoSpyBean
+    private FollowService followService;
+
+    @BeforeEach
+    void 重置互动域spy() {
+        // spy 是单例 bean，调用记录会跨用例累积 ⇒ 每测清零（真实行为不受影响）
+        Mockito.reset(interactionService, likeService, favoriteService, followService);
+    }
 
     // ==================== 鉴权 ====================
 
@@ -167,6 +205,58 @@ class FeedReadTests extends AbstractFeedIntegrationTest {
         assertThat(data.path("total").asInt()).isZero();
     }
 
+    @Test
+    @DisplayName("★T13（R-13）：条目内嵌 interaction 且只带赞维；关注维不再是恒 false 的谎言")
+    void 条目互动态_只带赞维() {
+        long viewerId = registerViewer();
+        long authorId = registerAuthor();
+        long liked = insertVideoContent(authorId, "feed 已赞内容");
+        long untouched = insertVideoContent(authorId, "feed 未赞内容");
+        insertFollowRow(viewerId, authorId);
+        insertFeedInboxRow(viewerId, liked);
+        insertFeedInboxRow(viewerId, untouched);
+        markSynced(viewerId);
+        insertContentLike(viewerId, liked);            // ★ 对照：只有 liked 被赞
+
+        JsonNode list = Envelope.data(getFeed(tokenOf(PHONE_VIEWER))).path("list");
+        JsonNode likedItem = itemOf(list, liked);
+        JsonNode likedView = likedItem.path("interaction");
+        assertThat(likedView.isObject()).as("feed 必登录 ⇒ interaction 是对象（不会是 null）").isTrue();
+        assertThat(likedView.path("isLiked").asBoolean()).as("已赞 ⇒ true").isTrue();
+        assertThat(likedView.path("isFavorited").isNull()).as("feed 不带收藏维 ⇒ null").isTrue();
+        assertThat(likedView.path("isFollowed").isNull())
+                .as("★ feed 不带关注维 ⇒ null —— 旧实现这里是**恒 false**（viewer 明明关注了作者）").isTrue();
+
+        // ★ 对照：未赞的那条 ⇒ isLiked 是 **false**（不是 null）——"不查"与"查了是否"必须可区分
+        JsonNode untouchedView = itemOf(list, untouched).path("interaction");
+        assertThat(untouchedView.path("isLiked").asBoolean()).as("未赞 ⇒ false（不是 null）").isFalse();
+        assertThat(untouchedView.path("isFavorited").isNull()).isTrue();
+        assertThat(untouchedView.path("isFollowed").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("★T13：feed 改走互动域后仍是一趟批量（赞 1 趟、藏/关注 0 趟）")
+    void 条目互动态_一趟批量不退化() {
+        long viewerId = registerViewer();
+        long authorId = registerAuthor();
+        long c1 = insertVideoContent(authorId, "feed 批量内容");
+        insertFollowRow(viewerId, authorId);
+        insertFeedInboxRow(viewerId, c1);
+        markSynced(viewerId);
+
+        Mockito.reset(interactionService, likeService, favoriteService, followService);
+        assertThat(idList(Envelope.data(getFeed(tokenOf(PHONE_VIEWER))).path("list")))
+                .as("本用例需非空列表才有判别力").containsExactly(c1);
+
+        // ★ 判别力①：把 FeedService 改回"逐条调 InteractionService#getStatus" ⇒ 下面两条立即变红
+        verify(interactionService, times(1)).batchGetStatus(eq(viewerId), anyList(), anySet());
+        verify(interactionService, never()).getStatus(any(), anyLong(), anyLong(), anyInt());
+        // ★ 判别力②：把 FEED_DIMENSIONS 改回全量三维 ⇒ 下面两条立即变红
+        verify(likeService, times(1)).batchIsContentLiked(eq(viewerId), anyList());
+        verify(favoriteService, never()).batchIsFavorited(anyLong(), anyList());
+        verify(followService, never()).batchIsFollowing(anyLong(), anyList());
+    }
+
     // ==================== helpers ====================
 
     private long registerViewer() {
@@ -193,5 +283,15 @@ class FeedReadTests extends AbstractFeedIntegrationTest {
         List<Long> ids = new ArrayList<>();
         arrayNode.forEach(node -> ids.add(node.path("id").asLong()));
         return ids;
+    }
+
+    /** 从列表里取指定 id 的条目（找不到直接失败——防"夹具没造上/被过滤掉"的假绿）。 */
+    private static JsonNode itemOf(JsonNode list, long contentId) {
+        for (JsonNode node : list) {
+            if (node.path("id").asLong() == contentId) {
+                return node;
+            }
+        }
+        throw new AssertionError("列表里应包含内容 " + contentId + "，实际：" + list);
     }
 }

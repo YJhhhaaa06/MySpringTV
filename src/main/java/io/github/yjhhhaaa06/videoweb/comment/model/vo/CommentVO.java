@@ -11,7 +11,7 @@ import io.github.yjhhhaaa06.videoweb.comment.model.cache.CommentCacheDTO;
  * 字段叫 {@code isLiked}，Lombok 会生成 {@code isLiked()} ⇒ Jackson 推导出的属性名是
  * <b>{@code liked}</b>；而 TV 的属性名是 <b>{@code isLiked}</b>（来自 {@code getIsLiked()}）。
  * 两者同时存在时 Jackson 甚至会输出两个字段。故显式写 {@code getIsLiked()} / {@code setIsLiked()}
- * 把命名钉死（同 {@code ContentVO} / {@code ContentDetailVO}）。
+ * 把命名钉死（同 {@code InteractionStatusVO} / {@code ProfileVO} 的三态字段）。
  *
  * <h2>构造器与 {@code convertToCommentVO} 的关系</h2>
  * TV 的 {@code convertToCommentVO} 用 TV 版构造器填 7 个字段再 setter 补其余。

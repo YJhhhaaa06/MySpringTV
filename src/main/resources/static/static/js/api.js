@@ -16,6 +16,35 @@
 import { getToken, clearAuth } from './auth.js';
 import { showToast } from './utils.js';
 
+// ----------------------------------------------------------------------------
+// T7 收藏域端点清单（前端在此登记；**不新增封装层** —— 各视图沿用
+// `request('路径', { method, jsonBody })` 的既有调用风格，与 like / follow / comment 同款）。
+//   写：POST favorite/folder/{add,update,remove} · favorite/{add,remove,move}（form 参数走 query）
+//   读：GET  favorite/folder/list · favorite/folder/public · favorite/folder/items · favorite/status · favorite/count · favorite/list
+//   ★ 鉴权差异：folder/public、count 匿名可访问；其余需登录（后端逐端点声明，别照抄 like 的类级注解）。
+//   ★ T18（收藏三期）：他人公开夹**可点开** —— `GET favorite/folder/items?folderId=X`（**匿名可访问**）
+//     出参 `PageResult<FavoriteItemVO>`（与 `favorite/list` **同形**：条目 7 键、失效脱敏占位）；
+//     `folder/public` 的条目**新增 id**（据此打开）。⚠️ 服务端强制 `is_private = 0`：私密夹与不存在的夹
+//     **同为 404 且同文案**（不可区分）——前端**不要**据此区分"夹存在与否"；UI = user.js 的公开夹卡片区。
+//   ★ T10（R-10）：详情互动态（赞 / 藏 / 关注作者）**内联在 /search/IdSearch 响应的
+//     `interaction` 子对象**里（匿名 ⇒ null），**没有新端点**；`favorite/status` 仍被收藏弹窗
+//     用于取"收在哪些夹"（folders），详情按钮初始态不再单发它。
+//   ★ T13（R-13）：**列表**四个面（`/start`、`/search/keywordSearch`、`/feed`、`/profile.contentPage`）
+//     的条目同样是 `interaction` 子对象（与详情**同形**），且**三维三态** —— `null` = 本面不查该维，
+//     前端静默忽略即可。各面带哪几维是后端常量：首页只给关注、搜索页**一维都不给**（对象仍在、
+//     三维全 null）、动态流与个人主页只给赞。⚠️ 匿名 ⇒ `interaction` 为 `null`。
+//   ★ T14（F-20 ②）：`/comment/replies` **改游标分页** —— 入参 `cursor`（上页末条 commentId，缺省 0）、
+//     出参 `{list,total,pageSize,nextCursor}`；`nextCursor=null` 即到底 ⇒ 前端翻到它为止（旧 `page`
+//     参数不再被识别）。**其余分页端点（follow/search/profile/feed、`/comment/show`）仍是 `page` 信封**，
+//     不要照搬到 `chunkedList`（后者是 offset 语义）。
+//   ★ T17（收藏三期）：**稍后再看**四端点（**独立于收藏**，四端点**全部需登录**，逐端点声明）——
+//     读 `GET watchlater/list`（`page` 信封，出参新形状 `{contentId,addedTime,invalid,title,coverUrl,authorName}`）；
+//     写 `POST watchlater/{add,remove,move}`（form 参数走 query，同 `favorite/*` 写风格）。
+//     ★ 语义：`add` **只收视频**、重复 add ⇒ **移到最前**；池满 100 时加新内容 400、"已在池中"重复 add 仍成功；
+//       `move` 的 `folderId` **缺省 = 默认夹**。⚠️ **除 `list` 外任何地方都看不出"是否在稍后再看"**
+//       （没有 status 端点、不在 `interaction` 里）——前端**不得**给按钮做"已加入"持久态（UI = T19）。
+// ----------------------------------------------------------------------------
+
 export async function request(path, options = {}) {
   const opts = { ...options };
   opts.headers = { ...(options.headers || {}) };

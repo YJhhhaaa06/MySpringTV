@@ -163,6 +163,25 @@ video:
     # TV 原值 jwt.expireHours=2（小时），此处等价表达为 2h。
     expire-hours: ${JWT_EXPIRE_HOURS:2h}
 
+  # 收藏夹容量上限（收藏三期 T16；★ 口径的唯一事实源 = `favorite.md` §八）
+  # ⚠️ 数字是**刻意砍小的演示值**：B 站 实测为 默认夹 5 万 / 单夹 1000 / 自建夹 99，且官方未公示
+  #    （favorite-需求.md §六 早写明"别直接照抄"）⇒ 用户 2026-10-14 拍板取 5000 / 500 / 20。
+  # ⚠️ 口径：前两个数的是 `favorite_item` **行**（含失效条目，与 FavoriteFolderVO#itemCount 同源）；
+  #    夹数只数**自建夹**（默认夹不计入 —— 计入会让"夹数满 ⇒ 默认夹建不出来"成为不自愈的死局）。
+  # ⚠️ **软上限**（用户 2026-10-14 拍板）：判定是 COUNT → INSERT 两步、非原子 ⇒ 真并发下可**瞬时越界**
+  #    （越界 ≤ 并发请求数，且越界后自限）；**读路径不因越界做任何隐藏/限制**。为什么不加锁见
+  #    `FURTHER_ISSUES.md` F-23。超限 ⇒ 400（判在夹归属 403/404 **之后**）。
+  # ⚠️ 写 0 / 键名写错 ⇒ 上下文**启动失败**（FavoriteLimitProperties 构造器校验"必须为正"）——
+  #    这是有意的：静默绑成 0 会把每一次新增都判成 400。
+  favorite:
+    default-folder-max-items: ${FAVORITE_DEFAULT_FOLDER_MAX_ITEMS:5000}
+    custom-folder-max-items: ${FAVORITE_CUSTOM_FOLDER_MAX_ITEMS:500}
+    custom-folder-max-count: ${FAVORITE_CUSTOM_FOLDER_MAX_COUNT:20}
+    # 稍后再看上限（收藏三期 T17；B 站 实测 100、未公示 ⇒ 取实测值）。
+    # ⚠️ 口径同 T16：**软上限**（判据 COUNT → INSERT 非原子）；★ 判据用 `content_id <> ?` **排除自身**
+    #    ⇒ "已在池中的内容再次加入（移到最前）"在**已满时仍成功**，只有"加新内容且已满"才 400。
+    watch-later-max-items: ${FAVORITE_WATCH_LATER_MAX_ITEMS:100}
+
   # 缓存（决策⑤：显式封装层，不用 @Cacheable）
   # 口径对齐 TV AppConfig.getLikeTtlSeconds() ← app.properties 的 cache.like.ttlMinutes=15。
   # ⚠️ 同上：Duration 属性**必须带单位后缀**。写裸数字 15 会解析成 PT15S（15 秒），
@@ -216,6 +235,13 @@ video:
     # ⚠️ 单位口径：TV 的 getCommentTtlSeconds() 返回**秒**、getContentTtlMillis() 返回**毫秒**，
     #    本实现统一用 Duration（Spring 原生表达），消除这个历史不一致。
     comment-ttl: ${COMMENT_CACHE_TTL:10m}
+    # 收藏缓存（收藏二期 T11）。★ 取值对齐 like 的 15m：两域形态同类 —— "我的状态"类
+    # 用户维度成员集（user:favoriteSet:{id}）+ 内容维度计数（content:favoriteCount:{id}），
+    # 写路径都在提交后条件写/失效、读路径都热在详情页。
+    # 刻意比 follow / content 的 30m 短：收藏的失效驱动有 add/remove/move/删夹 四个写点，
+    # 短 TTL 让"万一漏了一处失效"的最坏影响面更小。
+    # ⚠️ 同上：Duration 属性**必须带单位后缀**，写裸数字 15 会被解析成 PT15S（15 秒）。
+    favorite-ttl: ${FAVORITE_CACHE_TTL:15m}
 
   # 媒体资源 URL 前缀（S5 切片）。替代 TV 的 RequestContext.getContextPath()
   # （Servlet context path 的 ThreadLocal，本项目内嵌容器下恒为空串）。

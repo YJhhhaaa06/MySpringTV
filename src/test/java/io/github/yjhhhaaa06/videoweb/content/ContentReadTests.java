@@ -1,15 +1,31 @@
 package io.github.yjhhhaaa06.videoweb.content;
 
+import io.github.yjhhhaaa06.videoweb.favorite.service.FavoriteService;
+import io.github.yjhhhaaa06.videoweb.follow.service.FollowService;
+import io.github.yjhhhaaa06.videoweb.interaction.service.InteractionService;
+import io.github.yjhhhaaa06.videoweb.like.service.LikeService;
 import io.github.yjhhhaaa06.videoweb.support.Envelope;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import tools.jackson.databind.JsonNode;
 
 import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anySet;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 /**
  * S5：content **读路径**与作者写路径的 HTTP 契约测试。
@@ -27,9 +43,15 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       例如"开关生效了"不是看响应，而是直查 {@code content.comment_enabled} 列。</li>
  * </ol>
  *
- * <h2>★ 目录里没有的比对：{@code isLiked}/{@code isFollowed} 的匿名默认值</h2>
- * 匿名请求这两个字段应保持 Java 默认 {@code false}（TV 行为）。这类"缺省值也是契约"的点
- * 必须显式断言——否则实现改成"不填就是 null"也不会被发现。
+ * <h2>★ 互动态的位置（R-10 / T10 / **T13**）</h2>
+ * 详情响应的互动态收在 {@code interaction} 子对象（顶层 {@code isLiked}/{@code isFollowed}
+ * 已在 T10 删除——这是 R-10 有意的 breaking 面，见 {@code favorite.md} §六）；
+ * **匿名 ⇒ {@code "interaction": null}**（不是 {@code {}}、不是三个 {@code false}）。
+ * <p>★ **T13（R-13）起列表同形**：{@code /start} / {@code /search/keywordSearch} 也把互动态
+ * 收进 {@code interaction}（顶层两键删除），且**三维三态** —— {@code null} = 本面不查该维：
+ * {@code /start} 只带 {@code {关注}}、{@code /search/keywordSearch} 带 **0 维**（对象仍在、
+ * 三维全 {@code null}）。详见 {@code ContentVO} 类注释的常量表。
+ * ⚠️ 0 维的"对象仍在"是刻意的：{@code interaction: null} 是**匿名**的语义，两者必须可区分。
  */
 class ContentReadTests extends AbstractContentIntegrationTest {
 
@@ -37,6 +59,30 @@ class ContentReadTests extends AbstractContentIntegrationTest {
     private static final String AUTHOR = "content-author";
     private static final String OTHER_PHONE = "13900001002";
     private static final String OTHER = "content-other";
+
+    /** T10：列表填充来源改走互动域 ⇒ 用 spy 钉"批量透传、不得循环调单条"（见批量透传用例）。 */
+    @MockitoSpyBean
+    private InteractionService interactionService;
+
+    /**
+     * ★ T13：钉"**按维度常量收敛批读趟数**" —— 直接数三个被聚合域被调了几次。
+     * 不 spy {@link InteractionService} 而 spy 它的下游，是因为要验的是"**真省掉了哪几趟**"
+     * （互动域被调 1 次不代表底层只查 1 趟）。
+     */
+    @MockitoSpyBean
+    private LikeService likeService;
+
+    @MockitoSpyBean
+    private FavoriteService favoriteService;
+
+    @MockitoSpyBean
+    private FollowService followService;
+
+    @BeforeEach
+    void 重置spy() {
+        // spy 是单例 bean，调用记录会跨用例累积 ⇒ 每测清零（真实行为不受影响）
+        Mockito.reset(interactionService, likeService, favoriteService, followService);
+    }
 
     // ========================================================================
     // /search/IdSearch
@@ -67,9 +113,16 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         assertThat(data.path("videoUrl").asString()).endsWith(".mp4");
         assertThat(data.path("coverUrl").asString()).endsWith(".png");
         assertThat(data.path("imageUrls").isNull()).as("视频内容的 imageUrls 应为 null").isTrue();
-        // 匿名/登录都有的两个状态字段
-        assertThat(data.has("isLiked")).as("isLiked 必须在（匿名默认 false）").isTrue();
-        assertThat(data.has("isFollowed")).as("isFollowed 必须在（匿名默认 false）").isTrue();
+        // 互动态：T10 起收进 interaction 子对象；顶层 isLiked/isFollowed 已删（R-10 的 breaking 面）
+        assertThat(data.has("isLiked")).as("顶层 isLiked 已删除").isFalse();
+        assertThat(data.has("isFollowed")).as("顶层 isFollowed 已删除").isFalse();
+        JsonNode interaction = data.path("interaction");
+        assertThat(interaction.isObject()).as("带 token（登录）⇒ interaction 是对象").isTrue();
+        assertThat(keysOf(interaction)).as("子对象键集契约：恰好三维").containsExactlyInAnyOrder(
+                "isLiked", "isFavorited", "isFollowed");
+        assertThat(interaction.path("isLiked").asBoolean()).isFalse();
+        assertThat(interaction.path("isFavorited").asBoolean()).isFalse();
+        assertThat(interaction.path("isFollowed").asBoolean()).isFalse();
     }
 
     @Test
@@ -116,7 +169,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
     }
 
     @Test
-    @DisplayName("详情：已登录且已点赞 → isLiked=true；已关注作者 → isFollowed=true")
+    @DisplayName("详情：已登录且已赞 / 已收藏 / 已关注作者 → interaction 三维各自 true；零互动对照用户全 false")
     void 详情_个性化状态() {
         String token = registerAndGetToken(OTHER_PHONE, OTHER);
         registerAndGetToken(AUTHOR_PHONE, AUTHOR);
@@ -127,21 +180,30 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         insertContentLike(viewerId, contentId);
         jdbcTemplate.update("INSERT INTO follow (user_id, followed_user_id) VALUES (?, ?)",
                 viewerId, authorId);
+        // 收藏走真实写入口（不传 folderId ⇒ R-01 懒建默认夹）——内联收藏态是 R-10 的收益点，端到端点亮
+        assertThat(postQuery("/favorite/add", query("contentId", String.valueOf(contentId)), token)
+                .getStatusCode().value()).as("前置：收藏应成功").isEqualTo(200);
 
-        JsonNode data = Envelope.data(get("/search/IdSearch?contentId=" + contentId, token));
-        assertThat(data.path("isLiked").asBoolean()).isTrue();
-        assertThat(data.path("isFollowed").asBoolean()).isTrue();
+        JsonNode interaction = Envelope.data(get("/search/IdSearch?contentId=" + contentId, token))
+                .path("interaction");
+        assertThat(interaction.path("isLiked").asBoolean()).isTrue();
+        assertThat(interaction.path("isFavorited").asBoolean())
+                .as("★ 内联收藏态（R-10 收益点：详情页不必再为它单发 /favorite/status）").isTrue();
+        assertThat(interaction.path("isFollowed").asBoolean()).isTrue();
 
-        // 反向对照：换一个没点过赞也没关注的用户 ⇒ 两个字段都是 false
-        // （排除"恒为 true"的假绿——这正是"这个断言还可能由谁产生"的自问）
+        // 反向对照：换一个没点过赞 / 没收藏 / 没关注的用户 ⇒ 三维都是 false，且子对象**在场**
+        // （排除"恒为 true"与"匿名态混入"两种假绿——这正是"这个断言还可能由谁产生"的自问）
         String otherToken = registerAndGetToken("13900001003", "content-third");
-        JsonNode other = Envelope.data(get("/search/IdSearch?contentId=" + contentId, otherToken));
+        JsonNode other = Envelope.data(get("/search/IdSearch?contentId=" + contentId, otherToken))
+                .path("interaction");
+        assertThat(other.isObject()).as("登录但零互动 ⇒ 对象在场（不是 null）").isTrue();
         assertThat(other.path("isLiked").asBoolean()).isFalse();
+        assertThat(other.path("isFavorited").asBoolean()).isFalse();
         assertThat(other.path("isFollowed").asBoolean()).isFalse();
     }
 
     @Test
-    @DisplayName("详情：匿名访问 200 且 isLiked/isFollowed 为 false")
+    @DisplayName("详情：匿名访问 200 且 interaction 为 null（不是 {}、不是三个 false）")
     void 详情_匿名可访问() {
         registerAndGetToken(AUTHOR_PHONE, AUTHOR);
         long contentId = insertVideoContent(userIdOf(AUTHOR_PHONE), "匿名可见内容");
@@ -149,8 +211,12 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         ResponseEntity<String> resp = get("/search/IdSearch?contentId=" + contentId, null);
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         JsonNode data = Envelope.data(resp);
-        assertThat(data.path("isLiked").asBoolean()).isFalse();
-        assertThat(data.path("isFollowed").asBoolean()).isFalse();
+        assertThat(data.has("interaction")).as("匿名也输出 interaction 键（值为 null）").isTrue();
+        assertThat(data.path("interaction").isNull())
+                .as("★ 匿名 ⇒ null（不是 {}、不是三个 false）—— R-10 相对平铺的表达力增益")
+                .isTrue();
+        assertThat(data.has("isLiked")).as("顶层 isLiked 已删除").isFalse();
+        assertThat(data.has("isFollowed")).as("顶层 isFollowed 已删除").isFalse();
     }
 
     // ========================================================================
@@ -166,7 +232,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         insertPostContent(authorId, "zqtb 分页内容二");
 
         JsonNode defaultData = Envelope.data(get("/search/keywordSearch?keyword=zqtb", null));
-        assertThat(envelopeKeys(defaultData)).containsExactlyInAnyOrder(
+        assertThat(keysOf(defaultData)).containsExactlyInAnyOrder(
                 "list", "total", "page", "pageSize", "totalPages");
         assertThat(defaultData.path("page").asInt()).isEqualTo(1);
         assertThat(defaultData.path("pageSize").asInt()).isEqualTo(PAGE_SIZE_MAX);
@@ -276,6 +342,114 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         ResponseEntity<String> badCategory = get("/start?categoryId=99", null);
         assertThat(badCategory.getStatusCode().value()).isEqualTo(400);
         assertThat(Envelope.msg(badCategory)).isEqualTo("不支持的分区: 99");
+    }
+
+    // ========================================================================
+    // 列表路径：互动态填充来源改走互动域（T10），顶层键集**不变**
+    // ========================================================================
+
+    @Test
+    @DisplayName("列表：互动态收进 interaction 子对象（顶层两键已删）；/start 只带关注维、/search 0 维（对象仍在）")
+    void 列表_互动态收进interaction子对象() {
+        String token = registerAndGetToken(OTHER_PHONE, OTHER);
+        registerAndGetToken(AUTHOR_PHONE, AUTHOR);
+        long authorId = userIdOf(AUTHOR_PHONE);
+        long viewerId = userIdOf(OTHER_PHONE);
+        long contentId = insertPostContent(authorId, "zqtb 列表互动态内容");
+
+        insertContentLike(viewerId, contentId);
+        jdbcTemplate.update("INSERT INTO follow (user_id, followed_user_id) VALUES (?, ?)",
+                viewerId, authorId);
+
+        // ---- /start：只带 {关注} ----
+        JsonNode startItem = itemOf(Envelope.data(get("/start", token)), contentId);
+        assertThat(startItem.has("isLiked")).as("顶层 isLiked 已删除（T13）").isFalse();
+        assertThat(startItem.has("isFollowed")).as("顶层 isFollowed 已删除（T13）").isFalse();
+        JsonNode startInteraction = startItem.path("interaction");
+        assertThat(keysOf(startInteraction)).as("子对象键集恒三维（不靠缺键表达'不查'）")
+                .containsExactlyInAnyOrder("isLiked", "isFavorited", "isFollowed");
+        assertThat(startInteraction.path("isFollowed").asBoolean())
+                .as("/start 带关注维 ⇒ 已关注作者为真").isTrue();
+        assertThat(startInteraction.path("isLiked").isNull())
+                .as("★ /start 不带赞维 ⇒ null（**不是 false**——false 会是撒谎）").isTrue();
+        assertThat(startInteraction.path("isFavorited").isNull()).as("/start 不带收藏维").isTrue();
+
+        // ---- /search/keywordSearch：0 维 ----
+        JsonNode searchItem = itemOf(
+                Envelope.data(get("/search/keywordSearch?keyword=zqtb", token)).path("list"), contentId);
+        JsonNode searchInteraction = searchItem.path("interaction");
+        assertThat(searchInteraction.isObject())
+                .as("★ 0 维：**对象仍在**（若为 null 就与匿名不可区分了）").isTrue();
+        assertThat(keysOf(searchInteraction)).containsExactlyInAnyOrder(
+                "isLiked", "isFavorited", "isFollowed");
+        assertThat(searchInteraction.path("isLiked").isNull()).as("0 维 ⇒ 赞维 null").isTrue();
+        assertThat(searchInteraction.path("isFavorited").isNull()).as("0 维 ⇒ 藏维 null").isTrue();
+        assertThat(searchInteraction.path("isFollowed").isNull())
+                .as("★ 0 维 ⇒ 关注维 null —— 不再是 TV/旧实现那个恒 false 的谎言").isTrue();
+
+        // ---- 匿名 ⇒ 整对象为 null（与 0 维可区分）----
+        JsonNode anonStart = itemOf(Envelope.data(get("/start", null)), contentId);
+        assertThat(anonStart.path("interaction").isNull()).as("匿名 ⇒ interaction 为 null").isTrue();
+        JsonNode anonSearch = itemOf(
+                Envelope.data(get("/search/keywordSearch?keyword=zqtb", null)).path("list"), contentId);
+        assertThat(anonSearch.path("interaction").isNull()).as("匿名 ⇒ interaction 为 null").isTrue();
+    }
+
+    @Test
+    @DisplayName("★列表填充批量透传：/start ⇒ 互动域批量契约一趟、单条契约零次（不得循环调单条）")
+    void 列表_批量透传不循环调单条() {
+        String token = registerAndGetToken(OTHER_PHONE, OTHER);
+        registerAndGetToken(AUTHOR_PHONE, AUTHOR);
+        long authorId = userIdOf(AUTHOR_PHONE);
+        long viewerId = userIdOf(OTHER_PHONE);
+        long contentId = insertPostContent(authorId, "批量透传内容");
+        insertContentLike(viewerId, contentId);
+        Mockito.reset(interactionService);      // 前置夹具（注册/点赞）的调用不计入
+
+        assertThat(idsOf(Envelope.data(get("/start", token))))
+                .as("本用例需非空列表才有判别力").contains(contentId);
+
+        // ★ 判别力：把 ContentStatusFiller 改成"逐条调 getStatus"，这两个断言立即变红
+        //   （T9 红线的同一纪律：100 条列表不得退化为 100 次往返；反向注入实测见 T10 回写）
+        verify(interactionService, times(1)).batchGetStatus(eq(viewerId), anyList(), anySet());
+        verify(interactionService, never()).getStatus(any(), anyLong(), anyLong(), anyInt());
+    }
+
+    @Test
+    @DisplayName("★维度常量生效：/start 只查关注域一趟（赞/藏零次）；/search 0 维 ⇒ 三域零次")
+    void 列表_批读趟数按维度常量收敛() {
+        String token = registerAndGetToken(OTHER_PHONE, OTHER);
+        registerAndGetToken(AUTHOR_PHONE, AUTHOR);
+        long authorId = userIdOf(AUTHOR_PHONE);
+        long viewerId = userIdOf(OTHER_PHONE);
+        long contentId = insertPostContent(authorId, "pdtb 批读趟数内容");
+
+        // ★ 三维数据**全部在场**（赞 / 藏 / 关注）⇒ "省下的那几趟"是真查询，不是"本来就没数据可查"
+        insertContentLike(viewerId, contentId);
+        favoriteService.addItem(viewerId, null, contentId);
+        jdbcTemplate.update("INSERT INTO follow (user_id, followed_user_id) VALUES (?, ?)",
+                viewerId, authorId);
+
+        // ---- /start：维度常量 = {关注} ⇒ 3 趟收敛为 1 趟 ----
+        Mockito.reset(interactionService, likeService, favoriteService, followService);
+        assertThat(idsOf(Envelope.data(get("/start", token))))
+                .as("本用例需非空列表才有判别力").contains(contentId);
+        verify(followService, times(1)).batchIsFollowing(eq(viewerId), anyList());
+        // ★ 判别力：把 START_DIMENSIONS 改回全量三维 ⇒ 下面四条立即变红
+        verify(likeService, never()).batchIsContentLiked(anyLong(), anyList());
+        verify(likeService, never()).isContentLiked(anyLong(), anyLong());
+        verify(favoriteService, never()).batchIsFavorited(anyLong(), anyList());
+        verify(favoriteService, never()).isFavorited(anyLong(), anyLong());
+
+        // ---- /search/keywordSearch：维度常量 = 空集 ⇒ 3 趟收敛为 0 趟 ----
+        Mockito.reset(interactionService, likeService, favoriteService, followService);
+        assertThat(idsOf(Envelope.data(get("/search/keywordSearch?keyword=pdtb", token)).path("list")))
+                .as("本用例需非空列表才有判别力").contains(contentId);
+        // ★ 0 维必须**仍调**互动域一趟（要拿"对象在、三维全 null"），但底层三域一趟都不发
+        verify(interactionService, times(1)).batchGetStatus(eq(viewerId), anyList(), anySet());
+        verify(likeService, never()).batchIsContentLiked(anyLong(), anyList());
+        verify(favoriteService, never()).batchIsFavorited(anyLong(), anyList());
+        verify(followService, never()).batchIsFollowing(anyLong(), anyList());
     }
 
     // ========================================================================
@@ -404,9 +578,9 @@ class ContentReadTests extends AbstractContentIntegrationTest {
     // 辅助
     // ========================================================================
 
-    private static List<String> envelopeKeys(JsonNode data) {
+    private static List<String> keysOf(JsonNode node) {
         List<String> keys = new ArrayList<>();
-        data.propertyNames().forEach(keys::add);
+        node.propertyNames().forEach(keys::add);
         return keys;
     }
 
@@ -416,6 +590,16 @@ class ContentReadTests extends AbstractContentIntegrationTest {
             ids.add(node.path("id").asLong());
         }
         return ids;
+    }
+
+    /** 从列表信封里取指定 id 的条目（找不到直接失败——防"夹具没造上/被过滤掉"的假绿）。 */
+    private static JsonNode itemOf(JsonNode list, long contentId) {
+        for (JsonNode node : list) {
+            if (node.path("id").asLong() == contentId) {
+                return node;
+            }
+        }
+        throw new AssertionError("列表里应包含内容 " + contentId + "，实际：" + list);
     }
 
     /** 单页取全（pageSize=100 装得下本用例的数据）并返回 id 列表。 */

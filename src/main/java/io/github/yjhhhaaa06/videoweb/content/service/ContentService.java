@@ -19,8 +19,9 @@ import io.github.yjhhhaaa06.videoweb.content.model.vo.AdminContentVO;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentDetailVO;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentVO;
 import io.github.yjhhhaaa06.videoweb.comment.dao.CommentDao;
+import io.github.yjhhhaaa06.videoweb.interaction.model.InteractionDimension;
+import io.github.yjhhhaaa06.videoweb.interaction.service.InteractionService;
 import io.github.yjhhhaaa06.videoweb.like.dao.ContentLikeDao;
-import io.github.yjhhhaaa06.videoweb.like.service.LikeService;
 import io.github.yjhhhaaa06.videoweb.upload.model.UploadType;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -29,9 +30,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 内容业务。
@@ -77,16 +80,28 @@ public class ContentService {
     private final CommentDao commentDao;
     private final ContentLikeDao contentLikeDao;
     private final ContentCache contentCache;
-    private final LikeService likeService;
+    private final InteractionService interactionService;
     private final ContentStatusFiller contentStatusFiller;
     private final ApplicationEventPublisher events;
+
+    /**
+     * ★ 搜索结果带哪几维互动态（R-13 的**编译期常量**）—— **空集（0 维）**。
+     *
+     * <p>对标 B站：搜索结果卡片只给"封面 + 标题 + UP 主 + 播放量"，**不显示**赞 / 藏 / 关注态
+     * ⇒ 三维**一趟都不查**（每请求省 3 趟批量）。
+     * ⚠️ 0 维**不等于"不填"**：仍会调 {@link ContentStatusFiller} ⇒ 互动域返回一个
+     * "对象在、三维全 {@code null}"的 {@code interaction}。
+     * ★ 若改成"跳过填充"，登录用户拿到的就是 {@code interaction: null} ⇒ 与**匿名**不可区分
+     * （匿名是"没有这个对象"，0 维是"对象在但没有一个维度被查"，两者必须可区分）。
+     */
+    private static final Set<InteractionDimension> KEYWORD_SEARCH_DIMENSIONS = Set.of();
 
     public ContentService(ContentDao contentDao,
                           ContentMediaDao contentMediaDao,
                           CommentDao commentDao,
                           ContentLikeDao contentLikeDao,
                           ContentCache contentCache,
-                          LikeService likeService,
+                          InteractionService interactionService,
                           ContentStatusFiller contentStatusFiller,
                           ApplicationEventPublisher events) {
         this.contentDao = contentDao;
@@ -94,7 +109,7 @@ public class ContentService {
         this.commentDao = commentDao;
         this.contentLikeDao = contentLikeDao;
         this.contentCache = contentCache;
-        this.likeService = likeService;
+        this.interactionService = interactionService;
         this.contentStatusFiller = contentStatusFiller;
         this.events = events;
     }
@@ -137,8 +152,9 @@ public class ContentService {
             }
             result.add(contentCache.toContentVO(dto));
         }
+        // ⚠️ 0 维也**必须**调（KEYWORD_SEARCH_DIMENSIONS 的注释）：拿到"对象在、三维全 null"
         if (userId != null && !result.isEmpty()) {
-            contentStatusFiller.fillLikeAndFollowBatch(result, userId);
+            contentStatusFiller.fillInteractionBatch(result, userId, KEYWORD_SEARCH_DIMENSIONS);
         }
         return new PageResult<>(result, total, page, pageSize);
     }
@@ -152,7 +168,9 @@ public class ContentService {
      * feed 依赖本 Service 而非内容域的缓存实现。
      *
      * <p>语义与 {@code recall} 的装载段逐字一致：一趟批量读（含 miss 装载），按入参 {@code contentIds}
-     * 的**原序**输出，取不到的条目（已删 / 媒体损坏）**跳过**——于是返回条数可能少于入参。
+     * 的**原序**输出，取不到的条目（已删 / 媒体损坏 / 未知类型）**跳过**——于是返回条数可能少于入参。
+     * ⚠️ "取不到 ⇒ 跳过"已被收藏夹内列表（favorite）当作**失效判据**（见 {@code favorite.md 附录「编号速查」} R-11）——
+     * 改这条跳过语义前先看 {@code FavoriteService.listFolderItems}。
      *
      * @param contentIds 该页内容 id（可为空 → 空列表）
      */
@@ -177,7 +195,16 @@ public class ContentService {
     // ========================================================================
 
     /**
-     * 内容详情（含媒体列表 + 已登录时的 isLiked / isFollowed）。
+     * 内容详情（含媒体列表 + 互动态子对象）。
+     *
+     * <p>T10（R-10，{@code favorite.md} §六）：互动态（赞 / 藏 / 关注作者）整体
+     * 走互动域，收进响应的 {@code interaction} 子对象；**匿名 ⇒ 子对象为 {@code null}**
+     * （互动域对 {@code userId == null} 短路、"不查任何维度"——不是三个 {@code false}）。
+     * 顶层 {@code isLiked} / {@code isFollowed} 已从 {@code ContentDetailVO} 删除
+     * （breaking，用户 2026-10-11 接受；**T13 起列表 {@code ContentVO} 同样删除**、改内嵌
+     * {@code interaction} —— 两个 VO 从此同形，见 {@code ContentVO} 类注释）。
+     * <p>⚠️ 本方法走 {@code getStatus}（**单条、恒三维**）—— R-13 刻意不给单条契约加维度入参，
+     * 详情面因此 **JSON 逐字不变**（T13 的 breaking 只落在 4 个列表面）。
      *
      * @return {@code null} = 内容不存在 / 已软删 / 媒体损坏（Controller 据此 404）
      */
@@ -187,10 +214,8 @@ public class ContentService {
             return null;
         }
         ContentDetailVO vo = contentCache.toDetailVO(dto);
-        if (userId != null) {
-            contentStatusFiller.fillContentLikeStatus(vo, contentId, userId);
-            contentStatusFiller.fillFollowStatus(vo, userId);
-        }
+        // 单条三维走互动域单条契约；匿名（userId == null）由它短路返回 null ⇒ "interaction": null
+        vo.setInteraction(interactionService.getStatus(userId, contentId, vo.getAuthorId(), vo.getType()));
         return vo;
     }
 

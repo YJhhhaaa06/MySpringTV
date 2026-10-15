@@ -19,7 +19,7 @@ import java.lang.annotation.Target;
  *
  * <h2>{@link #required()} —— S5 新增的"匿名可见但已登录则个性化"</h2>
  * TV 有一批端点**公开可访问**，但"带了 token 就返回个性化字段"：
- * {@code /search/IdSearch}（isLiked / isFollowed）、{@code /start}、{@code /search/keywordSearch}、
+ * {@code /search/IdSearch}（互动态 {@code interaction}）、{@code /start}、{@code /search/keywordSearch}、
  * {@code /profile}、{@code /comment/show}、{@code /comment/replies}。
  * TV 的写法是 {@code Long userId = (Long) req.getAttribute("userId")}——**天然可空**。
  *

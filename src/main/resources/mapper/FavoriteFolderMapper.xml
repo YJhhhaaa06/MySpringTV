@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  收藏夹 Mapper（表 favorite_folder，V2 建）—— 收藏一期 T2 的夹 CRUD + T3 的私密/公开路径。
+
+  与 TV 无关（老项目没有收藏功能）：本仓**第一份没有"TV 原 SQL 对照"的 mapper**，
+  故每条 SQL 的注释写的是"为什么这么写"而不是"对应 TV 的哪条"。
+
+  ⚠️ 全局 `map-underscore-to-camel-case: false`（见 application.yaml）⇒ 列→属性**必须**
+     经 resultMap 显式映射，别指望下划线自动转换。
+
+  ⚠️ 两条 SQL 里都**没有** `default_uniq`：它是 VIRTUAL 生成列（唯一键 uk_user_default 的挂载点），
+     不承载业务语义（理由见 favorite.md 附录「编号速查」R-09）；INSERT 时由 MySQL 自己算。
+-->
+<mapper namespace="io.github.yjhhhaaa06.videoweb.favorite.dao.FavoriteFolderDao">
+
+    <!-- 行映射：夹的"归属 + 类别"。⚠️ 只映射 FavoriteFolder 实体声明的列
+         （description / create_time / update_time 一期无消费方，见实体注释）。 -->
+    <resultMap id="favoriteFolderMap" type="io.github.yjhhhaaa06.videoweb.favorite.model.entity.FavoriteFolder">
+        <id property="id" column="id"/>
+        <result property="userId" column="user_id"/>
+        <result property="name" column="name"/>
+        <result property="isPrivate" column="is_private"/>
+        <result property="isDefault" column="is_default"/>
+    </resultMap>
+
+    <!-- 列表行映射（FavoriteFolderVO）：比上一行多一个聚合列 item_count。 -->
+    <resultMap id="favoriteFolderVoMap" type="io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteFolderVO">
+        <id property="id" column="id"/>
+        <result property="name" column="name"/>
+        <result property="isDefault" column="is_default"/>
+        <result property="isPrivate" column="is_private"/>
+        <result property="itemCount" column="item_count"/>
+    </resultMap>
+
+    <!-- 他人视角列表行映射（PublicFavoriteFolderVO）：**id + name + itemCount**
+         （T18 加 id —— 消费方是"点开他人公开夹看内容"；刻意仍无 isPrivate / isDefault，
+         加字段前先读 PublicFavoriteFolderVO 的类注释与 FavoritePrivacyTests 的键集断言）。 -->
+    <resultMap id="publicFavoriteFolderVoMap"
+               type="io.github.yjhhhaaa06.videoweb.favorite.model.vo.PublicFavoriteFolderVO">
+        <id property="id" column="id"/>
+        <result property="name" column="name"/>
+        <result property="itemCount" column="item_count"/>
+    </resultMap>
+
+    <!-- 新建自建夹。刻意**不写 is_default**（走列默认 0）：
+         默认夹由"首次收藏"懒建（T4，走 uk_user_default 兜并发），本路径不碰那个键。
+         也不写 is_private（走列默认 0 = 公开，R-05「默认公开」）。 -->
+    <insert id="insertFolder">
+        INSERT INTO favorite_folder (user_id, name) VALUES (#{userId}, #{name})
+    </insert>
+
+    <!-- 按 id 取夹（改名 / 删除前校验：在不在 → 是不是我的 → 是不是默认夹）。
+         列清单与 resultMap 一一对应，不写 SELECT *（新增列时不会静默流进实体）。 -->
+    <select id="findById" resultMap="favoriteFolderMap">
+        SELECT id, user_id, name, is_private, is_default
+        FROM favorite_folder
+        WHERE id = #{id}
+    </select>
+
+    <!-- 我的夹列表 + 每夹条目数。
+         ★ LEFT JOIN：空夹得 0 行也**保留**（INNER JOIN 会让空夹整行消失，用户以为夹没了）。
+         ★ COUNT(i.id) 数的是收藏**记录**行 ⇒ 失效内容（含已删下架与"装不出来"的，R-11）的记录照样计入（R-07）；
+           本 SQL 不访问 content 表，也就不存在"排除已删内容"的分支可被误加。
+         ★ GROUP BY 列写全（ONLY_FULL_GROUP_BY 下无歧义），ORDER BY 默认夹置顶 + id 升序。
+         ⚠️ is_default DESC 用列而不是表达式，保持可用 uk_user_default 前导列做等值定位。 -->
+    <select id="findByUserIdWithItemCount" resultMap="favoriteFolderVoMap">
+        SELECT f.id, f.name, f.is_private, f.is_default, COUNT(i.id) AS item_count
+        FROM favorite_folder f
+        LEFT JOIN favorite_item i ON i.folder_id = f.id
+        WHERE f.user_id = #{userId}
+        GROUP BY f.id, f.name, f.is_private, f.is_default
+        ORDER BY f.is_default DESC, f.id ASC
+    </select>
+
+    <!-- 他人视角的公开夹列表（T3；★ T18 起出参多一列 f.id —— 供前端"点开公开夹"）。
+         ★ 与"我的夹列表"逐字同款，只多一条 `AND f.is_private = 0` —— 这条过滤就是"私密"的
+           全部可观察行为，故它是 T3 反向验证**唯一的注入点**（去掉它 ⇒ FavoritePrivacyTests 变红）。
+         ★ 用 `= 0`（确认为公开）而非 `!= 1`：将来值域若扩（如 2=草稿），对外默认不泄露。
+         ★ GROUP BY 列写全（ONLY_FULL_GROUP_BY 下无歧义），ORDER BY 与"我的夹列表"复用同一顺序
+           （默认夹置顶 + id 升序）—— 顺序是契约，两处不许各排一半。 -->
+    <select id="findPublicByUserIdWithItemCount" resultMap="publicFavoriteFolderVoMap">
+        SELECT f.id, f.name, COUNT(i.id) AS item_count
+        FROM favorite_folder f
+        LEFT JOIN favorite_item i ON i.folder_id = f.id
+        WHERE f.user_id = #{userId} AND f.is_private = 0
+        GROUP BY f.id, f.name, f.is_default
+        ORDER BY f.is_default DESC, f.id ASC
+    </select>
+
+    <!-- 自建夹个数（T16：夹数上限的判定面，服务 POST /favorite/folder/add）。
+         ★ 只数 `is_default = 0` —— 默认夹**不计入** 20（favorite.md §八）：它是懒建出来的、用户删不掉，
+           计入就会出现"夹数满 ⇒ 默认夹建不出来"这类不自愈的死局（会重演 I-08 的互锁）。
+         ★ 命中 uk_user_default(user_id, default_uniq) 的**前导列**（表上刻意没有单独的 idx_user）。
+         ⚠️ 实测 EXPLAIN（dev 库，2026-10-14）：type=ref / key=uk_user_default / Extra="Using where"
+           —— **不是覆盖索引**（is_default 不在索引里 ⇒ 回表过滤）。写成 default_uniq IS NULL
+           （值域 0/1 下等价）才能拿到 "Using index"，但那把查询绑到生成列语义上
+           ⇒ 沿用显式可读的 is_default = 0（同公开夹那条用 is_private = 0 而非 != 1 的理由）。
+           代价量级 = 该用户的夹数（≤ 21 行）⇒ 回表无所谓。别按索引形状推断计划（I-06）。
+         ★ 不碰 favorite_item（夹数与夹内内容数无关）。
+         ⚠️ 与随后的 INSERT 之间没有锁 ⇒ 真并发下可越界（软上限，≤ 并发请求数、越界后自限）：
+           用户 2026-10-14 拍板接受，论证见 FavoriteLimitProperties 类注释与 FURTHER_ISSUES.md F-23。 -->
+    <select id="countCustomFoldersByUserId" resultType="int">
+        SELECT COUNT(*) FROM favorite_folder WHERE user_id = #{userId} AND is_default = 0
+    </select>
+
+    <!-- 部分更新：改名 / 私密开关（T3，**给了才改**）。
+         ★ 动态 <set>：null = 本次不动该字段；两个都给时仍生成**一条** SQL（单写即原子，
+           不需要 @Transactional；理由见 FavoriteFolderDao.updateNameAndPrivacy）。
+         ★ service 保证"至少给一个"（否则 400）⇒ 生成的 SQL 必然带 ≥1 个赋值，不存在空 SET。
+         ⚠️ 不带 user_id 条件（归属校验已在 service 先做）；也不判 is_default
+           （默认夹可改名、可设私密）。同值更新 ⇒ 受影响 0 行，属正常。 -->
+    <update id="updateNameAndPrivacy">
+        UPDATE favorite_folder
+        <set>
+            <if test="name != null">name = #{name},</if>
+            <if test="isPrivate != null">is_private = #{isPrivate},</if>
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <!-- 删夹行。⚠️ 条目由 FavoriteItemDao.deleteByFolderId 在**同一事务**里先删（R-02），
+         调用方是 FavoriteService.deleteFolder（@Transactional）。 -->
+    <delete id="deleteById">
+        DELETE FROM favorite_folder WHERE id = #{id}
+    </delete>
+
+    <!-- 默认夹懒建（T4，R-01）：不存在则建、已存在则原样不动。
+         ★ ON DUPLICATE KEY UPDATE id = id —— 撞 uk_user_default（每用户至多一条默认夹，
+           R-09 生成列方案）时走无变化赋值而不抛异常；并发首次收藏两边都成功、都拿到同一条。
+           "先 SELECT 后 INSERT" 兜不住并发（两个事务都能查到"不存在"），别改回去。
+         ⚠️ is_default 显式写 1（与 insertFolder 的"永远自建夹"是两条路径）；
+           is_private 不写（走列默认 0 = 公开，R-05）。 -->
+    <insert id="insertDefaultFolderIfAbsent">
+        INSERT INTO favorite_folder (user_id, name, is_default)
+        VALUES (#{userId}, #{name}, 1)
+        ON DUPLICATE KEY UPDATE id = id
+    </insert>
+
+    <!-- 取默认夹 id（懒建第二步，紧跟上一条）。按业务键（user_id + is_default = 1）查
+         而非连接级 LAST_INSERT_ID：两次 mapper 调用可能各借各的连接（懒建序列不加事务），
+         连接级函数会取错；业务键查询与连接无关。 -->
+    <select id="findDefaultFolderId" resultType="long">
+        SELECT id
+        FROM favorite_folder
+        WHERE user_id = #{userId} AND is_default = 1
+        LIMIT 1
+    </select>
+
+</mapper>

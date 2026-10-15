@@ -57,4 +57,33 @@ public final class PageParams {
             return null;
         }
     }
+
+    /**
+     * ★ T14：keyset 游标归一（复用上面的"**静默归一**"口径，不引入 400）。
+     *
+     * <p>与 {@link #normalizePage(String)} 同构：缺省 / 非数字 / ≤0 → **0**（= 第 1 页，
+     * 覆盖"从楼头开始"）。⚠️ 游标值是**主键列的值**（如 {@code comment_id}），属 BIGINT ⇒
+     * 按 {@code Long} 解析（{@code Integer} 会在超大 id 上误判成"非数字"）。
+     *
+     * <p>⚠️ 这里**只做归一、不做有效性校验**：非数字 / ≤0 落到上面的"归一到 0"（⇒ 第 1 页）；
+     * **数值越界**（大于目标楼最大 id）由调用方"取不到行 ⇒ 空页 + {@code nextCursor=null}"自然兜底。
+     * ⚠️ 落在楼内的**外来游标**（数值恰好落在本楼区间内）会静默返回"该值之后的一页"而非空页 ——
+     * 但游标对客户端不透明、由服务端上一页给出，该态实际不可达。
+     */
+    public static long normalizeCursor(String raw) {
+        Long parsed = parseLongOrNull(raw);
+        return (parsed == null || parsed <= 0) ? 0L : parsed;
+    }
+
+    /** {@code null} / 空白 / 非数字 → {@code null}；用于 BIGINT 级游标。 */
+    public static Long parseLongOrNull(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.valueOf(raw);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
 }

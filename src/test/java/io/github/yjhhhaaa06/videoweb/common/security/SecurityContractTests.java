@@ -155,6 +155,104 @@ class SecurityContractTests extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("收藏一期 T2：夹 CRUD 四端点判为需登录（**方法级**注解 —— 该域将来有匿名端点）")
+    void favorite夹CRUD端点需登录() {
+        // ⚠️ 本组是 T2 鉴权口径的**机制级**保证。收藏域**刻意不用类级** @RequiresLogin：
+        //  favorite.md §三 要求 /favorite/folder/public 匿名可访问（T3 已落地），类级会把它误拦成 401，
+        //  而"私密夹自己照样看得见"会让这个误拦**长期无人发现**。
+        //  反向对照（isFalse 那条）已在 T3 补入，见 favorite公开端点不得判为需登录。
+        assertThat(requiresLogin("POST", "/favorite/folder/add")).isTrue();
+        assertThat(requiresLogin("POST", "/favorite/folder/update")).isTrue();
+        assertThat(requiresLogin("POST", "/favorite/folder/remove")).isTrue();
+        assertThat(requiresLogin("GET", "/favorite/folder/list")).isTrue();
+    }
+
+    @Test
+    @DisplayName("收藏一期 T3：他人公开夹端点**不得**判为需登录（匿名可访问；与上一条四端点 true 构成成对断言）")
+    void favorite公开端点不得判为需登录() {
+        // ★ 与上面那组构成**成对断言**：四端点 true + 公开端点 false。
+        //   它钉住的是"这一条**必须**公开"：若有人图省事给整个类搬上 @RequiresLogin，
+        //   本类是**最先**变红的那条 —— T3 实测：类级误标 ⇒ 本类 1 红 + HTTP 侧 5 红
+        //   （HTTP 侧同样抓得到，别误以为这里是唯一防线；见 FavoritePrivacyTests 的匿名用例）。
+        //   机制级断言的**独立价值**是直接回答"这个 401 是谁要求的"，不依赖 HTTP 用例的覆盖面
+        //   （T2 教训：机制失效时 401 常由参数解析器兜出，端到端看起来全对 —— 只有对
+        //   RequestMappingLookup 直接求值才看得见）。
+        assertThat(requiresLogin("GET", "/favorite/folder/public"))
+                .as("favorite.md §三 冻结契约：看他人公开夹匿名可访问（T3）")
+                .isFalse();
+    }
+
+    @Test
+    @DisplayName("收藏三期 T18：他人公开夹内容端点**不得**判为需登录（匿名可访问；与上面四端点 true 构成成对断言）")
+    void favorite公开夹内容端点不得判为需登录() {
+        // ★ T18 新增的第三条匿名端点（"点开他人公开夹看内容"）：与 /folder/public 同为**他人视角的公开读**，
+        //   与"我是谁"无关 ⇒ 必须匿名可访问。
+        //   机制级断言的**独立价值**同 T3 那条：直接回答"这个 401 是谁要求的"，不依赖 HTTP 用例覆盖面
+        //   （T2 教训：机制失效时 401 常由参数解析器兜出，端到端看起来全对）。★ 反向：若给本类误加
+        //   类级 @RequiresLogin，本类是**最先**变红的那条（HTTP 侧同样会红 —— 见 PublicFolderItemsTests 匿名用例）。
+        assertThat(requiresLogin("GET", "/favorite/folder/items"))
+                .as("T18 冻结契约：看他人公开夹的内容匿名可访问（服务端另以 is_private = 0 兜隐私）")
+                .isFalse();
+    }
+
+    @Test
+    @DisplayName("收藏一期 T4：收藏写路径三端点判为需登录（方法级注解，与 T2/T3 同一口径）")
+    void favorite收藏写路径端点需登录() {
+        // 三个**全登录**端点。T2 的教训在这里同样适用：三个端点都收 @CurrentUserId
+        // （取不到即 401），所以"未登录 → 401"的 HTTP 用例对 @RequiresLogin 机制是假绿
+        // （401 可能来自参数解析器而非注解）—— 机制级的"是谁要求的"只有本类能回答。
+        // 反向对照（公开端点 isFalse）随上一条用例钉着：类级误标会让那条先红。
+        assertThat(requiresLogin("POST", "/favorite/add")).isTrue();
+        assertThat(requiresLogin("POST", "/favorite/remove")).isTrue();
+        assertThat(requiresLogin("POST", "/favorite/move")).isTrue();
+    }
+
+    @Test
+    @DisplayName("收藏一期 T5：status 判为需登录、count 判为**匿名可访问**（成对断言）")
+    void favorite状态与计数鉴权() {
+        // ★ 两类端点、两个信任边界（T5）：
+        //   /status = "我收在哪些夹"（私有）⇒ 需登录；
+        //   /count  = 公开展示数（favorite-需求.md §三）⇒ 匿名可访问 —— ★ 与 /like/content/count 的"需登录"
+        //            刻意不同（那条是 TV 的 /like 前缀保护惯性；收藏是新域，按真实口径定）。
+        //   两条必须**成对**断：只断 status=true 的话，把这个端点漏标（或反过来给 count 误标）
+        //   在断言上都看不出来。HTTP 侧也有覆盖（FavoriteStatusAndCountTests.状态需登录计数匿名可访问），
+        //   本类是**最先、最精确**的信号（直接回答"这个 401 是谁要求的"，T2 教训）。
+        assertThat(requiresLogin("GET", "/favorite/status"))
+                .as("私有状态，必须登录")
+                .isTrue();
+        assertThat(requiresLogin("GET", "/favorite/count"))
+                .as("公开展示数，必须匿名可访问（误加 @RequiresLogin 会让匿名内容页看不到收藏数）")
+                .isFalse();
+    }
+
+    @Test
+    @DisplayName("收藏一期 T6：夹内列表判为需登录（**方法级**注解 —— 与三条匿名端点构成成对断言）")
+    void favorite夹内列表需登录() {
+        // 夹内列表是"我的夹里有什么" ⇒ 私有视角，必须登录。
+        // ⚠️ 同样**不能**靠类级 @RequiresLogin 解决：本域已有 /folder/public 与 /count 两条匿名端点
+        // （T3 / T5），类级会一并误拦。故这里断的是**方法级**注解是否落到 /favorite/list 上。
+        // ★ 判别力：本端点的 401 在 HTTP 侧同样可能由 @CurrentUserId 的参数解析器兜出
+        // （T2 教训：机制失效时端到端看起来全对）——"这个 401 是谁要求的"只有本类能回答。
+        assertThat(requiresLogin("GET", "/favorite/list"))
+                .as("夹内列表是'我的'私有视角，必须登录（T6）")
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("收藏三期 T17：稍后再看四端点判为需登录（**方法级**注解；本域没有公开面）")
+    void watchlater四端点需登录() {
+        // ★ 稍后再看是"我的私有池"（无公开面）——即便如此也**逐端点**声明、**绝不用类级**：
+        //   该域将来若长出匿名端点（如将来做"公开的稍后再看"），类级会静默误拦。
+        //   本组是 T17 鉴权口径的**机制级**保证：四个端点都收 @CurrentUserId（取不到即 401）⇒
+        //   HTTP 用例对 @RequiresLogin 机制是**假绿**（401 可能来自参数解析器而非注解，
+        //   见 T2 教训）——"这个 401 是谁要求的"只有本类能回答。
+        assertThat(requiresLogin("GET", "/watchlater/list")).isTrue();
+        assertThat(requiresLogin("POST", "/watchlater/add")).isTrue();
+        assertThat(requiresLogin("POST", "/watchlater/remove")).isTrue();
+        assertThat(requiresLogin("POST", "/watchlater/move")).isTrue();
+    }
+
+    @Test
     @DisplayName("未映射的路径返回 false：真正的 404 由 DispatcherServlet 产生，本机制不越权处理路由")
     void 未映射路径不需登录() {
         assertThat(requiresLogin("GET", "/no/such/endpoint")).isFalse();

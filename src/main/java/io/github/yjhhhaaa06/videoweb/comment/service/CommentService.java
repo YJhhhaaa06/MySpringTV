@@ -10,6 +10,7 @@ import io.github.yjhhhaaa06.videoweb.comment.model.vo.CommentVO;
 import io.github.yjhhhaaa06.videoweb.common.exception.ConflictException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ForbiddenException;
 import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
+import io.github.yjhhhaaa06.videoweb.common.model.dto.CursorResult;
 import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
 import io.github.yjhhhaaa06.videoweb.content.service.ContentService;
@@ -71,9 +72,6 @@ public class CommentService {
      * ⚠️ 与 {@code CommentCache.PREVIEW_REPLIES_PER_ROOT} **必须同值**（TV 原注释要求两处同步）。
      */
     public static final int REPLY_PREVIEW_K = 2;
-
-    /** 展开接口的 LIMIT 上界：仅防极端 {@code page*pageSize} 溢出（MySQL LIMIT 是 int）。 */
-    private static final long MAX_REPLY_WINDOW = 50_000L;
 
     private final CommentDao commentDao;
     private final ContentDao contentDao;
@@ -190,28 +188,56 @@ public class CommentService {
     // ========================================================================
 
     /**
-     * 按主楼展开全部回复（{@code GET /comment/replies}）。
+     * 按主楼展开全部回复（{@code GET /comment/replies}）—— ★ T14 起为**游标（keyset）分页**。
      *
      * <p>{@code total} = 主楼 {@code reply_count}（与分页信封里 children 的前 K 口径一致，
      * 见 T10-B）；{@code list} = 直接回复 + 二级间接回复（{@code comment_id} 升序），
      * 页间不重不漏由 keyset 构造保证。点赞态只对该页回复批量查询。
      *
+     * <h2>★ 为什么从 {@code page} 改成 {@code cursor}（T14 = F-20 ②）</h2>
+     * 旧实现传 {@code afterCommentId=0} + {@code LIMIT page*pageSize} 再内存切片 ⇒
+     * **DB 每次返回 {@code page*pageSize} 行**（应用丢掉前 {@code (page-1)*pageSize} 行）⇒
+     * <b>负载 ∝ 页码</b>（基线实测：2 万条回复时第 1 页 DB 返 2 行 / 末页返 20000 行）。
+     * keyset 改为传"上一页末条 {@code commentId}"作游标，SQL **只取本页**
+     * （{@code WHERE c.comment_id > cursor ORDER BY c.comment_id LIMIT n}）⇒ **负载 ∝ 本页**。
+     * ⚠️ {@code LIMIT offset, n} 仍是 O(offset) 扫描，"保留 page 语义"**无法**解决这个问题 ——
+     * 这正是本次**有意破 {@code page} 契约**（用户 2026-10-13 接受）的理由。
+     *
+     * <p><b>到底判据 = "多取一行"</b>：取 {@code pageSize+1} 行，若多出 1 行 ⇒ 还有下一页，
+     * {@code nextCursor} = 本页第 {@code pageSize} 条的 {@code commentId}；否则本页即楼尾 ⇒
+     * {@code nextCursor = null}。前端**一次请求即可知到底**，无需再发一次空请求。
+     *
+     * <p>⚠️ 游标异常**不报错**：**非数字 / ≤0** 在 controller 层已归一到 0（⇒ 第 1 页，
+     * 见 {@code PageParams.normalizeCursor}）；**数值越界**（大于本楼最大 id）⇒ 取不到行 ⇒
+     * 空 {@code list} + {@code nextCursor=null}（{@code total} 仍为真实值，与 offset 分页
+     * "越界页空 list 但 total 保留"同构）。
+     *
      * <p><b>决策表 G-3：⚠️ 有意改进——去掉事务。</b>TV 用两个 {@code transactionTemplate.execute}
      * 各包一条**纯读**（{@code findMainById} / {@code getRepliesInTreeByRoot}），
      * 无原子性需求，事务只是"取连接的手段"（同 U-3/U-4、C-2/C-3、L-5、F-3、G-2）。
      */
-    public PageResult<CommentVO> getRepliesForRoot(long rootId, Long userId, int page, int pageSize) {
-        if (page < 1 || pageSize < 1) {
-            return new PageResult<>(new ArrayList<>(), 0, page, pageSize);
+    public CursorResult<CommentVO> getRepliesForRoot(long rootId, Long userId, long cursor, int pageSize) {
+        // 防御性兜底（HTTP 路径由 controller 的 normalizePageSize 保证 ≥1；此处护住非 HTTP 直连调用方，
+        // 否则 pageSize<1 会走到 rows.subList(0, 0) 后 get(-1) 越界）。
+        if (pageSize < 1) {
+            return new CursorResult<>(new ArrayList<>(), 0, pageSize, null);
         }
         CommentCacheDTO root = commentDao.findMainById(rootId);
         if (root == null) {
             throw new NotFoundException("评论不存在或已删除");
         }
         int total = root.getReplyCount();
+        // keyset：多取一行判「是否还有下一页」。SQL 只按游标取本页，不再从头取 page*pageSize 行。
         List<CommentCacheDTO> rows = commentDao.getRepliesInTreeByRoot(
-                root.getContentId(), rootId, 0L, toLimit((long) page * pageSize));
-        List<CommentCacheDTO> pageList = slicePage(rows, page, pageSize);
+                root.getContentId(), rootId, cursor, pageSize + 1);
+        if (rows == null) {
+            rows = new ArrayList<>();
+        }
+        boolean hasMore = rows.size() > pageSize;
+        List<CommentCacheDTO> pageList = hasMore
+                ? new ArrayList<>(rows.subList(0, pageSize))
+                : rows;
+        Long nextCursor = hasMore ? pageList.get(pageList.size() - 1).getCommentId() : null;
 
         Map<Long, Boolean> likedMap = new HashMap<>();
         if (userId != null && !pageList.isEmpty()) {
@@ -224,25 +250,7 @@ public class CommentService {
                 likedMap = new HashMap<>();
             }
         }
-        return new PageResult<>(convertToCommentVOList(pageList, likedMap), total, page, pageSize);
-    }
-
-    /** LIMIT 上界（防极端 {@code page*pageSize} 溢出；单主楼回复量内页间可达）。 */
-    private static int toLimit(long window) {
-        return (int) Math.min(Math.max(window, 1L), MAX_REPLY_WINDOW);
-    }
-
-    /** 从头取回的窗口行中切片该页（越界页空列表；信封 total 已是真实值）。 */
-    private static List<CommentCacheDTO> slicePage(List<CommentCacheDTO> rows, int page, int pageSize) {
-        if (rows == null || rows.isEmpty()) {
-            return new ArrayList<>();
-        }
-        long from = (long) (page - 1) * pageSize;
-        if (from >= rows.size()) {
-            return new ArrayList<>();
-        }
-        int to = (int) Math.min(from + pageSize, rows.size());
-        return new ArrayList<>(rows.subList((int) from, to));
+        return new CursorResult<>(convertToCommentVOList(pageList, likedMap), total, pageSize, nextCursor);
     }
 
     // ========================================================================

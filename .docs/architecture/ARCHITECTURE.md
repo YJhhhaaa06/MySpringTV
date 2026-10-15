@@ -35,11 +35,14 @@ io.github.yjhhhaaa06.videoweb
     ├── feed/      关注动态流（唯一异步编排型域）
     ├── coupon/    优惠券
     ├── upload/    文件上传
-    └── admin/     内容管理端
+    ├── admin/     内容管理端
+    ├── favorite/  收藏（收藏夹 / 收藏记录 / 稍后再看；2026-10-07 收藏一期起，2026-10-15 一轮收口）
+    └── interaction/ 互动域（聚合"我 赞/藏/关注了吗"三态；**无 controller/dao/cache/event**，R-10 §3.6，2026-10-11 收藏二期 T9 起）
 ```
 
 > 业务域的内部结构**不在本目录统一描述**——只有"有独有架构、讲不清会出事"的域才单独成篇
-> （当前仅 [feed](domain/feed.md)）。薄域（coupon / upload / admin 等）不建文档。
+> （当前 = [feed](domain/feed.md) · 收藏域 [favorite](domain/favorite.md)）。
+> 薄域（coupon / upload / admin 等）不建文档。
 
 ### 1.2 横切机制的一句话版
 
@@ -52,7 +55,7 @@ io.github.yjhhhaaa06.videoweb
 | MQ | 拓扑/重连/重试+DLQ/预取交框架原生；发布不等 confirm；投递三态 + 补偿缓冲 | [MQ与投递可靠性](tech/MQ与投递可靠性.md) |
 | 可观测 | 日志四输出端 + MDC 请求标识 + 出口一处脱敏 + Micrometer 打点 + 审计 | [可观测](tech/可观测.md) |
 | 安全 | 自研 `JwtAuthFilter` + `@RequiresLogin`（Spring Security **尚未迁**） | [安全与鉴权](tech/安全与鉴权.md) |
-| 数据 | Flyway SQL-first；**V1 baseline 冻结**；下次演进走 V2 | [数据与Schema演进](tech/数据与Schema演进.md) |
+| 数据 | Flyway SQL-first；**V1 baseline 冻结**；增量演进已到 **V4**（`favorite_*` 两表 + `content.favorite_count`（V2/V3）+ `watch_later`（V4）） | [数据与Schema演进](tech/数据与Schema演进.md) |
 | 事务 | 事务边界载体独立成 bean（避免自调用）；纯读去事务 | [事务边界](tech/事务边界.md) |
 
 ---
@@ -71,6 +74,7 @@ io.github.yjhhhaaa06.videoweb
 | **改表 / 加 Flyway 迁移** | [数据与Schema演进](tech/数据与Schema演进.md) | schema 演进 |
 | **写 `@Transactional`** | [事务边界](tech/事务边界.md) | 事务口径变更 |
 | 了解**关注动态流**整体数据流 | [domain/feed](domain/feed.md) | feed 编排变更 |
+| 了解**收藏 / 收藏夹 / 稍后再看**的数据模型与口径 | [domain/favorite](domain/favorite.md)（用户可见规则见 [favorite-需求](domain/favorite-需求.md)） | 收藏域口径变更 |
 
 ---
 
@@ -95,6 +99,8 @@ io.github.yjhhhaaa06.videoweb
 | [数据与Schema演进](tech/数据与Schema演进.md) | Flyway 策略、V1 冻结、环境、存量数据债 | 事务 → 事务边界 |
 | [事务边界](tech/事务边界.md) | 切分原则、载体独立 bean、`readOnly`、去事务口径 | 提交后副作用的语义 → 领域事件；逐处明细（已归档） |
 | [domain/feed](domain/feed.md) | 动态流数据流、两路读、大V路由、重建、消环 | 缓存/MQ/事务机制 → 上述各篇 |
+| [domain/favorite](domain/favorite.md) | 收藏域数据模型、端点、计数口径、失效口径、互动态形态、缓存边界、容量上限、稍后再看、公开夹 | 横切机制 → 上述各篇；用户可见规则 → favorite-需求 |
+| [domain/favorite-需求](domain/favorite-需求.md) | 收藏的**用户可见行为与规则**（唯一事实源） | 骨架设计 → favorite；横切机制 → 上述各篇 |
 
 ---
 
@@ -106,8 +112,10 @@ io.github.yjhhhaaa06.videoweb
    （复制必然漂移——这是本仓的硬纪律"同一事实只写一处"。）
 4. **链接**：兄弟文档用**相对路径** markdown 链接（同目录写 `./xxx.md`）。
    代码引用用 inline code 的**类名**（如 `FeedWindowWriter`），不链源文件。
-5. **不引用迁移期文档**：不链 `.docs/` 根的决策留痕表 / 遗留台账 / 事务边界决策表，也不链 `archive/`。
-   所有结论从**代码 / 配置 / 迁移脚本本身**取证。
+5. **不引用迁移期文档**：不链 `.docs/` 根的决策留痕表 / 遗留台账 / 事务边界决策表。
+   所有**结论**从**代码 / 配置 / 迁移脚本本身**取证。
+   ★ **例外（2026-10-15 放宽）**：允许对 `archive/` 挂一条**"历史出处"脚注**
+   （如"逐条论证见 `archive/<域>-<日期>/`"）—— 它**只做追溯、不承担结论**；结论仍必须自证于代码。
 6. **表格优先**：事实对照用表；流程 / 结构用围栏代码块画。
 7. **体量红线**：单文件 ≤ 40 KB、单章节 ≤ 300 行（`python tools/doc_stats.py` 阈值）。
 8. **末尾固定节《边界与去向（机制外链）》**：列"不在本篇的内容 → 去向"。

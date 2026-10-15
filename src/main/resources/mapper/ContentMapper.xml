@@ -39,6 +39,15 @@
         SELECT EXISTS(SELECT 1 FROM content WHERE id = #{contentId} AND is_deleted = 0)
     </select>
 
+    <!-- 读未软删内容的类型（收藏三期 T17：稍后再看"只能加视频"的门禁）。
+         ★ 与 isContentExist 同一形态，只是带回 type —— 一趟覆盖 add/move 的 404（无行）与
+           400（非视频）两条拒因。
+         ⚠️ 返回 Integer（包装）：无行 / 已软删 ⇒ null；声明成 int 会在无行时 NPE（同 getContentStatus）。
+         ⚠️ 口径 = content.type（1 视频 / 2 图文；媒体表的 3 封面与这里无关）。 -->
+    <select id="findAliveContentType" resultType="java.lang.Integer">
+        SELECT type FROM content WHERE id = #{contentId} AND is_deleted = 0
+    </select>
+
     <!-- TV: UPDATE content SET comment_count = comment_count + ? WHERE id = ?
          ⚠️ 一字未改——**没有**防负守卫（对比 comment.updateReplyCount 有），保留 TV 原样行为。
          已知尖锐处见 ContentDao#updateCommentCount 的 Javadoc（int unsigned 下溢）。 -->
@@ -60,6 +69,49 @@
     <update id="updateLikeCount">
         UPDATE content SET like_count = like_count + #{delta} WHERE id = #{contentId}
     </update>
+
+    <!-- 收藏数批量重算（T12，与 like_count 增量式**刻意不同**）：一趟 CASE-WHEN 写回一批行的
+         favorite_count 绝对值，**不是** N 次单行 UPDATE（删夹可一次波及上千条内容，
+         逐行 UPDATE 就是 N 次往返 —— favorite.md §四 强制探索的确认点）。
+         ★ 为什么写"绝对值"而不是 like_count 那样的 ±delta：收藏数按人去重
+           （COUNT(DISTINCT user_id)），而 favorite_item 的唯一键是 uk_folder_content（夹内唯一）
+           —— 同一人可把同一内容收进多夹 ⇒ add/remove 不必然 ±1、并发下判"第一次收藏"必然漏。
+           增量会漂移且永不自愈；重算是幂等复算，第二处事实源只在事务内被维护
+           （口径与排除理由见 favorite.md §四）。
+         ★ 入参每个 (contentId, favoriteCount) 对都来自**同一事务内**刚算出的聚合
+           （FavoriteService.recountFavoriteCounts）⇒ 本语句必须运行在调用方事务里
+           （与关系行的增删同进同退，否则计数与明细在提交窗口内不一致）。
+         ⚠️ 聚合不出的 id（收藏清空 / 从未有人收藏）由调用方补 0 后也在 IN 列表里
+           —— "清零"同样要落列，不变量对 0 成立。
+         ⚠️ 幽灵 id（content 行不存在）在 WHERE id IN 里匹配 0 行，自然无害。
+         ⚠️ 空列表会生成 CASE ... END 空体 / IN () 语法错 —— service 已拦空集（删空夹是合法路径）。 -->
+    <update id="updateFavoriteCounts">
+        UPDATE content
+        SET favorite_count = CASE id
+        <foreach collection="favoriteCounts" item="row">
+            WHEN #{row.contentId} THEN #{row.favoriteCount}
+        </foreach>
+        END
+        WHERE id IN
+        <foreach collection="favoriteCounts" item="row" open="(" separator="," close=")">
+            #{row.contentId}
+        </foreach>
+    </update>
+
+    <!-- 收藏数列读（T12：/favorite/count 缓存 miss 的回源，唯一调用点
+         FavoriteCache#loadFavoriteCount）。一期回源是实时 COUNT(DISTINCT user_id) 聚合
+         （≈17ms / 2 万行基线，favorite.md §四）；T12 起列由收藏域四条写路径的
+         「事务内批量重算」（上面的 updateFavoriteCounts）维护 ⇒ 回源降为点查。
+         ★ 不变量 favorite_count == COUNT(DISTINCT user_id) 由 T12 的独立 oracle 用例钉住
+           —— 本查询的正确性完全建立在那个不变量上。
+         ★ 写成 COALESCE((SELECT ...), 0) **保证恒有一行**：裸 SELECT 在内容行不存在时
+           MyBatis 返回 null，映射原始 long 会 NPE（ContentDao#getContentStatus 注释的实测口径）；
+           且"无行 ⇒ 0"与一期 COUNT 的可观察语义一致（不给内容存在性开探测口）。 -->
+    <select id="findFavoriteCountById" resultType="long">
+        SELECT COALESCE(
+                   (SELECT favorite_count FROM content WHERE id = #{contentId}),
+                   0)
+    </select>
 
     <!-- ============================ S5：读路径 ============================ -->
 
