@@ -25,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <h2>覆盖什么</h2>
  * <ul>
  *   <li>新建 / 改名 / 删除 / 我的夹列表四条端点（HTTP 状态 + 信封 + **DB 终态**）；</li>
- *   <li>★ 默认夹**拒绝删除**（需求篇 §二「删不掉」）—— 且夹与条目**都还在**；</li>
+ *   <li>★ 默认夹**拒绝删除**（favorite-需求.md §二「删不掉」）—— 且夹与条目**都还在**；</li>
  *   <li>★ 删夹**一并删条目**（R-02，同事务）；</li>
  *   <li>★ 无夹时列表返回 {@code []} **而非报错**（R-01 懒建 ⇒ 空态合法）；</li>
  *   <li>★ 每夹条目数用**独立 oracle 复算**，且**含失效内容的记录**（R-07）；</li>
@@ -52,7 +52,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <h2>★ 期望值怎么来的（规避"迎合型伪测试"）</h2>
  * 每个断言的期望值都出自**业务口径**而非实现：条目数出自 R-07「失效也计入、数的是记录」；
- * 默认夹拒删出自需求篇 §二；空态出自 R-01；403/404 出自
+ * 默认夹拒删出自favorite-需求.md §二；空态出自 R-01；403/404 出自
  * {@code CommentService}/{@code ContentService} 的既有归属口径。盖住实现这些用例**照样写得出来**。
  *
  * <h2>反向验证（T8 收口会复核）—— 逐条都**实测过能红**才写在这里</h2>
@@ -72,7 +72,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * ⚠️ <b>{@code deleteFolder} 的事务回滚语义不在本类</b>（两条顺序 DELETE 都成功 ⇒ 去掉注解仍绿，
  * 本类只钉"两次写都成功"的终态）—— 已由 T8 用 {@code @MockitoSpyBean} 打桩"删夹行失败"在
  * {@code FavoriteTransactionTests.删夹第二步失败时删条目回滚} 中补上判别力（去掉 {@code @Transactional}
- * 即变红）。原 {@code 收藏功能-编号索引.mdA.3} <b>I-04</b> 由此收口。
+ * 即变红）。原 {@code favorite.md 附录「编号速查」} <b>I-04</b> 由此收口。
  */
 class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
 
@@ -274,7 +274,7 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
     // ========================================================================
 
     @Test
-    @DisplayName("改名：200 + DB 终态是新名字；默认夹**也能改**（需求篇只规定默认夹删不掉）")
+    @DisplayName("改名：200 + DB 终态是新名字；默认夹**也能改**（favorite-需求.md只规定默认夹删不掉）")
     void 改名写进库且默认夹可改名() {
         TestUser me = register("13800001008", "改名用户");
         long mine = insertFolderRow(me.id, "旧名");
@@ -282,7 +282,7 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
 
         assertThat(renameFolder(mine, "新名", me.token).getStatusCode().value()).isEqualTo(200);
         assertThat(renameFolder(defaultFolder, "我的默认夹", me.token).getStatusCode().value())
-                .as("默认夹可以改名（需求篇只禁止删除）").isEqualTo(200);
+                .as("默认夹可以改名（favorite-需求.md只禁止删除）").isEqualTo(200);
 
         assertThat(nameOf(mine)).isEqualTo("新名");
         assertThat(nameOf(defaultFolder)).isEqualTo("我的默认夹");
@@ -343,7 +343,7 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
         insertItemRow(defaultFolder, me.id, 3001L);
 
         // ★ 先改名再删：把"判据是行上的 is_default 而不是名字"钉死。
-        //   需求篇说默认夹"删不掉"，而用户**可以**给它改名、也可以给自建夹起同一个名字
+        //   favorite-需求.md说默认夹"删不掉"，而用户**可以**给它改名、也可以给自建夹起同一个名字
         //   ⇒ 任何"按名字判"的实现都会在这里放行（改名后名字不再叫"默认收藏夹"）或误拦。
         assertThat(renameFolder(defaultFolder, "换个名字照样是默认夹", me.token).getStatusCode().value())
                 .as("默认夹可以改名").isEqualTo(200);
@@ -352,7 +352,7 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
 
         ResponseEntity<String> resp = removeFolder(defaultFolder, me.token);
 
-        assertThat(resp.getStatusCode().value()).as("默认夹删不掉（需求篇 §二）").isEqualTo(409);
+        assertThat(resp.getStatusCode().value()).as("默认夹删不掉（favorite-需求.md §二）").isEqualTo(409);
         assertThat(Envelope.code(resp)).isEqualTo(409);
         assertThat(folderExists(defaultFolder)).as("★ 409 之后夹必须还在").isTrue();
         assertThat(oracleItemCount(defaultFolder)).as("★ 夹内条目也不得被动过（拒删必须发生在删条目之前）")

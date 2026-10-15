@@ -18,7 +18,7 @@
 
     <!-- 加入稍后再看（T17）：insert 或"移到最前"。
          ★ ON DUPLICATE KEY UPDATE 撞 uk_user_content(user_id, content_id) 时只改 create_time
-           —— 不新增行、不改 id ⇒ 按 create_time DESC 重排即到最前（B 站实测，需求篇 §六）。
+           —— 不新增行、不改 id ⇒ 按 create_time DESC 重排即到最前（B 站实测，favorite-需求.md §六）。
          ⚠️ 不写"先查后插"（并发下必然漏）；内容存在性/是否视频与容量由 service 先校验。 -->
     <insert id="upsert">
         INSERT INTO watch_later (user_id, content_id)

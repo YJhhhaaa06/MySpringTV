@@ -3,7 +3,7 @@ package io.github.yjhhhaaa06.videoweb.interaction.model.vo;
 import io.github.yjhhhaaa06.videoweb.interaction.model.InteractionDimension;
 
 /**
- * 当前用户对一条内容的**互动态**（R-10，详细设计见 {@code 收藏功能-分期与设计.md} §3.6；
+ * 当前用户对一条内容的**互动态**（R-10，详细设计见 {@code favorite.md} §六；
  * 三态口径由 R-13 于 2026-10-13 追加）。
  *
  * <p>三个字段都是"**与请求者有关**"的状态（请求无关的内容属性 / 公共计数 —— 如
@@ -30,7 +30,7 @@ import io.github.yjhhhaaa06.videoweb.interaction.model.InteractionDimension;
  * 无有效登录态时**没有本对象** —— 互动域返回 {@code null}（聚合到响应里就是
  * {@code interaction: null}），而**不是**三个 {@code false}、也**不是**"三个 {@code null}"
  * 的空壳对象。这是它相对"顶层平铺字段"的一处**表达力增益**：匿名与"登录但未点赞"由此可区分
- * （R-10 §3.6）。
+ * （R-10 §六）。
  * ⚠️ 别为了"调用方少判空"改成三个 false —— 那正是这套结构要治的表达力损失。
  * ⚠️ 也别用"空壳对象"表达"0 维"以外的任何缺席 —— {@code null} 对象与"对象在但三维全
  * {@code null}"是**两个不同**的意思（匿名 vs 本面一个维度都不查，见 {@link InteractionDimension}
@@ -44,7 +44,7 @@ import io.github.yjhhhaaa06.videoweb.interaction.model.InteractionDimension;
  * {@code setIsLiked()}。
  *
  * <p>对外 JSON 键集 = {@code {isLiked, isFavorited, isFollowed}}（T10 之后内嵌为内容详情
- * 响应的 {@code interaction} 子对象；T13 起**列表** {@code ContentVO} 同形，见 §3.6）。
+ * 响应的 {@code interaction} 子对象；T13 起**列表** {@code ContentVO} 同形，见 §六）。
  */
 public class InteractionStatusVO {
 

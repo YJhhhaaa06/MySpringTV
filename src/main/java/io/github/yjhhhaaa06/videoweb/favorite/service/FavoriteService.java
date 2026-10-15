@@ -53,8 +53,8 @@ import java.util.Set;
  *       只能靠 review 守。</li>
  *   <li><b>一期不写缓存、不写冗余计数</b>（G7）—— ★ 那条**已在二期全部兑现**：
  *       T11 落地 {@code favorite.cache} 包（{@code FavoriteCache} + {@code FavoriteRedisOps}，
- *       设计篇 §3.7）；T12 启用冗余计数列 {@code content.favorite_count}（R-06）：本类
- *       {@link #recountFavoriteCounts} 在**四个写点的事务内**批量重算维护它（§3.2，
+ *       favorite.md §七）；T12 启用冗余计数列 {@code content.favorite_count}（R-06）：本类
+ *       {@link #recountFavoriteCounts} 在**四个写点的事务内**批量重算维护它（§四，
  *       不做增量——理由见该方法注释），读路径经 {@code FavoriteCache#loadFavoriteCount}
  *       读列（T12 切换）。</li>
  *   <li>★ <b>{@code remove} 不校验内容存在性</b>（G11）：见 {@link #removeItems} 与
@@ -109,7 +109,7 @@ import java.util.Set;
  * {@code @TransactionalEventListener} 的 {@code fallbackExecution=false} 默认值下，"无事务也要执行"
  * 的场景一旦出现（T12 之前曾有：{@code addItem}/{@code removeItems} 刻意无事务）事件会被
  * **静默丢弃**，且与"收藏域不该有 event 包"的既有定位冲突。取舍与代价登记在
- * {@code 收藏功能-编号索引.md A.3} **I-11**。
+ * {@code favorite.md 附录「编号速查」} **I-11**。
  *
  * <h2>★ 写路径的缓存动作（T11）：只有 {@code add} 条件写，其余整体失效</h2>
  * 起因是收藏的**夹内唯一**模型（{@code uk_folder_content}）：同一用户可把同一内容收在多个夹里 ⇒
@@ -171,7 +171,7 @@ import java.util.Set;
  *       本端点表达的是"他人视角"这条路径，"我的"走 {@code /folder/list} 另一条。
  *       ⚠️ 刻意**不**注入 {@code @CurrentUserId} 做"是本人就显示私密"的分支：
  *       分支一写错就是**直接泄露私密夹**，而这条分支一期没有任何需求（R-08 只要"他人视角"）；</li>
- *   <li>默认夹**可以**设为私密（需求篇只规定"默认夹删不掉"；B 站口径同此），
+ *   <li>默认夹**可以**设为私密（favorite-需求.md只规定"默认夹删不掉"；B 站口径同此），
  *       不写针对 {@code is_default} 的特判；</li>
  *   <li>更新路径**不得**因为"私密与否"改变错误码（404/403/400 的口径对公开夹与私密夹一视同仁），
  *       否则等于给"这个夹是不是私密"开了个探测口（T2 交接红线③）；</li>
@@ -185,7 +185,7 @@ public class FavoriteService {
     /** 名称长度上限 —— 与列 {@code favorite_folder.name varchar(100)} 对齐。 */
     private static final int NAME_MAX_LENGTH = 100;
 
-    /** 懒建默认夹的名字（需求篇 §二「默认收藏夹」；用户之后可照常改名，重名不校验——同 {@link #createFolder}）。 */
+    /** 懒建默认夹的名字（favorite-需求.md §二「默认收藏夹」；用户之后可照常改名，重名不校验——同 {@link #createFolder}）。 */
     private static final String DEFAULT_FOLDER_NAME = "默认收藏夹";
 
     /**
@@ -215,7 +215,7 @@ public class FavoriteService {
      * 容量上限（T16）—— 三个数字的**唯一来源**（{@code video.favorite.*}）。
      *
      * <p>⚠️ 阈值必须从它读，**不得**在方法里写死数字字面量：上限是**对外契约**
-     * （同"默认公开"），而常量化的全部意义就是"改数不动代码"（{@code 收藏功能-三期设计.md} §三）。
+     * （同"默认公开"），而常量化的全部意义就是"改数不动代码"（{@code favorite.md} §八）。
      */
     private final FavoriteLimitProperties limits;
 
@@ -318,7 +318,7 @@ public class FavoriteService {
 
     /**
      * 他人**公开**收藏夹内的内容分页（{@code GET /favorite/folder/items?folderId=X}，T18）——
-     * 需求篇 §二「看别人的收藏夹」的"点开看内容"那一半（一期 R-08 只给了"名称 + 数量"）。
+     * favorite-需求.md §二「看别人的收藏夹」的"点开看内容"那一半（一期 R-08 只给了"名称 + 数量"）。
      *
      * <h2>★ 与 {@link #listFolderItems} 的关系：同一条装配、不同的"准入闸"</h2>
      * {@link #listFolderItems} 是"<b>我的</b>夹内视角"（闸 = 夹属于当前用户 ⇒ 404/403）；
@@ -371,8 +371,8 @@ public class FavoriteService {
     /**
      * 部分更新：改名 / 私密开关（**给了才改**；T2 的"只改名且 name 必填"在 T3 升级为本形态）。
      *
-     * <p>分期篇 §3.3 把该端点画成"改名 / 简介 / 私密开关（部分更新）"，三者归属：
-     * <b>私密开关 = T3</b>（本任务落地）；<b>简介在需求篇里是「待定」</b>（未纳入一期，不实现）。
+     * <p>favorite.md §三 把该端点画成"改名 / 简介 / 私密开关（部分更新）"，三者归属：
+     * <b>私密开关 = T3</b>（本任务落地）；<b>简介在favorite-需求.md里是「待定」</b>（未纳入一期，不实现）。
      * T2 交接①明确要求在此把 {@code name} 一并改成可选 —— 否则"文档说可部分更新、
      * 实现却要求 name 必填"会长期漂移。
      *
@@ -384,7 +384,7 @@ public class FavoriteService {
      *       Controller 先行解析，非法格式在**进本方法之前**已是 400；</li>
      *   <li>两者都 {@code null} ⇒ 400「没有要修改的字段」——空更新多半是调用方漏传字段的 bug，
      *       静默 200 会让它**永远不被发现**（"改成功了"与"什么都没改"在响应上不可区分）；</li>
-     *   <li>默认夹**可以**改名、也**可以**设私密（需求篇只规定"默认夹删不掉"）。</li>
+     *   <li>默认夹**可以**改名、也**可以**设私密（favorite-需求.md只规定"默认夹删不掉"）。</li>
      * </ul>
      * ⚠️ 本方法**不**依 {@code is_private} 做任何权限判定（它是载荷字段，见类注释"私密语义"节）。
      *
@@ -409,12 +409,12 @@ public class FavoriteService {
     /**
      * 删除收藏夹 —— **夹内的收藏记录一并删除**（R-02），两者必须同事务。
      *
-     * <p>★ <b>默认夹拒绝删除</b>（需求篇 §二「删不掉」）：判据是行上的 {@code is_default}，
+     * <p>★ <b>默认夹拒绝删除</b>（favorite-需求.md §二「删不掉」）：判据是行上的 {@code is_default}，
      * 不是名字（用户可以把默认夹改名叫"默认收藏夹"，也可以把自建夹改名成同一个名字 ——
      * 按名字判会拦错人）。
      *
      * <p>⚠️ 这里**只删本域两张表**，不碰内容（内容不归收藏所有）：
-     * "夹里的视频消失"是**关系消失**，视频本身当然还在（需求篇 §二原话）。
+     * "夹里的视频消失"是**关系消失**，视频本身当然还在（favorite-需求.md §二原话）。
      * 收藏数（{@code content.favorite_count}）由 {@link #recountFavoriteCounts} 在**本事务内**
      * 对受影响内容集批量重算（T12；一期是"不维护任何计数列"，R-06 的"列只建不用"已随二期退役）。
      *
@@ -459,7 +459,7 @@ public class FavoriteService {
      * <ol>
      *   <li><b>内容存在性 → 404「内容不存在」</b>：{@code isContentExist} 的 SQL 带
      *       {@code is_deleted = 0} ⇒ 失效内容（作者删 1 / 下架 2）进不来 ——
-     *       「失效不可移入」**自然产生**，没有专门分支（分期篇 §3.5 的设计根因）。
+     *       「失效不可移入」**自然产生**，没有专门分支（favorite.md §五 的设计根因）。
      *       ★ 放在**最前**还有一个懒建路径特有的理由：见下文"刻意不做"；</li>
      *   <li><b>夹归属 → 404/403</b>（显式夹时）：复用 {@link #requireOwnedFolder}，
      *       与改名/删除同一口径；</li>
@@ -492,7 +492,7 @@ public class FavoriteService {
      * ⇒ 取"夹满 ⇒ 一律 400"这个<b>更简单、不变量更强</b>的口径，并用"现行为钉子"式用例写死。
      *
      * <h2>★ {@code folderId == null}：默认夹懒建（R-01 的唯一落点）</h2>
-     * 需求篇 §二：「收藏时没选夹，内容自动进默认收藏夹」。新用户**没有任何途径**
+     * favorite-需求.md §二：「收藏时没选夹，内容自动进默认收藏夹」。新用户**没有任何途径**
      * 先拿到默认夹 id（夹列表是空态、一期没有"建默认夹"端点），所以"不带夹收藏"
      * 必须由本方法就地懒建 —— 这是全系统**唯一**会创建默认夹的路径。
      * 懒建靠 {@code ON DUPLICATE KEY UPDATE} 撞 {@code uk_user_default} 跳过（见
@@ -557,7 +557,7 @@ public class FavoriteService {
      * 用户在夹里看得见占位卡片，若这里加了存在性校验，占位就**永远清不掉**
      * （B 站实测口径，R-07）。这与 {@code /like/*} 写路径「先校验存在性」的惯例
      * **刻意不同**，也与 {@link #addItem}/{@link #moveItem} **刻意不对称** ——
-     * 两处校验、一处不校验，是同一条业务规则的两面（分期篇 §3.5 的表格）。
+     * 两处校验、一处不校验，是同一条业务规则的两面（favorite.md §五 的表格）。
      *
      * <h2>其余口径</h2>
      * <ul>
@@ -567,7 +567,7 @@ public class FavoriteService {
      *       不报 404/409。不做"先查记录存在性"的预检 —— 批量场景下查与删之间的并发移出
      *       会造成假错，且删除本就是单向、无冲突的操作（{@code FavoriteItemDao} 同口径）；</li>
      *   <li><b>别的夹不受影响</b>：DELETE 只作用于 {@code folderId} 这一个夹
-     *       （需求篇 §三「若该内容还在别的夹里，那些夹里的不受影响」）；</li>
+     *       （favorite-需求.md §三「若该内容还在别的夹里，那些夹里的不受影响」）；</li>
      *   <li><b>空列表 → 400</b>：一个 id 都不给是调用方 bug，静默 200 会让
      *       "什么都没发生"伪装成"移出成功"（同 {@link #updateFolder} 空更新的口径）。</li>
      * </ul>
@@ -631,7 +631,7 @@ public class FavoriteService {
      *       ⚠️ 源夹**不判**（move 只会让它变小）；</li>
      *   <li><b>移动后的收藏时间是新的</b>：实现是"目标夹新增一行 + 源夹删一行"，
      *       新行的 {@code create_time} 是移动时刻（可读作"收进目标夹的时间"）——
-     *       需求篇对"移动是否保留原收藏时间"无约定，取最简单且自洽的实现（T6 夹内列表
+     *       favorite-需求.md对"移动是否保留原收藏时间"无约定，取最简单且自洽的实现（T6 夹内列表
      *       按 {@code create_time} 倒序，移动过的条目排在前面）。</li>
      * </ul>
      *
@@ -662,7 +662,7 @@ public class FavoriteService {
         //   常态下 move 确实不改收藏态（人还是收着这条、收藏数也不变），但"源夹其实没含这条"
         //   （陈旧页面 / 前端传错 from）时 insert 照样成功、源侧删 0 行 ⇒ 等价于一次**新增收藏**；
         //   整体失效在那个边缘态下也给出正确答案，代价（移动后该用户下次读全量回源一次）
-        //   与 move 的低频相称。取舍见 {@code 收藏功能-编号索引.md A.3} I-11。
+        //   与 move 的低频相称。取舍见 {@code favorite.md 附录「编号速查」} I-11。
         AfterCommit.run(() -> {
             favoriteCache.invalidateUserFavorites(userId);
             favoriteCache.invalidateFavoriteCount(contentId);
@@ -670,7 +670,7 @@ public class FavoriteService {
     }
 
     // ========================================================================
-    // 收藏数冗余列的批量重算（T12：二期-3，§3.2 —— 四条写路径的统一出口）
+    // 收藏数冗余列的批量重算（T12：二期-3，§四 —— 四条写路径的统一出口）
     // ========================================================================
 
     /**
@@ -687,7 +687,7 @@ public class FavoriteService {
      * {@code favorite_count == COUNT(DISTINCT user_id)} 在提交窗口内被打破
      * （不变量本身由 T12 的独立 oracle 用例钉住）。
      *
-     * <h2>★ 为什么是重算（绝对值），不是增量（±1）—— §3.2 的排除口径</h2>
+     * <h2>★ 为什么是重算（绝对值），不是增量（±1）—— §四 的排除口径</h2>
      * {@code favorite_item} 的唯一键是 {@code uk_folder_content}（<b>夹内</b>唯一），
      * 与判定维度 {@code (user_id, content_id)} 不重合：同一用户并发往两个不同夹收同一内容时，
      * 两个事务都判"无行"、都 +1、撞不到唯一键 ⇒ 增量偏大且永不自愈；
@@ -743,7 +743,7 @@ public class FavoriteService {
     // ========================================================================
 
     /**
-     * 当前用户对某内容的收藏状态（{@code GET /favorite/status}）——需求篇 §三「打开内容页能看到
+     * 当前用户对某内容的收藏状态（{@code GET /favorite/status}）——favorite-需求.md §三「打开内容页能看到
      * "已收藏"，并知道**收在了哪些夹**」。
      *
      * <h2>★ T15：先问成员集，"未收藏"这一支一次库都不查</h2>
@@ -820,17 +820,17 @@ public class FavoriteService {
     }
 
     /**
-     * 某内容的收藏数（{@code GET /favorite/count}）—— <b>按人去重</b>（R-06，需求篇 §六）。
+     * 某内容的收藏数（{@code GET /favorite/count}）—— <b>按人去重</b>（R-06，favorite-需求.md §六）。
      *
      * <p>★ <b>T11 起走缓存</b>：{@code content:favoriteCount:{id}}（{@code GET}），
      * miss 时**单飞回源**并回填、Redis 失败降级直查 DB（接口不 500）。
      * ★ <b>T12 起回源读 {@code content.favorite_count} 列</b>（主键点查）—— 列由四条写路径的
      * **事务内批量重算**（{@link #recountFavoriteCounts}）维护，一期那套实时
      * {@code COUNT(DISTINCT)} 聚合已退役（其"笨查询"口径现在是 T12 oracle 用例的独立复算基准；
-     * 耗时基线与切换记录见 {@code 收藏功能-分期与设计.md} §3.2）。
+     * 耗时基线与切换记录见 {@code favorite.md} §四）。
      * 端点契约（路径 / 匿名可访问 / {@code 0} 而不是 404）**一字不变** —— 缓存与列都是域内实现细节。
      *
-     * <p>★ <b>公开数据、匿名可访问</b>：需求篇 §三「内容页显示"多少人收藏了它"」，而内容页
+     * <p>★ <b>公开数据、匿名可访问</b>：favorite-需求.md §三「内容页显示"多少人收藏了它"」，而内容页
      * 匿名可看 ⇒ 本端点**无** {@code @RequiresLogin}、**无** {@code @CurrentUserId}。
      * ⚠️ 与 {@code /like/content/count} 的"需登录"**刻意不同**：那条是 TV 的
      * {@code /like} 前缀保护惯性（老 pytest 断言无 token 401），收藏是新域、无此包袱，
@@ -848,7 +848,7 @@ public class FavoriteService {
 
     /**
      * 夹内内容分页（{@code GET /favorite/list?folderId=&page=&pageSize=}）——
-     * 需求篇 §三「打开某个夹，按**收藏时间倒序**看里面的内容」。
+     * favorite-需求.md §三「打开某个夹，按**收藏时间倒序**看里面的内容」。
      *
      * <h2>★ 分页单位是<b>收藏记录行</b>，不是"内容"（G12 / R-07）</h2>
      * 失效条目**占一条、返回一条脱敏占位**，一整页都是失效条目也**照常返回整页**。
@@ -863,7 +863,7 @@ public class FavoriteService {
      * {@link ContentService#loadContentVOs}（缓存支撑——跨域只走对方 Service 契约，
      * 见 {@code 模块边界与依赖.md} §四）取展示字段；**契约"取不到"即失效** ——
      * 不存在 / 已删下架 / 媒体损坏 / 未知类型统一渲染占位
-     * （口径"看不了 ≈ 失效"，{@code 收藏功能-编号索引.mdA.2} **R-11**）。
+     * （口径"看不了 ≈ 失效"，{@code favorite.md 附录「编号速查」} **R-11**）。
      * 占位形态仍是本域的显示决策：标题 = 「内容已失效」、封面与作者 = {@code null}
      * ——"内容可不可用"归 content 域、"失效长什么样"归本域，两个注入点独立（反向验证都能红）。
      * ⚠️ 别把这段搬去复用 {@code ProfileService} 的填充逻辑：那处是"取不到就跳过"，
@@ -950,7 +950,7 @@ public class FavoriteService {
 
     /**
      * 当前用户**是否收藏过**某内容（T9）—— 供互动域组装详情响应
-     * （R-10 / {@code 收藏功能-分期与设计.md} §3.6）。
+     * （R-10 / {@code favorite.md} §六）。
      *
      * <h2>★ 与 {@link #getFavoriteStatus} 的区别：只判存在、**不 JOIN**</h2>
      * {@code /favorite/status} 要回答"**收在哪些夹**"（故 JOIN {@code favorite_folder} 取夹名）；
@@ -983,7 +983,7 @@ public class FavoriteService {
 
     /**
      * 批量形态（T9）：入参每个内容都回一条、缺失补 {@code false}（完整映射，不重不漏）——
-     * 供互动域的**批量契约**组装列表（R-10 §3.6）。
+     * 供互动域的**批量契约**组装列表（R-10 §六）。
      *
      * <p>★ <b>一趟查询，不循环调单条</b>：命中态用**一趟 pipeline** 做 N×{@code SISMEMBER}；
      * 降级态用一条 {@code user_id = ? AND content_id IN (…)} 取命中子集、再在 Java 侧补 false
@@ -1008,7 +1008,7 @@ public class FavoriteService {
      * 组装一条列表条目：正常卡片抄 content 契约的展示字段，失效行**构造**占位（R-03 / R-11）。
      *
      * <h2>★ 这是"失效长什么样"的唯一落点</h2>
-     * 需求篇 §六「失效条目里能看到什么：只有占位…**不返回原标题 / 封面 / 作者信息**」。
+     * favorite-需求.md §六「失效条目里能看到什么：只有占位…**不返回原标题 / 封面 / 作者信息**」。
      * 失效行的三个字段**一个都不能给**：只换标题不置空作者 ⇒ 作者仍可见；
      * 只置空封面不换标题 ⇒ 标题仍可见。故这里是**一个分支内的三次赋值**，
      * 不写成三个各自判断的条件（那会让"漏掉一件"看起来也像对的）。
@@ -1066,7 +1066,7 @@ public class FavoriteService {
      *       计入就等于"夹数一满，默认夹再也建不出来"——而 {@link #addItem} 不选夹时无处可收，
      *       那是 <b>不可自愈</b>的死局（且会重演 I-08 的前端互锁）。★ 由用例钉住
      *       （"19 个自建夹 + 1 个默认夹 ⇒ 还能建第 20 个"）；</li>
-     *   <li><b>400 而不是 409</b>：与"夹名空 / 格式非法 ⇒ 400"同族（{@code 收藏功能-三期设计.md} §三）；
+     *   <li><b>400 而不是 409</b>：与"夹名空 / 格式非法 ⇒ 400"同族（{@code favorite.md} §八）；
      *       409 在本域留给"撞唯一键的重复收藏"与"默认夹不可删"两处；</li>
      *   <li>⚠️ <b>软上限</b>：本方法与随后的 {@code INSERT} 之间没有锁 ⇒ 真并发下可越界
      *       （≤ 并发请求数、越界后自限）。用户 2026-10-14 拍板接受 ——

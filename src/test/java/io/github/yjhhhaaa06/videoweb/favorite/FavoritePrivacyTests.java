@@ -30,7 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>★ {@code GET /favorite/folder/public?userId=X} —— **私密"一期"的全部可观察行为**：
  *       只返回该用户的公开夹（私密不出现、别人的不出现）、匿名可访问、条目形状与顺序契约；</li>
  *   <li>400 **先于** 403/404 的顺序（T2 钉死的口径在加可选字段后不许打乱，T2 交接②）；</li>
- *   <li>默认夹可设私密（需求篇只规定"默认夹删不掉"）。</li>
+ *   <li>默认夹可设私密（favorite-需求.md只规定"默认夹删不掉"）。</li>
  * </ul>
  *
  * <h2>★ 为什么"私密"的所有断言都落在公开端点上</h2>
@@ -39,7 +39,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@code /folder/public} 的"私密不出现"上（R-08 的原话："这就是'私密'一期的可观察落点"）。
  *
  * <h2>★ 期望值怎么来的（规避"迎合型伪测试"）</h2>
- * 私密过滤出自 R-08；"只给名称 + 视频数"出自 R-08/需求篇 §二；条目数口径（含失效记录、
+ * 私密过滤出自 R-08；"只给名称 + 视频数"出自 R-08/favorite-需求.md §二；条目数口径（含失效记录、
  * 空夹留行）出自 R-07/G12（与 T2 同口径）；400 先于 403/404 出自 T2 已钉死的顺序契约；
  * 空态合法出自 R-01。盖住实现，这些断言**照样写得出来**。
  *
@@ -97,7 +97,7 @@ class FavoritePrivacyTests extends AbstractHttpIntegrationTest {
         assertThat(Envelope.data(resp).asString()).as("写端点的 data 是中文文案（同 T2）").isEqualTo("修改成功");
         assertThat(isPrivateOf(folder)).as("独立 oracle：直查 DB 终态").isEqualTo(1);
 
-        // 「我的」列表：私密夹必须还在（设私密不改变自己的可见性——需求篇只说"别人看不到"）
+        // 「我的」列表：私密夹必须还在（设私密不改变自己的可见性——favorite-需求.md只说"别人看不到"）
         JsonNode item = folderOf(listFolders(me.token), folder);
         assertThat(item.has("isPrivate")).as("★ 键名逐字是 isPrivate").isTrue();
         assertThat(item.path("isPrivate").asBoolean())
@@ -185,7 +185,7 @@ class FavoritePrivacyTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("★默认夹也能设为私密（需求篇只规定「默认夹删不掉」，没有「默认夹不能私密」）")
+    @DisplayName("★默认夹也能设为私密（favorite-需求.md只规定「默认夹删不掉」，没有「默认夹不能私密」）")
     void 默认夹可设私密() {
         TestUser me = register("13800002006", "默认夹用户");
         long defaultFolder = insertDefaultFolder(me.id, "默认收藏夹");

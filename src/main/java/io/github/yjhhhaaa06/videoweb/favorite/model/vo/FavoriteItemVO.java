@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
  * 收藏夹**内**的一条内容（{@code GET /favorite/list} 的条目，T6）。
  *
  * <h2>★ 一条记录两种渲染：正常卡片 / 失效占位</h2>
- * 需求篇 §五「失效内容」+ R-03 / R-11：内容被作者删除（{@code is_deleted = 1}）、管理员下架
+ * favorite-需求.md §五「失效内容」+ R-03 / R-11：内容被作者删除（{@code is_deleted = 1}）、管理员下架
  * （{@code is_deleted = 2}）、内容行真没了、乃至**媒体损坏 / 未知类型（装不出来）**，
  * 收藏记录**仍在**、仍占分页位置，但对外只能看到一张**脱敏占位卡**：
  * <pre>
@@ -26,7 +26,7 @@ import java.time.LocalDateTime;
  * 而 {@code add}/{@code move}（{@code isContentExist} 只看 is_deleted）仍收得进 ——
  * 属已登记的取舍（生产写路径造不出该态），**不是**"读写同源判据"。
  *
- * <h2>字段为什么是这七个（键集即契约，加字段前先回需求篇）</h2>
+ * <h2>字段为什么是这七个（键集即契约，加字段前先回favorite-需求.md）</h2>
  * <ul>
  *   <li>{@code id} —— 收藏记录行 id（前端的稳定行键；与 {@code contentId} 同在本 VO 里，
  *       是因为"移出"按 {@code (folderId, contentId)} 定位，而"渲染一行"按记录定位）；</li>

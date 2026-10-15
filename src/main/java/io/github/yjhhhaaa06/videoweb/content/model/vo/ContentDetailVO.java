@@ -5,7 +5,7 @@ import io.github.yjhhhaaa06.videoweb.interaction.model.vo.InteractionStatusVO;
 
 /**
  * 内容**详情**（承接 TV {@code ContentDetailVO}；T10 起内联互动态，见
- * {@code 收藏功能-分期与设计.md} §3.6，编号 R-10）。
+ * {@code favorite.md} §六，编号 R-10）。
  *
  * <p>与父类（{@link ContentCacheDTO}）的差异只有一处：内嵌子对象 {@link #interaction}
  * （互动态）。**媒体字段（videoUrl / imageUrls）在详情里是要返回的**——这正是它与

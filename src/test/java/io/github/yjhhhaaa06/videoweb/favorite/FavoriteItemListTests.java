@@ -25,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <h2>覆盖什么（期望值全部出自业务口径，盖住实现照样写得出来）</h2>
  * <ul>
- *   <li><b>顺序</b>：收藏时间倒序（需求篇 §三）—— 最近收藏的排最前；同秒并用 {@code id} 兜底；</li>
+ *   <li><b>顺序</b>：收藏时间倒序（favorite-需求.md §三）—— 最近收藏的排最前；同秒并用 {@code id} 兜底；</li>
  *   <li>★ <b>分页单位是收藏记录行</b>（G12）：{@code total} <b>含</b>失效条目（R-07），
  *       页与页之间**不重不漏**（并集 = 全量、交集 = 空）；</li>
  *   <li>★ <b>失效条目脱敏</b>（R-03）：{@code invalid=true}、标题是「内容已失效」、
@@ -41,7 +41,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * </ul>
  *
  * <h2>★ 期望值怎么来的（规避"迎合型伪测试"）</h2>
- * "倒序"出自需求篇 §三「按收藏时间倒序」；"total 含失效"出自 R-07（B 站实测：失效视频算进
+ * "倒序"出自favorite-需求.md §三「按收藏时间倒序」；"total 含失效"出自 R-07（B 站实测：失效视频算进
  * 收藏夹视频数）；"脱敏"出自 R-03（只给占位，**不返回原标题 / 封面 / 作者**）；
  * ★ "装不出来也占位"出自 R-11（**"看不了 ≈ 失效"**：不存在 / 已删下架 / 媒体损坏 / 未知类型
  * 统一折叠为占位，2026-10-09 拍板）；
@@ -152,7 +152,7 @@ class FavoriteItemListTests extends AbstractHttpIntegrationTest {
         JsonNode data = Envelope.data(list(me.token, folder, null, null));
         assertThat(data.path("total").asLong()).isEqualTo(3L);
         assertThat(contentIds(data.path("list")))
-                .as("★ 倒序：最近收藏（1 天前）排最前（需求篇 §三）")
+                .as("★ 倒序：最近收藏（1 天前）排最前（favorite-需求.md §三）")
                 .containsExactly(newest, middle, oldest);
         assertThat(titles(data.path("list"))).containsExactly("最近收的", "中间收的", "最早收的");
 

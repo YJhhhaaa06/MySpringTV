@@ -169,7 +169,7 @@ public class ContentService {
      *
      * <p>语义与 {@code recall} 的装载段逐字一致：一趟批量读（含 miss 装载），按入参 {@code contentIds}
      * 的**原序**输出，取不到的条目（已删 / 媒体损坏 / 未知类型）**跳过**——于是返回条数可能少于入参。
-     * ⚠️ "取不到 ⇒ 跳过"已被收藏夹内列表（favorite）当作**失效判据**（见 {@code 收藏功能-编号索引.mdA.2} R-11）——
+     * ⚠️ "取不到 ⇒ 跳过"已被收藏夹内列表（favorite）当作**失效判据**（见 {@code favorite.md 附录「编号速查」} R-11）——
      * 改这条跳过语义前先看 {@code FavoriteService.listFolderItems}。
      *
      * @param contentIds 该页内容 id（可为空 → 空列表）
@@ -197,7 +197,7 @@ public class ContentService {
     /**
      * 内容详情（含媒体列表 + 互动态子对象）。
      *
-     * <p>T10（R-10，{@code 收藏功能-分期与设计.md} §3.6）：互动态（赞 / 藏 / 关注作者）整体
+     * <p>T10（R-10，{@code favorite.md} §六）：互动态（赞 / 藏 / 关注作者）整体
      * 走互动域，收进响应的 {@code interaction} 子对象；**匿名 ⇒ 子对象为 {@code null}**
      * （互动域对 {@code userId == null} 短路、"不查任何维度"——不是三个 {@code false}）。
      * 顶层 {@code isLiked} / {@code isFollowed} 已从 {@code ContentDetailVO} 删除

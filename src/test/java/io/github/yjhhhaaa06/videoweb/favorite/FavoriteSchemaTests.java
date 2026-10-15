@@ -22,7 +22,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *
  * <h2>这类断言为什么值得写（它防的是什么）</h2>
  * 一期功能的行为由 T2~T6 的用例覆盖；本类只钉**schema 级**的三条，它们都是
- * "**后补要付 V3 + 存量回填**"的东西（分期篇 §一「错位 2：后期里混了必须一次到位的东西」）：
+ * "**后补要付 V3 + 存量回填**"的东西（历史论证见
+ * {@code archive/favorite-2026-10-15/收藏功能-分期与设计.md} §一「错位 2：后期里混了必须一次到位的东西」）：
  *
  * <ol>
  *   <li><b>列集</b>：{@code is_private} / {@code description}（R-05）、{@code favorite_count}（R-06）
@@ -58,9 +59,9 @@ class FavoriteSchemaTests extends AbstractIntegrationTest {
     // ==================== 1. 列集（一次到位的那些列） ====================
 
     @Test
-    @DisplayName("V2 建出收藏两表，且列集与骨架一致（含 is_private / description / favorite_count）")
+    @DisplayName("V2 建出收藏两表，且列集与 favorite.md §二 一致（含 is_private / description / favorite_count）")
     void 收藏两表的列集与骨架一致() {
-        assertThat(列名("favorite_folder")).as("favorite_folder 的列（default_uniq 是默认夹唯一键的判别列，见 §2）")
+        assertThat(列名("favorite_folder")).as("favorite_folder 的列（default_uniq 是默认夹唯一键的判别列，见 favorite.md §二）")
                 .containsExactly("id", "user_id", "name", "description", "is_private", "is_default",
                         "default_uniq", "create_time", "update_time");
 

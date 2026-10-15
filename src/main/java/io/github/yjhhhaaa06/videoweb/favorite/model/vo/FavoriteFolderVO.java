@@ -17,7 +17,7 @@ import lombok.NoArgsConstructor;
  *   <li>{@code id} / {@code name} —— 夹的身份，供前端打开夹 / 改名 / 删除（改名要 id，不按名字定位）；</li>
  *   <li>{@code isDefault} —— ★ 前端据此**不给默认夹渲染"删除"**；后端不依赖前端，
  *       删默认夹在 {@code FavoriteService.deleteFolder} 里另有一道 409（契约测试守着）；</li>
- *   <li>{@code isPrivate} —— 列表是"我的夹"，**含私密**（分期篇 §3.3 原话）；
+ *   <li>{@code isPrivate} —— 列表是"我的夹"，**含私密**（favorite.md §三 原话）；
  *       本 VO 只**读**它；写入口（私密开关）在 T3 已落地（{@code POST /favorite/folder/update}，
  *       部分更新，见 {@code FavoriteService.updateFolder}）；</li>
  *   <li>{@code itemCount} —— 每夹**条目数**。</li>

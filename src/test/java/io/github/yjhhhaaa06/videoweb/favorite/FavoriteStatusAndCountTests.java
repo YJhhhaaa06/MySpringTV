@@ -30,21 +30,21 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <ul>
  *   <li><b>状态</b>（{@code GET /favorite/status}）：未收藏 ⇒ {@code {isFavorited:false, folders:[]}}；
  *       已收藏 ⇒ {@code folders} 列出**收在哪些夹**（默认夹置顶 + 创建序），{@code isFavorited=true}；</li>
- *   <li>★ <b>计数按人去重</b>（需求篇 §六 / R-06）：同一人把同一内容收进**两个夹** ⇒
+ *   <li>★ <b>计数按人去重</b>（favorite-需求.md §六 / R-06）：同一人把同一内容收进**两个夹** ⇒
  *       {@code count} 仍是 <b>1</b>（而 DB 里是 2 条记录 —— 本类专门把这两个数都断言出来，
  *       让"去掉 DISTINCT"这类错**必然**变红）；另一人再收 ⇒ 2；全移出 ⇒ 0；</li>
  *   <li>★ <b>失效内容</b>（R-07③）：{@code is_deleted != 0} / 内容行真没了的记录**仍计入收藏数**、
  *       且状态**仍显示它所在的夹**（记录还在；脱敏是 T6 在内容侧的事）；</li>
  *   <li>★ <b>鉴权口径</b>：{@code status} 需登录（401）、{@code count} **匿名可访问**（200）——
- *       收藏数是公开展示数（需求篇 §三），与 {@code /like/content/count} 的"需登录"刻意不同；</li>
+ *       收藏数是公开展示数（favorite-需求.md §三），与 {@code /like/content/count} 的"需登录"刻意不同；</li>
  *   <li>跨用户隔离：别人的收藏不影响我的 status、也不改变 count 的"人"语义（换个用户就 +1）；</li>
  *   <li>形状契约：{@code data} 恰好 {@code isFavorited + folders} 两键、{@code folders} 元素恰好
  *       {@code id + name} 两键（多一个键 = 把别处信息带出来；少一个 = 破坏"知道收在哪些夹"）。</li>
  * </ul>
  *
  * <h2>★ 期望值怎么来的（规避"迎合型伪测试"）</h2>
- * "按人去重"出自需求篇 §六与 R-06（"同一人收进多个夹只算 1"）；"失效仍计"出自 R-07③；
- * "status 含所在夹"出自需求篇 §三；两条端点的鉴权差异出自 R-06 的"公开展示数"定位与
+ * "按人去重"出自favorite-需求.md §六与 R-06（"同一人收进多个夹只算 1"）；"失效仍计"出自 R-07③；
+ * "status 含所在夹"出自favorite-需求.md §三；两条端点的鉴权差异出自 R-06 的"公开展示数"定位与
  * T5 的端点设计；空态合法（不 404）出自 T3 的"不给存在性开探测口"同款口径。盖住实现，
  * 这些断言照样写得出来。
  *
@@ -284,7 +284,7 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
         //   无行 ⇒ 无处存值。一期它等于 1（实时 COUNT 看得见直插行），列读下不可表达。
         //   该态无 API 可达（add 校验 is_deleted = 0、软删不删行 ⇒ 幽灵行只能由数据损坏/夹具产生）；
         //   "无行时回退实时聚合"的混合方案不可取：那会把匿名端点的 17ms 聚合口子重新打开
-        //   （二期-3 要堵的就是它，§3.7"真正该防的是 /favorite/count"）。
+        //   （二期-3 要堵的就是它，§七"真正该防的是 /favorite/count"）。
         //   R-07③"失效内容仍计入"由上面的**软删**用例钉住（软删内容行还在，列还在）。
         //   （G8 第二例外的断言改动点 —— 期望值 1 → 0，用户 2026-10-12 拍板）
         assertThat(countOf(count(me.token, GHOST_CONTENT_ID)))
@@ -315,7 +315,7 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
         // count：公开展示数，匿名可访问（★ 与 /like/content/count 的"需登录"刻意不同）
         ResponseEntity<String> anon = count(null, content);
         assertThat(anon.getStatusCode().value())
-                .as("收藏数是公开展示数（需求篇 §三），内容页匿名可看 ⇒ 匿名必须 200").isEqualTo(200);
+                .as("收藏数是公开展示数（favorite-需求.md §三），内容页匿名可看 ⇒ 匿名必须 200").isEqualTo(200);
         assertThat(countOf(anon)).as("匿名拿到的值要和登录用户一致").isEqualTo(oracleDistinctUserCount(content));
         assertThat(get("/favorite/count?contentId=" + content, "not-a-jwt").getStatusCode().value())
                 .as("公开端点收到坏 token ⇒ 按匿名放行（见 JwtAuthFilter）").isEqualTo(200);

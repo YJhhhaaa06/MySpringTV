@@ -25,7 +25,7 @@ package io.github.yjhhhaaa06.videoweb.content.model;
  *
  * <p>⚠️ 聚合不出行的 contentId（该内容收藏清空 / 从未有人收藏 / 幽灵 id）**不会**出现在第 1 步
  * 的结果里，由调用方补 {@code 0} 后再进第 2 步 —— 不变量 {@code favorite_count == COUNT(DISTINCT user_id)}
- * 对"清零"同样成立（收藏功能-分期与设计.md §3.2）。
+ * 对"清零"同样成立（favorite.md §四）。
  */
 public class ContentFavoriteCount {
 

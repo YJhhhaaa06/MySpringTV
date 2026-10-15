@@ -25,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <h2>覆盖什么（期望值全部出自业务口径，盖住实现照样写得出来）</h2>
  * <ul>
  *   <li><b>收藏</b>：落库终态（folder_id / user_id / content_id）、★ 重复收藏 409 且
- *       **无副作用**（行数不变）、★ 同一内容进多夹是合法状态（需求篇 §三，与 like 的
+ *       **无副作用**（行数不变）、★ 同一内容进多夹是合法状态（favorite-需求.md §三，与 like 的
  *       单行模型不同）、★ 不带夹收藏 → 默认夹**懒建**且**不重复建**（R-01 +
  *       {@code uk_user_default}）；</li>
  *   <li><b>失效不可移入</b>（R-07）：{@code is_deleted} 三态里的 1（作者删）与
@@ -33,7 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li><b>★ 失效条目能移出</b>（G11 验收）：占位记录（内容行被物理删的"幽灵 id"与
  *       软删内容两种形态）都能从夹里删掉 —— 这条与 add 的 404 是**同一条业务规则的两面**；</li>
  *   <li><b>移出幂等</b>：记录不存在照常 200（0 行不算错）；**别的夹不受影响**
- *       （需求篇 §三「那些夹里的不受影响」）；</li>
+ *       （favorite-需求.md §三「那些夹里的不受影响」）；</li>
  *   <li><b>移动</b>：终态 = 目标夹有一行、源夹没有、第三个夹不动；★ 失效内容 move 被拒
  *       且**留在原位**（R-07「不可移动但保留原位」）；★ 目标夹已有同内容 → 409 且
  *       **两边都保留**（先插后删 + 同事务的可观察结果）；</li>
@@ -114,7 +114,7 @@ class FavoriteItemWriteTests extends AbstractHttpIntegrationTest {
                 .as("同夹重复收藏 → 撞 uk_folder_content 的幂等拒绝（409）").isEqualTo(409);
         assertThat(itemRowCount(folderA, content)).as("409 后行数仍是 1（无副作用）").isOne();
 
-        // 同一内容进另一夹：合法（需求篇 §三「同一视频可以同时躺在我的多个夹里」）
+        // 同一内容进另一夹：合法（favorite-需求.md §三「同一视频可以同时躺在我的多个夹里」）
         assertThat(addItem(me.token, content, folderB).getStatusCode().value())
                 .as("另一夹收同一内容不是重复（唯一键是 (folder_id, content_id)）").isEqualTo(200);
         assertThat(itemRowCount(folderA, content)).isOne();
@@ -245,7 +245,7 @@ class FavoriteItemWriteTests extends AbstractHttpIntegrationTest {
         assertThat(itemRowCount(folderA, contentX)).isZero();
         assertThat(itemRowCount(folderA, contentY)).isZero();
         assertThat(itemRowCount(folderB, contentX))
-                .as("★ 只动 folderA：需求篇 §三「该内容还在别的夹里，那些夹里的不受影响」").isOne();
+                .as("★ 只动 folderA：favorite-需求.md §三「该内容还在别的夹里，那些夹里的不受影响」").isOne();
 
         // 幂等：同一批 id 再删一次（记录已不存在）→ 仍 200，DB 无变化
         ResponseEntity<String> again = removeItems(me.token, folderA, contentX, contentY);
@@ -388,10 +388,10 @@ class FavoriteItemWriteTests extends AbstractHttpIntegrationTest {
         long target = insertFolderRow(me.id, "目标夹");
         long content = insertContent(me.id);
 
-        // 需求篇 / 设计篇均**未约定**"源夹里没有该内容"时 move 该怎么办（T8 强制探索③）。
+        // favorite-需求.md / favorite.md均**未约定**"源夹里没有该内容"时 move 该怎么办（T8 强制探索③）。
         // 现实现 = 目标夹插入成功 + 源夹删除命中 0 行 ⇒ 200（等价于一次 add）。
         // ★ 本条只把**现行为钉死**（防将来无声漂移），不代表它是对的口径；
-        //   若要改成 404 须先回需求篇拍板，且**不得**为此加"源夹存在性预查"（那属无主校验）。
+        //   若要改成 404 须先回favorite-需求.md拍板，且**不得**为此加"源夹存在性预查"（那属无主校验）。
         ResponseEntity<String> resp = moveItem(me.token, emptySource, target, content);
 
         assertThat(resp.getStatusCode().value()).as("现行为：变相 add ⇒ 200").isEqualTo(200);

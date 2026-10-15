@@ -15,12 +15,12 @@ import lombok.NoArgsConstructor;
  *   <li>{@code name} —— 随行读出（日志 / 断言可读性），本期不改名逻辑不消费旧值；</li>
  *   <li>{@code isPrivate} —— 一期建表就带的列（R-05），本行映射随带读出。</li>
  * </ul>
- * <b>不映射</b> {@code description}（需求篇标「待定」）/ {@code create_time} / {@code update_time}
+ * <b>不映射</b> {@code description}（favorite-需求.md标「待定」）/ {@code create_time} / {@code update_time}
  * —— 一期没有消费方，按"不提前搬无主字段"的纪律留空（补时改本类 + resultMap 两处）。
  *
  * <p>⚠️ <b>{@code default_uniq} 是 VIRTUAL 生成列（唯一键的判别列），刻意不映射</b>：
  * 它不承载业务语义，只是 {@code uk_user_default} 的挂载点（理由见
- * {@code 收藏功能-编号索引.mdA.2} R-09）。
+ * {@code favorite.md 附录「编号速查」} R-09）。
  *
  * <p>⚠️ <b>两个布尔用包装类型 {@code Boolean} 而不是 {@code boolean}</b>：列是 {@code NOT NULL}，
  * 但属性名 {@code isDefault} 配 {@code boolean} 会让 Lombok 生成 {@code isDefault()} + {@code setDefault()}，

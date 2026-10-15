@@ -45,7 +45,7 @@ import static org.mockito.Mockito.verify;
  *
  * <h2>★ 互动态的位置（R-10 / T10 / **T13**）</h2>
  * 详情响应的互动态收在 {@code interaction} 子对象（顶层 {@code isLiked}/{@code isFollowed}
- * 已在 T10 删除——这是 R-10 有意的 breaking 面，见 {@code 收藏功能-分期与设计.md} §3.6）；
+ * 已在 T10 删除——这是 R-10 有意的 breaking 面，见 {@code favorite.md} §六）；
  * **匿名 ⇒ {@code "interaction": null}**（不是 {@code {}}、不是三个 {@code false}）。
  * <p>★ **T13（R-13）起列表同形**：{@code /start} / {@code /search/keywordSearch} 也把互动态
  * 收进 {@code interaction}（顶层两键删除），且**三维三态** —— {@code null} = 本面不查该维：

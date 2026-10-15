@@ -1,7 +1,7 @@
 # 当期任务（Current Tasks）
 
 > **定位**：登记**当期正在执行的任务**及其执行态（四要素 + 三句以内回写）。
-> 计划态（分期、骨架设计、验收口径）在 [收藏功能-分期与设计.md](收藏功能-分期与设计.md)，
+> 计划态（分期、域设计、验收口径）在 [favorite.md](../architecture/domain/favorite.md)，
 > **本期范围与反面清单**在 [CURRENT_NEEDS.md](CURRENT_NEEDS.md) §四。**本文件只记执行态**，不复制计划。
 > **需求来源**：`CURRENT_NEEDS.md`（N# / R-##）；**执行中发现的问题** → `CURRENT_ISSUES.md`。
 > **膨胀控制**：任务完成即标注并在收尾时**清出本文件**（归宿 = git commit）；跨期未完成保留编号结转。
@@ -13,8 +13,8 @@
 ## 周期头（每窗开读）
 
 * **方向**：收藏功能 **一期（有无）** —— 「先有无、后性能」，本期不看 QPS
-* **目标**：把 `收藏功能-需求.md` 里标「纳入」的每一项做成**能用且行为正确**
-  （对应的 9 条能力见 [CURRENT_NEEDS.md](CURRENT_NEEDS.md) §四，骨架设计见分期篇 §二/§三）
+* **目标**：把 `favorite-需求.md` 里标「纳入」的每一项做成**能用且行为正确**
+  （对应的 9 条能力见 [CURRENT_NEEDS.md](CURRENT_NEEDS.md) §四，域设计见 [favorite.md](../architecture/domain/favorite.md)）
 * **本周期**：`2026-10-07` 起 · 第 1 张清单
 * **收尾 checklist**：□ 回归基线全绿（`python tools/run_tests.py`） · □ 完成态已清出（记入 git） · □ 问题已结转（`FURTHER_ISSUES.md`） · □ 工作树干净
 

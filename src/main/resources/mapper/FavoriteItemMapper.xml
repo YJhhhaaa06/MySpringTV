@@ -11,7 +11,7 @@
   已退役删除，oracle 口径由测试 SQL 承接，批量形态见下面 countDistinctUsersByContentIds）；
   T6 补入夹内分页（countByFolderId + findPageByFolderId）—— 本仓纪律是**不提前写无主 SQL**。
   ★ T6 残留提交（2026-10-09）：findPageByFolderId 由"跨域单条 LEFT JOIN"改为**只查本域三列**，
-    标题/封面/作者与失效判定整体移交 content 装载契约（口径"看不了 ≈ 失效"，见 收藏功能-编号索引.mdA.2 R-11）
+    标题/封面/作者与失效判定整体移交 content 装载契约（口径"看不了 ≈ 失效"，见 favorite.md 附录「编号速查」R-11）
     —— 跨域直连他域表的形态、封面规则副本与 URL 前缀第二份实现（I-07 ①②③）一并根治。
 
   ⚠️ 全局 `map-underscore-to-camel-case: false`；本文件的写语句（DELETE/INSERT）无列映射需求；
@@ -59,10 +59,10 @@
            ⚠️ 别据此推断"计数那条用不上索引" —— 那条同样借这个索引（loose index scan，见下）。
          ★ JOIN（非 LEFT）：item 与 folder 同属本域，删夹时条目同事务一并删（R-02）⇒ 正常路径无孤儿，
            INNER JOIN 不丢行。⚠️ 但本表**无外键**、DB 不兜底 —— 该前提只由 FavoriteService.deleteFolder
-           的 @Transactional 一处承担（收藏功能-编号索引.mdA.3 I-04：零判别力、可被静默误删）。前提失效时
+           的 @Transactional 一处承担（favorite.md 附录「编号速查」I-04：零判别力、可被静默误删）。前提失效时
            症状是**跨端点不一致**：孤儿行 JOIN 不上 ⇒ status 报"未收藏"，而 count 那条不 JOIN ⇒ 仍计入。
            ⚠️ 本 SQL 不碰 content 表；T6 夹内列表**现在也不碰**（失效判定已整体走 content
-           装载契约折叠，见 收藏功能-编号索引.mdA.2 R-11）—— 两条都不要回流成跨域 JOIN（I-07 ③）。
+           装载契约折叠，见 favorite.md 附录「编号速查」R-11）—— 两条都不要回流成跨域 JOIN（I-07 ③）。
          ★ 不判内容有效性：失效内容（含已删下架与"装不出来"的，R-11）的记录照样在
            （R-03 不自动清理）⇒ 照常返回它在的夹。
          ⚠️ 顺序（默认夹置顶 + 创建序）与 FavoriteFolderMapper.findByUserIdWithItemCount 同一契约。 -->
@@ -85,7 +85,7 @@
            （FavoriteService.listFolderItems）——"内容可不可用"归 content 域、
            "失效长什么样"归本域，两层分开 ⇒ 反向验证两个注入点各自独立。
          ⚠️ 别在这里加 content 联结 / 封面 / 作者子查询（T6 残留提交已删过一次，
-            理由见下面 findPageByFolderId 的注释与 收藏功能-编号索引.mdA.2 R-11）。 -->
+            理由见下面 findPageByFolderId 的注释与 favorite.md 附录「编号速查」R-11）。 -->
     <resultMap id="favoriteItemVoMap" type="io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteItemVO">
         <id property="id" column="id"/>
         <result property="contentId" column="content_id"/>
@@ -103,7 +103,7 @@
 
     <!-- 夹内一页（收藏时间倒序）。★ 只查**本域三列**；title / coverUrl / authorName / invalid
          由 FavoriteService.listFolderItems 经 ContentService.loadContentVOs 组装
-         （T6 残留提交 2026-10-09；口径"看不了 ≈ 失效"，收藏功能-编号索引.mdA.2 R-11）。
+         （T6 残留提交 2026-10-09；口径"看不了 ≈ 失效"，favorite.md 附录「编号速查」R-11）。
          ① 判失效**不在这里**：内容不存在 / 已删下架 / 媒体损坏 / 未知类型 ⇒ content 装载契约
             返回"取不到" ⇒ 本行渲染为占位。⚠️ 别回流成"JOIN content + is_deleted 判定" ——
             那只覆盖"无行 / 已删"两种，**测不出**"视频行缺失 / 未知 type"，会与新口径分叉。
@@ -137,7 +137,7 @@
          两列等值 ⇒ 命中 idx_user_content(user_id, content_id) 的点查（轻量判存在）。
          ⚠️ 判据是记录本身（不判内容有效性，R-03/R-07）；孤儿行边缘态下与 count 同侧仍算
             "已收藏"，与 JOIN 版（status）的分叉见 DAO Javadoc —— 孤儿行前提由 deleteFolder 的
-            @Transactional 承担（其判别力已由 收藏功能-编号索引.mdA.3 I-04 在 T8 收口）。
+            @Transactional 承担（其判别力已由 favorite.md 附录「编号速查」I-04 在 T8 收口）。
          ⚠️ 别回流成 "JOIN + 取夹名"（那是 /favorite/status 的形态）——本查询服务的是互动域的
             "我收藏过没有"，不是"收在哪些夹"。 -->
     <select id="existsByUserAndContent" resultType="boolean">
@@ -184,7 +184,7 @@
     <!-- 一个夹内的全部 content_id（T11：删夹前取失效集 —— 收藏数是**内容维度**的，
          ★ 记录删掉后就再查不出"刚动了哪些内容"，故必须**删之前**取）。
          ★ 只用于失效（DEL content:favoriteCount:{id}），不参与任何判定：收藏域写路径一律
-           "整体失效"，不做增量（夹内唯一 ⇒ add/remove 不必然 ±1，见 {@code 收藏功能-编号索引.md A.3} I-11）。
+           "整体失效"，不做增量（夹内唯一 ⇒ add/remove 不必然 ±1，见 {@code favorite.md 附录「编号速查」} I-11）。
          ⚠️ 必须与两条 DELETE **同事务**（FavoriteService.deleteFolder 的 @Transactional）：
            否则并发收藏让"取到的 id 集"与"实际删掉的行"不一致 ⇒ 失效集漏项。
          ⚠️ 不写 SELECT ... FOR UPDATE（本仓排除：判不存在时 RC 无效 / RR gap lock 共享 ⇒ 死锁）；
@@ -209,7 +209,7 @@
            （全局 map-underscore-to-camel-case = false ⇒ 靠别名自动映射，不需要 resultMap）。
          ⚠️ 只碰本域表；content 列的写回在 ContentDao.updateFavoriteCounts（他域 DAO 薄依赖）。
          ⚠️ 空列表会生成 IN () 语法错 —— service 已拦空集（删空夹是合法路径）。
-         ⚠️ 一期基线（单内容版 loose index scan ≈17ms / 2 万行，设计篇 §3.2）是本查询的对照面，
+         ⚠️ 一期基线（单内容版 loose index scan ≈17ms / 2 万行，favorite.md §四）是本查询的对照面，
            T12 实测数字回写同处。 -->
     <select id="countDistinctUsersByContentIds"
             resultType="io.github.yjhhhaaa06.videoweb.content.model.ContentFavoriteCount">

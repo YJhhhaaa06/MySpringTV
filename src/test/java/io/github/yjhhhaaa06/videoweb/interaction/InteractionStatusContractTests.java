@@ -58,9 +58,9 @@ import static org.mockito.Mockito.verifyNoInteractions;
  * </ul>
  *
  * <h2>★ 期望值怎么来的（规避"迎合型伪测试"）</h2>
- * "三维归属"出自 R-10（{@code 收藏功能-分期与设计.md} §3.6：isLiked / isFavorited / isFollowed）；
+ * "三维归属"出自 R-10（{@code favorite.md} §六：isLiked / isFavorited / isFollowed）；
  * "匿名 ⇒ null 且不查"出自同节（"不是三个 false"是它相对平铺的表达力增益）；
- * "批量不得循环调单条"出自 **T9 红线**（{@code 收藏功能-编号索引.md A.1} T9）与 {@code ContentStatusFiller}
+ * "批量不得循环调单条"出自 **T9 红线**（{@code favorite.md 附录「编号速查」} T9）与 {@code ContentStatusFiller}
  * 类注释的性能性质；"评论赞不算内容赞"出自 T9 红线"域边界排除评论点赞"；
  * "authorId &lt;= 0 跳过"是既有填充行为的保留（旧 {@code ContentStatusFiller} 对非正作者 id 跳过，
  * T10 后该口径移入互动域）。
@@ -211,7 +211,7 @@ class InteractionStatusContractTests extends AbstractHttpIntegrationTest {
         InteractionStatusVO status = interactionService.getStatus(null, content, author.id(), 1);
 
         assertThat(status)
-                .as("★ 匿名 ⇒ null（不是三个 false）—— '没登录'与'登录但没互动'必须可区分（R-10 §3.6）")
+                .as("★ 匿名 ⇒ null（不是三个 false）—— '没登录'与'登录但没互动'必须可区分（R-10 §六）")
                 .isNull();
         verifyNoInteractions(likeService, favoriteService, followService);
     }

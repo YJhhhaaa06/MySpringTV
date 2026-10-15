@@ -32,7 +32,7 @@ import static org.mockito.Mockito.verify;
 
 /**
  * 收藏二期 <b>T12：{@code content.favorite_count} 冗余列的启用</b>（能力 二期-3；
- * 维护口径 =「事务内批量重算」，{@code 收藏功能-分期与设计.md} §3.2）。
+ * 维护口径 =「事务内批量重算」，{@code favorite.md} §四）。
  *
  * <h2>★ 本类钉住的不变量（二期判据②）</h2>
  * <pre>content.favorite_count == COUNT(DISTINCT user_id) FROM favorite_item WHERE content_id = ?</pre>
@@ -53,7 +53,7 @@ import static org.mockito.Mockito.verify;
  *   <li><b>读切换的证明</b>：直改列 + 清缓存 ⇒ 端点回显被改的值 —— 可观察地证明回源读的是
  *       列（实时聚合下不可能看到 999）；</li>
  *   <li><b>批量是"一趟"</b>：deleteFolder 对 N 个受影响内容只发**一次**
- *       {@code updateFavoriteCounts}（逐行 UPDATE 就是 N 次往返，§3.2 强制探索的确认点）。</li>
+ *       {@code updateFavoriteCounts}（逐行 UPDATE 就是 N 次往返，§四 强制探索的确认点）。</li>
  * </ul>
  *
  * <h2>★ 事务机制证明（G5 / AGENTS「测试纪律」④：最后一步打桩）</h2>

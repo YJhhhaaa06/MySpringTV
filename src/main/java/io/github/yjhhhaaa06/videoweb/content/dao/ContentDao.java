@@ -140,7 +140,7 @@ public interface ContentDao {
      * 增量安全；收藏的唯一键是 {@code uk_folder_content}（<b>夹内</b>唯一），同一人可把同一内容
      * 收进多夹 ⇒ add / remove 不必然 ±1、并发下判"第一次收藏"必然漏 ⇒ 增量会漂移且永不自愈。
      * 重算（{@code COUNT(DISTINCT user_id)} 的幂等复算）一次消掉这四件事，口径与排除理由
-     * （不做增量 / 不用 {@code SELECT … FOR UPDATE}）见 {@code 收藏功能-分期与设计.md} §3.2。
+     * （不做增量 / 不用 {@code SELECT … FOR UPDATE}）见 {@code favorite.md} §四。
      *
      * <h2>调用契约（⚠️ 写调用方前先读）</h2>
      * <ul>
@@ -169,7 +169,7 @@ public interface ContentDao {
      * 读某内容的收藏数列（T12：{@code /favorite/count} 缓存 miss 的回源）。
      *
      * <h2>★ 这是收藏二期-3 的读切换点：实时聚合 → 冗余列点查</h2>
-     * 一期回源是 {@code COUNT(DISTINCT user_id)} 聚合（≈17ms / 2 万行基线，设计篇 §3.2）；
+     * 一期回源是 {@code COUNT(DISTINCT user_id)} 聚合（≈17ms / 2 万行基线，favorite.md §四）；
      * T12 起列由收藏域四条写路径**事务内批量重算**维护（{@link #updateFavoriteCounts}），
      * 回源降为**主键点查**。不变量 {@code favorite_count == COUNT(DISTINCT user_id)}
      * 由 T12 的独立 oracle 用例钉住 —— 本方法的正确性完全建立在那个不变量上。

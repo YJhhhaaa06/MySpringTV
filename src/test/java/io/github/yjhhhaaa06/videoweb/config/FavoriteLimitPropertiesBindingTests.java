@@ -33,7 +33,7 @@ class FavoriteLimitPropertiesBindingTests extends AbstractIntegrationTest {
     @Test
     @DisplayName("四个上限必须绑定为 5000 / 500 / 20 / 100 —— 不是 0、也不是互换（数字即对外契约）")
     void 四个上限绑定正确() {
-        // 期望值出自用户 2026-10-14 拍板 + 需求篇 §六 / 三期设计 §三·§四（**不是**抄实现）：
+        // 期望值出自用户 2026-10-14 拍板 + favorite-需求.md §六 / favorite.md §八·§九（**不是**抄实现）：
         // B 站实测是 默认夹 5 万 / 单夹 1000 / 自建夹 99 / 稍后再看 100 且未公示
         // ⇒ 本仓前三个刻意取更小的演示值，稍后再看取实测值 100。
         assertThat(limits.defaultFolderMaxItems()).as("默认夹内容上限").isEqualTo(5000);

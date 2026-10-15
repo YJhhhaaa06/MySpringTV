@@ -24,12 +24,12 @@ import java.util.Set;
  * **T11 补入为缓存而加的两条读** —— {@link #findAllFavoritedContentIds}（回填全量）/
  * {@link #findContentIdsByFolderId}（删夹前取失效集）；
  * **T12 补入批量重算的聚合** —— {@link #countDistinctUsersByContentIds}（一趟 GROUP BY，
- * 与第 2 步 {@code ContentDao.updateFavoriteCounts} 组成「事务内批量重算」，§3.2）。
+ * 与第 2 步 {@code ContentDao.updateFavoriteCounts} 组成「事务内批量重算」，§四）。
  * 一期读路径（T5 / T6）已齐；**不提前写无主 SQL**（每条 SQL 随任务补入）。
  *
  * <h2>写 SQL 前必须先读的四条口径（都是本域特有的坑，别照抄 like）</h2>
  * <ol>
- *   <li>★ <b>{@code remove} 不得校验内容存在性</b>（G11 红线 —— 见 {@code 收藏功能-编号索引.md} A.4）：
+ *   <li>★ <b>{@code remove} 不得校验内容存在性</b>（G11 红线 —— 见 {@code favorite.md 附录「编号速查」}）：
  *       直接按 {@code (folder_id, content_id)} 删行。这与 {@code /like/*} 写路径
  *       "先校验存在性"的惯例**刻意不同** —— 一加校验，失效条目就**永远清不掉**
  *       （用户在夹里看得见占位却删不掉）。反向：{@code add}/{@code move} 照常校验
@@ -47,7 +47,7 @@ import java.util.Set;
  *       故 {@code user_id} 是本表的**冗余列**，判定"同一人是否收藏过"必须按
  *       {@code (user_id, content_id)}，**不能按夹判**。
  *       ⚠️ 仍不加 {@code content_id} 前导索引：单内容版的耗时基线（loose index scan ≈17ms）
- *       是**二期优化的对照**（T5 已实测记录，见 §3.2 与 {@link #countDistinctUsersByContentIds}），
+ *       是**二期优化的对照**（T5 已实测记录，见 §四 与 {@link #countDistinctUsersByContentIds}），
  *       先加索引就把基线毁了。</li>
  * </ol>
  *
@@ -153,19 +153,19 @@ public interface FavoriteItemDao {
      * 必须按**用户维度**取行 —— 正是 {@code idx_user_content (user_id, content_id)} 服务的查询
      * （该索引两列都被等值命中，**走索引**）。
      * ⚠️ **别据此推断"计数查询用不上索引"** —— 一期的单内容计数（实时 COUNT，T12 切列时已退役）
-     * 同样能借这个索引（loose index scan），T5 实测非全表扫（数字见设计篇 §3.2）。
+     * 同样能借这个索引（loose index scan），T5 实测非全表扫（数字见favorite.md §四）。
      *
      * <h2>★ 为什么 {@code JOIN favorite_folder} 是安全的 —— ⚠️ 前提是"删夹事务在场"</h2>
      * {@code favorite_folder} 与 {@code favorite_item} **同属本域**，且删夹时条目**同事务一并删**
      * （R-02，{@link #deleteByFolderId}）⇒ 正常路径下不存在"条目指向已删夹"的孤儿，INNER JOIN 不丢行。
      * <b>⚠️ 但本表**没有外键**（V2 刻意与 V1 一致），DB 不兜底</b>：该前提**只由
      * {@code FavoriteService.deleteFolder} 的 {@code @Transactional} 一处承担** —— 而那正是
-     * {@code 收藏功能-编号索引.mdA.3} <b>I-04</b> 登记为"零判别力、可被静默误删"的那处。
+     * {@code favorite.md 附录「编号速查」} <b>I-04</b> 登记为"零判别力、可被静默误删"的那处。
      * 前提失效（孤儿行 {@code folder_id} 指向已删夹）时可观察症状是**跨端点不一致**：这里 JOIN 不上
      * ⇒ 丢行 ⇒ {@code status} 报"未收藏"；而收藏数查询**不 JOIN**（一期实时版与 T12 列读同此口径）
      * ⇒ 仍把该孤儿算进收藏数（根治见 I-04：加外键或补失败注入用例）。
      * ⚠️ 本 SQL 不碰 content 表；T6 夹内列表**现在也不碰**（失效判定已整体走 content 装载契约
-     * 折叠，见 {@code 收藏功能-编号索引.mdA.2} R-11）—— 两条都不要回流成跨域 JOIN（I-07 ③）。
+     * 折叠，见 {@code favorite.md 附录「编号速查」} R-11）—— 两条都不要回流成跨域 JOIN（I-07 ③）。
      *
      * <p><b>顺序是契约</b>：默认夹置顶 + 创建序（{@code is_default DESC, id ASC}），
      * 与 {@code FavoriteFolderDao.findByUserIdWithItemCount} 复用同一顺序 —— 两处不许各排一半。
@@ -214,7 +214,7 @@ public interface FavoriteItemDao {
      * ⚠️ <b>耗时未计时</b>（T16 的 5000 行夹具只证明功能、没做计时）—— 将来若要论证
      * "给 {@code favorite_folder} 加 {@code item_count} 计数列"，按 {@code CURRENT_NEEDS.md}
      * <b>C-6</b> <b>先补耗时基线</b>再下结论（本行只是计划形态，不是性能结论）。
-     * 口径与取舍见 {@code 收藏功能-三期设计.md} §三.3。
+     * 口径与取舍见 {@code favorite.md} §八。
      *
      * @param folderId 目标夹（调用方保证存在且属于当前用户）
      * @return 收藏记录条数（**含**失效内容的记录）
@@ -227,13 +227,13 @@ public interface FavoriteItemDao {
      * {@code invalid} / {@code title} / {@code coverUrl} / {@code authorName} 由
      * {@code FavoriteService.listFolderItems} 经 {@code ContentService.loadContentVOs} 组装
      * （T6 残留提交 2026-10-09 —— 旧形态"单条 LEFT JOIN + 封面规则副本 + URL 前缀第二份实现"
-     * 已整体删除，见 {@code 收藏功能-编号索引.mdA.3} I-07）。
+     * 已整体删除，见 {@code favorite.md 附录「编号速查」} I-07）。
      *
      * <h2>★ 三条口径（写改动前先读，每一条都有对应的注入点）</h2>
      * <ol>
      *   <li><b>判失效不在这里</b>：内容"可不可用"由 content 装载契约决定 —— 不存在 / 已删下架
      *       （{@code is_deleted != 0}）/ 媒体损坏（视频行缺失）/ 未知 type 统一折叠为"取不到"
-     *       ⇒ 该行渲染占位。口径"看不了 ≈ 失效"（{@code 收藏功能-编号索引.mdA.2} **R-11**）。
+     *       ⇒ 该行渲染占位。口径"看不了 ≈ 失效"（{@code favorite.md 附录「编号速查」} **R-11**）。
      *       ⚠️ 别回流成"JOIN content + is_deleted 判定"：那**测不出**"视频行缺失 / 未知 type"，
      *       会与新口径分叉，还把跨域直连他域表（I-07 ③）重新引进来；</li>
      *   <li><b>分页单位是 {@code favorite_item} 行</b>（G12）：{@code LIMIT/OFFSET} 直接作用在
@@ -242,7 +242,7 @@ public interface FavoriteItemDao {
      *       ⚠️ 因此**不要复用 {@code ProfileService} 的填充逻辑**：那处是
      *       "取不到就 {@code continue}，{@code total} 不变"（{@code ProfileService.java:109}，
      *       TV 原样语义 ⇒ 分页出空洞），与收藏夹的"占位"是两套口径；</li>
-     *   <li><b>顺序 {@code create_time DESC, id DESC}</b>（需求篇 §三「按收藏时间倒序」）：
+     *   <li><b>顺序 {@code create_time DESC, id DESC}</b>（favorite-需求.md §三「按收藏时间倒序」）：
      *       ⚠️ {@code create_time} 是 {@code datetime}（**秒**精度），同一秒收藏多条会并列，
      *       只按 {@code create_time} 排 ⇒ 页间顺序**不确定**（同一行可能出现在两页、
      *       或某页漏掉一行 —— 正是"分页边界不重不漏"要防的）。故补 {@code id DESC} 作
@@ -288,7 +288,7 @@ public interface FavoriteItemDao {
      * R-03 / R-07 —— "我还收着它"是事实）。
      * ⚠️ 与 JOIN 版的唯一已知分叉 = "**孤儿行**"边缘态（夹被删而条目未删，无 API 可达；
      * 其前提由 {@code deleteFolder} 的 {@code @Transactional} 一处承担，判别力已由
-     * {@code 收藏功能-编号索引.md} A.3 **I-04** 在 T8 收口 —— 打桩"最后一步"的失败注入用例）：
+     * {@code favorite.md 附录「编号速查」} **I-04** 在 T8 收口 —— 打桩"最后一步"的失败注入用例）：
      * 孤儿行下 JOIN 版会丢行（status 报"未收藏"），而本查询与 count 一样**仍算已收藏**。
      * 本查询取"记录存在性"侧是有意的 —— 它服务的是"我收藏过没有"这个事实，
      * 不是"这条记录还能不能挂到某个夹上"。
@@ -366,11 +366,11 @@ public interface FavoriteItemDao {
      *
      * <h2>为什么不用 {@code SELECT ... FOR UPDATE}</h2>
      * 本仓明确排除（判"不存在"时 RC 下不加锁形同虚设、RR 下 gap lock 共享 ⇒ 死锁，
-     * 见 {@code 收藏功能-分期与设计.md} §3.2 的排除理由）；MySQL 的 {@code DELETE} 也没有
+     * 见 {@code favorite.md} §四 的排除理由）；MySQL 的 {@code DELETE} 也没有
      * {@code RETURNING} ⇒ 取 id 与删除是**两条语句、一个事务**。
      *
      * <p>⚠️ 与 T12 的关系：T12 的 {@code recountFavoriteCounts(Set&lt;Long&gt;)} 需要同一份
-     * "受影响的 contentId 集"（§3.2 的"`deleteFolder`（批量删条目）⇒ 受影响的全部 contentId"）
+     * "受影响的 contentId 集"（§四 的"`deleteFolder`（批量删条目）⇒ 受影响的全部 contentId"）
      * ⇒ 届时**复用本查询**，别新写一条同形 SQL。
      *
      * <p>⚠️ 本 SQL **不碰 content 表**（只查本域一列）：失效集由 favorite 侧给出，
@@ -413,7 +413,7 @@ public interface FavoriteItemDao {
      *       Extra="Using where; Using index for group-by (scanning)"}（**loose index scan** 的变体，
      *       ≈17ms / 20 次 best≈14ms avg≈19ms）。⚠️ 两个易混措辞：它**不是** skip scan
      *       （MySQL 的 INDEX_SKIP_SCAN 官方不含 GROUP BY/DISTINCT）；也别按"无 content_id 前导
-     *       索引 ⇒ 全表扫"推断（T5 实测推翻）——数字与教训全文见设计篇 §3.2，T12 的
+     *       索引 ⇒ 全表扫"推断（T5 实测推翻）——数字与教训全文见favorite.md §四，T12 的
      *       GROUP BY IN 版实测也回写同处。</li>
      * </ul>
      *

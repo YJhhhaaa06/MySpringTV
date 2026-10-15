@@ -139,7 +139,7 @@ class WatchLaterMoveTests extends AbstractHttpIntegrationTest {
         long text = insertTextContent(me.id, "图文帖子");
 
         assertThat(move(me.token, text, null).getStatusCode().value())
-                .as("稍后再看只装视频（需求篇 §六）").isEqualTo(400);
+                .as("稍后再看只装视频（favorite-需求.md §六）").isEqualTo(400);
     }
 
     @Test

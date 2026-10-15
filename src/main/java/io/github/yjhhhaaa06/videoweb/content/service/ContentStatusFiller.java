@@ -13,7 +13,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 内容**列表**的互动态回填适配器（T10 起为薄壳；R-10 的 §3.6，T13 起按 R-13 带维度集合）。
+ * 内容**列表**的互动态回填适配器（T10 起为薄壳；R-10 的 §六，T13 起按 R-13 带维度集合）。
  *
  * <h2>T10 之前 / 之后</h2>
  * 原实现（承接 TV {@code ContentStatusFiller}，S5）自己持有 {@code LikeService} /
@@ -24,7 +24,7 @@ import java.util.Set;
  * 由 {@code ContentService.getContentDetailVO} 直调互动域。
  *
  * <h2>★ 为什么这段映射留在 content 而不是搬进互动域</h2>
- * 互动域**不得依赖 content**（否则 {@code content → interaction → content} 成环，R-10 §3.6）
+ * 互动域**不得依赖 content**（否则 {@code content → interaction → content} 成环，R-10 §六）
  * ⇒ 它不认识 {@code ContentVO}、也不反查"这条内容的作者是谁 / 什么类型"（作者与类型由调用方
  * 随 {@link InteractionTarget} 传入）。故"ContentVO ↔ 目标"的映射必须留在 content 侧；
  * 留在本类还让 {@code /start} 与 {@code /search/keywordSearch} 共享**同一份**映射。

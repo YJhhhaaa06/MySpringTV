@@ -64,6 +64,7 @@ SEARCH_DIRS = (
     DOCS / "archive" / "migration",
     DOCS / "archive" / "migration" / "report",
     DOCS / "archive",
+    DOCS / "archive" / "favorite-2026-10-15",
 )
 LEGACY_ROOT = ROOT / "old-project" / "TVhomework1"
 PLACEHOLDER = re.compile(r"(xxx|Xxx|\.\.\.|<[^>]*>)")

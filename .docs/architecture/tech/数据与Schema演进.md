@@ -233,7 +233,7 @@ V1 共定义 **15 张业务表**，V2 再增 **2 张**（收藏一期），V4 �
 |---|---|---|---|---|
 | 18 | `watch_later` | favorite | 稍后再看：`uk_user_content (user_id, content_id)` 幂等（重复 add 撞它 ⇒ `ON DUPLICATE KEY UPDATE create_time` **移到最前**）+ `idx_user_time (user_id, create_time)` 服务倒序分页 | **独立于收藏夹**（不共表）；**只存视频**（写入侧校验，不进结构）；无外键（同 V1/V2 其余表） |
 
-> 📌 本表出现的 `R-##` / `T#` 编号见 [收藏功能-编号索引.md](../../task/收藏功能-编号索引.md)（编号的唯一查证入口）。
+> 📌 本表出现的 `R-##` / `T#` 编号见 [favorite.md 附录「编号速查」](../domain/favorite.md)（编号的**活**查证入口；逐条论证在 `archive/favorite-2026-10-15/收藏功能-编号索引.md`）。
 
 > 落地形态的两处非显然设计（都是"一次到位 / 别在下游重复推导"的东西）：
 > ① `favorite_folder.default_uniq` 是 **VIRTUAL 生成列**（默认夹 `1`、自建夹 `NULL`），

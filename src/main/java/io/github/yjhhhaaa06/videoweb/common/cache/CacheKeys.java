@@ -156,7 +156,7 @@ public final class CacheKeys {
      * {@code (user_id, content_id)} 行，**与夹数无关**）：同一内容可进多夹（唯一键
      * {@code uk_folder_content} 是**夹内**唯一），故"移出某个夹"**不等于**"取消收藏"——
      * 这条正是 T11 写路径**不能**做无条件 {@code SREM} 的根因
-     * （见 {@code FavoriteCache} 类注释；登记 {@code 收藏功能-编号索引.md A.3} I-11）。
+     * （见 {@code FavoriteCache} 类注释；登记 {@code favorite.md 附录「编号速查」} I-11）。
      */
     public static String userFavoriteSet(long userId) {
         return "user:favoriteSet:" + userId;

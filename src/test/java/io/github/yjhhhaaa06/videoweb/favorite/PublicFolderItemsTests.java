@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 收藏三期 <b>T18：他人公开夹"点开看内容"</b> 的契约测试
- * （{@code GET /favorite/folder/items?folderId=X}；来源 需求篇 §二，补一期 R-08 的裁剪）。
+ * （{@code GET /favorite/folder/items?folderId=X}；来源 favorite-需求.md §二，补一期 R-08 的裁剪）。
  *
  * <h2>覆盖什么（期望值全部出自业务口径 / 契约，盖住实现照样写得出来）</h2>
  * <ul>
@@ -35,9 +35,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * </ul>
  *
  * <h2>★ 期望值怎么来的（规避"迎合型伪测试"）</h2>
- * "公开夹的内容 = 该夹的收藏记录" 出自需求篇 §二"点开看内容"；"私密与不存在不可区分" 出自
+ * "公开夹的内容 = 该夹的收藏记录" 出自favorite-需求.md §二"点开看内容"；"私密与不存在不可区分" 出自
  * T18 拍板（2026-10-14，用户选 404 —— 理由：可区分即等于对外暴露"该夹存在且是私密的"）；
- * "匿名可访问" 出自分期篇 §3.3（{@code /folder/public} 的冻结契约，本条同信任边界）；
+ * "匿名可访问" 出自favorite.md §三（{@code /folder/public} 的冻结契约，本条同信任边界）；
  * 脱敏占位与"total 含失效" 出自 R-03 / R-07 / G12（与 {@code /favorite/list} **同一条装配**）；
  * 空态合法出自 R-01。盖住实现，这些断言照样写得出来。
  *

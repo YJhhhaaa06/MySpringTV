@@ -214,7 +214,7 @@ function renderContent() {
   initFavorite();
 
   // 稍后再看（T19）：★ 按钮**不做"已加入"持久态**、外观恒不变 —— 点击只发 add + 弹提示。
-  // 红线见需求篇 §六 / 骨架 §四.1（除 /watchlater/list 外任何地方都看不出"是否在稍后再看"）。
+  // 红线见favorite-需求.md §六 / favorite.md §九（除 /watchlater/list 外任何地方都看不出"是否在稍后再看"）。
   // onclick 赋值（同 favBtn）避免重复渲染叠加监听。
   c.querySelector('#wlBtn').onclick = addWatchLater;
 
@@ -254,7 +254,7 @@ async function reloadAfterEdit() {
 }
 
 /**
- * 详情内联互动态（R-10 §3.6）：赞 / 藏 / 关注三维在 `content.interaction` 子对象里。
+ * 详情内联互动态（R-10 §六）：赞 / 藏 / 关注三维在 `content.interaction` 子对象里。
  * 匿名（或 token 已失效）⇒ `interaction` 为 null ⇒ 返回空对象，三个读点一律按"未点亮"处理。
  */
 function interactionOf(item) {
@@ -594,7 +594,7 @@ function closeFavPicker() {
 /**
  * 懒建默认夹的**占位行**（id = null 表示"还不存在"）。
  *
- * <p>需求篇 §二「每个用户自带一个默认收藏夹；收藏时没选夹，内容自动进这里」。
+ * <p>favorite-需求.md §二「每个用户自带一个默认收藏夹；收藏时没选夹，内容自动进这里」。
  * 默认夹只由 `add` **不传 folderId** 触发懒建（R-01，`FavoriteService.ensureDefaultFolder`），
  * 后端**没有**独立的"建默认夹"端点 ⇒ 前端必须自己给出这条入口（否则默认夹永远建不出来：
  * 弹窗只列已有夹、而默认夹只由"不选夹"产生，两者互锁）。

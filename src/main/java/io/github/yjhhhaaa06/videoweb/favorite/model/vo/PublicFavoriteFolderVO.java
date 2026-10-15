@@ -8,7 +8,7 @@ import lombok.NoArgsConstructor;
  * 他人视角的公开收藏夹列表项（{@code GET /favorite/folder/public?userId=X} 的条目）。
  *
  * <h2>★ 为什么单独一个 VO，不复用 {@link FavoriteFolderVO}</h2>
- * 两条端点的**信任边界不同**（分期篇 §3.3 / R-08）：
+ * 两条端点的**信任边界不同**（favorite.md §三 / R-08）：
  * <ul>
  *   <li>{@code /folder/list} 是"我的夹"——含私密、带 {@code isDefault}（前端据此不渲染删除按钮）；
  *   <li>{@code /folder/public} 是**他人视角**——R-08 原话"一期只给「名称 + 视频数」"。

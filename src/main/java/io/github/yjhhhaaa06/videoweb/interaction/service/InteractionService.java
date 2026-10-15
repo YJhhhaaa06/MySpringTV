@@ -19,23 +19,23 @@ import java.util.Set;
 
 /**
  * 互动域：把"**当前用户对内容的互动态**"（点过赞吗 / 收藏了吗 / 关注作者了吗）聚合成一处
- * （R-10，详细设计见 {@code 收藏功能-分期与设计.md} §3.6）。
+ * （R-10，详细设计见 {@code favorite.md} §六）。
  *
  * <h2>它解决什么（依赖方向，不是边数）</h2>
  * 内容详情 / 列表要展示这三个"与我有关"的状态，它们分别属于 like / favorite / follow 三个域。
  * 本域只做**组装**：content 域依赖本域（**1 条边**，见 T10），不再直接 import 那三个域；
  * 三个域的数据归属不变（本域不是数据所有者）。
  * ⚠️ 总跨域边数其实**增加**了（3 → 1+3）——本方案的收益是"方向变单向 / 分层清晰"，
- * 别记成"依赖变少"（R-10 结论原话，见 {@code 收藏功能-编号索引.md A.2} R-10）。
+ * 别记成"依赖变少"（R-10 结论原话，见 {@code favorite.md 附录「编号速查」} R-10）。
  *
  * <h2>三条边界（写改动前先读）</h2>
  * <ol>
  *   <li>★ <b>本域不得依赖 content</b>：否则 {@code content → interaction → content} 成环、
- *       R-10 §3.6 的"无环"收益落空。"哪些维度适用"由调用方把 {@code type} 传入、
+ *       R-10 §六 的"无环"收益落空。"哪些维度适用"由调用方把 {@code type} 传入、
  *       作者由 {@link InteractionTarget} 带入，**不反查内容**。可复算判据：
  *       {@code grep -rn "import.*videoweb.content" src/main/java/.../interaction/} 必须零命中
- *       （T9 的结论与归宿见 {@code 收藏功能-编号索引.md A.1} T9）。</li>
- *   <li>★ <b>刻意不拆 HTTP 接口</b>：本域**没有** {@code controller} —— "不拆接口"是 R-10 §3.6 的
+ *       （T9 的结论与归宿见 {@code favorite.md 附录「编号速查」} T9）。</li>
+ *   <li>★ <b>刻意不拆 HTTP 接口</b>：本域**没有** {@code controller} —— "不拆接口"是 R-10 §六 的
  *       核心约束，互动态是收进既有详情响应的内嵌子对象。也**没有** {@code dao} / {@code cache} /
  *       {@code event}：本域是聚合器、不是数据所有者，三份数据分别在 like / favorite / follow 域，
  *       跨域只走它们的 Service 公开契约（{@code 模块边界与依赖.md} §三 通道①）。</li>
@@ -64,7 +64,7 @@ import java.util.Set;
  *
  * <h2>匿名语义（userId == null）</h2>
  * **不查任何互动域，直接返回 {@code null}**（不是三个 {@code false}、不是空 Map、
- * 也不是"三维全 null 的空壳对象"）—— "没有登录态"与"登录但无互动"必须可区分（R-10 §3.6）。
+ * 也不是"三维全 null 的空壳对象"）—— "没有登录态"与"登录但无互动"必须可区分（R-10 §六）。
  * 两个契约同款。
  *
  * <p>本类全是**纯读**（三趟缓存 / DB 读）⇒ 不加 {@code @Transactional}（事务边界篇 §四）。
@@ -89,8 +89,8 @@ public class InteractionService {
      * 只多一次代理跳转）。⚠️ 环只需断一处；**本注解若被删**，Spring 启动期会直接
      * {@code BeanCurrentlyInCreationException}——响亮失败，不是静默故障。
      * <p>⚠️ 别把"无环"读成传递闭包：R-10 的"无环"只成立在**直连边**上（本域不 import content）；
-     * 上面那个环在传递闭包上真实存在（第二锚点：设计篇 §3.6 的"T10 落地实测"；登记
-     * {@code 收藏功能-编号索引.md A.3} I-10；备选的根治方案见 {@code FURTHER_ISSUES.md} F-18）。
+     * 上面那个环在传递闭包上真实存在（第二锚点：favorite.md §六 的"T10 落地实测"；登记
+     * {@code favorite.md 附录「编号速查」} I-10；备选的根治方案见 {@code FURTHER_ISSUES.md} F-18）。
      */
     public InteractionService(LikeService likeService, @Lazy FavoriteService favoriteService,
                               FollowService followService) {

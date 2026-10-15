@@ -24,9 +24,9 @@ import java.util.Map;
  * 一个**独立于收藏夹**的"稍后再看"池：**只装视频**、按加入时间倒序、可批量移出、可"移入收藏夹"。
  * ⚠️ 它与收藏**不共表**（用户 2026-10-14 拍板）：共表会让 {@code /favorite/status}、
  * {@code /favorite/count}、夹列表、公开夹四条读语义全要加"排除稍后再看"、漏一处即静默错答案；
- * 独立表后**收藏侧一行不改**（决策见 {@code 收藏功能-三期设计.md} §二 / §四）。
+ * 独立表后**收藏侧一行不改**（决策见 {@code favorite.md} §九）。
  *
- * <h2>★ 三条实测语义（需求篇 §六 / 骨架 §四.1）</h2>
+ * <h2>★ 三条实测语义（favorite-需求.md §六 / favorite.md §九）</h2>
  * <ol>
  *   <li><b>只能加视频</b>：{@link #add} / {@link #move} 先经 {@link #requireVideoContent}
  *       —— 不存在 / 已软删 ⇒ 404；存在但非视频（{@code type = 2} 图文）⇒ 400「只能添加视频」；</li>
@@ -35,7 +35,7 @@ import java.util.Map;
  *       ⇒ 已满（100）时"重复 add"仍成功，只有"加新内容且已满"才 400；</li>
  *   <li><b>除清单外无状态显示</b>：★ 本类**不提供**任何"是否在稍后再看"的查询 ——
  *       不加 status 端点、不让它出现在 {@code interaction} / {@code /favorite/status} 里
- *       （需求篇 §六；违规注入见 {@code WatchLaterIsolationTests}）。</li>
+ *       （favorite-需求.md §六；违规注入见 {@code WatchLaterIsolationTests}）。</li>
  * </ol>
  *
  * <h2>装载契约复用（不得自持第二份实现）</h2>
@@ -64,7 +64,7 @@ public class WatchLaterService {
 
     /**
      * 失效内容的占位标题（R-03）—— 与 {@code FavoriteService.INVALID_CONTENT_TITLE} **同字面量**
-     * （两处各持一份常量，因两个 Service 的占位对象不同；口径源头 = 需求篇 §六）。
+     * （两处各持一份常量，因两个 Service 的占位对象不同；口径源头 = favorite-需求.md §六）。
      */
     private static final String INVALID_CONTENT_TITLE = "内容已失效";
 

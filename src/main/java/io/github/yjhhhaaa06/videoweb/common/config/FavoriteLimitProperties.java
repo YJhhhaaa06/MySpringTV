@@ -15,11 +15,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *
  * <h2>数字的来源（别照抄 B 站）</h2>
  * B 站实测为 默认夹 5 万 / 单夹 1000 / 自建夹 99，且**官方未公示**
- * （需求篇 §六 早已写明"别直接照抄"）⇒ 用户 2026-10-14 拍板取更小的**演示值**
+ * （favorite-需求.md §六 早已写明"别直接照抄"）⇒ 用户 2026-10-14 拍板取更小的**演示值**
  * <b>5000 / 500 / 20</b>。⚠️ 该数字**一上线即对外契约**（同"默认公开"那条的先例）
  * ⇒ 要改就改这里 + {@code application.yaml}，**别在代码里另写一个 500**。
  *
- * <h2>★ 计数口径（{@code 收藏功能-三期设计.md} §三 是唯一事实源）</h2>
+ * <h2>★ 计数口径（{@code favorite.md} §八 是唯一事实源）</h2>
  * <ul>
  *   <li>{@link #defaultFolderMaxItems} / {@link #customFolderMaxItems} 数的是
  *       <b>{@code favorite_item} 行</b>（<b>含已失效条目</b>）—— 与

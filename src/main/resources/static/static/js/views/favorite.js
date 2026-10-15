@@ -225,7 +225,7 @@ function renderItems(batch, append) {
 /**
  * 正常收藏卡片：封面缺失/加载失败 → 首字渐变占位（与首页卡片同一套兜底）。
  * 点击打开内容详情（★ 用 contentId，不是收藏记录 id）；作者名本期不可点
- * （FavoriteItemVO 刻意不含 authorId —— T6 键集注释：要它得先回需求篇）。
+ * （FavoriteItemVO 刻意不含 authorId —— T6 键集注释：要它得先回favorite-需求.md）。
  */
 function createFavoriteCard(item, index) {
   const card = document.createElement('div');

@@ -46,7 +46,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * </ul>
  *
  * <h2>★ 期望值怎么来的（规避"迎合型伪测试"）</h2>
- * 三个数字出自**需求篇 §六 / 三期设计 §三**（用户 2026-10-14 拍板：5000 / 500 / 20；
+ * 三个数字出自**favorite-需求.md §六 / favorite.md §八**（用户 2026-10-14 拍板：5000 / 500 / 20；
  * B 站实测是 5 万 / 1000 / 99 且未公示 ⇒ 本仓刻意取更小的演示值）——
  * **不从 {@code FavoriteLimitProperties} 读**（那会让用例跟着实现漂移），写死字面量；
  * 配置侧由 {@code FavoriteLimitPropertiesBindingTests} 单独钉住。
@@ -85,13 +85,13 @@ class FavoriteCapacityTests extends AbstractHttpIntegrationTest {
 
     private static final String PASSWORD = "abc123456";
 
-    /** 自建夹内容上限（需求篇 §六；与 {@code video.favorite.custom-folder-max-items} 同值）。 */
+    /** 自建夹内容上限（favorite-需求.md §六；与 {@code video.favorite.custom-folder-max-items} 同值）。 */
     private static final int CUSTOM_FOLDER_MAX_ITEMS = 500;
 
-    /** 默认夹内容上限（需求篇 §六；与 {@code video.favorite.default-folder-max-items} 同值）。 */
+    /** 默认夹内容上限（favorite-需求.md §六；与 {@code video.favorite.default-folder-max-items} 同值）。 */
     private static final int DEFAULT_FOLDER_MAX_ITEMS = 5000;
 
-    /** 自建夹个数上限（需求篇 §六；与 {@code video.favorite.custom-folder-max-count} 同值）。 */
+    /** 自建夹个数上限（favorite-需求.md §六；与 {@code video.favorite.custom-folder-max-count} 同值）。 */
     private static final int CUSTOM_FOLDER_MAX_COUNT = 20;
 
     @BeforeEach

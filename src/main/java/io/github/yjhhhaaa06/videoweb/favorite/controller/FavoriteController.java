@@ -22,7 +22,7 @@ import java.util.List;
 /**
  * 收藏接口入口（路径前缀 {@code /favorite}）。
  *
- * <h2>端点归属（分期篇 §3.3 是冻结契约，逐个任务补）</h2>
+ * <h2>端点归属（favorite.md §三 是冻结契约，逐个任务补）</h2>
  * <table>
  *   <caption>哪个任务交付哪条端点</caption>
  *   <tr><th>端点</th><th>任务</th><th>状态</th></tr>
@@ -41,7 +41,7 @@ import java.util.List;
  * <h2>★ 鉴权：绝不能照抄 {@code LikeController} 的类级 {@code @RequiresLogin}</h2>
  * like 域 8 个端点**全部**需登录，故用类级注解把"这一族整体受保护"写在一处。
  * <b>收藏域不是</b>：{@code GET /favorite/folder/public?userId=X} 是**他人视角的公开读**
- * （分期篇 §3.3 明写"匿名可访问，只返回公开"），一旦图省事打上类级 {@code @RequiresLogin}，
+ * （favorite.md §三 明写"匿名可访问，只返回公开"），一旦图省事打上类级 {@code @RequiresLogin}，
  * 这个端点就会 401 —— 而且**不会有人发现**（自己的私密夹自己照样看得见）。
  * 故本类的鉴权一律**逐端点**声明（{@code @RequiresLogin} 通过 {@code RequestMappingLookup}
  * 反射判定，见 {@code common/security/JwtAuthFilter}，没有 TV 那两份需手工维护的路径清单）。
@@ -56,7 +56,7 @@ import java.util.List;
  * 这条没有。
  *
  * <p>★ <b>T5 又加了一条匿名端点</b>（{@link #contentCount}）：{@code /favorite/count} 是
- * 公开展示数（需求篇 §三「内容页显示"多少人收藏了它"」），同样**不注入** {@code @CurrentUserId}
+ * 公开展示数（favorite-需求.md §三「内容页显示"多少人收藏了它"」），同样**不注入** {@code @CurrentUserId}
  * ——它不需要个性化。★ <b>T18 再加第三条</b>（{@link #publicFolderItems}，他人公开夹的内容）。
  * 三条匿名端点（{@code /folder/public}、{@code /folder/items}、{@code /count}）都**没有**任何
  * 鉴权注解，{@code JwtAuthFilter} 对 {@code requiresLogin == false} 的请求按匿名放行。
@@ -134,7 +134,7 @@ public class FavoriteController {
      * 更新收藏夹（**部分更新**：改名 / 私密开关，给了才改）。成功响应 {@code data} 是字符串「修改成功」。
      *
      * <p>{@code name} 与 {@code isPrivate} **至少给一个**（都没给 → 400）；给了哪个改哪个。
-     * 默认夹也能改名、也能设私密（只有删除才拦）。"简介"在需求篇是「待定」——不实现。
+     * 默认夹也能改名、也能设私密（只有删除才拦）。"简介"在favorite-需求.md是「待定」——不实现。
      * 口径与理由见 {@code FavoriteService.updateFolder}。
      *
      * @param folderId  目标夹；他人的夹 → 403、不存在 → 404、是默认夹则**允许**
@@ -156,7 +156,7 @@ public class FavoriteController {
     /**
      * 删除收藏夹（**夹内收藏记录一并删除**，R-02）。成功响应 {@code data} 是字符串「删除成功」。
      *
-     * <p>★ <b>默认夹 → 409，夹与其条目都原样保留</b>（需求篇 §二「删不掉」）。
+     * <p>★ <b>默认夹 → 409，夹与其条目都原样保留</b>（favorite-需求.md §二「删不掉」）。
      * 前端理应不给默认夹渲染删除按钮，但后端这道闸不依赖前端（契约测试守着）。
      *
      * @param folderId 目标夹；他人的夹 → 403、不存在 → 404
@@ -194,7 +194,7 @@ public class FavoriteController {
     /**
      * 看他人（或任何人）的**公开**收藏夹 —— 私密夹完全不出现（R-08，即"私密"一期的可观察落点）。
      *
-     * <p>★ <b>匿名可访问</b>（分期篇 §3.3 冻结契约）：本方法**没有任何鉴权注解**、
+     * <p>★ <b>匿名可访问</b>（favorite.md §三 冻结契约）：本方法**没有任何鉴权注解**、
      * 也不注入 {@code @CurrentUserId} —— 看别人的公开夹与"我是谁"无关。
      * 带不带 token、带的是不是坏 token 都不影响结果（{@code JwtAuthFilter} 对
      * {@code requiresLogin == false} 的请求按匿名放行，见 {@code common/security/JwtAuthFilter}）。
@@ -213,12 +213,12 @@ public class FavoriteController {
 
     /**
      * 看他人**公开**收藏夹里的内容（{@code GET /favorite/folder/items?folderId=X}，T18）——
-     * 需求篇 §二「看别人的收藏夹」的"点开看内容"（一期 R-08 只给了"名称 + 数量"那一半）。
+     * favorite-需求.md §二「看别人的收藏夹」的"点开看内容"（一期 R-08 只给了"名称 + 数量"那一半）。
      *
      * <p>★ <b>匿名可访问</b>（与 {@link #publicFolders} 同款）：本方法**没有任何鉴权注解**、
      * 也不注入 {@code @CurrentUserId} —— 看别人的**公开**夹与"我是谁"无关。⚠️ <b>绝不</b>图省事
      * 给本类加类级 {@code @RequiresLogin}：那会把 {@code /folder/public} 与本条一并误拦成 401
-     * （见类注释"鉴权"节 —— 一期 §3.3 已专门警告，本类逐端点声明是为此刻准备的）。
+     * （见类注释"鉴权"节 —— favorite.md §三 已专门警告，本类逐端点声明是为此刻准备的）。
      *
      * <p>★ <b>私密夹与不存在的夹返回同一口径</b>（<b>404 + 同一文案</b>）—— 服务端强制
      * {@code is_private = 0}，两者**不可区分**；若给"私密"单独一个 403，就等于对外暴露
@@ -247,7 +247,7 @@ public class FavoriteController {
     /**
      * 收藏内容到指定夹。成功响应 {@code data} 是字符串「收藏成功」。
      *
-     * <p>★ <b>{@code folderId} 可不传 = 收进默认夹</b>（需求篇 §二「没选夹自动进默认收藏夹」）；
+     * <p>★ <b>{@code folderId} 可不传 = 收进默认夹</b>（favorite-需求.md §二「没选夹自动进默认收藏夹」）；
      * 默认夹不存在时**就地懒建**（R-01，全系统唯一建默认夹的路径 —— 新用户拿不到
      * 默认夹 id，夹列表对他是空态）。口径：失效内容 404（不可移入）、
      * 重复收藏 409（撞 {@code uk_folder_content} 的幂等拒绝）、他人的夹 403、
@@ -271,7 +271,7 @@ public class FavoriteController {
      *
      * <p>★ <b>本端点不校验内容存在性</b>（G11 红线 —— 失效条目必须删得掉），
      * 且幂等：记录已不存在（陈旧页面）也照常 200、删除 0 行不算错。
-     * ⚠️ 只动 {@code folderId} 这一个夹：同内容在别的夹的记录**不受影响**（需求篇 §三）。
+     * ⚠️ 只动 {@code folderId} 这一个夹：同内容在别的夹的记录**不受影响**（favorite-需求.md §三）。
      * 详见 {@code FavoriteService.removeItems}。
      *
      * @param folderId   从哪个夹移出；夹不存在 → 404、不是我的 → 403
@@ -314,7 +314,7 @@ public class FavoriteController {
     // ==================== 收藏状态与收藏数（T5：读 = GET + query） ====================
 
     /**
-     * 我对某内容的收藏状态（**是否已收藏 + 收在哪些夹**）——需求篇 §三「知道收在了哪些夹」。
+     * 我对某内容的收藏状态（**是否已收藏 + 收在哪些夹**）——favorite-需求.md §三「知道收在了哪些夹」。
      *
      * <p>{@code data} 是对象：{@code {"isFavorited":true,"folders":[{"id":1,"name":"默认收藏夹"}]}}；
      * 未收藏 ⇒ {@code {"isFavorited":false,"folders":[]}}（**空数组**，不是 404、不是缺 {@code data} 键）。
@@ -355,7 +355,7 @@ public class FavoriteController {
     // ==================== 夹内列表（T6：读 = GET + query） ====================
 
     /**
-     * 夹内内容分页（**收藏时间倒序**）——需求篇 §三「打开某个夹看里面的内容」。
+     * 夹内内容分页（**收藏时间倒序**）——favorite-需求.md §三「打开某个夹看里面的内容」。
      *
      * <p>{@code data} 是分页信封 {@code {list,total,page,pageSize,totalPages}}
      * （全项目唯一的 {@code PageResult}）。★ <b>失效条目返回脱敏占位</b>：

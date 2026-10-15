@@ -18,11 +18,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * 收藏三期 <b>T17</b> 的**结构契约**验收：V4 建出的 {@code watch_later} 表一次到位，
  * 且**全部迁移版本都被应用**（防 {@code I-02} 的"只断首行"假绿）。
  *
- * <h2>覆盖什么（期望值出自骨架 §四 的 DDL 与口径，盖住实现照样写得出来）</h2>
+ * <h2>覆盖什么（期望值出自favorite.md §九 的 DDL 与口径，盖住实现照样写得出来）</h2>
  * <ul>
  *   <li><b>版本行</b>：{@code flyway_schema_history} 里 V1 / V2 / V3 / V4 **全部 applied 且 success**
  *       —— ⚠️ 只断"某一行存在"会漏掉"V4 没跑"的真相（I-02）；</li>
- *   <li><b>列集</b>：{@code id / user_id / content_id / create_time}（骨架 DDL）；</li>
+ *   <li><b>列集</b>：{@code id / user_id / content_id / create_time}（favorite.md §九 的 DDL）；</li>
  *   <li>★ <b>唯一键 {@code uk_user_content (user_id, content_id)}</b>：T17「重复 add ⇒ 移到最前」的
  *       实现手段是 {@code ON DUPLICATE KEY UPDATE} —— 撞的就是它。丢了这个键，
  *       "重复 add"就会**插出两行**（列表里出现两条同视频）；</li>
@@ -54,10 +54,10 @@ class WatchLaterSchemaTests extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("V4 建出 watch_later，列集与骨架 §四 的 DDL 一致")
+    @DisplayName("V4 建出 watch_later，列集与favorite.md §九 的 DDL 一致")
     void 表与列集与骨架一致() {
         assertThat(列名("watch_later"))
-                .as("列集 = 骨架 §四 的 DDL（user_id / content_id / create_time + 自增 id）")
+                .as("列集 = favorite.md §九 的 DDL（user_id / content_id / create_time + 自增 id）")
                 .containsExactly("id", "user_id", "content_id", "create_time");
     }
 

@@ -53,7 +53,7 @@ import java.util.Set;
  * <h2>★ T13（R-13）：⑤ 由"直连 {@code LikeService} 批量"改为走互动域</h2>
  * 这就是 {@code FURTHER_ISSUES.md} <b>F-16</b> 的兑现 —— R-10 立下"content 不再直接依赖
  * like / follow"时，{@code ProfileService} 是唯一**有意保留**的例外（当初记在
- * {@code 收藏功能-编号索引.md A.3} I-09），至此归零：本类不再 import like / follow 的
+ * {@code favorite.md 附录「编号速查」} I-09），至此归零：本类不再 import like / follow 的
  * 点赞契约（follow 的两条是**用户维度**的 {@code ProfileVO.isFollowed} 与两个计数，
  * 与"内容条目的互动态"不是一回事，仍归 follow 域）。
  * ⚠️ 只带 {@code LIKE} 一维 —— 主页里所有内容的作者都是 {@code profileUserId}，

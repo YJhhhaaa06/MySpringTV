@@ -8,7 +8,7 @@ import java.util.List;
 
 /**
  * 收藏状态（{@code GET /favorite/status} 的 {@code data}）——**当前用户**对某内容
- * "是否已收藏 + 收在哪些夹"（需求篇 §三「打开内容页能看到"已收藏"，并知道**收在了哪些夹**」）。
+ * "是否已收藏 + 收在哪些夹"（favorite-需求.md §三「打开内容页能看到"已收藏"，并知道**收在了哪些夹**」）。
  *
  * <h2>★ 两个字段各自服务前端的一个动作</h2>
  * <ul>
@@ -21,7 +21,7 @@ import java.util.List;
  * T15 之前本端点**只查 DB**（{@code folders} 由 JOIN 得出、布尔再由 {@code folders.isEmpty()} 推导），
  * 而详情页收藏按钮读的是详情内联的 {@code interaction.isFavorited} ——
  * 后者走 {@code FavoriteService.isFavorited} ⇒ {@code FavoriteCache} 的成员集
- * {@code user:favoriteSet:{userId}}（{@code 收藏功能-分期与设计.md} §3.7）。
+ * {@code user:favoriteSet:{userId}}（{@code favorite.md} §七）。
  * ⚠️ 于是**同一个语义有了两个来源**，且前端正在同一个 UI 元素上混用二者：
  * {@code detail.js} 的 {@code initFavorite()} 拿详情内联点亮按钮，{@code loadPicker()} 又用本端点
  * 的 {@code isFavorited} **覆盖同一个按钮态**（{@code state.isFavorited}）。
@@ -56,7 +56,7 @@ import java.util.List;
  *   <tr><td>4</td><td><b>孤儿记录</b>（夹已删、条目残留，{@code favorite_item} 无外键）
  *       —— 本端点 {@code folders} 走 INNER JOIN ⇒ 漏报成"未收藏"，
  *       而 {@code /favorite/count}（不 JOIN）仍把它计入</td>
- *       <td>★ <b>T15 之前就有</b>的已知分叉（{@code 收藏功能-编号索引.md} A.3 <b>I-04</b>；
+ *       <td>★ <b>T15 之前就有</b>的已知分叉（{@code favorite.md 附录「编号速查」} <b>I-04</b>；
  *       该不变量的两条端点对照见 {@code FavoriteExistenceTests}），<b>不是</b>本次引入</td></tr>
  * </table>
  * ⚠️ 容忍度边界：错的方向只有"缓存 false / DB true"这一种；且这个 key

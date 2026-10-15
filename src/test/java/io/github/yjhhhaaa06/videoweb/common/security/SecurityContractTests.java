@@ -158,7 +158,7 @@ class SecurityContractTests extends AbstractIntegrationTest {
     @DisplayName("收藏一期 T2：夹 CRUD 四端点判为需登录（**方法级**注解 —— 该域将来有匿名端点）")
     void favorite夹CRUD端点需登录() {
         // ⚠️ 本组是 T2 鉴权口径的**机制级**保证。收藏域**刻意不用类级** @RequiresLogin：
-        //  分期篇 §3.3 要求 /favorite/folder/public 匿名可访问（T3 已落地），类级会把它误拦成 401，
+        //  favorite.md §三 要求 /favorite/folder/public 匿名可访问（T3 已落地），类级会把它误拦成 401，
         //  而"私密夹自己照样看得见"会让这个误拦**长期无人发现**。
         //  反向对照（isFalse 那条）已在 T3 补入，见 favorite公开端点不得判为需登录。
         assertThat(requiresLogin("POST", "/favorite/folder/add")).isTrue();
@@ -178,7 +178,7 @@ class SecurityContractTests extends AbstractIntegrationTest {
         //   （T2 教训：机制失效时 401 常由参数解析器兜出，端到端看起来全对 —— 只有对
         //   RequestMappingLookup 直接求值才看得见）。
         assertThat(requiresLogin("GET", "/favorite/folder/public"))
-                .as("分期篇 §3.3 冻结契约：看他人公开夹匿名可访问（T3）")
+                .as("favorite.md §三 冻结契约：看他人公开夹匿名可访问（T3）")
                 .isFalse();
     }
 
@@ -212,7 +212,7 @@ class SecurityContractTests extends AbstractIntegrationTest {
     void favorite状态与计数鉴权() {
         // ★ 两类端点、两个信任边界（T5）：
         //   /status = "我收在哪些夹"（私有）⇒ 需登录；
-        //   /count  = 公开展示数（需求篇 §三）⇒ 匿名可访问 —— ★ 与 /like/content/count 的"需登录"
+        //   /count  = 公开展示数（favorite-需求.md §三）⇒ 匿名可访问 —— ★ 与 /like/content/count 的"需登录"
         //            刻意不同（那条是 TV 的 /like 前缀保护惯性；收藏是新域，按真实口径定）。
         //   两条必须**成对**断：只断 status=true 的话，把这个端点漏标（或反过来给 count 误标）
         //   在断言上都看不出来。HTTP 侧也有覆盖（FavoriteStatusAndCountTests.状态需登录计数匿名可访问），

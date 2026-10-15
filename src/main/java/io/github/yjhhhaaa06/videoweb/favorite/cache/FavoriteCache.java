@@ -17,7 +17,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 收藏缓存（收藏二期 T11 / {@code 收藏功能-分期与设计.md} §3.7）——决策⑤「显式封装层」，
+ * 收藏缓存（收藏二期 T11 / {@code favorite.md} §七）——决策⑤「显式封装层」，
  * **不用** {@code @Cacheable}。形态与 {@code like.cache.LikeCache} 同构（任务书要求"别自创"），
  * 差异只在**写路径**：见下"★ 与 LikeCache 的唯一形态差异"。
  *
@@ -28,8 +28,8 @@ import java.util.Set;
  *   <li>{@code content:favoriteCount:{id}}（**String 整数**）——"这条内容被多少人收藏"（按人去重）。</li>
  * </ol>
  * ⚠️ **没有 {@code partial:}**：Set 无偏移语义，收藏域也没有"按序分页读大集合"的路径
- * （{@code /favorite/list} 分页的是**夹内记录行**、走 DB，见 §3.7），不存在前缀态。
- * ⚠️ **没有 {@code folders} 缓存**（§3.7 拍板）：低频 + "未收藏时短路"⇒ 正常路径几乎不打 DB；
+ * （{@code /favorite/list} 分页的是**夹内记录行**、走 DB，见 §七），不存在前缀态。
+ * ⚠️ **没有 {@code folders} 缓存**（§七 拍板）：低频 + "未收藏时短路"⇒ 正常路径几乎不打 DB；
  * 给它加缓存的失效点有 add / remove / move / 删夹 / 改名五个，换到的只是省一次亚毫秒点查。
  *
  * <h2>读路径（三态，与 like 逐项同构）</h2>
@@ -51,13 +51,13 @@ import java.util.Set;
  * <h2>★ 与 {@code LikeCache} 的唯一形态差异：写路径不做增量条件写</h2>
  * 点赞的一条关系行 ⟺ 一个赞，故 like 的写路径可以精确 {@code SADD+INCR} / {@code SREM+DECR}。
  * 收藏**不行**：{@code favorite_item} 的唯一键是 {@code uk_folder_content}（**夹内**唯一），
- * 同一用户可把同一内容收在多个夹里（合法态，需求篇 §三）⇒
+ * 同一用户可把同一内容收在多个夹里（合法态，favorite-需求.md §三）⇒
  * <ul>
  *   <li>{@code add}（收进第二个夹）**不改变**收藏数；</li>
  *   <li>{@code remove}（从某夹移出）**不必然**取消收藏（可能仍收在别的夹）；</li>
  *   <li>{@code move} 甚至可能"源夹本没有这条"⇒ insert 成功 + 源侧删 0 行 = **一次新增收藏**。</li>
  * </ul>
- * ⇒ 写路径分两档（{@code 收藏功能-编号索引.md A.3} I-11 已登记、用户 2026-10-12 拍板）：
+ * ⇒ 写路径分两档（{@code favorite.md 附录「编号速查」} I-11 已登记、用户 2026-10-12 拍板）：
  * <table>
  *   <caption>写路径动作</caption>
  *   <tr><th>写点</th><th>成员侧</th><th>计数侧</th></tr>
@@ -74,7 +74,7 @@ import java.util.Set;
  *
  * <h2>★ 计数的回源（T12 起读冗余列）</h2>
  * 一期回源走实时 {@code COUNT(DISTINCT user_id)}（≈17ms / 2 万行基线，
- * {@code 收藏功能-分期与设计.md} §3.2）；T12 落地后改读 {@code content.favorite_count} 列
+ * {@code favorite.md} §四）；T12 落地后改读 {@code content.favorite_count} 列
  * （主键点查，{@code ContentDao.findFavoriteCountById}）—— 列由收藏域四条写路径的
  * 「事务内批量重算」（{@code FavoriteService.recountFavoriteCounts}）维护，不变量
  * {@code 列 == COUNT(DISTINCT user_id)} 由 T12 的独立 oracle 钉住。
@@ -345,7 +345,7 @@ public class FavoriteCache {
      * 收藏数的**回源唯一调用点**（T12 已切换：实时聚合 → 冗余列点查）。
      *
      * <p>T12 之前：实时 {@code COUNT(DISTINCT user_id)}（按人去重，R-06；≈17ms / 2 万行基线，
-     * {@code 收藏功能-分期与设计.md} §3.2 —— 该查询已随切换退役删除）。
+     * {@code favorite.md} §四 —— 该查询已随切换退役删除）。
      * T12 之后：读 {@code content.favorite_count} 列（主键点查，
      * {@code ContentDao.findFavoriteCountById}）—— 列由四条写路径**事务内批量重算**维护
      * （{@code FavoriteService.recountFavoriteCounts}），不变量

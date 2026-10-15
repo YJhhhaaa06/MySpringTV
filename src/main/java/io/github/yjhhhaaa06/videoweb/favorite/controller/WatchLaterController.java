@@ -18,7 +18,7 @@ import java.util.List;
 /**
  * 稍后再看接口入口（路径前缀 {@code /watchlater}，收藏三期 T17）。
  *
- * <h2>端点归属（骨架 {@code 收藏功能-三期设计.md} §四.3）</h2>
+ * <h2>端点归属（{@code favorite.md} §九）</h2>
  * <table>
  *   <caption>四端点</caption>
  *   <tr><th>端点</th><th>说明</th></tr>
@@ -39,7 +39,7 @@ import java.util.List;
  *
  * <h2>★ 红线：除本清单外，任何地方都看不出"某视频是否在稍后再看中"</h2>
  * 本类**没有** {@code /watchlater/status}，也**不**让"是否已加入"出现在 {@code interaction} /
- * {@code /favorite/status} / 任何 {@code Content*VO} 里（需求篇 §六）。
+ * {@code /favorite/status} / 任何 {@code Content*VO} 里（favorite-需求.md §六）。
  *
  * <h2>成功信封 / 错误码</h2>
  * 三个写端点返回**中文文案字符串**（{@code data} 是字符串，同 {@code /favorite/{add,remove,move}}）。

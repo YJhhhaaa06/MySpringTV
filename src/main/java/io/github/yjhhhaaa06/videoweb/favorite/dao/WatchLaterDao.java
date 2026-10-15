@@ -14,7 +14,7 @@ import java.util.List;
  *   <li>★ <b>{@code add} 是 upsert（移到最前）</b>：{@code INSERT … ON DUPLICATE KEY UPDATE
  *       create_time = CURRENT_TIMESTAMP}（撞 {@code uk_user_content}）—— 重复 add **不新增行、
  *       不改 id、只把时间刷成当前** ⇒ 按 {@code create_time DESC} 重排即到最前（B 站实测，
- *       需求篇 §六）。**不写"先查后插"**（并发下先查后插必然漏，同 {@code uk_folder_content} 的处置）。</li>
+ *       favorite-需求.md §六）。**不写"先查后插"**（并发下先查后插必然漏，同 {@code uk_folder_content} 的处置）。</li>
  *   <li>★ <b>{@code remove} 不校验内容存在性</b>（同 **G11** 的理由）：直接按
  *       {@code (user_id, content_id)} 删行 —— 失效条目**必须删得掉**（列表里看得见占位就得能清）。
  *       幂等：命中的行少给（甚至 0 行）不算错。</li>
@@ -73,7 +73,7 @@ public interface WatchLaterDao {
      *
      * <p>★ 排除自身是"移到最前"语义的关键：{@code add} 一个**已在池中**的内容时，
      * 它自己不占"新增名额" ⇒ 池已满（100）时它**仍加得进去**（只把时间刷新）。
-     * 若不过滤自身，已满时连"重复 add"都会被 400 —— 与 B 站实测语义相悖（需求篇 §六）。
+     * 若不过滤自身，已满时连"重复 add"都会被 400 —— 与 B 站实测语义相悖（favorite-需求.md §六）。
      *
      * @param userId    当前登录用户
      * @param contentId 本次要 add 的内容 id（从计数里排除）

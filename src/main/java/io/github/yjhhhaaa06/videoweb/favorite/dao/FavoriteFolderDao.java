@@ -75,7 +75,7 @@ public interface FavoriteFolderDao {
     FavoriteFolder findById(@Param("id") long id);
 
     /**
-     * 我的收藏夹列表（含每夹条目数），**含私密夹**（分期篇 §3.3）。
+     * 我的收藏夹列表（含每夹条目数），**含私密夹**（favorite.md §三）。
      *
      * <h2>为什么用 LEFT JOIN + GROUP BY 而不是"先查夹再逐夹 COUNT"</h2>
      * 后者是 N+1（★ T16 起自建夹有 20 个的个数上限 ⇒ N ≤ 21，量已可控，但"一条 SQL 取回全部"仍是对的形态 ——
@@ -131,7 +131,7 @@ public interface FavoriteFolderDao {
      * 同 {@code FavoriteItemDao.existsByUserAndContent} 的取舍 ——"**为轻量判定另起一条窄查询**"，
      * 别把别的用途的 SQL 借过来凑（顺手改它的列还会连带影响那条端点的形状）。
      *
-     * <h2>口径（{@code 收藏功能-三期设计.md} §三）</h2>
+     * <h2>口径（{@code favorite.md} §八）</h2>
      * <ul>
      *   <li>★ <b>只数自建夹</b>（{@code is_default = 0}）：默认夹**不计入** 20 的上限 ——
      *       它由 R-01 懒建、用户删不掉，若计入就会出现"（夹数满时）默认夹建不出来"这类
@@ -173,7 +173,7 @@ public interface FavoriteFolderDao {
      * 再按 id 写。理由：把校验塞进 {@code WHERE user_id = ?} 会让"不是我的夹"与"改了但值没变"
      * 都表现为 0 行，**两种情况分不开**（MySQL 的 UPDATE 对"值未变化"同样返回 0）。
      *
-     * <p>默认夹**可以改名、也可以设私密**（B 站如此；需求篇只规定"默认夹删不掉"）。
+     * <p>默认夹**可以改名、也可以设私密**（B 站如此；favorite-需求.md只规定"默认夹删不掉"）。
      *
      * @param name      新夹名；{@code null} = 本次不改名（已由 service 校验非空白、≤ 100）
      * @param isPrivate 私密开关；{@code null} = 本次不动它

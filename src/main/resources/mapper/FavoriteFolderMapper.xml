@@ -12,7 +12,7 @@
      经 resultMap 显式映射，别指望下划线自动转换。
 
   ⚠️ 两条 SQL 里都**没有** `default_uniq`：它是 VIRTUAL 生成列（唯一键 uk_user_default 的挂载点），
-     不承载业务语义（理由见 收藏功能-编号索引.mdA.2 R-09）；INSERT 时由 MySQL 自己算。
+     不承载业务语义（理由见 favorite.md 附录「编号速查」R-09）；INSERT 时由 MySQL 自己算。
 -->
 <mapper namespace="io.github.yjhhhaaa06.videoweb.favorite.dao.FavoriteFolderDao">
 
@@ -91,7 +91,7 @@
     </select>
 
     <!-- 自建夹个数（T16：夹数上限的判定面，服务 POST /favorite/folder/add）。
-         ★ 只数 `is_default = 0` —— 默认夹**不计入** 20（三期设计 §三）：它是懒建出来的、用户删不掉，
+         ★ 只数 `is_default = 0` —— 默认夹**不计入** 20（favorite.md §八）：它是懒建出来的、用户删不掉，
            计入就会出现"夹数满 ⇒ 默认夹建不出来"这类不自愈的死局（会重演 I-08 的互锁）。
          ★ 命中 uk_user_default(user_id, default_uniq) 的**前导列**（表上刻意没有单独的 idx_user）。
          ⚠️ 实测 EXPLAIN（dev 库，2026-10-14）：type=ref / key=uk_user_default / Extra="Using where"

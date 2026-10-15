@@ -118,7 +118,7 @@ GET /feed ─► FeedController ─► FeedService.getFeed
   `LikeService.batchIsContentLiked`，而条目的关注态只能留着 Java 默认的 `false` —— 那是个**谎言**
   （feed 里都是已关注作者的内容）。T13 的三态 `Boolean` 解开了这个死结：未选中的维度是 `null`
   （= 本面不查），于是既能走互动域、又**不再撒谎**。各面带哪几维是**编译期常量**，见
-  `收藏功能-分期与设计.md` **§3.6**。
+  [favorite](./favorite.md) **§六 互动态**。
 - **跳过 null 会让返回页短于 `pageSize`**（内容已软删 / 缓存空标记）。这不是"到底"，前端已按
   `shortPageMeansEnd:false` 处置。
 

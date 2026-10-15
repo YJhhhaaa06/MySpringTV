@@ -81,7 +81,7 @@ class WatchLaterIsolationTests extends AbstractHttpIntegrationTest {
         assertThat(count(me.token, video)).as("基线：无人收藏 ⇒ 0").isEqualTo(0L);
         add(me.token, video);
         assertThat(count(me.token, video))
-                .as("★ 收藏数不因'加入稍后再看'变化（需求篇 §六：两者独立）").isEqualTo(0L);
+                .as("★ 收藏数不因'加入稍后再看'变化（favorite-需求.md §六：两者独立）").isEqualTo(0L);
         assertThat(oracleFavoriteCountColumn(video)).isZero();
     }
 
@@ -112,7 +112,7 @@ class WatchLaterIsolationTests extends AbstractHttpIntegrationTest {
         long video = insertVideoContent(me.id, "红线视频");
 
         assertThat(get("/watchlater/status?contentId=" + video, me.token).getStatusCode().value())
-                .as("★ 不提供'是否在稍后再看'的查询端点（需求篇 §六 / 骨架 §四.1③）——"
+                .as("★ 不提供'是否在稍后再看'的查询端点（favorite-需求.md §六 / favorite.md §九③）——"
                         + "该路径**未映射**（Spring 走全局出口，非 200），绝不是'可用状态端点'")
                 .isNotEqualTo(200);
 

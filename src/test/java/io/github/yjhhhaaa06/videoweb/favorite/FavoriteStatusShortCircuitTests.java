@@ -37,7 +37,7 @@ import static org.mockito.Mockito.verify;
 
 /**
  * 收藏三期 <b>T15：{@code /favorite/status} 短路</b> 的契约与性能形态测试
- * （{@code 能力 三期-3}；设计篇 §3.7；决策的来龙去脉见 {@code FURTHER_ISSUES.md} <b>F-17</b>）。
+ * （{@code 能力 三期-3}；favorite.md §七；决策的来龙去脉见 {@code FURTHER_ISSUES.md} <b>F-17</b>）。
  *
  * <h2>为什么单列一个类</h2>
  * {@code FavoriteStatusAndCountTests} 钉的是"状态 + 计数"的两个**业务口径**（去重 / 失效 / 鉴权 / 形状），

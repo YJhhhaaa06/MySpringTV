@@ -1,7 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.interaction.model;
 
 /**
- * 互动域的**维度**（R-13，2026-10-13 拍板；形态口径见 {@code 收藏功能-分期与设计.md} §3.6
+ * 互动域的**维度**（R-13，2026-10-13 拍板；形态口径见 {@code favorite.md} §六
  * 「列表侧形态统一」）。
  *
  * <h2>它解决什么</h2>
@@ -37,7 +37,7 @@ package io.github.yjhhhaaa06.videoweb.interaction.model;
  * ① **本面不查该维**（本枚举的用途）；② **该内容类型不适用该维**（投币 F-13 的预留位）。
  * 客户端语义相同 —— 都是"不显示该维度的状态" ⇒ 共用 {@code null}，不另造表示。
  * ⚠️ 键集**恒三维**，不靠"缺键"表达 ⇒ {@code InteractionStatusVO} 上**不加**
- * {@code @JsonInclude(NON_NULL)}（本仓三态惯例，见 §3.6）。
+ * {@code @JsonInclude(NON_NULL)}（本仓三态惯例，见 §六）。
  */
 public enum InteractionDimension {
 

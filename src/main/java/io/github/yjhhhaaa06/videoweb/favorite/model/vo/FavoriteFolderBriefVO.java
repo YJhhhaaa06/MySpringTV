@@ -15,7 +15,7 @@ import lombok.NoArgsConstructor;
  *   <li>{@link PublicFavoriteFolderVO} —— **他人**视角：只有 {@code name} + {@code itemCount}；</li>
  *   <li>本类 —— "某内容收在我的哪些夹"：只需 {@code id}（<b>操作定位</b>：移出 / 移动都按
  *       {@code (folderId, contentId)} 定位 —— 见 {@code FavoriteController.removeItems} /
- *       {@code moveItem}）+ {@code name}（<b>显示</b>：需求篇 §三「知道收在了哪些夹」）。</li>
+ *       {@code moveItem}）+ {@code name}（<b>显示</b>：favorite-需求.md §三「知道收在了哪些夹」）。</li>
  * </ul>
  * 复用 {@code FavoriteFolderVO} 会把 {@code itemCount}（每夹总条目数，与"这条内容"无关）和
  * {@code isPrivate} 一起带出来 —— 那是噪声，且将来给它加字段会**自动**流进本端点。

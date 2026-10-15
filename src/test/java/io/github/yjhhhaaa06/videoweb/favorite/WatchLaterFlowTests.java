@@ -27,9 +27,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <ul>
  *   <li><b>空池</b>：{@code list=[]} + {@code total=0}（不 404）；</li>
  *   <li>★ <b>add / list / remove 往返一致</b>：独立 oracle 直查 {@code watch_later} 复算；</li>
- *   <li>★ <b>重复 add ⇒ 移到最前</b>（需求篇 §六，B 站实测）：**不新增行、不改 id、只刷 create_time**
+ *   <li>★ <b>重复 add ⇒ 移到最前</b>（favorite-需求.md §六，B 站实测）：**不新增行、不改 id、只刷 create_time**
  *       —— oracle 断"行数不变 + id 不变 + 时间刷新 + 顺序到最前"；</li>
- *   <li>★ <b>只能加视频</b>（需求篇 §六）：非视频 ⇒ 400、不存在/已软删 ⇒ 404；</li>
+ *   <li>★ <b>只能加视频</b>（favorite-需求.md §六）：非视频 ⇒ 400、不存在/已软删 ⇒ 404；</li>
  *   <li>★ <b>上限 100</b>：加**新**内容且已满 ⇒ 400；已满时"已在池中"重复 add ⇒ **仍成功**；</li>
  *   <li>★ <b>remove 不校验内容存在性</b>（G11）：失效条目能移出；幂等（0 行不算错）；空集 ⇒ 400；</li>
  *   <li>★ <b>失效占位脱敏</b>（R-03 / R-11）：{@code invalid=true}、标题「内容已失效」、封面/作者 null、
@@ -38,8 +38,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * </ul>
  *
  * <h2>★ 期望值怎么来的（规避"迎合型伪测试"）</h2>
- * 三条实测语义出自需求篇 §六（用户 2026-10-14 现场实测）；"只能加视频"来自 需求篇 §五/§六；
- * 占位脱敏出自 R-03 / R-11；"失效能移出、不校验存在性"出自 G11；上限 100 出自骨架 §四 / 决策。
+ * 三条实测语义出自favorite-需求.md §六（用户 2026-10-14 现场实测）；"只能加视频"来自 favorite-需求.md §五/§六；
+ * 占位脱敏出自 R-03 / R-11；"失效能移出、不校验存在性"出自 G11；上限 100 出自favorite.md §九 / 决策。
  * 盖住实现，这些断言照样写得出来。
  *
  * <h2>独立性</h2>
@@ -53,7 +53,7 @@ class WatchLaterFlowTests extends AbstractHttpIntegrationTest {
     /** 失效占位标题（R-03；与 {@code WatchLaterService.INVALID_CONTENT_TITLE} 同源，此处独立写死以免抄实现）。 */
     private static final String INVALID_TITLE = "内容已失效";
 
-    /** 骨架 / 决策定的稍后再看上限（与 {@code video.favorite.watch-later-max-items} 一致）。 */
+    /** favorite.md §九 / 决策定的稍后再看上限（与 {@code video.favorite.watch-later-max-items} 一致）。 */
     private static final int LIMIT = 100;
 
     @BeforeEach
@@ -140,7 +140,7 @@ class WatchLaterFlowTests extends AbstractHttpIntegrationTest {
 
         // 顺序到最前：older 的 create_time 已被刷成"现在" ⇒ 排在 newer 之前
         assertThat(contentIds(Envelope.data(list(me.token, null, null)).path("list")))
-                .as("★ 再次 add 的'早加的'排最前（需求篇 §六，B 站实测）")
+                .as("★ 再次 add 的'早加的'排最前（favorite-需求.md §六，B 站实测）")
                 .containsExactly(older, newer);
         assertThat(createTime(me.id, older).getTime())
                 .as("★ create_time 被刷新到 now，晚于另一条")
@@ -174,7 +174,7 @@ class WatchLaterFlowTests extends AbstractHttpIntegrationTest {
         jdbcTemplate.update("UPDATE content SET is_deleted = 1 WHERE id = ?", deletedVideo);
 
         assertThat(add(me.token, text).getStatusCode().value())
-                .as("★ 图文不能进稍后再看（需求篇 §六：只能加视频）")
+                .as("★ 图文不能进稍后再看（favorite-需求.md §六：只能加视频）")
                 .isEqualTo(400);
         assertThat(add(me.token, deletedVideo).getStatusCode().value())
                 .as("对已软删视频：走 type 判据前的'未软删'条件 ⇒ 404（同 /favorite/add 的失效口径）")
@@ -200,11 +200,11 @@ class WatchLaterFlowTests extends AbstractHttpIntegrationTest {
         long extra = insertVideoContent(me.id, "第 101 条");
 
         assertThat(add(me.token, extra).getStatusCode().value())
-                .as("★ 已满（100）⇒ 加**新**内容 400（骨架 §四.2）").isEqualTo(400);
+                .as("★ 已满（100）⇒ 加**新**内容 400（favorite.md §九）").isEqualTo(400);
         assertThat(oracleCount(me.id)).as("被拒 ⇒ 仍是 100 行").isEqualTo(LIMIT);
 
         assertThat(add(me.token, fillers[0]).getStatusCode().value())
-                .as("★ 已满时'已在池中的内容'再次 add **仍成功**（判据排除自身，需求篇 §六）")
+                .as("★ 已满时'已在池中的内容'再次 add **仍成功**（判据排除自身，favorite-需求.md §六）")
                 .isEqualTo(200);
         assertThat(oracleCount(me.id)).as("★ 不新增行 ⇒ 仍是 100 行").isEqualTo(LIMIT);
         assertThat(contentIds(Envelope.data(list(me.token, null, null)).path("list")).get(0))

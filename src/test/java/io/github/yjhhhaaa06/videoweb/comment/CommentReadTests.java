@@ -342,7 +342,7 @@ class CommentReadTests extends AbstractContentIntegrationTest {
      *
      * <p>⚠️ **这条断言的作用域要说清**：它是 **DAO 参数级** 的（`@MockitoSpyBean` 看的是"服务向
      * DAO 要了多少行"），**不覆盖** SQL 侧 / 执行计划侧（"MySQL 实际只扫了本页"）。
-     * "负载 ∝ 本页"的**设计级证据**是一次性基线与改造后对照（见 `收藏功能-编号索引.md` **A.1 T14**：
+     * "负载 ∝ 本页"的**设计级证据**是一次性基线与改造后对照（见 `favorite.md` **附录「编号速查」T14**：
      * 优化前 DB 返 2 / 20000 行、HTTP 21ms / 68ms；改造后 ≤ pageSize+1 行、HTTP 20ms / 8ms）。
      */
     @Test
