@@ -61,6 +61,7 @@ function render() {
         <div class="detail-actions">
           <button class="like-btn" id="likeBtn">❤ 点赞 <span id="likeCount">0</span></button>
           <button class="like-btn" id="favBtn">⭐ 收藏</button>
+          <button class="like-btn" id="wlBtn">🕐 稍后再看</button>
           <button class="edit-btn" id="editBtn" style="display:none">✏ 编辑</button>
         </div>
         <div class="detail-desc" id="desc"></div>
@@ -211,6 +212,11 @@ function renderContent() {
   updateFavBtn();
   c.querySelector('#favBtn').onclick = openFavPicker;
   initFavorite();
+
+  // 稍后再看（T19）：★ 按钮**不做"已加入"持久态**、外观恒不变 —— 点击只发 add + 弹提示。
+  // 红线见需求篇 §六 / 骨架 §四.1（除 /watchlater/list 外任何地方都看不出"是否在稍后再看"）。
+  // onclick 赋值（同 favBtn）避免重复渲染叠加监听。
+  c.querySelector('#wlBtn').onclick = addWatchLater;
 
   // 作者本人可编辑作品（改标题/简介 + 替换/删除媒体）；onclick 赋值避免重复渲染时监听叠加
   const editBtn = c.querySelector('#editBtn');
@@ -692,6 +698,21 @@ async function createFolderFromPicker() {
     await refreshFavoriteCount();
   } catch (e) {
     showToast(e.message || '创建失败');
+  }
+}
+
+/**
+ * 稍后再看（T19）：点击调 POST /watchlater/add（只收视频；重复 add ⇒ 后端移到最前，前端不感知）。
+ * ★ 按钮外观**恒不变** —— 这里刻意不维护任何"已加入"状态（红线：除 /watchlater/list 外无状态面）。
+ * 非视频（图文）⇒ 后端 400「只能添加视频」，照文案提示即可。
+ */
+async function addWatchLater() {
+  if (!requireLogin()) return;
+  try {
+    await request(`watchlater/add?contentId=${state.contentId}`, { method: 'POST' });
+    showToast('已加入稍后再看');
+  } catch (e) {
+    showToast(e.message || '操作失败');
   }
 }
 

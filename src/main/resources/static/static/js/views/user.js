@@ -325,11 +325,15 @@ async function openFolderItems(folder) {
     batchSize: SHEET_BATCH_SIZE,
     keyOf: (it) => it.contentId,
   });
-  await openSheet(folder.name || '公开收藏夹', list, renderFolderItems);
+  // ★ 夹主人可随时把夹设为私密 / 删除（或夹在别处已删）⇒ 服务端**私密与不存在同为 404**
+  //   （不可区分，见 T18 口径）。这里给出人话提示，而不是笼统的"加载失败"。
+  await openSheet(folder.name || '公开收藏夹', list, renderFolderItems,
+    (e) => (e && e.code === 404) ? '收藏夹不存在或已设为私密' : '加载失败');
 }
 
 // 抽屉通用骨架：标题 + 一份分块列表 + 一个渲染器（打开时重建实例 = 本地余量/已展示集清空）
-async function openSheet(title, list, render) {
+// errorOf（可选）：把首屏拉取失败的错误映射成人话文案（缺省「加载失败」）—— 见 openFolderItems 的 404 分支
+async function openSheet(title, list, render, errorOf) {
   const c = state.container;
   c.querySelector('#sheetTitle').textContent = title;
   c.querySelector('#sheetList').innerHTML = '<div class="sheet-empty">加载中...</div>';
@@ -342,7 +346,8 @@ async function openSheet(title, list, render) {
     render(batch, false);
     renderSheetMore();
   } catch (e) {
-    c.querySelector('#sheetList').innerHTML = '<div class="sheet-empty">加载失败</div>';
+    const msg = errorOf ? errorOf(e) : '加载失败';
+    c.querySelector('#sheetList').innerHTML = '<div class="sheet-empty">' + escapeHtml(msg) + '</div>';
     c.querySelector('#sheetMore').innerHTML = '';
   }
 }

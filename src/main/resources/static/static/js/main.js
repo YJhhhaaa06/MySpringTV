@@ -2,7 +2,7 @@
 // 应用入口：渲染外壳（顶部导航 + 左抽屉）+ 注册路由 + 启动。
 // 导航职责：
 //   顶部导航 = 菜单按钮 + Logo + 分类下拉 + 搜索 + 头像
-//   左侧抽屉 = 首页 / 动态 / 我的 / 创作中心 / 收藏 / 历史（默认隐藏）
+//   左侧抽屉 = 首页 / 动态 / 我的 / 创作中心 / 收藏 / 稍后再看 / 历史（默认隐藏）
 //   分区（推荐/游戏/音乐…）收纳在顶部「分类」下拉，选中按分区过滤首页。
 // ============================================================================
 
@@ -19,6 +19,7 @@ import * as login from './views/login.js';
 import * as coupon from './views/coupon.js';
 import * as admin from './views/admin.js';
 import * as favorite from './views/favorite.js';
+import * as watchlater from './views/watchlater.js';
 
 const CATEGORIES = [
   { id: -1, name: '推荐' },
@@ -47,6 +48,8 @@ const ICONS = {
   search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>',
   star: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3.2l2.7 5.4 6 .9-4.3 4.2 1 6-5.4-2.8-5.4 2.8 1-6-4.3-4.2 6-.9L12 3.2z"/></svg>',
   history: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>',
+  // 稍后再看（T19）：方框内一个播放三角 —— 与「历史」的时钟区分开
+  watchlater: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="4"/><path d="M10 9.5v5l4.5-2.5z"/></svg>',
 };
 
 // ---------- 外壳渲染 ----------
@@ -77,6 +80,7 @@ function renderShell() {
     <a class="drawer-item" href="#/user/me" data-nav="user">${ICONS.user}<span class="drawer-label">我的</span></a>
     <a class="drawer-item" href="#/publish" data-nav="publish">${ICONS.publish}<span class="drawer-label">创作中心</span></a>
     <a class="drawer-item" href="#/favorite" data-nav="favorite">${ICONS.star}<span class="drawer-label">收藏</span></a>
+    <a class="drawer-item" href="#/watchlater" data-nav="watchlater">${ICONS.watchlater}<span class="drawer-label">稍后再看</span></a>
     <a class="drawer-item disabled" data-nav="history">${ICONS.history}<span class="drawer-label">历史</span></a>`;
 
   refreshUserArea();
@@ -168,6 +172,7 @@ function registerRoutes() {
   register('/coupon', coupon);
   register('/admin', admin);
   register('/favorite', favorite);
+  register('/watchlater', watchlater);
 }
 
 // ---------- 导航高亮 ----------
@@ -181,6 +186,7 @@ function onRouteChange({ pattern, query }) {
     else if (nav === 'user') active = pattern === '/user/:id';
     else if (nav === 'publish') active = pattern === '/publish';
     else if (nav === 'favorite') active = pattern === '/favorite';
+    else if (nav === 'watchlater') active = pattern === '/watchlater';
     el.classList.toggle('active', active);
   });
   // 分类下拉高亮当前分区
