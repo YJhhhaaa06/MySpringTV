@@ -366,7 +366,8 @@ video:
         capacity: ${RATE_LIMIT_USER_AUTHED_CAPACITY:20}
         refill-per-sec: ${RATE_LIMIT_USER_AUTHED_REFILL_PER_SEC:2}
       # ⚠️⚠️ 匿名桶在 MockMvc 里**全是 127.0.0.1** ⇒ 测试互相吃额度（NAT 语义退化成全局限流）。
-      #    故这两键必须可覆盖：非限流测试若被误伤，把它调成一个很大的数即可（见 CURRENT_TASKS.md T25）。
+      #    故这两键必须可覆盖：非限流测试若被误伤，把它调成一个很大的数即可（对冲口径见
+      #    architecture/tech/限流.md §六；该环境的测试夹具前提见 T25）。
       anon:
         capacity: ${RATE_LIMIT_USER_ANON_CAPACITY:60}
         refill-per-sec: ${RATE_LIMIT_USER_ANON_REFILL_PER_SEC:6}
@@ -375,9 +376,13 @@ video:
       default-base: ${RATE_LIMIT_COST_DEFAULT_BASE:1}
       # 信号②（"这一次查询有没有命中缓存"）：miss 时的乘数，**1.0 = 关闭**（沿用本仓"0/1 = 关闭"惯例）。
       # 锚点："miss 一次 ≈ 三次命中"（凭"DB 远慢于 Redis"的量级差）。推翻条件：有命中/未命中的实测耗时比。
+      # ⚠️ 取 1.0（关闭）而不是"3.0"：信号②的**回传机制尚未落地**（属 T26）⇒ 此刻给 3.0 也是无效力的空档，
+      #    而 1.0 恰好是"未启用"的诚实状态；T26 落地时再决定是否按锚点启用（登记 I-16）。
       miss-multiplier: ${RATE_LIMIT_COST_MISS_MULTIPLIER:1.0}
       # 被拒请求仍扣的"询问费"比例：0 = 被拒免费探路（防刷最弱）、1 = 用户为服务器过载全额买单。
       # 锚点："被拒 = 打三折"，既不免费也不全款。推翻条件：出现正常用户被误伤的证据。
+      # ⚠️ 构造期只拒 [0,1] **之外**的值 ⇒ 0 是合法值、"键名写错"会静默绑成 0.0 而绕过校验；
+      #    该洞由 RateLimitPropertiesBindingTests#被拒折扣落在开区间（口径取开区间 (0,1)）兜住。
       reject-discount: ${RATE_LIMIT_COST_REJECT_DISCOUNT:0.3}
       # 权重表：key = 「<HTTP 方法> <空格> <路径模式>」（Spring 路由模式，非具体 id），value = 该端点一次的令牌数。
       # 锚点：按"是否触达 DB 写 + 是否重活"排序 —— 登录/注册 5、上传 10、写路径 3；读一律吃 default-base = 1
@@ -386,8 +391,9 @@ video:
       #      "小写字母数字与 - 之外"的字符**静默删掉**：写成 POST /favorite/add: 3 时
       #      实际绑出来的是 POSTfavoriteadd —— 无任何报错，只是这条权重永远命不中、
       #      悄无声息地全落 default-base。RateLimitProperties 把 key 形态钉成绑定期校验 ⇒ 漏了方括号会启动失败。
-      # ⚠️ 覆盖范围：此处只落设计稿点名的那几组（登录/注册、上传、四域写路径的 add/remove）；
-      #      更完整的权重覆盖属 T26（权重表 + 缓存 miss 系数）。未登记的写路径目前落 1（偏保守方向）。
+      # ⚠️ 覆盖范围：此处只落**登录/注册、上传、四域写路径的 add/remove** 这几组（首版权重表的范围）；
+      #      更完整的权重覆盖属 T26（权重表 + 缓存 miss 系数，见 architecture/tech/限流.md §四）。
+      #      未登记的写路径目前落 1（偏保守方向）。
       base:
         "[POST /user/login]": 5
         "[POST /user/register]": 5

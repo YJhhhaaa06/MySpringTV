@@ -44,7 +44,8 @@ class RateLimitPropertiesStartupFailureTests {
 
     /**
      * 一份**合法**的完整配置（唯一来源，避免每个用例各抄一遍而抄漏）。
-     * 期望值 = 设计稿 §9.1 首版数值；本类只关心"合法/非法"，不关心量级（那是
+     * 期望值 = 首版数值（唯一出处 = {@code application.yaml} 的 {@code video.rate-limit} 段注释）；
+     * 本类只关心"合法/非法"，不关心量级（那是
      * {@code RateLimitPropertiesBindingTests} 的事）。
      */
     private static List<String> validConfig() {

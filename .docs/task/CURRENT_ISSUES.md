@@ -27,19 +27,48 @@
 
 ### I-15 `@ConfigurationProperties` record **能**绑嵌套段 —— 本仓两处注释的说法经实测不成立【**分类：债务** · 状态：**待处理**】
 
-- **问题**：`application.yaml` 的 `feed.delivery` 段注释与 `FeedProperties` javadoc 都写着
-  "record 只认本前缀下的扁平键，**嵌套会被静默忽略并绑成 0**"，并以此作为"嵌套段必须另起 record"的理由。
+- **问题**：`application.yaml` 的 `feed.delivery` 段注释（该措辞的**唯一出处**）写着
+  "record 只认本前缀下的扁平键，**嵌套会被静默忽略并绑成 0**"，并以此作为"嵌套段必须另起 record"的理由；
+  `FeedDeliveryProperties` / `FeedCompensateProperties` 的类注释有同族表述（"record 只能绑自身前缀下的扁平键"）。
+  ⚠️ **不含** `FeedProperties` javadoc —— 它讲的是"**刻意分家**"（关注点分离），那是个**结论**、不依赖这个理由。
 - **现象**：实测**不成立** —— 同一前缀下把三段声明为**嵌套 record 字段**（`server` / `user{authed,anon}` / `cost`），
   三段都正确绑定（层层非 `null`、值正确）。
-- **证据（可复核）**：`temp-script/RateLimitBindingProbe.java`（YAML → `YamlPropertySourceLoader` → `Binder`）
-  与 `temp-script/RateLimitContextProbe.java` / `RateLimitRealProbe.java`（真实 `ApplicationContextRunner` +
-  `@ConfigurationProperties`，含"非法值 ⇒ 上下文起不来"对照）；单文件 `java -cp <spring-boot/snakeyaml/…>` 直跑，
-  不需要 Maven / Docker。落地侧证据 = `RateLimitPropertiesBindingTests#三段嵌套都绑上`（T23，真上下文）。
+- **证据（可复核）**：落地侧 = `RateLimitPropertiesBindingTests#三段嵌套都绑上`（T23，**真上下文**、入库）。
+  旁证 = 三个一次性探针 `temp-script/RateLimitBindingProbe.java`（YAML → `YamlPropertySourceLoader` → `Binder`）、
+  `RateLimitContextProbe.java` / `RateLimitRealProbe.java`（真实 `ApplicationContextRunner` +
+  `@ConfigurationProperties`，含"非法值 ⇒ 上下文起不来"对照）—— ⚠️ 它们在 `temp-script/`（**本地排除、不入库**）
+  ⇒ **跨机不可复核**，故以入库的集成测试为准。
 - **影响**：**不是运行期缺陷**，是**文档误导** —— 后人会据一个不成立的约束去设计（T23 的选型就被它挡过一次）。
-  ⚠️ 它**不否定** feed 那两处"分家"的**结论**（分家是为了关注点分离 + YAML 可读性，理由仍成立），要纠的只是**理由**。
-- **处置**：注释纠偏（改 `application.yaml` 的 `feed.delivery` 段注释与 `FeedProperties` javadoc 的"嵌套会被静默忽略"表述）。
+- **处置**：注释纠偏（改 `application.yaml` 的 `feed.delivery` 段注释与两个 Properties 类注释的"嵌套会被静默忽略 / 只能绑扁平键"表述）。
   ⚠️ 那是 **feed 域**的注释，**不在 T23 范围内**（不顺手改别人）⇒ 留待处理。
-- **去向**：**待处理**（限流专项收口前若仍无人认领，结转 `FURTHER_ISSUES.md`）。
+- **去向**：**待处理**（限流专项收口前若仍无人认领，结转 `FURTHER_ISSUES.md`）。速查行见 `architecture/tech/限流.md` §二。
+
+### I-16 设计稿对 `miss-multiplier` 的**首版值**自相矛盾（§9.1 写 3.0 / §九 写 1.0 = 关闭）【**分类：决策** · 状态：**待处理**】
+
+- **问题**：`限流-设计稿.md` §九 的参数结构写"`miss-multiplier` **默认 1.0 = 关闭**（显式给 >1 才生效）"，
+  而 §9.1 首版数值表把该键的**首版值**写成 **3.0**；`CURRENT_TASKS.md` 的 `T26` 目标也只说"默认 1.0 = 关闭"。
+- **现象**：两处对"首版该配多少"给出相反答案 ⇒ T23 落 `application.yaml` 时必须二选一。
+- **证据（可复核）**：`grep -n "miss-multiplier\|missMultiplier" .docs/task/限流-设计稿.md .docs/task/CURRENT_TASKS.md`。
+- **影响**：只影响**一个配置数值**，不影响结构；但**信号②的回传机制（`T26`）尚未落地**，
+  此刻给 3.0 也是**无效力的空档**（没人统计 miss）。
+- **处置**：T23 **取"1.0 = 关闭"**（`RateLimitProperties` 校验 `>= 1.0`，测试断言 `== 1.0`），
+  并在 `application.yaml` 该键注释里写明这是取了哪一处口径；**是否按 §9.1 启用（>1）留给 `T26` 拍板**。
+- **去向**：**待处理**（`T26` 落地信号②时一并裁决；届时若启用，须同步改配置注释与那条断言）。
+
+### I-17 `doc_refs.py` 的通过语 over-claim"四条不变式成立"（②的"`task/` 禁入代码"面未实现）【**分类：债务** · 状态：**待处理**】
+
+- **问题**：`tools/doc_refs.py` 通过时打印"✅ …（INDEX §五.5 **四条不变式成立**）"，
+  但它只实现了①（`.md` 引用可解析）与③（别名黑名单）＋②的"裸文件名只解析到 archive 副本"一种形态；
+  **②的"`task/CURRENT_*` 登记台禁入代码"根本没有检查** ⇒ 绿色结论**可被证伪**。
+- **现象**：T23 自己就在代码里新引了两处（`RateLimitProperties` 的 `CURRENT_ISSUES.md`、
+  `application.yaml` 的 `CURRENT_TASKS.md`），门禁照样报"四条不变式成立"（**已在本任务修正**）。
+  存量另有一处：`favorite/dao/FavoriteItemDao.java` 引 `CURRENT_NEEDS.md`（属收藏域，未处理）。
+  ⚠️ `db/migration/**` 里那处（`V2__favorite_tables.sql`）**逐字节冻结**，按纪律不属于本问题的可修面。
+- **证据（可复核）**：`grep -rnE "CURRENT_(TASKS|ISSUES|NEEDS)" src` 与 `tools/doc_refs.py` 的 `scan()`（只产三类结果）。
+- **影响**：门禁的**可信度**——它把"没查"包装成"已成立"，而本仓的立足点正是"把纪律变成会失败的命令"。
+- **处置**：二选一 —— ①给 `doc_refs.py` 补一条"引用路径必须落在 `architecture/**` / `archive/**`（显式路径）"的规则
+  （会同时让存量那 1 处变红，需一并改指）；②把 banner 收窄，明确"②的路径前缀面未覆盖"。
+- **去向**：**待处理**（属 `tools/` 与收藏域，不在 T23 范围）。速查行见 `architecture/tech/限流.md` 附录。
 
 > 📌 **征集专项收口的结转**：`I-14`（`FollowCacheTests` 全量偶发红 —— 别域消费者进验证窗口）
 > **已结转 `FURTHER_ISSUES.md` **F-24****（它**不属收藏域**，是 feed 域测试隔离债）⇒ 移出本表。

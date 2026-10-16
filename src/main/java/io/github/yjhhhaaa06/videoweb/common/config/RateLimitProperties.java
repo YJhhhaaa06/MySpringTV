@@ -22,7 +22,7 @@ import java.util.regex.Pattern;
  * ★ <b>嵌套 record 是能绑的</b>（Boot 4.1.1 实测：{@code Binder} 直绑与真实
  * {@code @ConfigurationProperties} 两条路径都绑上，层层非 {@code null}）——
  * 本仓 {@code application.yaml} 里 feed 段那句"record 只认本前缀下的扁平键、嵌套会被静默忽略
- * 并绑成 0"**经实测不成立**（已登记 {@code CURRENT_ISSUES.md} I-15，注释纠偏不属本任务）。
+ * 并绑成 0"**经实测不成立**（登记为 {@code I-15}，见 {@code architecture/tech/限流.md} §二）。
  * 这里选择嵌套而非拆成四个类：它与 YAML 层级**字面对应**，"哪个键属于哪一段"不用靠命名去猜。
  *
  * <h2>★ 数值全是<b>拍的</b>（本仓无真实流量）</h2>
@@ -117,7 +117,7 @@ public record RateLimitProperties(Server server, User user, Cost cost) {
     }
 
     /**
-     * 成本信号与折扣（设计稿 §四 / §九）。
+     * 成本信号与折扣（口径见 {@code architecture/tech/限流.md} §二 / §四）。
      *
      * @param base           权重表：key = 「{@code <方法> <路径模式>}」（Spring 路由模式，非具体 id，
      *                       如 {@code POST /favorite/add}），value = 该端点一次的令牌数。
@@ -128,8 +128,11 @@ public record RateLimitProperties(Server server, User user, Cost cost) {
      *                       本就有 {@code default-base} 兜底，不会变成"不限"。
      * @param defaultBase    未登记路由的兜底权重（首版 1）。★ **不是 0** —— "漏配 = 不限"正是要防的。
      * @param missMultiplier 信号②：本次请求发生缓存 miss 时的乘数（首版 {@code 1.0 = 关闭}）。
-     * @param rejectDiscount 被拒请求仍扣的"询问费"比例（首版 0.3；口径见设计稿 §二）：
+     * @param rejectDiscount 被拒请求仍扣的"询问费"比例（首版 0.3；口径见 {@code architecture/tech/限流.md} §二）：
      *                       {@code 0} 则被拒请求可零成本探路、{@code 1} 则用户为服务器过载全额买单。
+     *                       ⚠️ {@code 0} 是**合法值**（故本键键名写错会静默绑成 0.0 而绕过下面的区间校验）
+     *                       —— 该洞由 {@code RateLimitPropertiesBindingTests#被拒折扣落在开区间} 兜住
+     *                       （口径取开区间 {@code (0,1)}：被拒既不能免费、也不能全款；改键名或改成 0 必红，已实测）。
      */
     public record Cost(Map<String, Integer> base, int defaultBase, double missMultiplier, double rejectDiscount) {
 

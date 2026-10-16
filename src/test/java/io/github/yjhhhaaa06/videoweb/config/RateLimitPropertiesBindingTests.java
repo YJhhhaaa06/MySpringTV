@@ -40,7 +40,10 @@ class RateLimitPropertiesBindingTests extends AbstractIntegrationTest {
     @Test
     @DisplayName("三段嵌套都绑上了 —— 一个 record 里的嵌套 record 不是静默 null")
     void 三段嵌套都绑上() {
-        // ★ 这条同时是"嵌套 record 可绑"的**反向证据**：若嵌套被静默忽略，这里必红。
+        // ★ 本用例的**判别力来自"上下文起得来"**：若嵌套段被静默忽略，构造期的 require 就会抛
+        //   ⇒ 上下文启动失败 ⇒ 本类全红（不是靠下面几条断言）。
+        //   这几条 isNotNull 是"边界已成立"的**结果**（外层构造器已保证非 null），保留只为把
+        //   "哪三段、哪两个子段"写明白 —— 属于**说明性**断言，别把它当成独立判别力。
         assertThat(limits.server()).as("video.rate-limit.server").isNotNull();
         assertThat(limits.user()).as("video.rate-limit.user").isNotNull();
         assertThat(limits.cost()).as("video.rate-limit.cost").isNotNull();
@@ -54,8 +57,11 @@ class RateLimitPropertiesBindingTests extends AbstractIntegrationTest {
         RateLimitProperties.Server server = limits.server();
         assertThat(server.capacity()).as("服务器桶容量（瞬时在途上限）").isPositive();
         assertThat(server.taskCost()).as("任务自付费单价（锚点：一次重建 ≈ 十次普通读）").isPositive();
+        // ★ 本条（含下面两条 Bucket 的）只在**测试层**兜住，构造期校验刻意不管：桶补满时间
+        //   ceil(capacity / refill) 若 < 1 秒，`capacity` 就成了唯一的有效上界、`refill` 退化为
+        //   "几乎立刻补满"（口径可见 architecture/tech/限流.md §二）。
         assertThat(server.refillPerSec())
-                .as("服务器桶补充速率必须为正，且不得超过容量（否则桶 1 秒内补满，速率这层限制名存实亡）")
+                .as("补充速率必须为正，且不得大于容量（否则补满时间 < 1 秒，refill 不再是有效的稳态上界）")
                 .isPositive()
                 .isLessThanOrEqualTo(server.capacity());
 
@@ -85,7 +91,7 @@ class RateLimitPropertiesBindingTests extends AbstractIntegrationTest {
                 .as("权重表为空 ⇒ 多半是整段键名写错 / 前缀写错（空表本身合法，但不该是当前状态）")
                 .isNotEmpty();
         assertThat(base)
-                .as("设计稿点名的示例路由必须在表里（键名逐字一致）")
+                .as("示例路由必须逐字在表里（键名一致）")
                 .containsKey("POST /favorite/add");
         assertThat(base.keySet())
                 .as("每个 key 都必须是「<方法> <以 / 开头的路径模式>」形态；"
