@@ -128,6 +128,13 @@ public class CommentCache {
      * <p>⚠️ Redis 失败的降级路径**维持旧形态**：keyset 走到目标窗口（{@link #loadRootsFromDb}）
      * 后内存切片——它是冷路径（Redis 不可用才走），改 OFFSET 单查询并不省扫描行数
      * （{@code LIMIT offset,n} 本身 O(offset)），却要新增一条 DAO 查询，不值得（已知边界）。
+     *
+     * <p>⚠️ T21 的三处**已知边界**（独立审查留痕）：① 旧 hit-empty 判据是"反序列化过滤后为空"，
+     * 会把"LIST 元素全为空串"的损坏缓存一并当成无评论；新判据 {@code LLEN == 0} 不再吸收该场景
+     * （写侧 {@code toJson} 不会产出空串元素 ⇒ 实际不可达，且新行为更诚实）。② 越界页判定里
+     * LRANGE 与 LLEN 之间若有并发失效 DEL，会瞬时返回 total 0——旧实现有对称竞态（DEL 恰在
+     * LRANGE 前发生），两者均由下次读自愈。③ 越界页/空页比旧实现多一次 {@code LLEN}
+     * （O(1)、{@code &&} 短路 ⇒ 仅空区间触发，正常页零额外往返）。
      */
     public PageWindow getRootPage(long contentId, int page, int pageSize) {
         // 兜底非法分页参数（Controller 已归一）：给空页而不是假装第 1 页（避免 subList 越界）；

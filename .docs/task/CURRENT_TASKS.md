@@ -23,7 +23,7 @@
 * **本周期**：**第 5 张清单已开第一题** —— `T21`（`FURTHER_ISSUES.md` **F-20 ①**；用户 2026-10-16 指定"本窗口内调查 F-20 并决定去向"，调查后拍板 **① 修** ⇒ 登记开工；`T1`–`T20` **不回收**）。
   ⚠️ **R-15 其余候选（甲的后续 / 乙 / 丁）仍待拍板** —— 本题只是甲方向的**第一题**，不代表 R-15 已整体拍板。
 * **收尾 checklist**（每期收尾逐条打勾）：☐ 回归基线全绿 · ☐ 完成态已清出（记入 git）· ☐ 编号已收编进**速查** · ☐ 问题已结转（`FURTHER_ISSUES.md`）· ☐ **引用三道校验**（`doc_links` / `doc_refs` / `doc_stats`）· ☐ 工作树干净
-* **回归基线**：`python tools/run_tests.py` → **498 例全绿**（默认排除 `resilience`；2026-10-15 T18 交付后实测）｜`--group resilience` → **34 例全绿**（合计 **532**）
+* **回归基线**：`python tools/run_tests.py` → **500 例全绿**（默认排除 `resilience`；2026-10-16 T21 交付后实测）｜`--group resilience` → **34 例全绿**（2026-10-15 T18 实测；T21 未新增 resilience 用例，数字顺延；合计 **534**）
 
 ---
 
@@ -84,7 +84,7 @@
 * **红线边界**：不动缓存格式（LIST 结构 / TTL / 失效三件套）；不动写侧窗口装载；不破 `PageResult` 信封；**降级路径形态维持**（Redis 挂时 keyset 走到目标窗口后内存切片——冷路径，改 OFFSET 不省扫描，另立一行已知边界）；**C-6 硬前提**：先造 2 万主楼拿"优化前"数字（**因果实验**：p1 冷 → 深翻 p2000 → p1 再测），无基线不得宣称优化生效。
 * **强制探索**：✅ `readRootsAll` 仅 `prepareRoots` 一个调用方；✅ 既有测试不绑内部实现（`CommentCacheTests` 断言水位/HTTP/verify 次数，`CommentReadTests#分页越界与逐页` 钉 T8 越界页），可全部保留。
 * **验收**：① 性能契约测试（spy 钉区间参数，旧实现注入下变红）；② 越界页 / hit-empty / 降级 / DB 失败语义测试全绿（既有 + 新增）；③ 反向验证（注入 `LRANGE 0 -1` ⇒ 红 ⇒ 还原）；④ 全量回归绿；⑤ C-6 前后对照数字记录在案；⑥ 三道门禁 0 违规。
-* **回写**：`CommentRedisOps.readRootsAll` → `readRootsInterval`（`LRANGE from..to` + EXPIRE 一趟 pipeline）；`CommentCache.getRootPage` 改区间读 + 显式三态判定（hit-empty / 越界页 / 正常页），**写侧装载与降级路径不动**；新增性能契约（spy 钉区间参数）与越界页双向对照测试，评论域 46 例全绿。C-6 因果实验（2 万主楼：p1 冷 → 深翻 p2000 → p1 再测）：p1 热请求中位 **51ms→10ms**（搬运 20000→10 条）、已装载窗口内深翻 40ms→10ms；反向验证注入全量读 ⇒ 契约红 ⇒ 逐字节还原后绿。自拆 3 commit：登记 / 实现+测试 / 文档收尾。
+* **回写**：`CommentRedisOps.readRootsAll` → `readRootsInterval`（`LRANGE from..to` + EXPIRE 一趟 pipeline）；`CommentCache.getRootPage` 改区间读 + 显式三态判定（hit-empty / 越界页 / 正常页），**写侧装载与降级路径不动**；新增性能契约（spy 钉区间参数）与越界页双向对照测试，评论域 46 例全绿。C-6 因果实验（2 万主楼：p1 冷 → 深翻 p2000 → p1 再测）：p1 热请求中位 **51ms→10ms**（搬运 20000→10 条）、已装载窗口内深翻 40ms→10ms。反向验证**注入做在 `readRootsInterval` 内部**（`range(start,end)` 改回 `range(0,-1)`）⇒ 契约测试红（区间读后无内存切片，全量读在**响应体**上直接可见；verify 区间参数为第二重判据）⇒ 逐字节还原后绿。自拆 4 commit：登记 / 实现+测试 / 文档收尾 / 审查修正。
 
 （第 5 张清单后续任务待 R-15 拍板后登记。）
 
