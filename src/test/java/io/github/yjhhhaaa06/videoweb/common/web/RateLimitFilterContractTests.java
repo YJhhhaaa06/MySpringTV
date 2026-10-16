@@ -30,12 +30,15 @@ import static org.assertj.core.api.Assertions.within;
  * {@link RateLimitFilter}（限流闸门）的 **HTTP 级契约测试**（限流专项 T25；
  * 口径见 {@code architecture/tech/限流.md} §三）。
  *
- * <h2>★ 测试参数整体调小 + 覆盖生效守门（对冲设计稿 D-3）</h2>
+ * <h2>★ 测试参数整体调小 + 覆盖生效守门（对冲"匿名桶退化为全局限流"，见 {@code architecture/tech/限流.md} §三）</h2>
  * MockMvc / 本机 HTTP 的匿名请求 IP 全是 {@code 127.0.0.1} ⇒ 匿名桶在本环境退化为
- * "全局限流"。本类用 {@link DynamicPropertySource} 把桶参数整体调小（cap=4、rate=1/s），
- * 并用 {@link #测试小参数覆盖确实生效()} 守门——★ 子类 {@code @DynamicPropertySource} 方法在
- * 基类（{@code AbstractIntegrationTest} 的"调大基线"）**之后**执行、同名键后写者胜，
- * 故这里必须显式断言覆盖真的生效：**一旦覆盖失效，本类所有用例都会在 1M 大桶下假绿**。
+ * "全局限流"。本类用 {@link TestPropertySource} **内联属性**把桶参数整体调小
+ * （cap=4、rate=1/s）——内联属性"父类先、子类后、同键**子类胜**"是 Spring 文档明文的合并规则，
+ * 故子类覆盖父类（{@code AbstractIntegrationTest} 的 1M 大桶基线）是**受保证**的行为；
+ * 并用 {@link #测试小参数覆盖确实生效()} 守门。★ 之所以必须有守门：本仓 Boot 4.1.1 实测
+ * **子类 {@code @DynamicPropertySource} 覆盖不了父类同键值**（父类源胜出）——T25 首版
+ * 就是用那条通道写的，守门用例当场抓到 1M 假绿。属性通道的优先级不能靠猜，
+ * 守门用例把"覆盖确实生效"变成可复算事实。
  *
  * <h2>期望值的推导口径（不抄实现）</h2>
  * 全部由四个参数按设计语义推出：cap=4、rate=1/s、cost=default-base=1、discount=0.3

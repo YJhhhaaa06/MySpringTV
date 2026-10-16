@@ -41,15 +41,15 @@ import java.util.Set;
  * ⚠️ 本任务给 {@code JwtAuthFilter} 与本类都补了显式 {@code @Order}（此前它无序、排最低）——
  * 链序一旦变动必须同步《安全与鉴权》§2.1 与本类注释。
  *
- * <h2>覆盖范围（设计稿 §七）</h2>
- * 除跳过清单外**全部过闸**：含匿名读接口、未映射路径（404 扫描流正是要防的对象之一）、
+ * <h2>覆盖范围（口径的唯一事实源 = {@code architecture/tech/限流.md} §三）</h2>
+ * 除跳过清单外**全部过闸**：含匿名读接口、未映射路径（扫描流正是要防的对象之一）、
  * {@code /api/admin}（通过鉴权的管理员请求同样过闸）。**无任何白名单**（含管理员——
  * 管理端人工操作流量极小，不值得开"绕过口"）。
  * <p>跳过清单 = 精确 {@code /}、{@code /index.html}、{@code /favicon.ico}（浏览器默认请求，
  * 文件不存在也是 404）＋ 前缀 {@code /static/}（前端 18 文件）、{@code /actuator/}、
  * {@code /upload/}。理由：静态资源不是业务成本，一起过闸会拖慢首屏、甚至 429 掉 CSS。
- * ⚠️ {@code /upload/}（静态媒体服务，{@code WebMvcConfig#addResourceHandlers}）在设计稿 §七
- * 的清单里**没有点名**——执行期按"ResourceHandler 静态服务一律跳过"的同一口径补上
+ * ⚠️ {@code /upload/}（静态媒体服务，{@code WebMvcConfig#addResourceHandlers}）在原始
+ * 覆盖清单里**没有点名**——执行期按"ResourceHandler 静态服务一律跳过"的同一口径补上
  * （429 掉视频文件与 429 掉 CSS 是同一类事故），登记 {@code I-19}；
  * 业务上传端点是 {@code POST /api/upload/*}，与本前缀零交集，不受影响。
  *
@@ -60,17 +60,17 @@ import java.util.Set;
  * 另带 {@code Retry-After} 响应头（秒，向上取整；令牌桶天生知道自己何时补齐）。
  *
  * <h2>★ fail-open：两种失败都放行，但日志分两档</h2>
- * Redis 不可达 / 熔断打开（{@code guarded} 快速失败）⇒ **放行**（设计稿 D-5：可用性优先，
+ * Redis 不可达 / 熔断打开（{@code guarded} 快速失败）⇒ **放行**（可用性优先，
  * 对齐本仓"缓存不可用不许 500"的既有口径）。⚠️ {@code RateLimitScriptException}（限流器
  * **自身缺陷**：脚本错 / 返回解析失败，T24 刻意不归一成 {@code CacheUnavailableException}）
- * **同样放行**——若它 500，限流器就成了整个 API 的单点故障，违背 D-5；但它的日志档位
- * **必须更高（ERROR）**："限流静默消失"的唯一出口就是这行日志（设计稿 §六 兜底②）。
+ * **同样放行**——若它 500，限流器就成了整个 API 的单点故障；但它的日志档位
+ * **必须更高（ERROR）**："限流静默消失"的唯一出口就是这行日志。
  * 正式的日志口径 / 指标归 <b>T28</b>；resilience 组测试钉住"两种失败都放行"的行为契约。
  *
  * <h2>成本（T25 阶段的口径）</h2>
  * 每请求固定取 {@code cost.default-base}（信号③未接、信号①②归 T26——分工在
  * {@code RateLimitRedisOps#tryAcquire} 的 javadoc 已钉）。漏配路由的兜底**不是 0**
- * （"漏配 = 不限"正是设计稿 §七 要防的），本阶段"全部请求 = 兜底单位"是 T26 之前的临时形态。
+ * （"漏配 = 不限"正是本机制要防的），本阶段"全部请求 = 兜底单位"是 T26 之前的临时形态。
  */
 @Slf4j
 @Component
@@ -89,8 +89,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     /**
      * 跳过清单的**前缀**匹配（带尾 {@code /}，避免 {@code /staticfoo} 这类假想业务路径被误跳）。
-     * {@code /actuator/} 用带斜杠前缀：{@code /actuator} 本身（端点链接页）不在清单内、
-     * 会过闸——一次 404 一枚令牌，可忽略。
+     * {@code /actuator/} 用带斜杠前缀：{@code /actuator} 本身（端点链接页，200）不在清单内、
+     * 会过闸——一次请求一枚令牌，可忽略。⚠️ 比原始清单的 {@code /actuator/**} 略窄
+     * （多放行裸 {@code /actuator} 一个路径），已留痕 {@code architecture/tech/限流.md} §三。
      */
     private static final List<String> SKIP_PREFIXES = List.of("/static/", "/actuator/", "/upload/");
 
@@ -155,6 +156,13 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     /**
      * 跳过清单（见类注释「覆盖范围」）。静态资源 / actuator 不是业务成本，也不该被 429。
+     *
+     * <p>⚠️ 路径取**未解码、未规范化**的 {@code getRequestURI()}（与 {@code JwtAuthFilter#isAdminPath}
+     * 同款假设）——"用 {@code /static/../api/...} 让前缀匹配基于原始 URI"这类规范化绕过，
+     * 依赖 Spring Security 的默认 {@code StrictHttpFirewall}（排在本过滤器之前）拒绝含
+     * {@code ..} / {@code //} 的请求。该依赖属**潜伏边界**声明：若将来迁移 Security（F-01/F-02）
+     * 或关闭防火墙，须回到这里重估。另：{@code getRequestURI()} 不含 query（servlet 规范），
+     * 精确匹配不会被 {@code ?x=1} 击穿。
      */
     private boolean isSkipped(HttpServletRequest request) {
         String path = request.getRequestURI().substring(request.getContextPath().length());

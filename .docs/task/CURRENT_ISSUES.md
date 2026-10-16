@@ -64,10 +64,15 @@
   `application.yaml` 的 `CURRENT_TASKS.md`），门禁照样报"四条不变式成立"（**已在本任务修正**）。
   存量另有一处：`favorite/dao/FavoriteItemDao.java` 引 `CURRENT_NEEDS.md`（属收藏域，未处理）。
   ⚠️ `db/migration/**` 里那处（`V2__favorite_tables.sql`）**逐字节冻结**，按纪律不属于本问题的可修面。
-- **证据（可复核）**：`grep -rnE "CURRENT_(TASKS|ISSUES|NEEDS)" src` 与 `tools/doc_refs.py` 的 `scan()`（只产三类结果）。
+- **现象②（T25 补登记）**：③的**别名黑名单不完整**——`ALIASES = 需求篇|设计篇|分期篇|三期设计|骨架 §`
+  **不含"设计稿"**：T25 在代码/测试注释里新写了 8 处"设计稿 §X"（后被审查抓住、当场改指
+  `architecture/tech/限流.md`），`doc_refs.py` 全程绿灯——同一类盲区的第二个实例。
+- **证据（可复核）**：`grep -rnE "CURRENT_(TASKS|ISSUES|NEEDS)" src` 与 `tools/doc_refs.py` 的 `scan()`（只产三类结果）；
+  别名盲区见 `tools/doc_refs.py` 的 `ALIASES` 常量。
 - **影响**：门禁的**可信度**——它把"没查"包装成"已成立"，而本仓的立足点正是"把纪律变成会失败的命令"。
 - **处置**：二选一 —— ①给 `doc_refs.py` 补一条"引用路径必须落在 `architecture/**` / `archive/**`（显式路径）"的规则
-  （会同时让存量那 1 处变红，需一并改指）；②把 banner 收窄，明确"②的路径前缀面未覆盖"。
+  （会同时让存量那 1 处变红，需一并改指）＋ 把 `设计稿` 补进 `ALIASES`；②把 banner 收窄，明确"②的路径前缀面与③的黑名单面未覆盖"。
+  ⚠️ 改门禁须按 `.docs` 约定做反向验证，不属 T25 范围。
 - **去向**：**待处理**（属 `tools/` 与收藏域，不在 T23 范围）。速查行见 `architecture/tech/限流.md` 附录。
 
 ### I-18 设计稿称 TTL 淘汰"完全一致、无损"—— 对欠账态（`tokens < 0`）不成立，实际会**豁免剩余欠账**【**分类：决策** · 状态：**待处理**】
@@ -85,6 +90,21 @@
   不给精确边界，后人会误以为"欠账一直累积直到还清"（据此做设计会踩空）。
 - **处置**：T24 已按"**接受该语义**"落地——精确边界写进 `RateLimitRedisOps` 类注释与
   `architecture/tech/限流.md` §一；**设计稿自身的表述修正归 `T29` 收口**（沉淀 / 归档时以精确版替换）。
+- **去向**：**待处理**（`T29` 收口时核销）。速查行见 `architecture/tech/限流.md` 附录。
+
+### I-19 设计稿 §七 的跳过清单漏了 `/upload/**`（静态媒体服务）—— T25 按"ResourceHandler 静态服务"同一口径补上【**分类：决策** · 状态：**待处理**】
+
+- **问题**：`限流-设计稿.md` §七 的跳过清单只列了 `/`、`/index.html`、`/favicon.ico`、`/static/**`、
+  `/actuator/**`，但本仓的静态媒体服务 `WebMvcConfig#addResourceHandlers` 挂在 **`/upload/**`**
+  （视频 / 封面播放 URL）——清单漏列。
+- **证据（可复核）**：`WebMvcConfig.addResourceHandlers`（`/upload/**` → 媒体磁盘根）；
+  `AccessLogTests` 的静态探针即走 `/upload/**`；业务上传端点是 `POST /api/upload/*`
+  （`UploadController`），与 `/upload/` 前缀**零交集**，不受影响。
+- **影响**：若按清单原样实现，视频 / 图片播放请求会白白过闸扣费，甚至被 429 拦掉
+  （"429 掉 CSS"的同款事故，只是对象是视频文件）。
+- **处置**：T25 执行期按 G13 自行决断——`/upload/` 并入跳过前缀（设计稿的跳过**理由**
+  "静态资源不是业务成本"原文适用）；已写进 `RateLimitFilter` 类注释与
+  `architecture/tech/限流.md` §三。**设计稿 §七 的清单补列归 `T29` 收口**。
 - **去向**：**待处理**（`T29` 收口时核销）。速查行见 `architecture/tech/限流.md` 附录。
 
 > 📌 **征集专项收口的结转**：`I-14`（`FollowCacheTests` 全量偶发红 —— 别域消费者进验证窗口）
