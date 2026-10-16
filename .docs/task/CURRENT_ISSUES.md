@@ -107,6 +107,26 @@
   `architecture/tech/限流.md` §三。**设计稿 §七 的清单补列归 `T29` 收口**。
 - **去向**：**待处理**（`T29` 收口时核销）。速查行见 `architecture/tech/限流.md` 附录。
 
+### I-20 设计稿 §二 把信号②写进**门时**的 cost —— 但 "miss" 是**本请求运行期事实**，门时取不到【**分类：偏差** · 状态：**待处理**】
+
+- **问题**：`限流-设计稿.md` §二 的账本时序把 `cost = cost.base(路由) × cost.miss-multiplier`（信号① × ②）
+  直接写进门时那一次 Lua 的入参；而 §四 把信号②定性为"**本请求运行期事实**"。两者不可同时为真：
+  缓存读发生在请求处理中（门**之后**），门时"这次请求 miss 没 miss"尚未发生。
+- **现象**：按字面实现不可能；且一次请求可在多个域多次回源——详情页（`/search/IdSearch`）冷态最多
+  ≈4 处（content 完整信息 + 赞 / 藏 / 关注三态），评论页（`/comment/show`）冷态 ≈4~5 处
+  （内容门禁 + 评论两键组 + 评论点赞态）。
+- **证据（可复核）**：`RateLimitFilter` 链序（`architecture/tech/限流.md` §三，门在 `DispatcherServlet`
+  之前）；`ContentService#getContentDetailVO`（= `ContentCache#getContent` 的 CacheAside miss 回源
+  ＋ `InteractionService#getStatus` 三趟缓存读）；`CommentService#getCommentsForContent`
+  （= `CommentCache#getRootPage` 两键组 ＋ `LikeService#batchIsCommentLiked`）。
+- **影响**：不是运行缺陷，是**设计稿与可实现形态的偏差**——按字面读会把"信号②落不了地"误当实现问题；
+  正确形态必须**拆两阶段**。
+- **处置**：`T26` 按 G13 决断 —— **门时按 `base` 扣（现行为）＋ 请求处理完后按差额
+  `base × (multiplier − 1)` 补扣**（仅对**放行过的**请求；用户桶 / 服务器桶同扣；fail-open 同门）。
+  "回传形态"细则（二值标记 / 线程封闭 / 清理点）随 `T26` 回写；设计稿 §二 公式的语义修正
+  （= "请求**总成本**，分两阶段兑现"）随 `T26` 修订本稿。
+- **去向**：**待处理**（`T26` 落地时一并核销）。速查行见 `architecture/tech/限流.md` 附录。
+
 > 📌 **征集专项收口的结转**：`I-14`（`FollowCacheTests` 全量偶发红 —— 别域消费者进验证窗口）
 > **已结转 `FURTHER_ISSUES.md` **F-24****（它**不属收藏域**，是 feed 域测试隔离债）⇒ 移出本表。
 
