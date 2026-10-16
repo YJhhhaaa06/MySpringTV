@@ -275,6 +275,7 @@ content.favorite_count bigint（V2 加列 / V3 回填；冗余列，见 §四）
 | T19 | 稍后再看**前端**（抽屉入口 + 清单页 + 详情页按钮） | `static/static/js/views/watchlater.js` |
 | T20 | **收藏专项收口**：四份设计文档**物理归档** + 设计沉淀进本目录 + 引用清扫 | `archive/favorite-2026-10-15/`（归档 README） |
 | T21 | 评论主楼读侧**区间读**（`F-20 ①`：`LRANGE 0 -1` 全量读 → 本页区间；基线 p1 热 51ms→10ms） | `CommentCache#getRootPage`（T21 段） |
+| T22 | follow 域 DAO-spy 断言**按被测用户收窄**（`F-24`：别域消费者进验证窗口 ⇒ 偶发红；非生产缺陷） | `FollowCacheTests` / `FollowPartialWindowTests`（类注释 T22 段） |
 
 **决策 `R-##`**
 
