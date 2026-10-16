@@ -23,7 +23,23 @@
 
 > **状态取值**：待处理 / 已纳入NEEDS / 已解决 / 待裁决（须停下问用户）/ 已转 `F-##`。
 
-**⏳ 本张清单（第 5 张 = 限流专项）已开窗（2026-10-16），暂无待处理问题登记**（执行中按下面格式登记；编号从 **I-15** 起）。
+**⏳ 本张清单（第 5 张 = 限流专项）已开窗（2026-10-16）**（执行中按下面格式登记；编号从 **I-15** 起）。
+
+### I-15 `@ConfigurationProperties` record **能**绑嵌套段 —— 本仓两处注释的说法经实测不成立【**分类：债务** · 状态：**待处理**】
+
+- **问题**：`application.yaml` 的 `feed.delivery` 段注释与 `FeedProperties` javadoc 都写着
+  "record 只认本前缀下的扁平键，**嵌套会被静默忽略并绑成 0**"，并以此作为"嵌套段必须另起 record"的理由。
+- **现象**：实测**不成立** —— 同一前缀下把三段声明为**嵌套 record 字段**（`server` / `user{authed,anon}` / `cost`），
+  三段都正确绑定（层层非 `null`、值正确）。
+- **证据（可复核）**：`temp-script/RateLimitBindingProbe.java`（YAML → `YamlPropertySourceLoader` → `Binder`）
+  与 `temp-script/RateLimitContextProbe.java` / `RateLimitRealProbe.java`（真实 `ApplicationContextRunner` +
+  `@ConfigurationProperties`，含"非法值 ⇒ 上下文起不来"对照）；单文件 `java -cp <spring-boot/snakeyaml/…>` 直跑，
+  不需要 Maven / Docker。落地侧证据 = `RateLimitPropertiesBindingTests#三段嵌套都绑上`（T23，真上下文）。
+- **影响**：**不是运行期缺陷**，是**文档误导** —— 后人会据一个不成立的约束去设计（T23 的选型就被它挡过一次）。
+  ⚠️ 它**不否定** feed 那两处"分家"的**结论**（分家是为了关注点分离 + YAML 可读性，理由仍成立），要纠的只是**理由**。
+- **处置**：注释纠偏（改 `application.yaml` 的 `feed.delivery` 段注释与 `FeedProperties` javadoc 的"嵌套会被静默忽略"表述）。
+  ⚠️ 那是 **feed 域**的注释，**不在 T23 范围内**（不顺手改别人）⇒ 留待处理。
+- **去向**：**待处理**（限流专项收口前若仍无人认领，结转 `FURTHER_ISSUES.md`）。
 
 > 📌 **征集专项收口的结转**：`I-14`（`FollowCacheTests` 全量偶发红 —— 别域消费者进验证窗口）
 > **已结转 `FURTHER_ISSUES.md` **F-24****（它**不属收藏域**，是 feed 域测试隔离债）⇒ 移出本表。
