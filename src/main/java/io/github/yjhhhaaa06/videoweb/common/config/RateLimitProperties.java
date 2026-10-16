@@ -127,7 +127,9 @@ public record RateLimitProperties(Server server, User user, Cost cost) {
      *                       故意不拒空，是为了保留"只按兜底单位限"这条合法配置；而"漏配某个路由"
      *                       本就有 {@code default-base} 兜底，不会变成"不限"。
      * @param defaultBase    未登记路由的兜底权重（首版 1）。★ **不是 0** —— "漏配 = 不限"正是要防的。
-     * @param missMultiplier 信号②：本次请求发生缓存 miss 时的乘数（首版 {@code 1.0 = 关闭}）。
+     * @param missMultiplier 信号②：本次请求发生缓存 miss 时的乘数。**T26 起已启用 3.0**
+     *                       （锚点"miss 一次 ≈ 三次命中"）；{@code 1.0 = 关闭}（此时连一次往返都不花）；
+     *                       落地为**门后差额** {@code base × (m−1)} 补扣（见 {@code architecture/tech/限流.md} §四）
      * @param rejectDiscount 被拒请求仍扣的"询问费"比例（首版 0.3；口径见 {@code architecture/tech/限流.md} §二）：
      *                       {@code 0} 则被拒请求可零成本探路、{@code 1} 则用户为服务器过载全额买单。
      *                       ⚠️ {@code 0} 是**合法值**（故本键键名写错会静默绑成 0.0 而绕过下面的区间校验）
