@@ -309,7 +309,10 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
     @Test
     @DisplayName("未映射路径（扫描流）也过闸：两桶都被扣（放行 oracle），未被闸门拦下")
     void 未映射路径404也过闸() {
-        ResponseEntity<String> resp = get("/no-such-page-t25-" + System.nanoTime(), null);
+        // ⚠️ 后缀用**固定字母**（不用 System.nanoTime()）：数字串会被 SensitiveDataTests 的
+        //    `1[3-9]\d{9}` 扫描误判为"明文手机号"（2026-10-16 全量回归实际红过一次——
+        //    GlobalExceptionHandler 把未映射路径的 NoResourceFoundException 落进 system.log）。
+        ResponseEntity<String> resp = get("/no-such-page-t25-probe", null);
 
         // ⚠️ 状态码钉的是**既有行为**而非本任务的契约面：本仓未映射路径由
         // NoResourceFoundException 落进 GlobalExceptionHandler 的 catch-all ⇒ 500。

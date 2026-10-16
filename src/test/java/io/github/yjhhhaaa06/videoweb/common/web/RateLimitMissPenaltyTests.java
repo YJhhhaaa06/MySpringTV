@@ -37,11 +37,15 @@ import static org.assertj.core.api.Assertions.within;
  * </pre>
  * ⚠️ 补扣发生在**响应之后**（过滤器 finally）⇒ 断言一律**轮询等待**（{@link #awaitTokensBelow}），
  * 不做"响应到手就该扣完"的时序假设（真实 HTTP 下响应先于 finally 到达是合法时序）。
- * 容差 0.5：rate=1/s ⇒ 200ms 级调度抖动 ≤ 0.2；而判据间距是 2（补/不补），远大于容差。
+ * ⚠️ 容差（rate=1/s）：桶值 = 期望值 + d/1000，d = 门→收尾的请求处理时长——冷读断言给 ±1.0
+ * （容许 d ≤ 1s；顺序执行的套件里 d 实测为十毫秒级，若将来并发化需按 d 重估）；热读断言改用
+ * **相对基线**（以冷读后的实测值为参照再扣 1）把冷读的 d 从带内消掉，容差 0.5。判据间距 ≥2，均大于容差。
  *
  * <h2>★ 反向验证指向</h2>
  * 把 {@code CacheMissSignal.mark()} 接成常量 false、或删掉过滤器收尾的 {@code settleMissPenalty}
- * 调用 ⇒ 冷读断言必红（97 → 99）；把热读路径也补扣（标记没被 consume 清零）⇒ 热读断言必红。
+ * 调用 ⇒ 冷读断言必红（97 → 99）；把收尾结算改成"不看标记、无条件补扣" ⇒ 热读断言必红
+ * （基线−1 → 基线−3）。⚠️ 仅把 {@code consume} 的清除弄丢**不**会红——闸门入口的 {@code clear()}
+ * 兜住了串味（双层防线，见 {@code RateLimitFilter}）。
  * "multiplier = 1.0 = 关闭"的语义见 {@code RateLimitMissPenaltyDisabledTests}。
  *
  * <h2>与 T25 契约测试的拆分理由</h2>
@@ -141,26 +145,31 @@ class RateLimitMissPenaltyTests extends AbstractHttpIntegrationTest {
         assertThat(first.getStatusCode().value()).isEqualTo(200);
         assertThat(Envelope.code(first)).isEqualTo(200);
 
-        awaitTokensBelow(ANON_KEY, 98.0);   // 97 附近（补扣到达）才可能低于 98；若补扣没来会停在 99
+        // 冷读的桶值 = 97 + d/1000（d = 门→收尾的请求处理时长；收尾补扣脚本的 refill 会把它算进去）
+        // ⇒ 容差 ±1.0 容许 d ≤ 1s（顺序执行下实测为十毫秒级；若将来并发化需按 d 重估）。
+        awaitTokensBelow(ANON_KEY, 98.5);   // 补扣到达（≈97）才可能低于 98.5；没来会停在 99
         assertThat(tokensOf(ANON_KEY))
-                .as("冷读总价 = 1 + 2 = 3 ⇒ 匿名桶 100 − 3 ≈ 97（不补扣会是 99）")
-                .isCloseTo(97, within(0.5));
-        awaitTokensBelow(SERVER_KEY, 98.0);
+                .as("冷读总价 = 1 + 2 = 3 ⇒ 匿名桶 ≈ 100 − 3 = 97（不补扣会是 99）")
+                .isCloseTo(97, within(1.0));
+        awaitTokensBelow(SERVER_KEY, 98.5);
         assertThat(tokensOf(SERVER_KEY))
                 .as("服务器桶同扣差额（两桶同扣）")
-                .isCloseTo(97, within(0.5));
+                .isCloseTo(97, within(1.0));
 
         // ---- 第二访：热读（内容键已回填）⇒ 全命中 ⇒ 不补扣 ----
+        // ★ 用**相对基线**断言：以冷读后的实测值（≈97 + d₀/1000）为参照再扣 1——把冷读的 d₀ 消掉。
+        double beforeWarmAnon = tokensOf(ANON_KEY);
+        double beforeWarmServer = tokensOf(SERVER_KEY);
         ResponseEntity<String> second = get(详情(), null);
         assertThat(second.getStatusCode().value()).isEqualTo(200);
 
-        awaitTokensBelow(ANON_KEY, 96.8);   // 96 附近（门扣到达）才可能低于 96.8
+        awaitTokensBelow(ANON_KEY, beforeWarmAnon - 0.5);   // 门扣的 1 到达（≈基线 − 1）
         assertThat(tokensOf(ANON_KEY))
-                .as("热读只扣 base ⇒ 97 − 1 ≈ 96（若补扣错发会是 94；若门没扣会停在 97）")
-                .isCloseTo(96, within(0.5));
-        awaitTokensBelow(SERVER_KEY, 96.8);
+                .as("热读只扣 base ⇒ 基线 − 1（若补扣错发会是基线 − 3；若门没扣会停在基线）")
+                .isCloseTo(beforeWarmAnon - 1.0, within(0.5));
+        awaitTokensBelow(SERVER_KEY, beforeWarmServer - 0.5);
         assertThat(tokensOf(SERVER_KEY))
                 .as("热读服务器桶同样只扣 base")
-                .isCloseTo(96, within(0.5));
+                .isCloseTo(beforeWarmServer - 1.0, within(0.5));
     }
 }

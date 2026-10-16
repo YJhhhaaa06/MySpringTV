@@ -187,8 +187,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
      * <h2>★ 失败必须吞掉（比门的 fail-open 更严）</h2>
      * 本方法跑在 {@code finally}、响应已在途 / 已写出 ⇒ **任何**失败都不得让请求变 500：
      * {@link CacheUnavailableException}（Redis 不可达）WARN；{@link RateLimitScriptException}
-     * （限流器自身缺陷）ERROR；其余未预期异常兜底 ERROR（对照 {@code FeedCache.tryAcquireRebuildLock}
-     * 的 RuntimeException 兜底手法）。正式日志口径归 T28。
+     * ERROR（**防御性**——{@code deductDelta} 当前不解析返回值、该分支不可达；保留是给"将来加解析"
+     * 兜底：catch 挂在 finally 里，漏掉任何类型都会伤响应）；其余未预期异常兜底 ERROR（对照
+     * {@code FeedCache.tryAcquireRebuildLock} 的 RuntimeException 兜底手法）。正式日志口径归 T28。
      */
     private void settleMissPenalty(String userKey, RateLimitProperties.Bucket userBucket, double baseCost) {
         double multiplier = properties.cost().missMultiplier();
@@ -205,6 +206,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
         } catch (CacheUnavailableException e) {
             log.warn("缓存 miss 差额补扣失败（响应不受影响）: {}", e.getMessage());
         } catch (RateLimitScriptException e) {
+            // 防御性（当前不可达：deductDelta 不解析返回值）——按同一档位留痕，防将来加解析后静默
             log.error("缓存 miss 差额补扣脚本/返回值异常（限流器自身缺陷，必须排查）", e);
         } catch (RuntimeException e) {
             // 兜底：本方法在 finally 里跑——未预期异常不得把"已完成的请求"变成失败

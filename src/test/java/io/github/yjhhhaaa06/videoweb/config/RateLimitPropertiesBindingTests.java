@@ -132,10 +132,11 @@ class RateLimitPropertiesBindingTests extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("信号②（缓存命中系数）默认关闭：1.0 表示不放大成本")
-    void 缓存命中系数默认关闭() {
+    @DisplayName("信号②（缓存命中系数）**T26 起启用**：3.0（1.0 = 关闭仍是合法配置）")
+    void 缓存命中系数已启用() {
         assertThat(limits.cost().missMultiplier())
-                .as("1.0 = 关闭（沿用本仓「0/1 = 关闭」惯例）；要启用必须显式给 >1 并同步改本用例")
-                .isEqualTo(1.0);
+                .as("T26 裁决启用（I-16 核销）：3.0 = 'miss 一次 ≈ 三次命中'的锚点值；"
+                        + "1.0 = 关闭仍是合法配置（其语义由 RateLimitMissPenaltyDisabledTests 钉住）")
+                .isEqualTo(3.0);
     }
 }

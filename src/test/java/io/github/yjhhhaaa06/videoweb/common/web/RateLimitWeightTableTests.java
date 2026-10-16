@@ -124,7 +124,9 @@ class RateLimitWeightTableTests extends AbstractHttpIntegrationTest {
     void 未登记端点落兜底权重() {
         seedAnonBucket();
 
-        ResponseEntity<String> resp = get("/no-such-page-t26-" + System.nanoTime(), null);
+        // ⚠️ 后缀用**固定字母**：数字串（如 nanoTime）会被 SensitiveDataTests 的 `1[3-9]\d{9}`
+        //    扫描误判为"明文手机号"（未映射路径的 ERROR 行会落进 system.log——2026-10-16 实测）。
+        ResponseEntity<String> resp = get("/no-such-page-t26-probe", null);
 
         // ⚠️ 未映射路径本仓响应 500（NoResourceFoundException 落 catch-all 的既有行为）——
         //    本用例不钉状态码，只钉"过闸 + 按兜底权重扣"（T25 同款口径）。
@@ -140,12 +142,19 @@ class RateLimitWeightTableTests extends AbstractHttpIntegrationTest {
     @DisplayName("★ 完整性：全部非 GET 端点都已登记权重（新端点漏配 ⇒ 本用例变红）")
     void 完整性_全部非GET端点都已登记() {
         Set<String> missing = new TreeSet<>();
+        Set<String> methodUnlimited = new TreeSet<>();
         int seen = 0;
         for (RequestMappingInfo info : handlerMapping.getHandlerMethods().keySet()) {
             Set<RequestMethod> methods = info.getMethodsCondition().getMethods();
             for (String pattern : info.getPatternValues()) {
                 if (pattern.startsWith("/error")) {
                     continue;   // Spring 默认错误分发（BasicErrorController），不是业务端点
+                }
+                if (methods.isEmpty()) {
+                    // 方法级 @RequestMapping 未限定 HTTP 方法（匹配所有方法）——本用例无法判定它是否
+                    // 需要登记 ⇒ 显式报出，逼调用方改用 @GetMapping/@PostMapping（否则是一条扫描盲区）
+                    methodUnlimited.add(pattern);
+                    continue;
                 }
                 for (RequestMethod method : methods) {
                     if (!需要登记(method)) {
@@ -166,6 +175,10 @@ class RateLimitWeightTableTests extends AbstractHttpIntegrationTest {
                 .isGreaterThanOrEqualTo(EXPECTED_NON_GET_AT_LEAST);
         assertThat(missing)
                 .as("非 GET 端点必须全部登记（漏配 ⇒ 只吃 default-base = 1，权重静默失效）")
+                .isEmpty();
+        assertThat(methodUnlimited)
+                .as("存在'方法级未限定 HTTP 方法'的映射——本检查无法判定其是否需要登记，"
+                        + "请改用 @GetMapping/@PostMapping（否则它是权重表完整性的一条盲区）")
                 .isEmpty();
     }
 

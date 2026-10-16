@@ -210,8 +210,10 @@ public class RateLimitRedisOps extends RedisOps {
      * @param serverKey      服务器桶 key（{@link CacheKeys#rateLimitServer()}）
      * @param userBucket     用户桶参数（容量 / 补充速率；TTL 由此派生）
      * @param serverBucket   服务器桶参数
-     * @param cost           本次请求折算的令牌数（信号① × 信号② 由调用方算好传入；
-     *                       权重表接线归 T26，见 {@code architecture/tech/限流.md} §四）
+     * @param cost           本次请求的**门时成本** = 信号①（端点权重表 / 兜底权重，由过滤器查表传入，
+     *                       见 {@code architecture/tech/限流.md} §四）。
+     *                       ⚠️ 信号②（缓存 miss）**不在这里**——它是请求运行期事实，由调用方在
+     *                       请求收尾按差额补扣（见 {@link #deductDelta}）
      * @param rejectDiscount 被拒时仍扣的"询问费"比例（配置**绑定期**校验 ∈ [0,1]；默认 0.3 落在
      *                       开区间，由绑定测试兜住）
      * @return 放行与否 + Retry-After 秒（放行时为 0）
@@ -255,9 +257,12 @@ public class RateLimitRedisOps extends RedisOps {
      * 请求结束时的**真实成本**同样属于两桶——服务器桶代表"实例整体还能接多少活"，
      * 缓存回源确实多消耗了它。
      *
-     * <p>⚠️ 本方法由请求**收尾**处调用（响应已在途 / 已写出）——Redis 不可达抛
-     * {@link CacheUnavailableException}、脚本/解析异常抛 {@link RateLimitScriptException}，
-     * "补扣失败不得让已完成的响应变失败"（fail-open + 兜底）是**调用方**的职责。
+     * <p>⚠️ 本方法由请求**收尾**处调用（响应已在途 / 已写出）——Redis 不可达（含熔断快速失败）
+     * 抛 {@link CacheUnavailableException}；⚠️ 本方法**不解析返回值**，不会抛
+     * {@link RateLimitScriptException}（该类型只属返回值解析路径 {@link #tryAcquire}）——
+     * 调用方对脚本异常的 catch 属防御性兜底（catch 挂在 finally 里，漏掉任何类型都会伤响应；
+     * 对照 {@code FeedCache.tryAcquireRebuildLock} 的 RuntimeException 兜底手法）。
+     * "补扣失败不得让已完成的响应变失败"是**调用方**的职责。
      */
     public void deductDelta(String userKey, String serverKey,
                             BucketSpec userBucket, BucketSpec serverBucket, double delta) {

@@ -25,8 +25,10 @@ import static org.assertj.core.api.Assertions.within;
  * 1.0 = 关闭（沿用本仓"0/1 = 关闭"惯例）：冷读 miss **也不补扣**——只按 base 扣。
  * 本类补齐 {@code RateLimitMissPenaltyTests}（启用态）的另一半：
  * <ul>
- *   <li>把"关闭"语义改坏（如把差额公式写成 {@code base × multiplier}、或让 1.0 也走补扣）
- *       ⇒ 本类断言必红；</li>
+ *   <li>把差额公式改成 **1.0 下非零**的形态（如 {@code base × multiplier}）⇒ 本类断言必红；</li>
+ *   <li>⚠️ 仅删掉 {@code <= 1.0} 早退（公式仍 {@code base × (m−1)} = 0）**不会**红：零差额
+ *       只省一次往返、桶值不变——那属优化而非可观察语义，本类对它无判别（启用态改坏由
+ *       {@code RateLimitMissPenaltyTests} 抓）；</li>
  *   <li>把启用态改坏（不补扣）⇒ {@code RateLimitMissPenaltyTests} 必红——两个方向都有判别力。</li>
  * </ul>
  *
