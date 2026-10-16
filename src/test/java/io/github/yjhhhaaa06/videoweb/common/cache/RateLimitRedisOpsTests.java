@@ -1,0 +1,363 @@
+package io.github.yjhhhaaa06.videoweb.common.cache;
+
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.yjhhhaaa06.videoweb.support.AbstractIntegrationTest;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
+
+import java.time.Duration;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
+
+/**
+ * {@code RateLimitRedisOps}（限流桶的 Redis 命令层）的**契约测试**（限流专项 T24；
+ * 口径见 {@code architecture/tech/限流.md}）。
+ *
+ * <h2>两侧独立 oracle（防迎合实现）</h2>
+ * 所有断言都不拿"脚本的返回值"自证：桶状态**直读 Redis 键**（键名与值格式**硬编码字面量**——
+ * 键形状是冻结契约），并在 Java 侧按惰性公式**独立复算**。
+ * ★ 复算的技巧：用**脚本自己写回的 {@code lastRefillMs}**（= 脚本内的 now）作为时间参照反推补充量
+ * ⇒ 复算与脚本共用同一个"时间差"，**无时钟近似**，容差给 1e-6 即可（远严于"删掉补充差 4 个令牌"这类注入的判别需求）。
+ *
+ * <h2>期望值的推导口径（不是抄实现）</h2>
+ * 全部由三个参数按设计语义推出：容量 {@code cap}、速率 {@code rate}、成本 {@code cost} 与折扣 {@code discount}
+ * （如"新桶 = 满桶 ⇒ 扣全款后 = cap − cost"）。改数值只改上面的常量，**改语义才改断言**。
+ *
+ * <h2>★ 反向验证指向（T24 验收④）</h2>
+ * <ul>
+ *   <li>删掉脚本里的惰性补充（{@code refill}）⇒ {@link #老桶按公式复算}、{@link #很久没请求的桶补满封顶} 必红；</li>
+ *   <li>删掉脚本里的 {@code EXPIRE} ⇒ {@link #两桶TTL按各自参数派生且访问续期} 必红；</li>
+ *   <li>把"被拒只扣询问费"改错（免扣 / 全款）⇒ {@link #用户桶不够_被拒_只扣询问费_服务器桶一个字节都不写} 必红。</li>
+ * </ul>
+ */
+class RateLimitRedisOpsTests extends AbstractIntegrationTest {
+
+    /**
+     * 桶参数（刻意取小值便于手算推导；与 {@code application.yaml} 的生产值**无关**——
+     * 命令层的参数由调用方传入，这正是"命令层不注入配置"带来的可测性）。
+     * <p>派生量：userTTL = ceil(10/2) = 5s；serverTTL = ceil(20/10) = 2s。
+     */
+    private static final RateLimitRedisOps.BucketSpec USER_BUCKET = new RateLimitRedisOps.BucketSpec(10, 2);
+    private static final RateLimitRedisOps.BucketSpec SERVER_BUCKET = new RateLimitRedisOps.BucketSpec(20, 10);
+
+    /** 成本折算：cost = 3、折扣 0.3 ⇒ 询问费 = 0.9、尾款 = 2.1（判定线）。 */
+    private static final double COST = 3.0;
+    private static final double DISCOUNT = 0.3;
+    private static final double FEE = COST * DISCOUNT;
+    private static final double TAIL = COST * (1 - DISCOUNT);
+
+    /** 键名**硬编码字面量**（防 {@code CacheKeys} 改名导致测试静默失联，见 CacheKeys 类注释）。 */
+    private static final String USER_KEY = "ratelimit:user:990001";
+    private static final String SERVER_KEY = "ratelimit:server";
+
+    @Autowired
+    private RateLimitRedisOps ops;
+
+    @Autowired
+    private StringRedisTemplate redis;
+
+    @BeforeEach
+    void clearRedis() {
+        Set<String> keys = redis.keys("*");
+        if (keys != null && !keys.isEmpty()) {
+            redis.delete(keys);
+        }
+    }
+
+    // ==================== 读写辅助（独立 oracle 的"直读"侧） ====================
+
+    private String rawOf(String key) {
+        return redis.opsForValue().get(key);
+    }
+
+    private double tokensOf(String key) {
+        String raw = rawOf(key);
+        return Double.parseDouble(raw.substring(0, raw.indexOf(':')));
+    }
+
+    private long lastOf(String key) {
+        String raw = rawOf(key);
+        return Long.parseLong(raw.substring(raw.indexOf(':') + 1));
+    }
+
+    /** 直写一个桶（夹具）。与实现共用 {@code "tokens:lastRefillMs"} 格式是**故意**的（格式本身就是契约）。 */
+    private void putBucket(String key, String tokens, long lastRefillMs) {
+        redis.opsForValue().set(key, tokens + ":" + lastRefillMs);
+    }
+
+    private RateLimitRedisOps.Decision acquire() {
+        return ops.tryAcquire(USER_KEY, SERVER_KEY, USER_BUCKET, SERVER_BUCKET, COST, DISCOUNT);
+    }
+
+    private static RedisCircuitBreaker freshBreaker() {
+        return new RedisCircuitBreaker(CircuitBreaker.ofDefaults("t24-script-boundary"));
+    }
+
+    /**
+     * 测试替身：把 {@code execute}（脚本执行入口）替换为给定的原始结果——
+     * {@code RuntimeException} 则抛出（模拟 Redis 不可达），其余原样返回（模拟脚本返回坏值）。
+     * <p>为什么不用 Mockito：{@code execute} 是 varargs 签名，匹配器语义随 Mockito 版本漂移；
+     * 本用例只关心"外部给什么、本层怎么反应"，替身子类最直白。
+     */
+    private static final class StubRedis extends StringRedisTemplate {
+
+        private final Object result;
+
+        private StubRedis(Object result) {
+            this.result = result;
+        }
+
+        @SuppressWarnings("unchecked")
+        @Override
+        public <T> T execute(RedisScript<T> script, List<String> keys, Object... args) {
+            if (result instanceof RuntimeException e) {
+                throw e;
+            }
+            return (T) result;
+        }
+    }
+
+    // ==================== 放行路径 ====================
+
+    @Test
+    @DisplayName("新桶首次访问 = 满桶起步：扣全款（询问费 + 尾款 = cost），两桶同时扣")
+    void 新桶首次访问() {
+        RateLimitRedisOps.Decision decision = acquire();
+
+        assertThat(decision.allowed()).as("冷启动 = 满桶，首次访问必然放行").isTrue();
+        assertThat(decision.retryAfterSeconds()).as("放行时 Retry-After 无意义，恒 0").isZero();
+        // 期望推导：满桶 cap − 全款 cost（冷启动无补充量 ⇒ 不受毫秒级时延影响）
+        assertThat(tokensOf(USER_KEY)).as("用户桶 = 10 − 3").isCloseTo(USER_BUCKET.capacity() - COST, within(1e-6));
+        assertThat(tokensOf(SERVER_KEY)).as("服务器桶 = 20 − 3").isCloseTo(SERVER_BUCKET.capacity() - COST, within(1e-6));
+    }
+
+    @Test
+    @DisplayName("★ 独立 oracle：老桶按惰性公式复算（两桶都补；用读回的 lastRefillMs 反推、无时钟近似）")
+    void 老桶按公式复算() {
+        long t0 = System.currentTimeMillis();
+        // 用户桶：5 个令牌、2 秒前（半补：5 + 2s×2/s = 9）；服务器桶：0 个令牌、5 秒前（应补满、被封顶）
+        putBucket(USER_KEY, "5", t0 - 2000);
+        putBucket(SERVER_KEY, "0", t0 - 5000);
+
+        RateLimitRedisOps.Decision decision = acquire();
+
+        // ★ 复算：用**脚本写回的 last** 反推 elapsed ⇒ 与脚本共用同一时间差，无近似
+        long t1 = lastOf(USER_KEY);
+        long s1 = lastOf(SERVER_KEY);
+        double expectedUser = Math.min(USER_BUCKET.capacity(),
+                5 + (t1 - (t0 - 2000)) * USER_BUCKET.refillPerSec() / 1000.0) - COST;
+        double expectedServer = Math.min(SERVER_BUCKET.capacity(),
+                0 + (s1 - (t0 - 5000)) * SERVER_BUCKET.refillPerSec() / 1000.0) - COST;
+
+        assertThat(decision.allowed()).as("补充后 9 ≥ 2.1 且 20 ≥ 3 ⇒ 放行").isTrue();
+        assertThat(tokensOf(USER_KEY)).as("用户桶实际值 vs Java 侧独立复算").isCloseTo(expectedUser, within(1e-6));
+        assertThat(tokensOf(SERVER_KEY)).as("服务器桶实际值 vs Java 侧独立复算").isCloseTo(expectedServer, within(1e-6));
+        assertThat(tokensOf(USER_KEY)).as("确实补充过：未补充则 = 5 − 3 = 2（远小于此）").isGreaterThan(5.0);
+    }
+
+    @Test
+    @DisplayName("很久没请求的桶补满封顶（min 截断）：空桶放 100 秒后 = 满桶，而不是 200 个令牌")
+    void 很久没请求的桶补满封顶() {
+        long t0 = System.currentTimeMillis();
+        putBucket(USER_KEY, "0", t0 - 100_000);
+        putBucket(SERVER_KEY, "0", t0 - 100_000);
+
+        RateLimitRedisOps.Decision decision = acquire();
+
+        assertThat(decision.allowed()).as("两侧都补满 ⇒ 放行").isTrue();
+        // 0 + 100s × 2/s = 200 个"应补"，但封顶在 cap ⇒ 最终 = cap − cost（精确值：min 截断后不受时延影响）
+        assertThat(tokensOf(USER_KEY)).as("用户桶封顶 = 10 − 3").isCloseTo(USER_BUCKET.capacity() - COST, within(1e-6));
+        assertThat(tokensOf(SERVER_KEY)).as("服务器桶封顶 = 20 − 3").isCloseTo(SERVER_BUCKET.capacity() - COST, within(1e-6));
+    }
+
+    // ==================== 拒绝路径（非对称扣减） ====================
+
+    @Test
+    @DisplayName("★ 用户桶不够 ⇒ 被拒：只扣询问费；服务器桶**一个字节都不写**（连键都不创建）")
+    void 用户桶不够_被拒_只扣询问费_服务器桶一个字节都不写() {
+        long t0 = System.currentTimeMillis();
+        putBucket(USER_KEY, "0.2", t0); // 0.2 < 判定线 2.1，且远买不起尾款
+
+        RateLimitRedisOps.Decision decision = acquire();
+
+        assertThat(decision.allowed()).as("付不起尾款 ⇒ 拒绝").isFalse();
+        // 期望推导：0.2（+毫秒级补充）− 询问费 0.9 ⇒ ≈ −0.7 —— 询问费无条件扣（被拒不是免费探路）
+        long t1 = lastOf(USER_KEY);
+        double expected = Math.min(USER_BUCKET.capacity(),
+                0.2 + (t1 - t0) * USER_BUCKET.refillPerSec() / 1000.0) - FEE;
+        assertThat(tokensOf(USER_KEY)).as("只扣了询问费 0.9（不扣尾款）").isCloseTo(expected, within(1e-6));
+        assertThat(tokensOf(USER_KEY)).as("被拒 ⇒ 欠账（负令牌）").isNegative();
+
+        // ★ "服务器桶完全不动"的最硬证据：本用例从未写过服务器桶 ⇒ 它必须**仍然不存在**
+        assertThat(rawOf(SERVER_KEY)).as("被拒时服务器桶一个字节都不写（连键都不创建）").isNull();
+
+        // Retry-After 推导：用户桶需 (2.1 − (−0.7)) / 2 = 1.4s ⇒ ceil = 2；服务器桶不缺 ⇒ 取大者 2
+        assertThat(decision.retryAfterSeconds()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("★ 服务器桶不够 ⇒ 被拒：用户桶仍只扣询问费；服务器桶**逐字原样保留**（从未写入）")
+    void 服务器桶不够_被拒_服务器桶逐字原样保留() {
+        long t0 = System.currentTimeMillis();
+        // ⚠️ 夹具的时间戳"距离"会经惰性补充变成令牌——必须按公式过一遍再取数：
+        //    半秒前 × 1/s ≈ 补 0.5 个，仍够不着 cost=3（第一版曾取 t0−12345，12 秒把 1 个令牌的桶补满、反致放行）。
+        long s0 = t0 - 500;
+        RateLimitRedisOps.BucketSpec slowServer = new RateLimitRedisOps.BucketSpec(20, 1);
+        putBucket(USER_KEY, "10", t0);
+        putBucket(SERVER_KEY, "0", s0);
+
+        RateLimitRedisOps.Decision decision =
+                ops.tryAcquire(USER_KEY, SERVER_KEY, USER_BUCKET, slowServer, COST, DISCOUNT);
+
+        assertThat(decision.allowed()).as("补充后 ≈0.5 < cost ⇒ 拒绝（两桶 AND 的服务器侧）").isFalse();
+
+        long t1 = lastOf(USER_KEY);
+        double expectedUser = Math.min(USER_BUCKET.capacity(),
+                10 + (t1 - t0) * USER_BUCKET.refillPerSec() / 1000.0) - FEE;
+        assertThat(tokensOf(USER_KEY)).as("用户桶够尾款也照扣询问费（被拒不是免费探路）").isCloseTo(expectedUser, within(1e-6));
+
+        // ★ 服务器桶"完全不动"的逐字证据：值与 lastRefillMs 保持夹具原样（SET 从未发生）
+        assertThat(rawOf(SERVER_KEY)).as("服务器桶逐字原样（从未被写）").isEqualTo("0:" + s0);
+
+        // Retry-After 推导：服务器桶需 (3 − ≈0.5) / 1 ≈ 2.5s ⇒ ceil = 3；用户桶不缺 ⇒ 3
+        assertThat(decision.retryAfterSeconds()).as("由服务器桶缺口 / 速率决定").isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("负令牌（欠账）可存可读可继续扣 —— 欠账累积是设计语义（被拒的询问费不返还）")
+    void 负令牌欠账累积() {
+        long t0 = System.currentTimeMillis();
+        putBucket(USER_KEY, "-5", t0);
+        putBucket(SERVER_KEY, "20", t0);
+
+        RateLimitRedisOps.Decision decision = acquire();
+
+        assertThat(decision.allowed()).as("欠账态 ⇒ 拒绝").isFalse();
+        long t1 = lastOf(USER_KEY);
+        double expected = Math.min(USER_BUCKET.capacity(),
+                -5 + (t1 - t0) * USER_BUCKET.refillPerSec() / 1000.0) - FEE;
+        assertThat(tokensOf(USER_KEY)).as("−5 − 0.9 ≈ −5.9（负值存储往返完好）").isCloseTo(expected, within(1e-6));
+
+        // Retry-After 推导：需 (2.1 − (−5.9)) / 2 = 4.0s ⇒ ceil = 4
+        assertThat(decision.retryAfterSeconds()).isEqualTo(4);
+    }
+
+    // ==================== TTL（自证性质的实现前提） ====================
+
+    @Test
+    @DisplayName("两桶 TTL 按各自参数派生（ceil(cap/rate)）且每次访问续期 —— 被拒也续（访问即刷新）")
+    void 两桶TTL按各自参数派生且访问续期() {
+        acquire();
+
+        assertThat(redis.getExpire(USER_KEY, TimeUnit.MILLISECONDS))
+                .as("用户桶 TTL = ceil(10/2) = 5s（刚写回，允许几十 ms 流逝）")
+                .isGreaterThan(3000L).isLessThanOrEqualTo(5000L);
+        assertThat(redis.getExpire(SERVER_KEY, TimeUnit.MILLISECONDS))
+                .as("服务器桶 TTL = ceil(20/10) = 2s —— 两桶参数独立")
+                .isGreaterThan(1000L).isLessThanOrEqualTo(2000L);
+
+        // 手动把 TTL 压到 1s，再访问一次 ⇒ 必须回到 ≈5s（续期的判别点：不刷新则停留 1s 走向过期）
+        redis.expire(USER_KEY, Duration.ofSeconds(1));
+        acquire();
+        assertThat(redis.getExpire(USER_KEY, TimeUnit.MILLISECONDS))
+                .as("访问续期：TTL 回到 5s 档")
+                .isGreaterThan(3000L);
+
+        // ★ 被拒路径也必须刷新 TTL（若实现只在放行分支 EXPIRE，活跃的被拒桶会走向过期、被静默淘汰）
+        putBucket(USER_KEY, "0.1", System.currentTimeMillis());
+        RateLimitRedisOps.Decision rejected = acquire();
+        assertThat(rejected.allowed()).isFalse();
+        assertThat(redis.getExpire(USER_KEY, TimeUnit.MILLISECONDS))
+                .as("被拒也刷新 TTL")
+                .isGreaterThan(3000L);
+    }
+
+    @Test
+    @DisplayName("TTL 派生：向上取整（cap 不能被 rate 整除时）；非法桶参数响亮失败")
+    void TTL派生向上取整() {
+        assertThat(new RateLimitRedisOps.BucketSpec(10, 3).ttlSeconds()).as("ceil(10/3) = 4").isEqualTo(4);
+        assertThat(new RateLimitRedisOps.BucketSpec(20, 10).ttlSeconds()).as("整除时无取整余量").isEqualTo(2);
+        assertThatThrownBy(() -> new RateLimitRedisOps.BucketSpec(0, 1))
+                .as("非法参数响亮失败（不静默）").isInstanceOf(IllegalArgumentException.class);
+    }
+
+    // ==================== 任务侧（第三个记账主体） ====================
+
+    @Test
+    @DisplayName("任务侧扣减：只扣服务器桶、不碰任何用户桶；先补后扣；可为负")
+    void 任务侧扣减() {
+        long t0 = System.currentTimeMillis();
+        putBucket(USER_KEY, "10", t0 - 100_000); // 用户桶放远处：本用例不应被碰（连 last 都不许变）
+
+        // a) 冷启动：服务器桶 = 满桶起步，扣 taskCost = 10
+        ops.deductTaskCost(SERVER_KEY, SERVER_BUCKET, 10);
+        assertThat(tokensOf(SERVER_KEY)).as("20 − 10").isCloseTo(SERVER_BUCKET.capacity() - 10.0, within(1e-6));
+
+        // b) 用户桶分毫未动：值与 last 逐字保留（证明任务脚本从不读写用户桶）
+        assertThat(rawOf(USER_KEY)).as("用户桶的值与 lastRefillMs 原样（从未被本方法触碰）")
+                .isEqualTo("10:" + (t0 - 100_000));
+
+        // c) 先补后扣：服务器桶 0 个令牌、1 秒前 ⇒ 补 10 后扣 10 ≈ 0（若不补则 −10，差一个数量级）
+        long s0 = System.currentTimeMillis();
+        putBucket(SERVER_KEY, "0", s0 - 1000);
+        ops.deductTaskCost(SERVER_KEY, SERVER_BUCKET, 10);
+        long s1 = lastOf(SERVER_KEY);
+        double expected = Math.min(SERVER_BUCKET.capacity(),
+                0 + (s1 - (s0 - 1000)) * SERVER_BUCKET.refillPerSec() / 1000.0) - 10;
+        assertThat(tokensOf(SERVER_KEY)).as("先补后扣：≈ 0，而非 −10").isCloseTo(expected, within(1e-6));
+        assertThat(tokensOf(SERVER_KEY)).as("确实补过（未补则恰好 = −10）").isGreaterThan(-1.0);
+
+        // d) 可为负（欠账）：−5 再扣 10 ≈ −15
+        long s2 = System.currentTimeMillis();
+        putBucket(SERVER_KEY, "-5", s2);
+        ops.deductTaskCost(SERVER_KEY, SERVER_BUCKET, 10);
+        long s3 = lastOf(SERVER_KEY);
+        double expectedNegative = Math.min(SERVER_BUCKET.capacity(),
+                -5 + (s3 - s2) * SERVER_BUCKET.refillPerSec() / 1000.0) - 10;
+        assertThat(tokensOf(SERVER_KEY)).as("−5 − 10 ≈ −15（无条件、可为负）").isCloseTo(expectedNegative, within(1e-6));
+    }
+
+    // ==================== 失败边界（本层不吞） ====================
+
+    @Test
+    @DisplayName("★ Redis 不可达 ⇒ 抛 CacheUnavailableException（命令层不 catch；fail-open 归 T25 过滤器）")
+    void Redis不可达_上抛CacheUnavailableException() {
+        RateLimitRedisOps mocked = new RateLimitRedisOps(
+                new StubRedis(new RuntimeException("模拟 Redis 不可达")), freshBreaker());
+
+        assertThatThrownBy(() -> mocked.tryAcquire(USER_KEY, SERVER_KEY, USER_BUCKET, SERVER_BUCKET, COST, DISCOUNT))
+                .isInstanceOf(CacheUnavailableException.class);
+    }
+
+    @Test
+    @DisplayName("★ 脚本返回值无法解析 ⇒ 抛 RateLimitScriptException（**不**归一成 CacheUnavailableException——T28 分档依据）")
+    void 脚本返回无法解析_抛脚本异常() {
+        // 形态一：首字符非法（"garbage"）
+        RateLimitRedisOps badChar = new RateLimitRedisOps(new StubRedis("garbage"), freshBreaker());
+        assertThatThrownBy(() -> badChar.tryAcquire(USER_KEY, SERVER_KEY, USER_BUCKET, SERVER_BUCKET, COST, DISCOUNT))
+                .as("首字符非法 ⇒ 解析失败，且**不**是 CacheUnavailableException")
+                .isInstanceOf(RateLimitScriptException.class)
+                .isNotInstanceOf(CacheUnavailableException.class);
+
+        // 形态二：长度不足（"1:"）
+        RateLimitRedisOps tooShort = new RateLimitRedisOps(new StubRedis("1:"), freshBreaker());
+        assertThatThrownBy(() -> tooShort.tryAcquire(USER_KEY, SERVER_KEY, USER_BUCKET, SERVER_BUCKET, COST, DISCOUNT))
+                .as("长度不足 ⇒ 解析失败")
+                .isInstanceOf(RateLimitScriptException.class);
+
+        // 形态三：null 返回值
+        RateLimitRedisOps nullReturn = new RateLimitRedisOps(new StubRedis(null), freshBreaker());
+        assertThatThrownBy(() -> nullReturn.tryAcquire(USER_KEY, SERVER_KEY, USER_BUCKET, SERVER_BUCKET, COST, DISCOUNT))
+                .as("null ⇒ 解析失败")
+                .isInstanceOf(RateLimitScriptException.class);
+    }
+}

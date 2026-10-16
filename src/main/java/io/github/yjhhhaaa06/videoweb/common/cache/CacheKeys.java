@@ -244,4 +244,31 @@ public final class CacheKeys {
     public static String feedRebuildLock(long userId) {
         return "feed:rebuild:lock:" + userId;
     }
+
+    // ==================== 限流（RateLimitRedisOps，T24） ====================
+
+    /**
+     * 登录态用户桶：{@code ratelimit:user:{userId}}（紧凑字符串 {@code "tokens:lastRefillMs"} + TTL）。
+     *
+     * <p>用独立的 {@code ratelimit:} 命名空间（而非裸 {@code user:{id}}）：与既有键前缀**零交集**，
+     * 清理 / 观测 / SCAN 时互不误伤。
+     */
+    public static String rateLimitUser(long userId) {
+        return "ratelimit:user:" + userId;
+    }
+
+    /**
+     * 匿名态用户桶：{@code ratelimit:anon:{ip}}（同上）。
+     *
+     * <p>key 由客户端 IP 得来——NAT / 内网下多个用户共享一个出口 IP，
+     * 故匿名桶参数刻意比登录桶宽（已知代价见 {@code architecture/tech/限流.md}）。
+     */
+    public static String rateLimitAnon(String clientIp) {
+        return "ratelimit:anon:" + clientIp;
+    }
+
+    /** 服务器桶（全局单桶）：{@code ratelimit:server}——"单实例整体还能接多少活"。 */
+    public static String rateLimitServer() {
+        return "ratelimit:server";
+    }
 }
