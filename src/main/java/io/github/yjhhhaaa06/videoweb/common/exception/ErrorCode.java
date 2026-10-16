@@ -5,7 +5,7 @@ package io.github.yjhhhaaa06.videoweb.common.exception;
  *
  * <p>决策⑧：保留 code/msg/data 信封，但**HTTP 状态码正确化**。
  * 映射规则见 {@link GlobalExceptionHandler}：{@code code} 与 HTTP status 对齐
- * （401→401、403→403、404→404、409→409），抹平 TV「协议层恒 200」的模糊态。
+ * （401→401、403→403、404→404、409→409、429→429），抹平 TV「协议层恒 200」的模糊态。
  *
  * <p>注意 TV 的一处刻意设计：{@code USER_NOT_FOUND} / {@code WRONG_PASSWORD} /
  * {@code TOKEN_EXPIRED} 的 code 都是 **401**（而非 404），属认证语义，勿"修正"成 404。
@@ -36,6 +36,15 @@ public enum ErrorCode {
     CONFLICT(409, "操作冲突"),
     DUPLICATE_LIKE(409, "不可重复点赞"),
     DUPLICATE_PHONE(409, "手机号已被使用"),
+
+    // ===== 限流 (429) =====
+    // 限流专项 T23 新增。★ 与其它项一样遵守"code 与 HTTP 对齐"的既有规则（429 = Too Many Requests）
+    // ⇒ GlobalExceptionHandler 的 HttpStatus.resolve 天然认它，**不需要**新增 handler 分支。
+    // ⚠️ 实际出口**不看本枚举**：限流发生在过滤器链上（在 DispatcherServlet 之前），
+    //    @RestControllerAdvice 覆盖不到 ⇒ 由过滤器自写 ApiResponse + Retry-After 响应头
+    //    （同 JwtAuthFilter#writeError 的形态，见 architecture/tech/限流.md）。
+    //    本项是**对外契约的声明**（429 这个业务码存在、且与 HTTP 对齐）与过滤器取值的唯一来源。
+    RATE_LIMITED(429, "请求过于频繁"),
 
     // ===== 服务器 (500) =====
     SERVER_ERROR(500, "服务器内部错误"),
