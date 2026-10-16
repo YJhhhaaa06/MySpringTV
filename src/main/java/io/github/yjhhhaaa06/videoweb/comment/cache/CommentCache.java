@@ -105,6 +105,29 @@ public class CommentCache {
      * 分页窗口读：返回**该页主楼树**（children 随行，最多前 K 条）+ 真实主楼总数。
      *
      * <p>越界页返回空列表但 {@code rootTotal} 仍是真实主楼数——前端据此判末页（T8 契约）。
+     *
+     * <h2>★ T21（F-20 ①）：读侧**区间读**——负载 ∝ 本页，不再 ∝ 已装水位</h2>
+     * 写侧仍是窗口装载（水位不足才 keyset 追加——T10-A 本意：装一次、窗口内多次读，**不动**）；
+     * 读侧由"{@code LRANGE 0 -1} 全量读 + 内存切片"改为**只取本页区间**。旧形态下，
+     * 一次深翻会把后续**每个**请求（包括第 1 页）的搬运量抬到已装水位（≈ 历史最深访问过的页），
+     * 直到 {@code commentTtl} 过期——"负载与请求无关"（F-20 的判据形态）。
+     * 基线 = 2 万主楼**因果实验**（p1 冷 → 深翻 p2000 → p1 再测）：优化前 p1 热请求
+     * 中位 **51ms**（每次 `LRANGE 0 -1` 搬 20000 条 + 反序列化 20000）；优化后中位 **10ms**
+     * （只搬本页 10 条；已装载窗口内的深翻请求同理 40ms → 10ms）。写侧装载成本不变
+     * （深翻首装 ~0.9s， dominated by DB keyset 装载——那是 T10-A 的本意）。
+     * 判别力由 {@code CommentCacheTests#性能契约_深翻后首页只取本页区间} 钉住。
+     *
+     * <h2>空语义三态（保住旧实现的可观察行为，逐条有测试）</h2>
+     * <ul>
+     *   <li>**hit-empty**：空标记在（或水位 0 且区间空）→ 空页 + total 0（"已确认无评论"）；</li>
+     *   <li>**越界页**：水位 &gt; 0 但区间在水位之外 → 空 list + **真实 total**（T8），
+     *       且**不得写空标记**（"有评论"不能被固化成 60s 假空）；</li>
+     *   <li>**正常页** → 本页 roots + 真 total。</li>
+     * </ul>
+     *
+     * <p>⚠️ Redis 失败的降级路径**维持旧形态**：keyset 走到目标窗口（{@link #loadRootsFromDb}）
+     * 后内存切片——它是冷路径（Redis 不可用才走），改 OFFSET 单查询并不省扫描行数
+     * （{@code LIMIT offset,n} 本身 O(offset)），却要新增一条 DAO 查询，不值得（已知边界）。
      */
     public PageWindow getRootPage(long contentId, int page, int pageSize) {
         // 兜底非法分页参数（Controller 已归一）：给空页而不是假装第 1 页（避免 subList 越界）；
@@ -113,12 +136,39 @@ public class CommentCache {
             return new PageWindow(new ArrayList<>(), loadRootTotal(contentId));
         }
         long from = (long) (page - 1) * pageSize;
-        List<CommentCacheDTO> roots = prepareRoots(contentId, pageEnd(page, pageSize));
-        if (roots == null) {
-            return PageWindow.empty();          // hit-empty：已确认无评论
+        long needWatermark = pageEnd(page, pageSize);
+        String rootsKey = CacheKeys.contentCommentRoots(contentId);
+        try {
+            if (ops.emptyMarkerExists(rootsKey)) {
+                return PageWindow.empty();          // hit-empty：已确认无评论
+            }
+            ensureRootsWindow(rootsKey, contentId, needWatermark);
+            // ★ T21（F-20 ①）：只取本页区间（负载 ∝ 本页），不再全量读后内存切片
+            List<CommentCacheDTO> pageRoots = readPageRoots(rootsKey, from, pageSize);
+            if (pageRoots.isEmpty() && ops.rootsLength(rootsKey) == 0) {
+                return PageWindow.empty();          // LIST 空 = 已确认无评论（对齐旧 null 语义）
+            }
+            int total = loadRootTotal(contentId);
+            return new PageWindow(attachReplies(contentId, pageRoots), total);
+        } catch (CacheUnavailableException e) {
+            log.warn("评论主楼缓存读异常（降级走 DB）: contentId={}", contentId, e);
+            List<CommentCacheDTO> roots = loadRootsFromDb(contentId, needWatermark);
+            int total = loadRootTotal(contentId);
+            return new PageWindow(attachReplies(contentId, sliceRoots(roots, from, pageSize)), total);
         }
-        int total = loadRootTotal(contentId);
-        return new PageWindow(attachReplies(contentId, sliceRoots(roots, from, pageSize)), total);
+    }
+
+    /** 本页区间读 + 反序列化（{@code LRANGE from .. from+pageSize-1}；负载 ∝ 本页，T21/F-20 ①）。 */
+    private List<CommentCacheDTO> readPageRoots(String rootsKey, long from, int pageSize) {
+        List<String> jsons = ops.readRootsInterval(rootsKey, from, from + pageSize - 1,
+                props.commentTtl());
+        List<CommentCacheDTO> roots = new ArrayList<>(jsons.size());
+        for (String json : jsons) {
+            if (json != null && !json.isEmpty()) {
+                roots.add(codec.fromJson(json, CommentCacheDTO.class));
+            }
+        }
+        return roots;
     }
 
     /**
@@ -209,34 +259,6 @@ public class CommentCache {
     // ========================================================================
     // 内部：主楼窗口
     // ========================================================================
-
-    /**
-     * 主楼序列就绪（水位装载 + 全量读取）。
-     *
-     * @return 已装主楼列表（children 恒为 null）；{@code null} = 已确认无评论
-     */
-    private List<CommentCacheDTO> prepareRoots(long contentId, long needWatermark) {
-        String rootsKey = CacheKeys.contentCommentRoots(contentId);
-        try {
-            if (ops.emptyMarkerExists(rootsKey)) {
-                return null;                      // hit-empty
-            }
-            ensureRootsWindow(rootsKey, contentId, needWatermark);
-
-            List<String> jsons = ops.readRootsAll(rootsKey, props.commentTtl());
-            List<CommentCacheDTO> roots = new ArrayList<>(jsons.size());
-            for (String json : jsons) {
-                if (json != null && !json.isEmpty()) {
-                    roots.add(codec.fromJson(json, CommentCacheDTO.class));
-                }
-            }
-            // 空列表 = 已确认无评论（hit-empty / DB 无主楼），对齐旧的 null 语义
-            return roots.isEmpty() ? null : roots;
-        } catch (CacheUnavailableException e) {
-            log.warn("评论主楼缓存读异常（降级走 DB）: contentId={}", contentId, e);
-            return loadRootsFromDb(contentId, needWatermark);
-        }
-    }
 
     /**
      * 主楼 LIST 窗口装载：水位不足时按 keyset 轮次从 DB 追加。

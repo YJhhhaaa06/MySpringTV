@@ -77,14 +77,21 @@ public class CommentRedisOps extends RedisOps {
     }
 
     /**
-     * 读全部已装载主楼（{@code LRANGE 0 -1}）并**顺带续期**（滑动过期：命中即续）。
+     * 读**区间**内的已装载主楼（{@code LRANGE start..endInclusive}）并**顺带续期**（滑动过期：命中即续）。
      *
      * <p>一趟 pipeline 完成"读 + 续期"——它们的性质不同（一个返回数据、一个返回是否成功），
      * 但如果分两次调用，热路径就多一个往返。
+     *
+     * <p>★ T21（F-20 ①）：由"全量读 + 内存切片"（旧 {@code readRootsAll}，{@code LRANGE 0 -1}）
+     * 改为**只取调用方要的区间**。旧形态下一次深翻会把后续**每个**请求（包括第 1 页）的
+     * 搬运量抬到已装水位（≈ 历史最深访问过的页），直到 {@code commentTtl} 过期；
+     * 区间读后**负载 ∝ 本页**（写侧窗口装载不动——那是 T10-A 的本意：装一次、窗口内多次读）。
+     * 基线与前后对照见 {@code CommentCache#getRootPage} 的 T21 段与
+     * favorite.md 附录「编号速查」T21（判别力由 {@code CommentCacheTests#性能契约_深翻后首页只取本页区间} 钉住）。
      */
-    public List<String> readRootsAll(String rootsKey, Duration ttl) {
+    public List<String> readRootsInterval(String rootsKey, long start, long endInclusive, Duration ttl) {
         List<Object> raw = pipeline(ops -> {
-            ops.opsForList().range(rootsKey, 0, -1);
+            ops.opsForList().range(rootsKey, start, endInclusive);
             ops.expire(rootsKey, ttl);
         });
         List<String> values = new ArrayList<>();

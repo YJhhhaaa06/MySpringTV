@@ -19,8 +19,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -154,6 +156,86 @@ class CommentCacheTests extends AbstractContentIntegrationTest {
         // count key 在**首装**时写入，后续轮次不重复 COUNT
         assertThat(redis.opsForValue().get(rootCountKey(contentId))).isEqualTo("5");
         verify(commentDao, times(1)).countMainComments(contentId);
+    }
+
+    /**
+     * ★ 性能契约（T21 = F-20 ①）：深翻抬高水位后，第 1 页只向 Redis 取**本页区间**。
+     *
+     * <p>⚠️ 断言作用域（与 T14 的性能契约同款说明）：这是 **RedisOps 参数级** 的
+     * （spy 看的是"应用向 Redis 要了哪个区间"），不覆盖 Redis 侧实际传输量。
+     * 病灶在"读侧全量读（{@code LRANGE 0 -1}）+ 内存切片"——多搬的元素在响应体上**看不见**
+     * ⇒ 只能观测"向 Redis 要了多少"。设计级证据 = 一次性因果实验基线
+     * （2 万主楼：p1 冷 → 深翻 p2000 → p1 再测；优化前 p1 热请求中位 51ms、每次反序列化 20000 条，
+     * 优化后 8ms、只反序列化本页 10 条），见 {@code CommentCache#getRootPage} 的 T21 段。
+     */
+    @Test
+    @DisplayName("★性能契约（T21/F-20①）：深翻抬高水位后，第 1 页只向 Redis 取本页区间（负载 ∝ 本页，不再 ∝ 水位）")
+    void 性能契约_深翻后首页只取本页区间() {
+        String token = registerAndGetToken(AUTHOR_PHONE, AUTHOR);
+        long authorId = userIdOf(AUTHOR_PHONE);
+        long contentId = insertVideoContent(authorId, "区间读契约内容");
+        List<Long> ids = new ArrayList<>();
+        for (int i = 0; i < 30; i++) {
+            ids.add(insertMainComment(contentId, authorId, "主楼 " + i));
+        }
+
+        // 深翻第 30 页（pageSize=1）⇒ 水位被抬到 30
+        JsonNode deep = Envelope.data(
+                get("/comment/show?contentId=" + contentId + "&page=30&pageSize=1", null));
+        assertThat(deep.path("list").get(0).path("commentId").asLong()).isEqualTo(ids.get(29));
+        assertThat(redis.opsForList().size(rootsKey(contentId)))
+                .as("前置：深翻必须真把水位抬到 30 才有判别力").isEqualTo(30L);
+
+        Mockito.reset(commentRedisOps);   // ⚠️ 深翻那次读取不计入（reset 在被测请求之前）
+
+        JsonNode page1 = Envelope.data(
+                get("/comment/show?contentId=" + contentId + "&page=1&pageSize=1", null));
+        assertThat(page1.path("list").size()).isEqualTo(1);
+        assertThat(page1.path("list").get(0).path("commentId").asLong()).isEqualTo(ids.get(0));
+        assertThat(redis.opsForList().size(rootsKey(contentId)))
+                .as("读首页不再推高水位（装载只在不足时发生）").isEqualTo(30L);
+
+        // ★ 判别力：旧实现（LRANGE 0 -1 全量读 + 内存切片）在这一层看不见——
+        //   它"要的"也是整段；注入回全量读 ⇒ 本条变红
+        verify(commentRedisOps).readRootsInterval(eq(rootsKey(contentId)), eq(0L), eq(0L), any());
+    }
+
+    /**
+     * ★ 越界页与 hit-empty 必须区分（T21 重构后最容易踩的坑）。
+     *
+     * <p>区间读之后，"本页区间为空"不再等于"没有评论"——旧实现靠"全量读为空"天然区分两者，
+     * 新实现必须显式判"水位是否为 0"。若有人把判定简化成"区间空 ⇒ hit-empty"，
+     * 有评论的内容会被写成空标记（60s 假空）+ total 归 0 ⇒ 本条变红。
+     * 夹具带**双向对照**（AGENTS.md 纪律）：同一形态下，真无评论的内容必须写空标记。
+     */
+    @Test
+    @DisplayName("越界页 ≠ 无评论：空 list + 真实 total（T8）且**不写空标记**；真无评论才写空标记（对照）")
+    void 越界页不写空标记且保留真实total() {
+        String token = registerAndGetToken(AUTHOR_PHONE, AUTHOR);
+        long authorId = userIdOf(AUTHOR_PHONE);
+        long contentId = insertVideoContent(authorId, "越界页对照内容");
+        for (int i = 0; i < 5; i++) {
+            insertMainComment(contentId, authorId, "主楼 " + i);
+        }
+
+        JsonNode beyond = Envelope.data(
+                get("/comment/show?contentId=" + contentId + "&page=99&pageSize=3", null));
+        assertThat(beyond.path("list").size()).isZero();
+        assertThat(beyond.path("total").asInt())
+                .as("越界页保留真实主楼数（T8 契约）").isEqualTo(5);
+        assertThat(redisKeys())
+                .as("越界页 ≠ 无评论，不得写空标记（防把『有评论』固化成 60s 假空）")
+                .doesNotContain(EMPTY_PREFIX + rootsKey(contentId));
+
+        // 对照：真无评论的内容，同样的页参数必须写空标记（hit-empty）
+        long emptyContentId = insertVideoContent(authorId, "真无评论对照内容");
+        JsonNode empty = Envelope.data(
+                get("/comment/show?contentId=" + emptyContentId + "&page=99&pageSize=3", null));
+        assertThat(empty.path("list").size()).isZero();
+        assertThat(empty.path("total").asInt()).isZero();
+        assertThat(redisKeys())
+                .as("真无评论（水位 0 且区间空）⇒ 空标记必须在")
+                .contains(EMPTY_PREFIX + rootsKey(emptyContentId));
     }
 
     @Test
