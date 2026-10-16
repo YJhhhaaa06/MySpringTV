@@ -33,7 +33,9 @@ import static org.assertj.core.api.Assertions.within;
  * <h2>★ 测试参数整体调小 + 覆盖生效守门（对冲"匿名桶退化为全局限流"，见 {@code architecture/tech/限流.md} §三）</h2>
  * MockMvc / 本机 HTTP 的匿名请求 IP 全是 {@code 127.0.0.1} ⇒ 匿名桶在本环境退化为
  * "全局限流"。本类用 {@link TestPropertySource} **内联属性**把桶参数整体调小
- * （cap=4、rate=1/s）——内联属性"父类先、子类后、同键**子类胜**"是 Spring 文档明文的合并规则，
+ * （cap=50、rate=1/s）——★ T26 起权重表生效（{@code POST /user/register} = 5）⇒ cap 由 4 上调为 50：
+ * 本类的 fixture 注册调用必须装得进桶（cap &lt; 5 会让注册本身被 429 拦下）；{@code /start} 等读端点
+ * 仍吃 {@code default-base = 1}，各用例的独立 oracle 口径不变。内联属性"父类先、子类后、同键**子类胜**"是 Spring 文档明文的合并规则，
  * 故子类覆盖父类（{@code AbstractIntegrationTest} 的 1M 大桶基线）是**受保证**的行为；
  * 并用 {@link #测试小参数覆盖确实生效()} 守门。★ 之所以必须有守门：本仓 Boot 4.1.1 实测
  * **子类 {@code @DynamicPropertySource} 覆盖不了父类同键值**（父类源胜出）——T25 首版
@@ -41,7 +43,7 @@ import static org.assertj.core.api.Assertions.within;
  * 守门用例把"覆盖确实生效"变成可复算事实。
  *
  * <h2>期望值的推导口径（不抄实现）</h2>
- * 全部由四个参数按设计语义推出：cap=4、rate=1/s、cost=default-base=1、discount=0.3
+ * 全部由四个参数按设计语义推出：cap=50、rate=1/s、cost=default-base=1、discount=0.3
  * ⇒ 询问费 0.3、尾款 0.7。桶状态断言**直读 Redis**（键名字面量硬编码——键形状是冻结契约），
  * 并按惰性公式独立复算；复算的时间参照用**脚本自己写回的 {@code lastRefillMs}**（同 T24 手法：
  * 复算与实现共用同一时间差 ⇒ 无时钟近似，容差 1e-9 远严于"删掉某行差整枚令牌"的判别需求）。
@@ -63,19 +65,21 @@ import static org.assertj.core.api.Assertions.within;
         // ★ 子类内联属性覆盖父类（AbstractIntegrationTest 的 1M 大桶基线）同键值——
         //   这是 Spring 文档明文的合并规则（父类先、子类后）；基类 @DynamicPropertySource
         //   通道实测会被父类值压住（见基类注释）。
-        "video.rate-limit.server.capacity=4",
+        // ★ T26-C2：三处 capacity 4 → 50 —— 权重表生效后 register = 5，桶必须有头部空间；
+        //   rate 保持 1/s（Retry-After 的独立复算依赖它）。
+        "video.rate-limit.server.capacity=50",
         "video.rate-limit.server.refill-per-sec=1",
-        "video.rate-limit.user.authed.capacity=4",
+        "video.rate-limit.user.authed.capacity=50",
         "video.rate-limit.user.authed.refill-per-sec=1",
-        "video.rate-limit.user.anon.capacity=4",
+        "video.rate-limit.user.anon.capacity=50",
         "video.rate-limit.user.anon.refill-per-sec=1",
         "video.rate-limit.cost.default-base=1",
         "video.rate-limit.cost.reject-discount=0.3"
 })
 class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
 
-    /** 与 {@code @DynamicPropertySource} 注入值一一对应的 oracle 常量（改一处必改另一处）。 */
-    private static final int CAP = 4;
+    /** 与 {@code @TestPropertySource} 注入值一一对应的 oracle 常量（改一处必改另一处）。 */
+    private static final int CAP = 50;
     private static final int RATE = 1;
     private static final double COST = 1.0;
     private static final double FEE = COST * 0.3;
@@ -231,7 +235,7 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
         assertThat(rawOf(SERVER_KEY))
                 .as("被拒时服务器桶必须原样保留（含 lastRefillMs）——写回任何字节都算破约")
                 .isEqualTo(serverBefore);
-        // 用户桶仍被扣询问费：4 − 0.3 = 3.7（新桶 refill=cap，无 elapsed 依赖，精确可推）。
+        // 用户桶仍被扣询问费：50 − 0.3 = 49.7（新桶 refill=cap，无 elapsed 依赖，精确可推）。
         assertThat(tokensOf(rawOf(ANON_KEY))).isEqualTo(CAP - FEE, within(1e-9));
         // Retry-After 由不足的一侧（服务器桶）决定：ceil((1 − 0.2)/1) = 1。
         assertThat(resp.getHeaders().getFirst("Retry-After")).isEqualTo("1");

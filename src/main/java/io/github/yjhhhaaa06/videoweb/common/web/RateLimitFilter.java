@@ -67,10 +67,10 @@ import java.util.Set;
  * **必须更高（ERROR）**："限流静默消失"的唯一出口就是这行日志。
  * 正式的日志口径 / 指标归 <b>T28</b>；resilience 组测试钉住"两种失败都放行"的行为契约。
  *
- * <h2>成本（T25 阶段的口径）</h2>
- * 每请求固定取 {@code cost.default-base}（信号③未接、信号①②归 T26——分工在
- * {@code RateLimitRedisOps#tryAcquire} 的 javadoc 已钉）。漏配路由的兜底**不是 0**
- * （"漏配 = 不限"正是本机制要防的），本阶段"全部请求 = 兜底单位"是 T26 之前的临时形态。
+ * <h2>成本（T26 口径：信号①）</h2>
+ * 端点权重表：{@code cost = cost.base[「方法 空格 路径」]}，未登记 ⇒ {@code cost.default-base}
+ * （★ "漏配 = 不限"正是要防的 ⇒ 兜底**不是 0**；键形态由绑定期校验钉住，见 {@code RateLimitProperties}）。
+ * 查表路径与跳过清单**同源**（{@link #pathOf}，未解码未规范化）。
  */
 @Slf4j
 @Component
@@ -125,9 +125,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
         RateLimitProperties.Bucket userBucket = userId != null
                 ? properties.user().authed()
                 : properties.user().anon();
-        // 成本：T25 阶段固定取兜底权重（权重表 / miss 系数归 T26；"漏配 = 不限"由"必为正"
-        // 绑定期校验 + default-base 兜底双重排除，见 RateLimitProperties）。
-        double cost = properties.cost().defaultBase();
+        // 成本 = 信号①（端点权重表；未登记 ⇒ default-base，见 RateLimitProperties）
+        double cost = costOf(request);
 
         try {
             RateLimitRedisOps.Decision decision = ops.tryAcquire(
@@ -155,6 +154,26 @@ public class RateLimitFilter extends OncePerRequestFilter {
     }
 
     /**
+     * 端点权重查询（信号①）：键 = 「{@code <方法> <空格> 路径}」（与配置表同形），
+     * 未登记 ⇒ {@code cost.default-base}（★ 不是 0——"漏配 = 不限"正是本机制要防的）。
+     *
+     * <p>路径与跳过清单**同源**（{@link #pathOf}）——"能被跳过的路径"与"被查表的路径"
+     * 必须看同一个字符串，否则两套口径（未解码未规范化的前提见 {@link #isSkipped}）。
+     */
+    private double costOf(HttpServletRequest request) {
+        Integer weight = properties.cost().base().get(request.getMethod() + " " + pathOf(request));
+        return weight != null ? weight : properties.cost().defaultBase();
+    }
+
+    /**
+     * 上下文路径已剥的请求路径（**未解码、未规范化**）——跳过清单与权重表查询共用。
+     * 取原始 URI 的理由与依赖见 {@link #isSkipped} 的注释。
+     */
+    private static String pathOf(HttpServletRequest request) {
+        return request.getRequestURI().substring(request.getContextPath().length());
+    }
+
+    /**
      * 跳过清单（见类注释「覆盖范围」）。静态资源 / actuator 不是业务成本，也不该被 429。
      *
      * <p>⚠️ 路径取**未解码、未规范化**的 {@code getRequestURI()}（与 {@code JwtAuthFilter#isAdminPath}
@@ -165,7 +184,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
      * 精确匹配不会被 {@code ?x=1} 击穿。
      */
     private boolean isSkipped(HttpServletRequest request) {
-        String path = request.getRequestURI().substring(request.getContextPath().length());
+        String path = pathOf(request);
         if (SKIP_EXACT.contains(path)) {
             return true;
         }
