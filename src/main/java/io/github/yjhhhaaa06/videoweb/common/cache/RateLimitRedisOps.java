@@ -18,6 +18,9 @@ import java.util.List;
  * 见 {@link CacheKeys}）与服务器桶（全局单桶 {@code ratelimit:server}）。
  * 请求侧**一次 Lua**（{@code KEYS = [userKey, serverKey]}）覆盖"惰性补充 → 询问费 → 闸门 → 放行扣减"；
  * 任务侧单独一次 Lua（{@code KEYS = [serverKey]}，见 {@link #deductTaskCost}）。
+ * ★ T26 追加**门后差额**一次 Lua（{@code KEYS = [userKey, serverKey]}，见 {@link #deductDelta}，
+ * 信号②：仅对"门放行过"的请求、在请求收尾时补扣 {@code base × (multiplier − 1)}——
+ * miss 是请求运行期事实、门时取不到，只能事后结算）。
  *
  * <h2>★ 非对称扣减（一次 Lua 内的两阶段写法）</h2>
  * 用户桶**无条件扣询问费**（被拒也扣——否则被拒的请求是免费探路，刷子可以零成本试探）；
@@ -154,10 +157,46 @@ public class RateLimitRedisOps extends RedisOps {
             return 1
             """;
 
+    /**
+     * 门后差额脚本（信号②；T26）。KEYS: {@code [userKey, serverKey]}；
+     * ARGV: {@code [userCap, userRate, userTtl, serverCap, serverRate, serverTtl, delta]}。
+     *
+     * <p>与任务侧同样"先补后扣"（类注释纪律①）：不补齐的话，近满桶时这笔差额会被下一次
+     * 请求的 refill 悄悄吸收。两桶**无条件**扣、可为负（D-6 的欠账态）、不设折扣
+     * （请求已经放行，差额是全款的一部分）——这是**事后结算**，不做任何判定。
+     */
+    private static final String DEDUCT_DELTA_LUA = """
+            local t = redis.call('TIME')
+            local now = t[1] * 1000 + math.floor(t[2] / 1000)
+
+            local function refill(key, cap, rate)
+              local raw = redis.call('GET', key)
+              if not raw then
+                return cap
+              end
+              local p = string.find(raw, ':')
+              local tokens = tonumber(string.sub(raw, 1, p - 1))
+              local last = tonumber(string.sub(raw, p + 1))
+              return math.min(cap, tokens + (now - last) * rate / 1000)
+            end
+
+            local delta = tonumber(ARGV[7])
+            local uTokens = refill(KEYS[1], tonumber(ARGV[1]), tonumber(ARGV[2])) - delta
+            local sTokens = refill(KEYS[2], tonumber(ARGV[4]), tonumber(ARGV[5])) - delta
+
+            redis.call('SET', KEYS[1], tostring(uTokens) .. ':' .. tostring(now))
+            redis.call('EXPIRE', KEYS[1], ARGV[3])
+            redis.call('SET', KEYS[2], tostring(sTokens) .. ':' .. tostring(now))
+            redis.call('EXPIRE', KEYS[2], ARGV[6])
+            return 1
+            """;
+
     private static final DefaultRedisScript<String> ACQUIRE_SCRIPT =
             new DefaultRedisScript<>(ACQUIRE_LUA, String.class);
     private static final DefaultRedisScript<Long> DEDUCT_TASK_SCRIPT =
             new DefaultRedisScript<>(DEDUCT_TASK_LUA, Long.class);
+    private static final DefaultRedisScript<Long> DEDUCT_DELTA_SCRIPT =
+            new DefaultRedisScript<>(DEDUCT_DELTA_LUA, Long.class);
 
     public RateLimitRedisOps(StringRedisTemplate redis, RedisCircuitBreaker breaker) {
         super(redis, breaker);
@@ -206,6 +245,30 @@ public class RateLimitRedisOps extends RedisOps {
                 String.valueOf(serverBucket.refillPerSec()),
                 String.valueOf(serverBucket.ttlSeconds()),
                 String.valueOf(taskCost));
+    }
+
+    /**
+     * 门后差额补扣（信号②，T26）：对**门放行过**的请求，按 {@code base × (multiplier − 1)}
+     * 无条件扣**两桶**（可为负、不设折扣——请求已放行，差额是全款的一部分；这次调用不做任何判定）。
+     *
+     * <p>为什么两桶都扣：成本在门时是两桶联合判定的输入（见 {@link #tryAcquire}），
+     * 请求结束时的**真实成本**同样属于两桶——服务器桶代表"实例整体还能接多少活"，
+     * 缓存回源确实多消耗了它。
+     *
+     * <p>⚠️ 本方法由请求**收尾**处调用（响应已在途 / 已写出）——Redis 不可达抛
+     * {@link CacheUnavailableException}、脚本/解析异常抛 {@link RateLimitScriptException}，
+     * "补扣失败不得让已完成的响应变失败"（fail-open + 兜底）是**调用方**的职责。
+     */
+    public void deductDelta(String userKey, String serverKey,
+                            BucketSpec userBucket, BucketSpec serverBucket, double delta) {
+        eval(DEDUCT_DELTA_SCRIPT, List.of(userKey, serverKey),
+                String.valueOf(userBucket.capacity()),
+                String.valueOf(userBucket.refillPerSec()),
+                String.valueOf(userBucket.ttlSeconds()),
+                String.valueOf(serverBucket.capacity()),
+                String.valueOf(serverBucket.refillPerSec()),
+                String.valueOf(serverBucket.ttlSeconds()),
+                String.valueOf(delta));
     }
 
     /**

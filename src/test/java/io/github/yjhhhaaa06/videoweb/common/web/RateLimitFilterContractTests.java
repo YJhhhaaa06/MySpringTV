@@ -74,7 +74,10 @@ import static org.assertj.core.api.Assertions.within;
         "video.rate-limit.user.anon.capacity=50",
         "video.rate-limit.user.anon.refill-per-sec=1",
         "video.rate-limit.cost.default-base=1",
-        "video.rate-limit.cost.reject-discount=0.3"
+        "video.rate-limit.cost.reject-discount=0.3",
+        // ★ T26-C3：本类只测闸门（信号①与折扣），固定隔离信号②——yaml 已启用 3.0，
+        //   不 pin 的话，冷态请求（如 /start 首次回源）的差额会打到 CAP − COST 类断言上。
+        "video.rate-limit.cost.miss-multiplier=1.0"
 })
 class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
 
@@ -166,6 +169,9 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
         assertThat(properties.user().anon().capacity()).isEqualTo(CAP);
         assertThat(properties.user().anon().refillPerSec()).isEqualTo(RATE);
         assertThat(properties.server().capacity()).isEqualTo(CAP);
+        assertThat(properties.cost().missMultiplier())
+                .as("信号②隔离 pin 生效（失效 ⇒ 冷态请求的差额会污染本类断言）")
+                .isEqualTo(1.0);
     }
 
     // ==================== 契约①：够令牌放行 ====================

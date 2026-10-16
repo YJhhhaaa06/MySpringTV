@@ -365,6 +365,51 @@ class RateLimitRedisOpsTests extends AbstractIntegrationTest {
         assertThat(tokensOf(SERVER_KEY)).as("−5 − 10 ≈ −15（无条件、可为负）").isCloseTo(expectedNegative, within(1e-6));
     }
 
+    // ==================== 门后差额补扣（T26 信号②） ====================
+
+    @Test
+    @DisplayName("差额补扣：两桶同扣 + 先补后扣（独立 oracle 复算）+ 写即刷新 TTL")
+    void 差额补扣_两桶同扣_先补后扣() {
+        long t0 = System.currentTimeMillis();
+        // 用户桶：1 个令牌、2 秒前（补 2×2 = 4 → 5）；服务器桶：0 个令牌、5 秒前（补 50 → 封顶 20）
+        putBucket(USER_KEY, "1", t0 - 2000);
+        putBucket(SERVER_KEY, "0", t0 - 5000);
+
+        ops.deductDelta(USER_KEY, SERVER_KEY, USER_BUCKET, SERVER_BUCKET, 2.5);
+
+        // 独立 oracle：以脚本写回的 lastRefillMs 反推补充量（同 T24/T25 手法，与脚本共用同一时间差、无时钟近似）
+        double expectedUser = Math.min(USER_BUCKET.capacity(),
+                1 + (lastOf(USER_KEY) - (t0 - 2000)) * USER_BUCKET.refillPerSec() / 1000.0) - 2.5;
+        double expectedServer = Math.min(SERVER_BUCKET.capacity(),
+                0 + (lastOf(SERVER_KEY) - (t0 - 5000)) * SERVER_BUCKET.refillPerSec() / 1000.0) - 2.5;
+        assertThat(tokensOf(USER_KEY)).as("用户桶 = 补后 − 差额").isCloseTo(expectedUser, within(1e-6));
+        assertThat(tokensOf(SERVER_KEY)).as("服务器桶同扣（两桶共享同一个差额）").isCloseTo(expectedServer, within(1e-6));
+        assertThat(tokensOf(USER_KEY)).as("先补后扣的判别面：不补则恰好 = 1 − 2.5 = −1.5").isGreaterThan(0.0);
+
+        // 写即刷新（两桶都被写 ⇒ 都刷新 TTL）：派生 TTL = ceil(cap/rate) ⇒ 断言落在 (0, TTL] 窗口
+        assertThat(redis.getExpire(USER_KEY, TimeUnit.SECONDS))
+                .as("用户桶 TTL 被刷新（ceil(10/2) = 5s 窗口内）").isBetween(1L, USER_BUCKET.ttlSeconds());
+        assertThat(redis.getExpire(SERVER_KEY, TimeUnit.SECONDS))
+                .as("服务器桶 TTL 被刷新（ceil(20/10) = 2s 窗口内）").isBetween(1L, SERVER_BUCKET.ttlSeconds());
+    }
+
+    @Test
+    @DisplayName("差额补扣：可为负（欠账态，D-6）——不足也照扣，这是**事后结算**、不再判定")
+    void 差额补扣_可为负() {
+        long t0 = System.currentTimeMillis();
+        putBucket(USER_KEY, "1", t0);
+        putBucket(SERVER_KEY, "1", t0);
+
+        ops.deductDelta(USER_KEY, SERVER_KEY, USER_BUCKET, SERVER_BUCKET, 3.0);
+
+        double expectedUser = Math.min(USER_BUCKET.capacity(),
+                1 + (lastOf(USER_KEY) - t0) * USER_BUCKET.refillPerSec() / 1000.0) - 3.0;
+        double expectedServer = Math.min(SERVER_BUCKET.capacity(),
+                1 + (lastOf(SERVER_KEY) - t0) * SERVER_BUCKET.refillPerSec() / 1000.0) - 3.0;
+        assertThat(tokensOf(USER_KEY)).as("≈ −2（可为负）").isCloseTo(expectedUser, within(1e-6));
+        assertThat(tokensOf(SERVER_KEY)).as("服务器桶同样可为负").isCloseTo(expectedServer, within(1e-6));
+    }
+
     // ==================== 失败边界（本层不吞） ====================
 
     @Test
@@ -377,6 +422,8 @@ class RateLimitRedisOpsTests extends AbstractIntegrationTest {
                 .isInstanceOf(CacheUnavailableException.class);
         assertThatThrownBy(() -> mocked.deductTaskCost(SERVER_KEY, SERVER_BUCKET, 10))
                 .as("任务侧同一条 guarded 路径，同样上抛不吞").isInstanceOf(CacheUnavailableException.class);
+        assertThatThrownBy(() -> mocked.deductDelta(USER_KEY, SERVER_KEY, USER_BUCKET, SERVER_BUCKET, 2.0))
+                .as("门后差额（T26）同一条 guarded 路径，同样上抛不吞").isInstanceOf(CacheUnavailableException.class);
     }
 
     @Test

@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.common.web;
 
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheKeys;
+import io.github.yjhhhaaa06.videoweb.common.cache.CacheMissSignal;
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheUnavailableException;
 import io.github.yjhhhaaa06.videoweb.common.cache.RateLimitRedisOps;
 import io.github.yjhhhaaa06.videoweb.common.cache.RateLimitScriptException;
@@ -67,10 +68,16 @@ import java.util.Set;
  * **必须更高（ERROR）**："限流静默消失"的唯一出口就是这行日志。
  * 正式的日志口径 / 指标归 <b>T28</b>；resilience 组测试钉住"两种失败都放行"的行为契约。
  *
- * <h2>成本（T26 口径：信号①）</h2>
- * 端点权重表：{@code cost = cost.base[「方法 空格 路径」]}，未登记 ⇒ {@code cost.default-base}
+ * <h2>成本（T26 口径：信号① + 信号②）</h2>
+ * <b>信号①（端点权重表）</b>：{@code cost = cost.base[「方法 空格 路径」]}，未登记 ⇒ {@code cost.default-base}
  * （★ "漏配 = 不限"正是要防的 ⇒ 兜底**不是 0**；键形态由绑定期校验钉住，见 {@code RateLimitProperties}）。
  * 查表路径与跳过清单**同源**（{@link #pathOf}，未解码未规范化）。
+ * <p><b>信号②（缓存 miss 系数）</b>：miss 是**本请求运行期事实**（缓存读发生在请求处理中、门之后）
+ * ⇒ 门时取不到 ⇒ 拆两阶段——门时按 {@code base} 扣、请求收尾（{@link #settleMissPenalty}）按差额
+ * {@code base × (multiplier − 1)} 补扣。标记的读写点：进闸门 {@link CacheMissSignal#clear()}、
+ * 收尾 {@link CacheMissSignal#consume()}（"唯一 set/clear 点"纪律，同 {@code RequestIdFilter} 对 MDC）。
+ * 结算细则（两桶同扣、仅"门放行过"的请求、失败吞掉）与二值（不计数）的理由见
+ * {@code architecture/tech/限流.md} §四。
  */
 @Slf4j
 @Component
@@ -118,6 +125,10 @@ public class RateLimitFilter extends OncePerRequestFilter {
             return;
         }
 
+        // ★ 信号②的清理点在此（唯一读点是收尾的 consume）——同 RequestIdFilter 对 MDC 的
+        //   "唯一 set/clear 点"纪律：线程池复用不得把上一请求的标记带进本请求。
+        CacheMissSignal.clear();
+
         Long userId = (Long) request.getAttribute(JwtAuthFilter.ATTR_USER_ID);
         String userKey = userId != null
                 ? CacheKeys.rateLimitUser(userId)
@@ -128,29 +139,77 @@ public class RateLimitFilter extends OncePerRequestFilter {
         // 成本 = 信号①（端点权重表；未登记 ⇒ default-base，见 RateLimitProperties）
         double cost = costOf(request);
 
+        boolean allowedByGate = false;
         try {
-            RateLimitRedisOps.Decision decision = ops.tryAcquire(
-                    userKey,
-                    CacheKeys.rateLimitServer(),
+            try {
+                RateLimitRedisOps.Decision decision = ops.tryAcquire(
+                        userKey,
+                        CacheKeys.rateLimitServer(),
+                        new RateLimitRedisOps.BucketSpec(userBucket.capacity(), userBucket.refillPerSec()),
+                        new RateLimitRedisOps.BucketSpec(
+                                properties.server().capacity(), properties.server().refillPerSec()),
+                        cost,
+                        properties.cost().rejectDiscount());
+                if (!decision.allowed()) {
+                    writeTooManyRequests(request, response, decision.retryAfterSeconds());
+                    return;
+                }
+                allowedByGate = true;
+            } catch (CacheUnavailableException e) {
+                // ★ fail-open（见类注释）：Redis 不可达 / 熔断打开（guarded 快速失败抛的也是它）。
+                log.warn("限流器不可用，放行（fail-open）: {}", e.getMessage());
+            } catch (RateLimitScriptException e) {
+                // ★ 限流器自身缺陷：同样放行（D-5），但档位必须更高——ERROR 是"限流已静默消失"
+                // 的唯一出口（T24 刻意不归一就是为了在这里按类型分开；正式口径归 T28）。
+                log.error("限流脚本/返回值异常，放行（fail-open）——限流器自身缺陷，必须排查", e);
+            }
+
+            chain.doFilter(request, response);
+        } finally {
+            // ★ 收尾结算（信号②）：consume **无条件**执行（放行 / 被拒 / 失败 / 异常都要清）——
+            //   它是标记的唯一读点，漏了会把本请求的标记遗给线程池里的下一个请求。
+            //   差额只在"门给出过放行决定"时补（fail-open 不算——限流器整体失灵时不记半笔账）。
+            boolean missed = CacheMissSignal.consume();
+            if (allowedByGate && missed) {
+                settleMissPenalty(userKey, userBucket, cost);
+            }
+        }
+    }
+
+    /**
+     * 门后差额补扣（信号②，T26）：{@code delta = base × (multiplier − 1)}，两桶同扣。
+     *
+     * <h2>触发条件（三条同时满足）</h2>
+     * ① 门**给出过放行决定**（429 短路的请求没有处理、没有 miss；fail-open 时限流器整体
+     * 失灵，不做半笔结算）；② 请求处理期间发生过缓存回源（标记被 {@code consume} 取走）；
+     * ③ {@code multiplier > 1.0}（1.0 = 关闭，沿用本仓"0/1 = 关闭"惯例）。
+     *
+     * <h2>★ 失败必须吞掉（比门的 fail-open 更严）</h2>
+     * 本方法跑在 {@code finally}、响应已在途 / 已写出 ⇒ **任何**失败都不得让请求变 500：
+     * {@link CacheUnavailableException}（Redis 不可达）WARN；{@link RateLimitScriptException}
+     * （限流器自身缺陷）ERROR；其余未预期异常兜底 ERROR（对照 {@code FeedCache.tryAcquireRebuildLock}
+     * 的 RuntimeException 兜底手法）。正式日志口径归 T28。
+     */
+    private void settleMissPenalty(String userKey, RateLimitProperties.Bucket userBucket, double baseCost) {
+        double multiplier = properties.cost().missMultiplier();
+        if (multiplier <= 1.0) {
+            return;     // 信号②关闭：连一次往返都不花
+        }
+        double delta = baseCost * (multiplier - 1.0);
+        try {
+            ops.deductDelta(userKey, CacheKeys.rateLimitServer(),
                     new RateLimitRedisOps.BucketSpec(userBucket.capacity(), userBucket.refillPerSec()),
                     new RateLimitRedisOps.BucketSpec(
                             properties.server().capacity(), properties.server().refillPerSec()),
-                    cost,
-                    properties.cost().rejectDiscount());
-            if (!decision.allowed()) {
-                writeTooManyRequests(request, response, decision.retryAfterSeconds());
-                return;
-            }
+                    delta);
         } catch (CacheUnavailableException e) {
-            // ★ fail-open（见类注释）：Redis 不可达 / 熔断打开（guarded 快速失败抛的也是它）。
-            log.warn("限流器不可用，放行（fail-open）: {}", e.getMessage());
+            log.warn("缓存 miss 差额补扣失败（响应不受影响）: {}", e.getMessage());
         } catch (RateLimitScriptException e) {
-            // ★ 限流器自身缺陷：同样放行（D-5），但档位必须更高——ERROR 是"限流已静默消失"
-            // 的唯一出口（T24 刻意不归一就是为了在这里按类型分开；正式口径归 T28）。
-            log.error("限流脚本/返回值异常，放行（fail-open）——限流器自身缺陷，必须排查", e);
+            log.error("缓存 miss 差额补扣脚本/返回值异常（限流器自身缺陷，必须排查）", e);
+        } catch (RuntimeException e) {
+            // 兜底：本方法在 finally 里跑——未预期异常不得把"已完成的请求"变成失败
+            log.error("缓存 miss 差额补扣出现未预期异常（已兜底，不影响响应）", e);
         }
-
-        chain.doFilter(request, response);
     }
 
     /**
