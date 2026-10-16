@@ -23,21 +23,24 @@ import static org.assertj.core.api.Assertions.within;
  * 口径见 {@code architecture/tech/限流.md}）。
  *
  * <h2>两侧独立 oracle（防迎合实现）</h2>
- * 所有断言都不拿"脚本的返回值"自证：桶状态**直读 Redis 键**（键名与值格式**硬编码字面量**——
- * 键形状是冻结契约），并在 Java 侧按惰性公式**独立复算**。
+ * 桶状态的断言全部**直读 Redis 键**（键名与值格式**硬编码字面量**——键形状是冻结契约，
+ * 另见 {@link #桶键命名冻结()}），不拿脚本返回值自证；并在 Java 侧按惰性公式**独立复算**。
  * ★ 复算的技巧：用**脚本自己写回的 {@code lastRefillMs}**（= 脚本内的 now）作为时间参照反推补充量
  * ⇒ 复算与脚本共用同一个"时间差"，**无时钟近似**，容差给 1e-6 即可（远严于"删掉补充差 4 个令牌"这类注入的判别需求）。
+ * ⚠️ 该技巧的**代价**：复算对"now 推导本身出错"（单位 / 截断类偏差）无判别力（两边同错 ⇒ 自洽）。
+ * 对冲 = {@link #老桶按公式复算()} 里一条**真实时钟锚定**断言（Java 时钟距离 ⇒ 补充量区间）。
  *
  * <h2>期望值的推导口径（不是抄实现）</h2>
  * 全部由三个参数按设计语义推出：容量 {@code cap}、速率 {@code rate}、成本 {@code cost} 与折扣 {@code discount}
  * （如"新桶 = 满桶 ⇒ 扣全款后 = cap − cost"）。改数值只改上面的常量，**改语义才改断言**。
  *
- * <h2>★ 反向验证指向（T24 验收④）</h2>
+ * <h2>★ 反向验证指向（清单归宿 = {@code architecture/tech/限流.md} §六）</h2>
  * <ul>
  *   <li>删掉脚本里的惰性补充（{@code refill}）⇒ {@link #老桶按公式复算}、{@link #很久没请求的桶补满封顶} 必红；</li>
  *   <li>删掉脚本里的 {@code EXPIRE} ⇒ {@link #两桶TTL按各自参数派生且访问续期} 必红；</li>
  *   <li>把"被拒只扣询问费"改错（免扣 / 全款）⇒ {@link #用户桶不够_被拒_只扣询问费_服务器桶一个字节都不写} 必红。</li>
  * </ul>
+ * 文中 {@code T25} / {@code T28} 等后续任务编号的锚点见 {@code architecture/tech/限流.md} 对应章节。
  */
 class RateLimitRedisOpsTests extends AbstractIntegrationTest {
 
@@ -53,7 +56,6 @@ class RateLimitRedisOpsTests extends AbstractIntegrationTest {
     private static final double COST = 3.0;
     private static final double DISCOUNT = 0.3;
     private static final double FEE = COST * DISCOUNT;
-    private static final double TAIL = COST * (1 - DISCOUNT);
 
     /** 键名**硬编码字面量**（防 {@code CacheKeys} 改名导致测试静默失联，见 CacheKeys 类注释）。 */
     private static final String USER_KEY = "ratelimit:user:990001";
@@ -162,6 +164,10 @@ class RateLimitRedisOpsTests extends AbstractIntegrationTest {
         assertThat(tokensOf(USER_KEY)).as("用户桶实际值 vs Java 侧独立复算").isCloseTo(expectedUser, within(1e-6));
         assertThat(tokensOf(SERVER_KEY)).as("服务器桶实际值 vs Java 侧独立复算").isCloseTo(expectedServer, within(1e-6));
         assertThat(tokensOf(USER_KEY)).as("确实补充过：未补充则 = 5 − 3 = 2（远小于此）").isGreaterThan(5.0);
+        // ★ 真实时钟锚定（对冲"复算对 now 推导本身无判别力"——两边同错则自洽）：
+        //   夹具距离 ≈ 2000ms（Java 时钟，与 Redis 时钟同机、偏差毫秒级）× 2/s ⇒ 补充 ≈ 4 ⇒ ≈ 5 + 4 − 3 = 6
+        assertThat(tokensOf(USER_KEY)).as("按真实时钟复核补充量：≈ 6（±0.3 覆盖毫秒级抖动）")
+                .isCloseTo(6.0, within(0.3));
     }
 
     @Test
@@ -185,22 +191,25 @@ class RateLimitRedisOpsTests extends AbstractIntegrationTest {
     @DisplayName("★ 用户桶不够 ⇒ 被拒：只扣询问费；服务器桶**一个字节都不写**（连键都不创建）")
     void 用户桶不够_被拒_只扣询问费_服务器桶一个字节都不写() {
         long t0 = System.currentTimeMillis();
-        putBucket(USER_KEY, "0.2", t0); // 0.2 < 判定线 2.1，且远买不起尾款
+        // ⚠️ 200ms 的夹具距离：让"复算式"断言对补充量有**稳定的非零判别面**（删补充注入 ⇒ 必红），
+        //    又不改变语义（补 0.4 后仍远买不起尾款）。
+        putBucket(USER_KEY, "0.2", t0 - 200);
 
         RateLimitRedisOps.Decision decision = acquire();
 
         assertThat(decision.allowed()).as("付不起尾款 ⇒ 拒绝").isFalse();
-        // 期望推导：0.2（+毫秒级补充）− 询问费 0.9 ⇒ ≈ −0.7 —— 询问费无条件扣（被拒不是免费探路）
+        // 期望推导：0.2 + 0.2s×2/s − 询问费 0.9 ⇒ ≈ −0.3 —— 询问费无条件扣（被拒不是免费探路）
         long t1 = lastOf(USER_KEY);
         double expected = Math.min(USER_BUCKET.capacity(),
-                0.2 + (t1 - t0) * USER_BUCKET.refillPerSec() / 1000.0) - FEE;
+                0.2 + (t1 - (t0 - 200)) * USER_BUCKET.refillPerSec() / 1000.0) - FEE;
         assertThat(tokensOf(USER_KEY)).as("只扣了询问费 0.9（不扣尾款）").isCloseTo(expected, within(1e-6));
         assertThat(tokensOf(USER_KEY)).as("被拒 ⇒ 欠账（负令牌）").isNegative();
 
         // ★ "服务器桶完全不动"的最硬证据：本用例从未写过服务器桶 ⇒ 它必须**仍然不存在**
         assertThat(rawOf(SERVER_KEY)).as("被拒时服务器桶一个字节都不写（连键都不创建）").isNull();
 
-        // Retry-After 推导：用户桶需 (2.1 − (−0.7)) / 2 = 1.4s ⇒ ceil = 2；服务器桶不缺 ⇒ 取大者 2
+        // Retry-After 推导：补足目标 = cost（下次进入前还要再扣询问费）⇒ (3 − (−0.3)) / 2 = 1.65s ⇒ ceil = 2；
+        // 服务器桶不缺 ⇒ 取大者 2
         assertThat(decision.retryAfterSeconds()).isEqualTo(2);
     }
 
@@ -212,6 +221,8 @@ class RateLimitRedisOpsTests extends AbstractIntegrationTest {
         //    半秒前 × 1/s ≈ 补 0.5 个，仍够不着 cost=3（第一版曾取 t0−12345，12 秒把 1 个令牌的桶补满、反致放行）。
         long s0 = t0 - 500;
         RateLimitRedisOps.BucketSpec slowServer = new RateLimitRedisOps.BucketSpec(20, 1);
+        // ⚠️ 用户桶夹具 = cap：任何补充都会被 min 截断吸收 ⇒ 本用例对"惰性补充"**天然无判别面**
+        //    （那是 老桶 / 封顶 用例的职责；本用例的判别对象 = 服务器侧"原样保留"与询问费）。
         putBucket(USER_KEY, "10", t0);
         putBucket(SERVER_KEY, "0", s0);
 
@@ -236,7 +247,8 @@ class RateLimitRedisOpsTests extends AbstractIntegrationTest {
     @DisplayName("负令牌（欠账）可存可读可继续扣 —— 欠账累积是设计语义（被拒的询问费不返还）")
     void 负令牌欠账累积() {
         long t0 = System.currentTimeMillis();
-        putBucket(USER_KEY, "-5", t0);
+        // ⚠️ 200ms 距离 ⇒ 补充 ≈ 0.4（也让本用例的 Retry-After 落在非整数缺口上、可判别 ceil）
+        putBucket(USER_KEY, "-5", t0 - 200);
         putBucket(SERVER_KEY, "20", t0);
 
         RateLimitRedisOps.Decision decision = acquire();
@@ -244,11 +256,26 @@ class RateLimitRedisOpsTests extends AbstractIntegrationTest {
         assertThat(decision.allowed()).as("欠账态 ⇒ 拒绝").isFalse();
         long t1 = lastOf(USER_KEY);
         double expected = Math.min(USER_BUCKET.capacity(),
-                -5 + (t1 - t0) * USER_BUCKET.refillPerSec() / 1000.0) - FEE;
-        assertThat(tokensOf(USER_KEY)).as("−5 − 0.9 ≈ −5.9（负值存储往返完好）").isCloseTo(expected, within(1e-6));
+                -5 + (t1 - (t0 - 200)) * USER_BUCKET.refillPerSec() / 1000.0) - FEE;
+        assertThat(tokensOf(USER_KEY)).as("−5 + 补充 − 0.9 ≈ −5.5（负值存储往返完好）").isCloseTo(expected, within(1e-6));
 
-        // Retry-After 推导：需 (2.1 − (−5.9)) / 2 = 4.0s ⇒ ceil = 4
-        assertThat(decision.retryAfterSeconds()).isEqualTo(4);
+        // Retry-After 推导：补足目标 = cost ⇒ (3 − (−5.5)) / 2 = 4.25s ⇒ ceil = 5
+        // （非整数缺口：floor 实现会得 4 ⇒ 红；若退化成"补到尾款"也会得 4 ⇒ 红——本条同时钉住那处审查修正）
+        assertThat(decision.retryAfterSeconds()).isEqualTo(5);
+    }
+
+    @Test
+    @DisplayName("★ 两桶同时不够 ⇒ Retry-After 取两桶补足时间的**较大者**（用户桶侧主导）")
+    void 两桶同时不足_RetryAfter取较大者() {
+        long t0 = System.currentTimeMillis();
+        putBucket(USER_KEY, "0", t0 - 200);   // 用户桶：0 + 0.4 − 0.9 ≈ −0.5 ⇒ 需 (3 − (−0.5)) / 2 = 1.75s
+        putBucket(SERVER_KEY, "0", t0 - 200); // 服务器桶：≈ 0.2s×10 = 2（< cost 3，仍不足）⇒ 需 (3 − 2) / 10 = 0.1s
+
+        RateLimitRedisOps.Decision decision = acquire();
+
+        assertThat(decision.allowed()).as("两桶都不足 ⇒ 拒绝").isFalse();
+        // 取较大者 ⇒ ceil(1.75) = 2（若实现误写成取 min，会得 ceil(0.1) = 1 ⇒ 必红）
+        assertThat(decision.retryAfterSeconds()).as("max(2, 1) = 2 —— 不是 min").isEqualTo(2);
     }
 
     // ==================== TTL（自证性质的实现前提） ====================
@@ -287,7 +314,19 @@ class RateLimitRedisOpsTests extends AbstractIntegrationTest {
         assertThat(new RateLimitRedisOps.BucketSpec(10, 3).ttlSeconds()).as("ceil(10/3) = 4").isEqualTo(4);
         assertThat(new RateLimitRedisOps.BucketSpec(20, 10).ttlSeconds()).as("整除时无取整余量").isEqualTo(2);
         assertThatThrownBy(() -> new RateLimitRedisOps.BucketSpec(0, 1))
-                .as("非法参数响亮失败（不静默）").isInstanceOf(IllegalArgumentException.class);
+                .as("容量 ≤ 0 响亮失败（不静默）").isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new RateLimitRedisOps.BucketSpec(10, 0))
+                .as("速率为 0 会在脚本里除零 ⇒ 也必须响亮失败").isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("桶键命名是冻结契约：CacheKeys 的三个工厂与测试硬编码字面量逐字一致（防改名静默失联）")
+    void 桶键命名冻结() {
+        // ⚠️ 命令层不产键（键由调用方传入）⇒ 仅靠测试里的硬编码字面量发现不了 CacheKeys 改名；
+        //    本用例把"产出者 ↔ 冻结字面量"接上（CacheKeys 一改名立即红）。
+        assertThat(CacheKeys.rateLimitUser(990001)).as("登录桶键形").isEqualTo(USER_KEY);
+        assertThat(CacheKeys.rateLimitAnon("127.0.0.1")).as("匿名桶键形").isEqualTo("ratelimit:anon:127.0.0.1");
+        assertThat(CacheKeys.rateLimitServer()).as("服务器桶键").isEqualTo(SERVER_KEY);
     }
 
     // ==================== 任务侧（第三个记账主体） ====================
@@ -336,6 +375,8 @@ class RateLimitRedisOpsTests extends AbstractIntegrationTest {
 
         assertThatThrownBy(() -> mocked.tryAcquire(USER_KEY, SERVER_KEY, USER_BUCKET, SERVER_BUCKET, COST, DISCOUNT))
                 .isInstanceOf(CacheUnavailableException.class);
+        assertThatThrownBy(() -> mocked.deductTaskCost(SERVER_KEY, SERVER_BUCKET, 10))
+                .as("任务侧同一条 guarded 路径，同样上抛不吞").isInstanceOf(CacheUnavailableException.class);
     }
 
     @Test
@@ -358,6 +399,12 @@ class RateLimitRedisOpsTests extends AbstractIntegrationTest {
         RateLimitRedisOps nullReturn = new RateLimitRedisOps(new StubRedis(null), freshBreaker());
         assertThatThrownBy(() -> nullReturn.tryAcquire(USER_KEY, SERVER_KEY, USER_BUCKET, SERVER_BUCKET, COST, DISCOUNT))
                 .as("null ⇒ 解析失败")
+                .isInstanceOf(RateLimitScriptException.class);
+
+        // 形态四：retry 部分非数字（进入 NumberFormatException 分支）
+        RateLimitRedisOps badRetry = new RateLimitRedisOps(new StubRedis("1:abc"), freshBreaker());
+        assertThatThrownBy(() -> badRetry.tryAcquire(USER_KEY, SERVER_KEY, USER_BUCKET, SERVER_BUCKET, COST, DISCOUNT))
+                .as("retry 非数字 ⇒ 解析失败")
                 .isInstanceOf(RateLimitScriptException.class);
     }
 }

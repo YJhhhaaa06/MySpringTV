@@ -9,7 +9,9 @@ import java.util.List;
 /**
  * 限流桶的 **Redis 命令层**（限流专项 T24）——只负责"把脚本发出去"，
  * 不含接线语义（覆盖范围 / 429 出口 / fail-open 都在过滤器，T25）。
- * 口径的唯一事实源 = {@code architecture/tech/限流.md}。
+ * 口径的唯一事实源 = {@code architecture/tech/限流.md}；文中后续任务编号的锚点：
+ * {@code T25} → §三（接线），{@code T26} → §四（权重），{@code T27} → §四（任务自付费），
+ * {@code T28} → §五（可观测）。
  *
  * <h2>结构：两个记账主体、两类桶</h2>
  * 用户桶（per-key：登录 {@code ratelimit:user:{id}} / 匿名 {@code ratelimit:anon:{ip}}，
@@ -27,8 +29,10 @@ import java.util.List;
  * 选紧凑字符串而非 HASH：GET/SET 各一次、脚本内解析一次 split 即可；
  * ⚠️ 也**不用 INCRBYFLOAT 一类命令**：惰性补充要先 {@code min(cap, …)} 截断再扣，
  * 这是"读-改-写"，非单命令可表达（必须 Lua）。
- * <p>TTL = {@code ceil(capacity / refillPerSec)}（把空桶补满所需时间），**每次访问无条件刷新**。
- * ★ 刷新是必须的：TTL 自证性质以"淘汰 ⟺ 空闲 ≥ TTL"为前提，不刷新则活跃桶也会到期。
+ * <p>TTL = {@code ceil(capacity / refillPerSec)}（把空桶补满所需时间），**写即刷新**：
+ * 用户桶每次访问都写（放行 / 被拒都刷新）；服务器桶只在放行与任务扣减时写
+ * （被拒时它一个字节都不写、也就无从刷新——其淘汰按自证性质无损）。
+ * ★ 对用户桶，"每访必刷"是必须的：TTL 自证性质以"淘汰 ⟺ 空闲 ≥ TTL"为前提，不刷新则活跃桶也会到期。
  * ★ 自证边界的精确表述（T24 的复核结论，见 {@code architecture/tech/限流.md}；登记为 {@code I-18}）：对 {@code tokens ≥ 0} 的桶，
  * 淘汰 ⟺ 空闲 ≥ 满桶时间 ⇒ 按惰性公式它本来就该是满桶 ⇒ **淘汰无损**；
  * 对 {@code tokens < 0}（欠账态）的桶，淘汰会把**剩余欠账豁免**（本仓首版参数恰整除，差额 = |t|）
@@ -39,7 +43,7 @@ import java.util.List;
  * 否则近满桶时这笔改动会被后续 refill 悄悄吸收（扣了等于没扣）；
  * ② 补充用 {@code redis.call('TIME')} 取时钟（与 TTL 淘汰同一时钟源；Redis 5+ 脚本内 TIME 合法）。
  *
- * <h2>返回值承载：紧凑字符串（T24 强制探索①的选定）</h2>
+ * <h2>返回值承载：紧凑字符串（T24 的选定：行为确定 / 可调试 / 报错可定位）</h2>
  * Lua 返回 {@code "1:0"} / {@code "0:5"}（{@code allowed:retryAfterSeconds}）。
  * 不用 {@code RedisScript<List>}：字符串行为完全确定、可在 redis-cli 直接观察、解析失败可精确报错。
  *
@@ -60,12 +64,12 @@ public class RateLimitRedisOps extends RedisOps {
      * 请求侧脚本（一次 Lua 覆盖全流程）。KEYS: {@code [userKey, serverKey]}；
      * ARGV: {@code [userCap, userRate, userTtl, serverCap, serverRate, serverTtl, cost, rejectDiscount]}。
      *
-     * <p>返回 {@code "allowed:retrySeconds"}——被拒时 retry = 两桶"补到可过闸"所需时间的**较大者**
-     * 向上取整（用户桶补到 {@code cost × (1 − discount)}、服务器桶补到 {@code cost}；
-     * 已够的一侧计 0）；放行为 {@code "1:0"}。
-     *
-     * <p>为什么判定"用户桶补到尾款而非全款"：询问费已在第一步无条件扣过，
-     * 放行只再收"尾款" {@code cost × (1 − discount)}（见类注释的非对称扣减）。
+     * <p>返回 {@code "allowed:retrySeconds"}——被拒时 retry = 两桶"补到可过闸"所需时间的**较大者**，
+     * 向上取整；已够的一侧计 0；放行为 {@code "1:0"}。
+     * ★ 两桶的补足目标都是 {@code cost}——⚠️ 用户桶**不是** {@code cost × (1 − discount)}：
+     * 下一次进入闸门前还会**再扣一次询问费** {@code cost × discount}，届时桶存量需 {@code ≥ cost}
+     * 才过得了闸；取尾款会把 Retry-After 系统性偏小 {@code cost × discount / rate}。
+     * （"放行前扣的尾款"与"等待补足的目标"是两个量，别混——见类注释的非对称扣减。）
      */
     private static final String ACQUIRE_LUA = """
             local t = redis.call('TIME')
@@ -103,7 +107,7 @@ public class RateLimitRedisOps extends RedisOps {
               redis.call('EXPIRE', KEYS[2], ARGV[6])
             else
               local uw = 0
-              if uTokens < tail then uw = (tail - uTokens) / uRate end
+              if uTokens < cost then uw = (cost - uTokens) / uRate end
               local sw = 0
               if sTokens < cost then sw = (cost - sTokens) / sRate end
               if sw > uw then uw = sw end
@@ -169,7 +173,8 @@ public class RateLimitRedisOps extends RedisOps {
      * @param serverBucket   服务器桶参数
      * @param cost           本次请求折算的令牌数（信号① × 信号② 由调用方算好传入；
      *                       权重表接线归 T26，见 {@code architecture/tech/限流.md} §四）
-     * @param rejectDiscount 被拒时仍扣的"询问费"比例（配置构造期已校验 ∈ (0,1)）
+     * @param rejectDiscount 被拒时仍扣的"询问费"比例（配置**绑定期**校验 ∈ [0,1]；默认 0.3 落在
+     *                       开区间，由绑定测试兜住）
      * @return 放行与否 + Retry-After 秒（放行时为 0）
      */
     public Decision tryAcquire(String userKey, String serverKey,
@@ -247,7 +252,7 @@ public class RateLimitRedisOps extends RedisOps {
          * 见类注释与 {@code architecture/tech/限流.md}）。
          */
         public long ttlSeconds() {
-            return (capacity + refillPerSec - 1L) / refillPerSec;
+            return ((long) capacity + refillPerSec - 1) / refillPerSec;
         }
     }
 
