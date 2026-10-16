@@ -68,9 +68,19 @@ import static org.mockito.Mockito.verify;
  * （"这窗口内**任何人**都没调它"），而**意图**只是"**这个用户**的读没有回源"。
  *
  * <p>故本类所有 {@code never} 断言一律用 {@code eq(被测用户 id)} **收窄**，并配一行
- * {@link #OTHER_USER_ID} 的"另一人"**干扰行**把这件事钉成**可注入验证**的契约
- * （改回 {@code anyLong()} ⇒ 必红）。收窄不会漏判：测试用户 id **全 JVM 唯一**
- * （容器进程级单例 + Flyway 只建表一次 + 每测 {@code DELETE FROM users} **不重置自增**）。
+ * {@link #OTHER_USER_ID} 的"另一人"**干扰行**把这件事钉成**可注入验证**的契约。
+ * ⚠️ 说清那行**证明什么、不证明什么**：它证明的是"**匹配器作用域**已按主体收窄"
+ * （改回 {@code anyLong()} ⇒ 必红），**不是**"复现了那条 MQ 污染链"（重建晚到 1s 以上，本就不可确定性复现）；
+ * 真实污染被吸收由"干扰行在 {@code eq} 下**不触发**"这一半 + 下面两条前提共同保证。
+ *
+ * <p><b>两条隐含前提</b>（破任一条，收窄就不再安全）：
+ * <ol>
+ *   <li>测试用户 id **全 JVM 唯一** —— 容器进程级单例 + Flyway 只建表一次
+ *       + 每测 {@code DELETE FROM users} **不重置自增**；若改成"按类重建 schema"，id 会重复 ⇒ 须重算。</li>
+ *   <li>被测请求**不得对该用户触发 follow / 取关** —— 否则重建会在窗口内真的回源
+ *       {@code findAllFollowedUserIds(该用户)}，收窄断言就变成**反方向**的偶发红
+ *       （本类各用例都只读，故成立；将来加写操作时须显式声明）。</li>
+ * </ol>
  */
 class FollowCacheTests extends AbstractFollowIntegrationTest {
 
@@ -220,12 +230,15 @@ class FollowCacheTests extends AbstractFollowIntegrationTest {
         Mockito.clearInvocations(followDao);
         // ★ 干扰行（"另一人"）：feed 收件箱重建（别域的 MQ 消费线程）也会调这个 DAO 方法，
         //   但拿的是**别人**的 userId ⇒ 下面两条断言的验证窗口只对**被测用户**有意义。
-        //   ⚠️ 本行是**契约行**：把它下面的 eq(a.id()) 改回 anyLong() ⇒ 本用例必红。
+        //   ⚠️ 本行是**契约行**（哨兵）：把它下面的 eq(a.id()) 改回 anyLong() ⇒ 本用例必红；
+        //   它必须留在 clearInvocations **之后**（挪到前面会被一起清掉 ⇒ 哨兵静默失效）。
         followDao.findAllFollowedUserIds(OTHER_USER_ID);
 
         assertThat(Envelope.code(getFollowing(a.id(), a.token()))).isEqualTo(200);
         verify(followDao, never()).findAllFollowedUserIds(eq(a.id()));
-        // 窗口读的 loader 也必须没被调用（T4 起 miss 走的是这条）
+        // 窗口读的 loader 也必须没被调用（T4 起 miss 走的是这条）——
+        // ⚠️ **本用例的决定性判据是下一行**（窗口读路径只会走窗口 loader）；上一行是冗余防御，
+        //    只对"窗口读退化成全量装载（`getFollowingIds`）"这类回归有判别力。
         verify(followDao, never()).findFollowedUserIdsWindow(eq(a.id()), anyLong(), anyInt());
     }
 

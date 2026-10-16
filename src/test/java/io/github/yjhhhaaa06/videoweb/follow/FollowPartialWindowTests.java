@@ -53,6 +53,11 @@ import static org.mockito.Mockito.verify;
  * ⇒ {@code anyLong()} 实际断言的是**全局**性质，而意图只是"**这个用户**没走全量装载"。
  * 故下面每条 {@code never} 都用 {@code eq(被测用户 id)} 收窄，并配一行
  * {@link #OTHER_USER_ID} 的"另一人"干扰行（改回 {@code anyLong()} ⇒ 必红）。
+ * ⚠️ 那行证的是"**匹配器作用域**已按主体收窄"，**不是**"复现了 MQ 污染链"（重建晚到 1s 以上）。
+ * ★ **前提**：① 测试用户 id **全 JVM 唯一**（容器进程级单例 + Flyway 只建表一次 + 每测
+ * {@code DELETE FROM users} 不重置自增）；② 被断言的那个用户**在本用例内不被 follow / 取关**
+ * —— 否则重建会在窗口内真的回源该用户（本类三条断言用例都只读 / 只走 {@code followCache}，故成立；
+ * "写路径整体失效"那条会 follow，但它没有 {@code never} 断言）。
  */
 class FollowPartialWindowTests extends AbstractFollowIntegrationTest {
 
