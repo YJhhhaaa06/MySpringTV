@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.favorite.cache;
 
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheKeys;
+import io.github.yjhhhaaa06.videoweb.common.cache.CacheMissSignal;
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheUnavailableException;
 import io.github.yjhhhaaa06.videoweb.common.cache.SingleFlight;
 import io.github.yjhhhaaa06.videoweb.common.config.FavoriteCacheProperties;
@@ -250,9 +251,11 @@ public class FavoriteCache {
             }
         } catch (CacheUnavailableException e) {
             log.warn("收藏状态缓存读失败，降级 DB: key={}", setKey, e);
+            CacheMissSignal.mark();                            // T26 信号②：降级 = 没走成缓存
             return itemDao.existsByUserAndContent(userId, contentId);
         }
         // miss：DB 是真理源，顺带回填（回填失败不影响本次结果）；单飞让同 key 并发只回源一次
+        CacheMissSignal.mark();                                // T26 信号②：miss 回源
         Set<Long> all = singleFlight.get(setKey, () -> {
             Set<Long> loaded = itemDao.findAllFavoritedContentIds(userId);
             backfillQuietly(setKey, emptyKey, loaded);
@@ -290,9 +293,11 @@ public class FavoriteCache {
             }
         } catch (CacheUnavailableException e) {
             log.warn("批量收藏状态缓存读失败，降级 DB: key={}", setKey, e);
+            CacheMissSignal.mark();                            // T26 信号②：降级 = 没走成缓存
             return toResultMap(contentIds, itemDao.findFavoritedContentIds(userId, contentIds));
         }
         // miss：单飞 key 用**数据 key**（负载是"该用户全量收藏"，与 targetIds 无关 —— 降级才按子集）
+        CacheMissSignal.mark();                                // T26 信号②：miss 回源
         Set<Long> all = singleFlight.get(setKey, () -> {
             Set<Long> loaded = itemDao.findAllFavoritedContentIds(userId);
             backfillQuietly(setKey, emptyKey, loaded);
@@ -329,11 +334,13 @@ public class FavoriteCache {
             }
         } catch (CacheUnavailableException e) {
             log.warn("收藏数缓存读失败，降级 DB: key={}", countKey, e);
+            CacheMissSignal.mark();                            // T26 信号②：降级 = 没走成缓存
             return loadFavoriteCount(contentId);
         } catch (NumberFormatException e) {
             log.warn("收藏数缓存值非法，按 miss 处理并清除: key={}", countKey);
             invalidateQuietly(countKey);
         }
+        CacheMissSignal.mark();                                // T26 信号②：miss 回源（含脏值按 miss 处理）
         return singleFlight.get(countKey, () -> {
             long count = loadFavoriteCount(contentId);
             backfillCountQuietly(countKey, count);

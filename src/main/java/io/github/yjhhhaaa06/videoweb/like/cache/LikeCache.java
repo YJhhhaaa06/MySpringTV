@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.like.cache;
 
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheKeys;
+import io.github.yjhhhaaa06.videoweb.common.cache.CacheMissSignal;
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheUnavailableException;
 import io.github.yjhhhaaa06.videoweb.common.cache.SingleFlight;
 import io.github.yjhhhaaa06.videoweb.common.config.LikeCacheProperties;
@@ -283,9 +284,11 @@ public class LikeCache {
             }
         } catch (CacheUnavailableException e) {
             log.warn("点赞状态缓存读失败，降级 DB: key={}", setKey, e);
+            CacheMissSignal.mark();                            // T26 信号②：降级 = 没走成缓存
             return checker.check();
         }
         // miss：DB 是真理源，顺带回填（回填失败不影响本次结果）；单飞（B1）让同 key 并发只回源一次
+        CacheMissSignal.mark();                                // T26 信号②：miss 回源
         Set<Long> all = singleFlight.get(setKey, () -> {
             Set<Long> loaded = fullLoader.load();
             backfillQuietly(setKey, emptyKey, loaded);
@@ -307,6 +310,7 @@ public class LikeCache {
             }
         } catch (CacheUnavailableException e) {
             log.warn("点赞数缓存读失败，降级 DB: key={}", countKey, e);
+            CacheMissSignal.mark();                            // T26 信号②：降级 = 没走成缓存
             return dbLoader.get();
         } catch (NumberFormatException e) {
             // 脏值（非数字）当作 miss，并清掉它，避免每次读都解析失败
@@ -314,6 +318,7 @@ public class LikeCache {
             invalidateQuietly(countKey);
         }
         // miss：DB 是真理源，顺带回填；单飞（B1）让同 key 并发只回源一次
+        CacheMissSignal.mark();                                // T26 信号②：miss 回源（含脏值按 miss 处理）
         return singleFlight.get(countKey, () -> {
             int count = dbLoader.get();
             backfillCountQuietly(countKey, count);
@@ -357,9 +362,11 @@ public class LikeCache {
             }
         } catch (CacheUnavailableException e) {
             log.warn("批量点赞状态缓存读失败，降级 DB: key={}", setKey, e);
+            CacheMissSignal.mark();                            // T26 信号②：降级 = 没走成缓存
             return toResultMap(targetIds, degradeLoader.load(targetIds));
         }
         // miss：单飞（B1）——同一 set 的并发批量读只回源一次（负载是"该用户全量"，与 targetIds 无关）
+        CacheMissSignal.mark();                                // T26 信号②：miss 回源
         Set<Long> all = singleFlight.get(setKey, () -> {
             Set<Long> loaded = fullLoader.load();
             backfillQuietly(setKey, emptyKey, loaded);

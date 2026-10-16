@@ -3,6 +3,7 @@ package io.github.yjhhhaaa06.videoweb.comment.cache;
 import io.github.yjhhhaaa06.videoweb.comment.dao.CommentDao;
 import io.github.yjhhhaaa06.videoweb.comment.model.cache.CommentCacheDTO;
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheKeys;
+import io.github.yjhhhaaa06.videoweb.common.cache.CacheMissSignal;
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheUnavailableException;
 import io.github.yjhhhaaa06.videoweb.common.cache.JsonCodec;
 import io.github.yjhhhaaa06.videoweb.common.config.CommentCacheProperties;
@@ -187,6 +188,8 @@ public class CommentCache {
      * @return {@code null} = 确认无评论（调用方返回空数组）
      */
     public List<CommentCacheDTO> getFullTree(long contentId) {
+        // T26 信号②：缺省全量是**不走缓存**的兼容路径（恒 DB）——同样算"没走成缓存"
+        CacheMissSignal.mark();
         List<CommentCacheDTO> rows = commentDao.getComments(contentId);
         if (rows == null || rows.isEmpty()) {
             return null;
@@ -291,6 +294,7 @@ public class CommentCache {
             long afterId = watermark > 0 ? lastRootId(rootsKey, watermark) : 0L;
             long batch = Math.min(LOAD_BATCH_LIMIT, needWatermark - watermark);
 
+            CacheMissSignal.mark();          // T26 信号②：窗口装载 = DB 回源（含首装时的一次 COUNT）
             List<CommentCacheDTO> mains =
                     commentDao.getMainCommentsAfter(contentId, afterId, (int) batch);   // DB 失败 ⇒ 上抛
             int total = watermark == 0 ? commentDao.countMainComments(contentId) : -1;
@@ -340,6 +344,7 @@ public class CommentCache {
         long remaining = needWatermark;
         while (remaining > 0) {
             int batch = (int) Math.min(LOAD_BATCH_LIMIT, remaining);
+            CacheMissSignal.mark();              // T26 信号②：降级 DB 读取（Redis 不可用）
             List<CommentCacheDTO> rows = commentDao.getMainCommentsAfter(contentId, afterId, batch);
             if (rows == null || rows.isEmpty()) {
                 break;
@@ -368,6 +373,7 @@ public class CommentCache {
             log.warn("评论主楼总数缓存值非法（DB 兜底）: contentId={}", contentId);
         }
         // DB 失败上抛（同 loadRootsFromDb；TV 在这里吞成 0，会让"total=0 但列表非空"自相矛盾）
+        CacheMissSignal.mark();              // T26 信号②：计数键缺失 = DB 回源
         return commentDao.countMainComments(contentId);
     }
 
@@ -465,6 +471,7 @@ public class CommentCache {
                                                                List<Long> missing) {
         List<CommentCacheDTO> rows;
         try {
+            CacheMissSignal.mark();      // T26 信号②：楼中楼懒载 = DB 回源
             rows = commentDao.getRepliesByRootIds(contentId, missing);
         } catch (DataAccessException e) {
             // ★ 刻意的例外：children 是**预览子集**，缺席可如实表达（children: [] + 顶层 replyCount 仍在），
@@ -503,6 +510,7 @@ public class CommentCache {
     /** 降级 DB：按主楼批量取楼中楼（不写回，D4）。返回按 parent_id 分组；DB 失败返回 null。 */
     private Map<Long, List<CommentCacheDTO>> loadRepliesFromDb(long contentId, List<Long> rootIds) {
         try {
+            CacheMissSignal.mark();              // T26 信号②：降级 DB 读取（Redis 不可用）
             return groupByParent(commentDao.getRepliesByRootIds(contentId, rootIds));
         } catch (DataAccessException e) {
             log.warn("评论楼中楼降级查询失败（按无回复处理）: contentId={}", contentId, e);

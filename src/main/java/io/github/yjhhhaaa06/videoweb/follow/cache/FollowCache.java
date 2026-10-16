@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.follow.cache;
 
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheKeys;
+import io.github.yjhhhaaa06.videoweb.common.cache.CacheMissSignal;
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheUnavailableException;
 import io.github.yjhhhaaa06.videoweb.common.cache.SingleFlight;
 import io.github.yjhhhaaa06.videoweb.common.config.FollowCacheProperties;
@@ -253,6 +254,7 @@ public class FollowCache {
             }
         } catch (CacheUnavailableException e) {
             log.warn("关注计数缓存读失败，降级 DB: key={}", countKey, e);
+            CacheMissSignal.mark();                            // T26 信号②：降级 = 没走成缓存
             // DB 失败必须上抛（不被此 catch 吞掉）：loader 在本 catch 块内执行，异常直接冒泡
             return dbLoader.getAsInt();
         } catch (NumberFormatException e) {
@@ -260,6 +262,7 @@ public class FollowCache {
             invalidateQuietly(countKey);
         }
         // miss：DB 是真理源，回填；单飞（B1）让同 key 并发只回源一次
+        CacheMissSignal.mark();                                // T26 信号②：miss 回源
         return singleFlight.get(countKey, () -> {
             int loaded = dbLoader.getAsInt();
             try {
@@ -339,11 +342,13 @@ public class FollowCache {
             }
         } catch (CacheUnavailableException e) {
             log.warn("全量关注集缓存读失败，降级 DB: key={}", dataKey, e);
+            CacheMissSignal.mark();                            // T26 信号②：降级 = 没走成缓存
             // DB 失败必须上抛（不被此 catch 吞掉）：loader 在本 catch 块内执行，异常直接冒泡
             return sortedAsc(followDao.findAllFollowedUserIds(userId));
         }
         // miss 与部分态走**同一个动作**（全量装载）：miss 是"装载"，部分态是"补齐"——loader 相同、
         // 写回相同（原子替换整个集合 + 清两枚标记），差别只在调用方语义
+        CacheMissSignal.mark();                                // T26 信号②：miss / 部分态补齐 = DB 回源
         List<Long> all = singleFlight.get(dataKey, () -> {
             List<Long> loaded = sortedAsc(followDao.findAllFollowedUserIds(userId));
             backfillFull(dataKey, emptyKey, partialKey, loaded);
@@ -378,6 +383,7 @@ public class FollowCache {
         }
         // miss：**前缀装载**（只取 [0, offset+count)）；单飞 key 带窗口指纹，防不同页串用装载结果
         int want = (int) Math.min(offset + count, Integer.MAX_VALUE);
+        CacheMissSignal.mark();                                // T26 信号②：miss 前缀装载 = DB 回源
         Boolean complete = singleFlight.get(windowFlightKey(dataKey, offset, count), () -> {
             List<Long> loaded = sortedAsc(dbWindowLoader.load(0, want));
             boolean reachedEnd = loaded.size() < want;      // DB 返回不足 want = 已到底
@@ -411,7 +417,13 @@ public class FollowCache {
                     long from = ops.zCard(dataKey);         // 单飞内**重读水位**，避免拿陈旧 W 重复追加
                     long need = offset + count - from;
                     int want = (int) Math.min(Math.max(need, 0L), Integer.MAX_VALUE);
-                    List<Long> more = (want <= 0) ? List.of() : sortedAsc(dbWindowLoader.load(from, want));
+                    List<Long> more;
+                    if (want <= 0) {
+                        more = List.of();                   // 水位已覆盖请求窗口 ⇒ 不动 DB（不计信号②）
+                    } else {
+                        CacheMissSignal.mark();             // T26 信号②：补齐 = DB 回源
+                        more = sortedAsc(dbWindowLoader.load(from, want));
+                    }
                     boolean reachedEnd = more.size() < want;  // want<=0 时不确定是否到底 → 保持部分态
                     writeWindowLoad(dataKey, partialKey, more, reachedEnd);
                     return reachedEnd;
@@ -457,6 +469,7 @@ public class FollowCache {
      */
     private Window degradeWindow(String dataKey, long offset, int count,
                                  WindowLoader dbWindowLoader, CountLoader dbCountLoader) {
+        CacheMissSignal.mark();     // T26 信号②：三处降级的共同落点（Redis 失败 ⇒ DB 直查）
         List<Long> ids = singleFlight.get(windowFlightKey(dataKey, offset, count),
                 () -> dbWindowLoader.load(offset, count));
         return new Window(ids, dbCountLoader.count());
@@ -509,6 +522,7 @@ public class FollowCache {
                     }
                 }
                 if (!misses.isEmpty()) {
+                    CacheMissSignal.mark();                 // T26 信号②：部分态未命中回落 DB
                     // DB 失败必须上抛（不被降级吞掉）：这里没有 catch，异常直接冒泡
                     Set<Long> answered = followDao.findFollowedIdsIn(userId, misses);
                     for (Long id : misses) {
@@ -519,9 +533,11 @@ public class FollowCache {
             }
         } catch (CacheUnavailableException e) {
             log.warn("批量关注状态缓存读失败，降级 DB: key={}", dataKey, e);
+            CacheMissSignal.mark();                            // T26 信号②：降级 = 没走成缓存
             return toResultMap(followedUserIds, followDao.findFollowedIdsIn(userId, followedUserIds));
         }
         // miss：单飞（B1）——同一关注集的并发批量读只回源一次（负载是全量，与请求 id 子集无关）
+        CacheMissSignal.mark();                                // T26 信号②：miss 回源
         List<Long> all = singleFlight.get(dataKey, () -> {
             List<Long> loaded = sortedAsc(followDao.findAllFollowedUserIds(userId));
             backfillFull(dataKey, emptyKey, partialKey, loaded);
@@ -561,6 +577,7 @@ public class FollowCache {
                     return true;                            // 命中即可信（部分态下同样可信）
                 }
                 if (existing.contains(partialKey)) {
+                    CacheMissSignal.mark();                 // T26 信号②：部分态未命中回落 DB
                     // DB 失败必须上抛（不被降级吞掉）：本行没有 catch，异常直接冒泡
                     return followDao.isFollowing(userId, followedUserId);
                 }
@@ -568,9 +585,11 @@ public class FollowCache {
             }
         } catch (CacheUnavailableException e) {
             log.warn("关注状态缓存读失败，降级 DB: key={}", dataKey, e);
+            CacheMissSignal.mark();                            // T26 信号②：降级 = 没走成缓存
             return followDao.isFollowing(userId, followedUserId);
         }
         // miss：单飞（B1）——同一关注集的并发单条判定只回源一次
+        CacheMissSignal.mark();                                // T26 信号②：miss 回源
         List<Long> all = singleFlight.get(dataKey, () -> {
             List<Long> loaded = sortedAsc(followDao.findAllFollowedUserIds(userId));
             backfillFull(dataKey, emptyKey, partialKey, loaded);
