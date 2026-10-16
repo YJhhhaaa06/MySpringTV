@@ -3,6 +3,7 @@ package io.github.yjhhhaaa06.videoweb.support;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.TestPropertySource;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -26,6 +27,25 @@ import java.nio.file.Path;
  * "V1 建结构"这条路，与开发库的"baseline 0 + V1 成为 no-op"路径等价（详见 V1 脚本头部）。
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@TestPropertySource(properties = {
+        // 限流桶参数整体调大（限流专项 T25；对冲设计稿已知代价 D-3）。
+        // 自 T25 起限流过滤器对**所有**到达 DispatcherServlet 的请求过闸，而集成测试的
+        // 匿名请求 IP 全是 127.0.0.1 ⇒ 匿名桶在测试环境退化为"全局限流"：不调大则
+        // 既有回归用例会在几十个请求后互相吃光额度、大面积 429 假红。
+        // ★ 容量与速率同取 10^6：任何单测试类（甚至全量回归）的请求总数都远够不着；
+        //   TTL = ceil(cap/rate) = 1s，桶键秒级自净。
+        // ★ 走 @TestPropertySource 内联属性而不是基类 @DynamicPropertySource：子类内联属性
+        //   覆盖同键父类内联属性是 Spring 文档明文的合并规则（父类先、子类后），
+        //   而"子类 @DynamicPropertySource 覆盖父类同键值"在本仓 Boot 4.1.1 实测**不成立**
+        //   （父类值胜出，T25 首跑被守门用例抓住）。限流自身的契约测试不走这份基线，
+        //   用自己的 @TestPropertySource 小参数覆盖（内联属性优先级恒高于配置文件）。
+        "video.rate-limit.server.capacity=1000000",
+        "video.rate-limit.server.refill-per-sec=1000000",
+        "video.rate-limit.user.authed.capacity=1000000",
+        "video.rate-limit.user.authed.refill-per-sec=1000000",
+        "video.rate-limit.user.anon.capacity=1000000",
+        "video.rate-limit.user.anon.refill-per-sec=1000000"
+})
 public abstract class AbstractIntegrationTest {
 
     @DynamicPropertySource
