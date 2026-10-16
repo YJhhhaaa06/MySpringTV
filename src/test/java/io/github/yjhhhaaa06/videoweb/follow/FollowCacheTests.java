@@ -17,6 +17,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -57,12 +58,32 @@ import static org.mockito.Mockito.verify;
  *   <li>{@link #Redis不可用时降级DB且不抛()} —— Redis 失败 ⇒ 降级，接口不 500</li>
  *   <li>{@link #DB失败不被降级吞掉()} —— ★ DB 失败 ⇒ **上抛**（两种失败的区分）</li>
  * </ul>
+ *
+ * <h2>★ 为什么 {@code verify(spy, never())} 必须按"人"收窄（`favorite.md` 附录「编号速查」T22）</h2>
+ * {@link FollowDao} 是 {@code @MockitoSpyBean} —— 换掉的是**整个上下文里的那个 bean**，
+ * 因此**别域消费者拿到的是同一个 spy**：关注 / 取关提交后会经
+ * 「{@code AFTER_COMMIT} → 去抖（1s）→ MQ → 消费线程」触发 feed 的**收件箱重建**，
+ * 而重建里有一趟 {@code findAllFollowedUserIds(userId)}（传的是**别人**的 userId）。
+ * 它会落进本类的验证窗口 ⇒ `anyLong()` 那种写法实际断言了一个**全局**性质
+ * （"这窗口内**任何人**都没调它"），而**意图**只是"**这个用户**的读没有回源"。
+ *
+ * <p>故本类所有 {@code never} 断言一律用 {@code eq(被测用户 id)} **收窄**，并配一行
+ * {@link #OTHER_USER_ID} 的"另一人"**干扰行**把这件事钉成**可注入验证**的契约
+ * （改回 {@code anyLong()} ⇒ 必红）。收窄不会漏判：测试用户 id **全 JVM 唯一**
+ * （容器进程级单例 + Flyway 只建表一次 + 每测 {@code DELETE FROM users} **不重置自增**）。
  */
 class FollowCacheTests extends AbstractFollowIntegrationTest {
 
     private static final String PHONE_A = "13800003001";   // 被关注者（本次关注的目标）
     private static final String PHONE_B = "13800003002";   // 操作者
     private static final String PHONE_C = "13800003003";   // b 已有的关注（预热用）
+
+    /**
+     * "另一人"：真实污染源（feed 收件箱重建）传的是**上一个用例注册过的用户 id**，
+     * 本用例不可能用到它。这里显式传一个**本用例之外的 userId**（`follow` 无外键 ⇒ 不必真存在），
+     * 把那件"偶发撞进来"变成**确定性**的对照行（见类注释）。
+     */
+    private static final long OTHER_USER_ID = 999_999L;
 
     @MockitoSpyBean
     private UserDao userDao;
@@ -197,10 +218,15 @@ class FollowCacheTests extends AbstractFollowIntegrationTest {
                 .as("空标记是**短 TTL**（TV 口径 60s）").isBetween(1L, 60L);
 
         Mockito.clearInvocations(followDao);
+        // ★ 干扰行（"另一人"）：feed 收件箱重建（别域的 MQ 消费线程）也会调这个 DAO 方法，
+        //   但拿的是**别人**的 userId ⇒ 下面两条断言的验证窗口只对**被测用户**有意义。
+        //   ⚠️ 本行是**契约行**：把它下面的 eq(a.id()) 改回 anyLong() ⇒ 本用例必红。
+        followDao.findAllFollowedUserIds(OTHER_USER_ID);
+
         assertThat(Envelope.code(getFollowing(a.id(), a.token()))).isEqualTo(200);
-        verify(followDao, never()).findAllFollowedUserIds(anyLong());
+        verify(followDao, never()).findAllFollowedUserIds(eq(a.id()));
         // 窗口读的 loader 也必须没被调用（T4 起 miss 走的是这条）
-        verify(followDao, never()).findFollowedUserIdsWindow(anyLong(), anyLong(), anyInt());
+        verify(followDao, never()).findFollowedUserIdsWindow(eq(a.id()), anyLong(), anyInt());
     }
 
     @Test
@@ -228,10 +254,12 @@ class FollowCacheTests extends AbstractFollowIntegrationTest {
 
         assertThat(Envelope.code(getFollowing(b.id(), b.token()))).isEqualTo(200);   // 第一次：miss → 回填
         Mockito.clearInvocations(followDao);
+        // ★ 干扰行（"另一人"）：同 {@link #空标记让无关注的用户不再回源DB()} —— 断言只对被测用户有意义
+        followDao.findAllFollowedUserIds(OTHER_USER_ID);
 
         assertThat(Envelope.code(getFollowing(b.id(), b.token()))).isEqualTo(200);   // 第二次：命中
-        verify(followDao, never()).findAllFollowedUserIds(anyLong());
-        verify(followDao, never()).findFollowedUserIdsWindow(anyLong(), anyLong(), anyInt());
+        verify(followDao, never()).findAllFollowedUserIds(eq(b.id()));
+        verify(followDao, never()).findFollowedUserIdsWindow(eq(b.id()), anyLong(), anyInt());
     }
 
     // ==================== 写路径：取关（ZREM 分支） ====================

@@ -44,6 +44,15 @@ import static org.mockito.Mockito.verify;
  * 本类要断言的是**缓存内部决策**，走接口只会经过 {@code FollowService} 把观察点挡住；
  * 且夹具用**假 id**（{@code follow} 表无外键），省掉几十次注册。
  * 端到端行为仍由 {@link FollowFlowTests} / {@link FollowCacheTests} 兜着。
+ *
+ * <h2>★ 为什么 {@code verify(followDao, never())} 必须按"人"收窄（`favorite.md` 附录「编号速查」T22）</h2>
+ * {@code followDao} 是 {@code @MockitoSpyBean}，**别域消费者拿的是同一个 spy**：
+ * 本类"写路径整体失效"那条用例会真的 {@code followService.follow(...)} ⇒ 提交后经
+ * 「{@code AFTER_COMMIT} → 去抖（1s）→ MQ → 消费线程」触发 feed **收件箱重建**，
+ * 而重建里有一趟 {@code findAllFollowedUserIds(别人的 userId)}，它会落进验证窗口
+ * ⇒ {@code anyLong()} 实际断言的是**全局**性质，而意图只是"**这个用户**没走全量装载"。
+ * 故下面每条 {@code never} 都用 {@code eq(被测用户 id)} 收窄，并配一行
+ * {@link #OTHER_USER_ID} 的"另一人"干扰行（改回 {@code anyLong()} ⇒ 必红）。
  */
 class FollowPartialWindowTests extends AbstractFollowIntegrationTest {
 
@@ -54,6 +63,13 @@ class FollowPartialWindowTests extends AbstractFollowIntegrationTest {
     private static final List<Long> TARGETS = List.of(11L, 12L, 13L, 14L, 15L);
 
     private static final String PARTIAL_PREFIX = "partial:";
+
+    /**
+     * "另一人"：真实污染源（feed 收件箱重建）传的是**别的用户 id**。
+     * 这里显式传一个本用例之外的 userId（`follow` 无外键 ⇒ 不必真存在），
+     * 把"偶发撞进来"变成**确定性**的对照行（见类注释）。
+     */
+    private static final long OTHER_USER_ID = 999_998L;
 
     @Autowired
     private FollowCache followCache;
@@ -81,9 +97,12 @@ class FollowPartialWindowTests extends AbstractFollowIntegrationTest {
 
         assertThat(w.ids()).as("第 1 页只应含升序前 2 个")
                 .containsExactly(TARGETS.get(0), TARGETS.get(1));
+        // ★ 干扰行（"另一人"）：feed 收件箱重建（别域 MQ 线程）也调这个方法，但拿别人的 userId
+        followDao.findAllFollowedUserIds(OTHER_USER_ID);
+
         verify(followDao, times(1)).findFollowedUserIdsWindow(b.id(), 0L, 2);
         verify(followDao, never())
-                .findAllFollowedUserIds(anyLong());     // ★ 这一行就是"没有百万行装载"的证明
+                .findAllFollowedUserIds(eq(b.id()));    // ★ 这一行就是"没有百万行装载"的证明（**按人**）
         assertThat(zCard(FOLLOWING_KEY + b.id())).as("只装了 2 个成员").isEqualTo(2L);
         assertThat(hasKey(PARTIAL_PREFIX + FOLLOWING_KEY + b.id()))
                 .as("DB 取满 want(=2) ⇒ 可能还有后续 ⇒ 必须打 partial 标记").isTrue();
@@ -122,8 +141,11 @@ class FollowPartialWindowTests extends AbstractFollowIntegrationTest {
                 b.id(), List.of(TARGETS.get(0), TARGETS.get(4)));
 
         assertThat(result).containsEntry(TARGETS.get(0), true).containsEntry(TARGETS.get(4), true);
+        // ★ 干扰行（"另一人"）：同 {@link #窗口miss只前缀装载()}
+        followDao.findAllFollowedUserIds(OTHER_USER_ID);
+
         verify(followDao, times(1)).findFollowedIdsIn(eq(b.id()), eq(List.of(TARGETS.get(4))));
-        verify(followDao, never()).findAllFollowedUserIds(anyLong());    // 部分态不回填全量
+        verify(followDao, never()).findAllFollowedUserIds(eq(b.id()));    // 部分态不回填全量（**按人**）
         assertThat(zCard(FOLLOWING_KEY + b.id())).as("仍只装着前缀的 2 个").isEqualTo(2L);
     }
 
@@ -155,8 +177,11 @@ class FollowPartialWindowTests extends AbstractFollowIntegrationTest {
         FollowCache.Window page2 = followCache.getFollowingWindow(b.id(), 2, 2);
 
         assertThat(page2.ids()).containsExactly(TARGETS.get(2), TARGETS.get(3));
+        // ★ 干扰行（"另一人"）：同 {@link #窗口miss只前缀装载()}
+        followDao.findAllFollowedUserIds(OTHER_USER_ID);
+
         verify(followDao, times(1)).findFollowedUserIdsWindow(b.id(), 2L, 2);   // 只补 [W=2, 4)
-        verify(followDao, never()).findAllFollowedUserIds(anyLong());
+        verify(followDao, never()).findAllFollowedUserIds(eq(b.id()));
         assertThat(hasKey(PARTIAL_PREFIX + FOLLOWING_KEY + b.id()))
                 .as("want=2 取满 ⇒ 后面可能还有 ⇒ 仍是部分态").isTrue();
         assertThat(page2.total()).as("部分态 total 走计数口径").isEqualTo(5L);
