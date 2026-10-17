@@ -76,16 +76,17 @@ public interface UserDao {
      * 关注数增减。TV: {@code updateFollowCount} ——
      * {@code update users set follow_count = follow_count + ? where id=?}（{@code delta} 正负表示增减）。
      *
-     * <p>⚠️ <b>无防负守卫</b>（TV 原样）。{@code users.follow_count} 是 {@code int unsigned DEFAULT 0}，
-     * 若计数已是 0 仍执行 −1，MySQL 严格模式下会因 UNSIGNED 下溢报错 → 500。
-     * 与 S2 实测的 {@code content.comment_count}、S3 记的 {@code content.like_count} 同款尖锐处，
-     * 触发前提是数据不自洽（有关系行但计数为 0），正常路径走不到。**不修**（见决策表 F-1 要点 4）。
+     * <p><b>T34 补防负守卫</b>（TV 原 SQL 无守卫）。{@code users.follow_count} 是
+     * {@code int unsigned DEFAULT 0}，计数为 0 时再 −1 会因 UNSIGNED 下溢报 1690 → 500。
+     * 守卫**不能**用 {@code follow_count + delta >= 0}（unsigned 列上自身下溢），须
+     * {@code CAST(follow_count AS SIGNED) + delta >= 0}。语义 = block：拦住 ⇒ 影响 0 行、
+     * 不抛错、不回滚 ⇒ 取关照常成功（计数停在 0）。
      *
-     * @return 受影响行数
+     * @return 受影响行数（守卫拦住时为 0）
      */
     int updateFollowCount(@Param("userId") long userId, @Param("delta") int delta);
 
-    /** 粉丝数增减。TV: {@code updateFollowerCount}。口径与 {@link #updateFollowCount} 完全一致（含同样的无守卫）。 */
+    /** 粉丝数增减。TV: {@code updateFollowerCount}。口径与 {@link #updateFollowCount} 完全一致（含同样的防负守卫）。 */
     int updateFollowerCount(@Param("userId") long userId, @Param("delta") int delta);
 
     /**

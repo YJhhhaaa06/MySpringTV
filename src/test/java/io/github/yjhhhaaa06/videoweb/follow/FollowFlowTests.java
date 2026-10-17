@@ -151,6 +151,31 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
         assertThat(countFollowRows()).isZero();
     }
 
+    /**
+     * ★ F-04 的尖锐场景（follow 侧，unsigned）：{@code follow} 有关系行、但两侧计数都停在 0。
+     * 取关时若不设守卫，`0 + (-1)` 会因 UNSIGNED 下溢报 1690 → 500。
+     * 断言 200（不回滚、不失败）+ 关系行照删 + 两侧计数停在 0（守卫 block）。
+     *
+     * <p><b>判别力</b>：去掉守卫 ⇒ 本用例因 500 变红；"正常 −1→0" 由 {@link #取关成功_关系行与双方计数各减一} 作对照。
+     */
+    @Test
+    @DisplayName("★取关：计数为 0 但关系行仍在 ⇒ 守卫拦住下溢，返回 200 而非 500（T34）")
+    void 取关时计数为零不报500() {
+        TestUser a = register(PHONE_A, "flow-a");
+        TestUser b = register(PHONE_B, "flow-b");
+        // 夹具不自洽：关系行存在，但两侧计数停在 0（不走 insertFollowRow 的联动 +1）
+        jdbcTemplate.update("INSERT INTO follow (user_id, followed_user_id) VALUES (?, ?)", b.id(), a.id());
+        assertThat(followCountColumn(b.id())).as("夹具：b 的 follow_count 停在 0").isZero();
+        assertThat(followerCountColumn(a.id())).as("夹具：a 的 follower_count 停在 0").isZero();
+
+        var resp = unfollow(a.id(), b.token());
+
+        assertThat(resp.getStatusCode().value()).as("守卫拦住下溢；不得 500").isEqualTo(200);
+        assertThat(countFollowRows(b.id(), a.id())).as("关系行照删").isZero();
+        assertThat(followCountColumn(b.id())).as("守卫 block：停在 0").isZero();
+        assertThat(followerCountColumn(a.id())).as("守卫 block：停在 0").isZero();
+    }
+
     // ========================================================================
     // 读路径：关注 / 粉丝列表（F-3）
     // ========================================================================
