@@ -135,6 +135,26 @@
   `base × (m−1)`，仅"门放行过"的请求、两桶同扣、失败吞掉）＋ `RateLimitRedisOps#deductDelta`（先补后扣）；
   设计稿 §二 已加修订注（公式 = "请求总成本"的简写）。速查行已更新。
 
+### I-21 设计稿 §十 要按 `scope` 分开的决策指标，但 §八 说"不区分是哪个桶挡的"—— Lua 只返回 `allowed:retry`，scope 只能是猜的【**分类：偏差** · 状态：**已解决**】
+
+- **问题**：`限流-设计稿.md` §十 的指标面是 `rate.limit.decisions{scope=server|user, result=allowed|rejected}`，
+  而 §八 明确"区分桶：**不区分**是哪个桶挡的，响应体统一"。两处并不直接冲突（前者是运维面、后者是响应体），
+  但**实现层只返回了一个联合结论**：T24 的 Lua 返回 `"allowed:retryAfterSeconds"`，`allowed` 是
+  `uPass && sPass` 的与——被拒时**无法反推**是哪一侧挡的（两侧可能都不够）。
+- **证据（可复核）**：改动前 `RateLimitRedisOps.ACQUIRE_LUA` 的 return（`'1:0'` / `'0:'..retry`）
+  与 `parseDecision`（只解析两段）；设计稿 §十 / §八 原文。
+- **影响**：按字面给指标加 `scope` 标签，唯一来源只能是**调用方猜**（比如"被拒就记 user"）——
+  那是**假的维度**，比没有维度更坏（`CacheMetrics` 已把这条写成纪律），且直接毁掉运维面最有用的那个问题
+  "该扩服务器还是该管这个用户"。
+- **处置**：`T28` 按 G13 决断（用户 2026-10-17 拍板走"扩返回值"）——Lua 返回改为
+  `allowed:retrySeconds:uPass:sPass`，`Decision` 带 `userBucketPassed` / `serverBucketPassed`；
+  解析对四段**严格校验**（段数 / 标志位 `0|1`，任一不合即 `RateLimitScriptException`）。
+  **响应体形状不变**（429 信封与 `Retry-After` 一字未改，§八 的"不区分"仍然成立）。
+- **去向**：**已解决**（2026-10-17，`T28` 落地——见下核销）。速查行见 `architecture/tech/限流.md` 附录。
+- **核销（T28，2026-10-17）**：`RateLimitRedisOps` 四段返回 + `Decision` 逐桶标记；
+  `RateLimitMetrics` 按 `scope` 记两条样本；判别用例 = `RateLimitObservabilityTests#服务器桶挡_只有server那条记rejected`
+  与 `RateLimitRedisOpsTests#逐桶判定_拒绝时谁挡的可分辨`（反向验证：标志位恒真 ⇒ 恰好 1 例红）。
+
 > 📌 **征集专项收口的结转**：`I-14`（`FollowCacheTests` 全量偶发红 —— 别域消费者进验证窗口）
 > **已结转 `FURTHER_ISSUES.md` **F-24****（它**不属收藏域**，是 feed 域测试隔离债）⇒ 移出本表。
 
