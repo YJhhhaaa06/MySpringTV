@@ -82,7 +82,7 @@ ROOT = Path(__file__).resolve().parent.parent   # tools/ 的上一级
 |------|------|--------|
 | `doc_stats.py` | 度量 `.docs` 体量，按文件与 H2 章节归因，找出膨胀源 | ✅ 只读 |
 | `doc_links.py` | **校验 `.docs` 交叉引用是否指得到**（悬空指针 / 改名遗留 / 旧章节引用） | ✅ 只读 |
-| `doc_refs.py` | **校验 `src/` 里代码注释的文档引用**：`.md` 引用可解析 + **别名黑名单**（`需求篇`/`设计篇`/`骨架 §`…）+ **裸名只解析到 `archive/` 副本**也算违规；跳 `db/migration/**`（冻结） | ✅ 只读 |
+| `doc_refs.py` | **校验 `src/` 里代码注释的文档引用**：`.md` 引用可解析 + **别名黑名单**（`需求篇`/`设计稿`/`设计篇`/`骨架 §`…）+ **裸名只解析到 `archive/` 副本**也算违规 + **`task/` 登记台禁入代码**（`CURRENT_*`，`FURTHER_ISSUES.md` 结转池例外）；跳 `db/migration/**`（冻结）。通过时会**如实列出覆盖了哪几面**（不 over-claim） | ✅ 只读 |
 | `doc_archive.py` | 把已完成阶段的历史明细从正文抽到 `.docs/archive/`，正文留指针 | ❌ 会写（**默认只预演**，加 `--apply` 才落盘） |
 | ★ **迁移期 5 个**（`endpoint_matrix` / `migration_matrix` / `flyway_parity` / `realdata_probe` / `tvconf`） | **已归档**到 `.docs/archive/migration/tools/`（2026-10-06）——用途见 §六；**需要复算迁移结论时才去那里跑** | ✅ 只读 |
 | `run_tests.py` | **一键跑测试**：全量 `clean verify` / `--group` 选跑 / `--test` 单类；完整输出落盘 + 摘要回显 | ✅ 只读（仅写 `target/test-reports/`） |
