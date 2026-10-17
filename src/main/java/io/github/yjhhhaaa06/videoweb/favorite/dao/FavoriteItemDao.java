@@ -212,8 +212,8 @@ public interface FavoriteItemDao {
      * （这正是"实测值"与"契约"的分界：会漂的实测值只能当证据，不能当断言 —— 独立审查抓到的第一版就是这个问题）。
      * 代价量级 = <b>∝ 夹内条数</b>，而条数上限本身就是 500 / 5000 ⇒ 单次判定最坏也只扫 5000 个索引项。
      * ⚠️ <b>耗时未计时</b>（T16 的 5000 行夹具只证明功能、没做计时）—— 将来若要论证
-     * "给 {@code favorite_folder} 加 {@code item_count} 计数列"，按 {@code CURRENT_NEEDS.md}
-     * <b>C-6</b> <b>先补耗时基线</b>再下结论（本行只是计划形态，不是性能结论）。
+     * "给 {@code favorite_folder} 加 {@code item_count} 计数列"，按本仓纪律「无基线不得宣称优化生效」
+     * <b>先补耗时基线</b>再下结论（本行只是计划形态，不是性能结论）。
      * 口径与取舍见 {@code favorite.md} §八。
      *
      * @param folderId 目标夹（调用方保证存在且属于当前用户）

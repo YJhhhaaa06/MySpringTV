@@ -38,7 +38,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 匿名桶在集成测试里全是 {@code 127.0.0.1} ⇒ 等价全局限流（D-3），故每测清桶、每用例自己设夹具。
  * <p>指标断言一律用**增量**（{@code MeterRegistry} 是上下文级共享对象，跨用例累积）。
  *
- * <h2>★ 反向验证（实测口径见 `CURRENT_TASKS` 的 T28 回写）</h2>
+ * <h2>★ 反向验证（实测口径见 {@code architecture/tech/限流.md} §五 与 {@code RateLimitMetrics}）</h2>
  * <ul>
  *   <li>删掉 {@code recordDecisions} 调用 ⇒ 本类 **5 例**红（四条指标用例 + Actuator 用例）；</li>
  *   <li>把拒绝日志的调用删掉 ⇒ 两条日志用例红；把档位改成 ERROR ⇒ 档位断言红；</li>
