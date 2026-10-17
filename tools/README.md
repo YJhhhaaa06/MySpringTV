@@ -87,6 +87,17 @@ ROOT = Path(__file__).resolve().parent.parent   # tools/ 的上一级
 | ★ **迁移期 5 个**（`endpoint_matrix` / `migration_matrix` / `flyway_parity` / `realdata_probe` / `tvconf`） | **已归档**到 `.docs/archive/migration/tools/`（2026-10-06）——用途见 §六；**需要复算迁移结论时才去那里跑** | ✅ 只读 |
 | `run_tests.py` | **一键跑测试**：全量 `clean verify` / `--group` 选跑 / `--test` 单类；完整输出落盘 + 摘要回显 | ✅ 只读（仅写 `target/test-reports/`） |
 | `backup.py` | **数据库一键备份**（`mysqldump`），产物 = `<时间戳>/db.sql` + `manifest.txt`（含 sha256）；连接参数取自 `application.yaml` 的 dev 默认值 + `DB_*` 覆盖 | ❌ 会写（**纯增量**：只新建 `<时间戳>/` 目录，**绝不覆盖**；故**默认真跑**，`--dry-run` 才预演） |
+| `devclean/db_clean.py` | **开发期数据清理·DB 清理**（T30）：顺**悬挂引用**逐 FK 列清扫（`NOT EXISTS`）—— 只带走"根已不存在"的行；**不删 `users` 行 / 不碰 `coupon` 表** | ❌ 会写（**默认 dry-run**：报「将删 N / 保留 M」；`--apply` 单事务执行） |
+| `devclean/media_clean.py` | **开发期数据清理·媒体清理**（T31）：`content_media.url` → 扫 `media/{video,image,cover}` → 孤儿文件**移到** `<媒体根同级>/trash/`（**只移动、不删除**） | ❌ 会写（**默认 dry-run**；`--apply` 搬走 + 写 manifest） |
+| `devclean/recount.py` | **开发期数据清理·计数重算**（T32）：重算 7 个计数列，口径 = **不含软删行**；dry-run 兼作 **F-07 探针**（逐列报漂移行数） | ❌ 会写（**默认 dry-run**；`--apply` 单事务重算） |
+| `devclean/devclean.py` | **开发期数据清理·一键编排**（T33）：`备份(DB-only) → 媒体手动确认关卡 → DB → 媒体 → 重算`；可 `--only` / `--skip` 单跑 | ❌ 会写（**默认全链 dry-run**；`--apply` 先备份、含媒体步需 `--media-backed-up`） |
+
+> ★ **`tools/devclean/` = 开发期数据清理脚本集（T30–T33，2026-10-17）**：定位是
+> 「**清掉开发 / 测试期造出来的数据，且不碰游玩数据**」，**不是运维脚本**。删哪些由**人**划定
+> （手工删测试用户 = 划定删除根集），脚本只**顺悬挂引用**清扫 ⇒ 脚本永远没有"自己决定删什么"的权力。
+> 共同红线：① 默认 `dry-run`（`--apply` 才落库 / 落盘）；② 脚本**不引用本仓目录之外的任何盘符**；
+> ③ 破坏性谓词一律 `NOT EXISTS`（禁 `NOT IN (子查询)`）；④ 根集由人划（手工删测试用户），脚本只顺悬挂。
+> ⚠️ 跨盘备份与 `trash` 清理**都由人手动**。四个脚本各自可**单独跑**，`devclean.py` 只是编排壳。
 
 > ★ **`backup.py` 是对迁移期一处裁剪的收回**（2026-10-08）。迁移收口时它被列为「丢」——
 > `.docs/archive/migration/测试策略与阶段验收.md` §6.3 给的理由是"其功能已被新体系吸收"，
@@ -118,6 +129,13 @@ python tools/run_tests.py --test SecurityContractTests # 只跑一个测试类
 python tools/backup.py                     # 备份 dev 库 spring_tv -> D:\data\projects\MySpringTV\backups\<时间戳>\
 python tools/backup.py --out backups       # 输出到仓库内 backups/（.gitignore 已排除，沙箱会话友好）
 python tools/backup.py --dry-run           # 只打印连接与将执行的命令，不落盘
+# ★ 开发期数据清理（T30–T33）：默认全链 dry-run；--apply 先备份 DB、含媒体步需 --media-backed-up
+python tools/devclean/devclean.py                            # 全链预演（默认）
+python tools/devclean/devclean.py --only media               # 只预演媒体步骤
+python tools/devclean/devclean.py --apply --media-backed-up  # 真跑全链（你已手动备份媒体）
+python tools/devclean/db_clean.py                            # 单跑 DB 清理（dry-run）
+python tools/devclean/media_clean.py                         # 单跑媒体清理（dry-run）
+python tools/devclean/recount.py                             # 单跑计数重算（dry-run，= F-07 探针）
 ```
 
 > `backup.py` 的连接参数**只有一处来源**：`src/main/resources/application.yaml` 的
