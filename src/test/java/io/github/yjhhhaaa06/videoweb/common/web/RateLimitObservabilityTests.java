@@ -222,7 +222,7 @@ class RateLimitObservabilityTests extends AbstractHttpIntegrationTest {
 
         String line = rejectionLine();
         assertThat(line).as("拒绝是「预期业务拒绝」⇒ WARN（对齐《可观测》§六）").contains("level=WARN ");
-        assertThat(line).as("结论行不持栈（WARN 不当运维事故报）").doesNotContain("\\tat ");
+        assertThat(line).as("结论行不持栈（WARN 不当运维事故报）").doesNotContain("\tat ");
         assertThat(line).contains("path=/start").contains("userId=- ").contains("blockedBy=user");
         assertThat(line)
                 .as("★ 不落原始 key（匿名桶 key 里有 IP —— 这条同时守住「匿名不落 IP」）")
