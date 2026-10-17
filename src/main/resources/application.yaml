@@ -318,8 +318,11 @@ video:
     # 异步投递线程池（第三批 T5 / 账 B8）：把「序列化 + publish」挪离 Web 线程——
     # 发布不等 publisher-confirm，但 broker 不可达时会等一次连接超时（dev 2s），
     # 那笔等待在 Web 线程上就是 RT 阻塞。TV: feed.delivery.queueCapacity / drainTimeoutMillis。
-    # ⚠️ 这段是**嵌套键**：它绑到独立的 FeedDeliveryProperties（前缀 video.feed.delivery）——
-    #    不能塞进 video.feed 的扁平记录（record 只认本前缀下的扁平键，嵌套会被静默忽略并绑成 0）。
+    # ⚠️ 这段是**嵌套键**：它绑到独立的 FeedDeliveryProperties（前缀 video.feed.delivery）。
+    #    分家的理由是**关注点分离**（业务窗口 vs 投递基建）＋ **独立前缀便于环境变量覆盖**
+    #    （FEED_DELIVERY_* 与 FEED_* 一眼可辨），**不是**"record 绑不了嵌套"——
+    #    record **能**绑嵌套段（Boot 4.1.1 实测；本仓 RateLimitProperties 就是"一个 record + 三段嵌套"，
+    #    口径见 architecture/tech/限流.md §二）⇒ 别再按"嵌套会被静默忽略并绑成 0"这条约束设计。
     delivery:
       # 有界队列容量（满则丢弃 + WARNING；不得改 CallerRunsPolicy，否则 RT 解耦白做）。TV=1000
       queue-capacity: ${FEED_DELIVERY_QUEUE_CAPACITY:1000}

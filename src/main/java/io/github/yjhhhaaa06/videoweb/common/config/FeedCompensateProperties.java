@@ -13,8 +13,11 @@ import java.time.Duration;
  * 唯一理由：让"恢复后重放"这件事可被运维与故障注入测试**驱动**（默认值不变 = TV 口径）。
  *
  * <p>前缀与 {@code video.feed.delivery}（{@link FeedDeliveryProperties}）分家，理由同那里：
- * 关注点不同（投递线程池 vs 补偿缓冲），且 record 只能绑自身前缀下的扁平键、
- * 想让 YAML 写成嵌套的 {@code video.feed.compensate.*} 就必须有独立前缀。
+ * 关注点不同（投递线程池 vs 补偿缓冲），且独立前缀让 {@code FEED_COMPENSATE_*}
+ * 可单独覆盖、不与投递线程池的参数混在一个命名空间里。
+ * ⚠️ 这**不是**"record 只能绑自身前缀下的扁平键"——record **能**绑嵌套段（Boot 4.1.1 实测；
+ * 本仓 {@link RateLimitProperties} 是"一个 record + 三段嵌套"的入库实例，口径见
+ * {@code architecture/tech/限流.md} §二）⇒ **别再按这条约束设计**。
  *
  * @param bufferCapacity 待重放内存队列容量（满则丢弃 + 节流 WARNING）
  * @param probeInterval  恢复探测周期（同时是"不可达窗口"长度与恢复补偿的时延上界）

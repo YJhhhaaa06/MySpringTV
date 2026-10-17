@@ -13,9 +13,14 @@ import java.time.Duration;
  *
  * <h2>为什么单独成一个 record（不再塞进 {@link FeedProperties}）</h2>
  * 两条理由：① **关注点不同**——{@link FeedProperties} 是"feed 业务的窗口 / 批尺寸"，
- * 此处是"投递基建的容量 / 关停上界"；② **键形状不同**——record 只能绑到自身前缀下的扁平键，
- * 想保留 TV 的 {@code feed.delivery.*} 嵌套形状就必须给独立前缀
- * （口径同 {@code video.cache.redis-breaker} → {@link RedisBreakerProperties}）。
+ * 此处是"投递基建的容量 / 关停上界"；② **独立前缀便于环境变量覆盖**——
+ * {@code FEED_DELIVERY_*} 与 {@code FEED_*} 一眼可辨、互不打架
+ * （同款口径：{@code video.cache.redis-breaker} → {@link RedisBreakerProperties}）。
+ *
+ * <p>⚠️ 分家**不是**因为"record 绑不了嵌套键"——那说法经实测**不成立**：record **能**绑嵌套段
+ * （Boot 4.1.1 实测；本仓 {@link RateLimitProperties} 就是"一个 record + 三段嵌套"的入库实例，
+ * 口径见 {@code architecture/tech/限流.md} §二）。旧注释按"绑定能力限制"论证，已经误导过设计选型
+ * ⇒ **别再按这条约束设计**；真要合并，理由只能是"关注点该不该合"。
  *
  * <h2>校验口径</h2>
  * {@code queueCapacity} 非正 ⇒ 投递永远无法入队（背压退化成"全丢"）；
