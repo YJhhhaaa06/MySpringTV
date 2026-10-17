@@ -49,10 +49,14 @@
     </select>
 
     <!-- TV: UPDATE content SET comment_count = comment_count + ? WHERE id = ?
-         ⚠️ 一字未改——**没有**防负守卫（对比 comment.updateReplyCount 有），保留 TV 原样行为。
-         已知尖锐处见 ContentDao#updateCommentCount 的 Javadoc（int unsigned 下溢）。 -->
+         ★ T34 补防负守卫（TV 原 SQL 无守卫）。⚠️ content.comment_count 是 int unsigned，
+         守卫**不能**照抄 comment.updateReplyCount 的 `col + delta >= 0`——在 unsigned 列上
+         `0 + (-1)` 会先触发 1690 下溢（守卫自身也炸；见 ContentDao#updateCommentCount 的 Javadoc 实测）。
+         故守卫用 CAST(… AS SIGNED) 把比较挪到有符号空间；SET 里的 `col + delta` 只在守卫通过
+         （结果 ≥ 0）时执行，故不会下溢。block 语义：守卫拦住 ⇒ 影响 0 行、不抛错、不触发回滚。 -->
     <update id="updateCommentCount">
-        UPDATE content SET comment_count = comment_count + #{delta} WHERE id = #{contentId}
+        UPDATE content SET comment_count = comment_count + #{delta}
+        WHERE id = #{contentId} AND CAST(comment_count AS SIGNED) + #{delta} &gt;= 0
     </update>
 
     <!-- TV: ContentCache 内部 loadContentFromDb 的 comment_enabled 列
@@ -63,11 +67,13 @@
     </select>
 
     <!-- TV: UPDATE content SET like_count = like_count + ? WHERE id = ?
-         ⚠️ 一字未改——**没有**防负守卫，保留 TV 原样行为（content.like_count 是 int unsigned，
-         与 comment.like_count 的有符号 int 形成不对称；见 ContentDao#updateLikeCount 的 Javadoc）。
+         ★ T34 补防负守卫（形式与理由同上面的 updateCommentCount：unsigned 列 ⇒ 必须 CAST(... AS SIGNED)，
+         否则守卫自身下溢）。content.like_count 是 int unsigned，与 comment.like_count 的有符号 int
+         形成不对称——两处 T34 都加了守卫，但 unsigned 侧靠 CAST、signed 侧靠原生比较（见各自 Javadoc）。
          本方法由 S3 补上（S1 的 content-thin 曾有意排除它）。 -->
     <update id="updateLikeCount">
-        UPDATE content SET like_count = like_count + #{delta} WHERE id = #{contentId}
+        UPDATE content SET like_count = like_count + #{delta}
+        WHERE id = #{contentId} AND CAST(like_count AS SIGNED) + #{delta} &gt;= 0
     </update>
 
     <!-- 收藏数批量重算（T12，与 like_count 增量式**刻意不同**）：一趟 CASE-WHEN 写回一批行的

@@ -84,12 +84,16 @@ public interface ContentDao {
     /**
      * 评论数增减。TV: {@code UPDATE content SET comment_count = comment_count + ? WHERE id = ?}
      *
-     * <p><b>本方法无防负守卫</b>（对比 {@code CommentDao.updateReplyCount} 有），这是 TV 原样行为，
-     * 故保留。⚠️ 已知尖锐处：{@code content.comment_count} 列类型是 {@code int unsigned}，
-     * 若计数已是 0 仍执行 -1，MySQL 严格模式下会因 UNSIGNED 下溢报错 → 500。
-     * 详见《事务边界决策表》CM-2「已知并接受的旧实现尖锐处」。
+     * <p><b>T34 补防负守卫</b>（TV 原 SQL 无守卫）。{@code content.comment_count} 是
+     * {@code int unsigned}，计数为 0 时再 -1 会因 UNSIGNED 下溢报 1690 → 500（已实测复现）。
+     * ★ 守卫**不能**照抄 {@code CommentDao.updateReplyCount} 的 {@code col + delta >= 0}——
+     * 在 unsigned 列上 {@code 0 + (-1)} 会先触发同一个 1690（守卫自身也炸）。
+     * 可复算（本机 MySQL）：{@code SELECT (x + (-1) >= 0) FROM (SELECT CAST(0 AS UNSIGNED) AS x) t} ⇒ {@code ERROR 1690}；
+     * 把守卫换成 {@code CAST(x AS SIGNED) + (-1) >= 0} ⇒ 返回 {@code 0}（守卫为假，UPDATE 影响 0 行）。
+     * 故用 {@code CAST(col AS SIGNED) + delta >= 0} 把比较挪到有符号空间。
+     * 语义 = block：守卫拦住 ⇒ 影响行数 0、不抛错、不回滚（用户取消赞/取关照常成功）。
      *
-     * @return 受影响行数
+     * @return 受影响行数（守卫拦住时为 0）
      */
     int updateCommentCount(@Param("contentId") long contentId, @Param("delta") int delta);
 
@@ -121,13 +125,13 @@ public interface ContentDao {
      * <p>⚠️ 本方法在 **S1 的 content-thin（3 方法）里被有意排除**——当时认定它属 like 切片（S3）的需求。
      * 现由 **S3** 补上，正好印证"薄依赖的口径是**本切片交付所必需**，不是计划里提到过"。
      *
-     * <p><b>无防负守卫</b>（对比 {@code CommentDao.updateReplyCount} 有），TV 原样行为，故保留。
-     * ⚠️ 已知尖锐处：{@code content.like_count} 列类型是 {@code int unsigned}，
-     * 取消未点赞的赞时若计数为 0 会因 UNSIGNED 下溢报错 → 500（与 {@code comment_count} 同款，
-     * 已实测复现）。注意 {@code comment.like_count} 是**有符号** int，同场景只会变成 −1 而不报错——
-     * 两表这个不对称是 TV 既有行为，不修。详见《事务边界决策表》L-1/L-2。
+     * <p><b>T34 补防负守卫</b>（TV 原 SQL 无守卫）。{@code content.like_count} 是 {@code int unsigned}，
+     * 取消未点赞的赞时若计数为 0 会因 UNSIGNED 下溢报 1690 → 500（与 {@code comment_count} 同款，实测复现）。
+     * 守卫形式与理由同 {@link #updateCommentCount}（unsigned ⇒ 必须 {@code CAST(... AS SIGNED)}）。
+     * 注意 {@code comment.like_count} 是有符号 {@code int}，其守卫**无须** CAST（T34 一并加了守卫，
+     * 形式因列类型而异，见 {@code CommentDao.updateLikeCount}）。
      *
-     * @return 受影响行数
+     * @return 受影响行数（守卫拦住时为 0）
      */
     int updateLikeCount(@Param("contentId") long contentId, @Param("delta") int delta);
 
