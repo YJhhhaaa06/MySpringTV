@@ -99,6 +99,7 @@ public class CacheAside extends RedisOps {
         } catch (CacheUnavailableException e) {
             metrics.record(CacheMetrics.Event.DEGRADE);
             log.warn("缓存读异常，降级直查 DB: key={}", dataKey, e);
+            CacheMissSignal.mark();                        // T26 信号②：降级 = 同样没走成缓存
             // 降级也经单飞（B1）：同 key 并发降级只打一次 DB；仅装载、不写回（D4）
             return singleFlight.get(dataKey, loader::get);
         }
@@ -114,11 +115,13 @@ public class CacheAside extends RedisOps {
             } catch (CacheUnavailableException e) {
                 metrics.record(CacheMetrics.Event.DEGRADE);
                 log.warn("缓存值不可信（脏 JSON），本次降级直查 DB（不回填）: key={}", dataKey);
+                CacheMissSignal.mark();                    // T26 信号②：脏值按 miss 处理
                 return singleFlight.get(dataKey, loader::get);
             }
         }
         // miss：回源 + 回填（loader 的 DB 异常原样上抛，见类注释）
         metrics.record(CacheMetrics.Event.MISS);
+        CacheMissSignal.mark();                            // T26 信号②：miss 回源
         // 单飞（B1）：同 key 并发 miss 只由一个 leader 回源并回填，其余线程共享结果（LOAD 只记一次）
         return singleFlight.get(dataKey, () -> {
             T value = loader.get();
@@ -200,6 +203,7 @@ public class CacheAside extends RedisOps {
         }
 
         if (cacheUnavailable) {
+            CacheMissSignal.mark();                        // T26 信号②：整批降级 = 同样没走成缓存
             // 降级不写回（D4）；DB 异常原样上抛
             Map<String, T> loaded = load(dataKeys, loader, batchLoader);
             for (String key : dataKeys) {
@@ -209,6 +213,7 @@ public class CacheAside extends RedisOps {
         }
 
         if (!missed.isEmpty()) {
+            CacheMissSignal.mark();                        // T26 信号②：批量读有 miss 子集（含脏值）
             Map<String, T> loaded = load(missed, loader, batchLoader);
             for (String key : missed) {
                 T value = loaded.get(key);

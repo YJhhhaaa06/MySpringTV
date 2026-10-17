@@ -334,6 +334,112 @@ video:
       # 恢复探测周期（= 不可达窗口长度 = 恢复补偿时延上界）。TV 是包内常量 30s，本仓入配置以便驱动
       probe-interval: ${FEED_COMPENSATE_PROBE_INTERVAL:30s}
 
+  # --------------------------------------------------------------------------
+  # 限流（限流专项 T23；★ 口径的唯一事实源 = architecture/tech/限流.md）
+  # 结构 = 两个记账主体各一个桶（登录/匿名 + 服务器）＋ 成本信号①（端点权重表）。
+  # --------------------------------------------------------------------------
+  # ⚠️⚠️ 下面每一个数字都是**拍的**（本仓无真实流量）。它们的作用是把口径做成
+  #      **可复算、可替换**的配置，**不是**让数值可信。每项的「推导锚点」与「推翻条件」
+  #      登记在 architecture/tech/限流.md（同 video.favorite.* 的"刻意的演示值"纪律）。
+  # ⚠️ 键名写错不会报错，只会绑成 0 / 0.0 —— 但 RateLimitProperties 的构造器对所有
+  #      "必须为正"的量**绑定期校验**（非法 ⇒ 上下文起不来），故这类错是响亮的。
+  # ⚠️ 所有标量键都可用环境变量覆盖（测试注入用，同 BIGV_THRESHOLD 的"测试用低阈值覆盖"手法）；
+  #      唯独 cost.base 表**不走**环境变量 —— 它的键含空格与斜杠，环境变量名无法表达，
+  #      要覆盖它在测试里用 @TestPropertySource(properties = "video.rate-limit.cost.base.[POST /x]=2")。
+  rate-limit:
+    # 服务器桶：全局单桶，代表"单实例整体还能接多少活"。
+    # 锚点：capacity ≈ 容器默认最大工作线程数（"瞬时在途请求上限"）；refill = capacity / 4
+    #       （空桶 4 秒补满 ⇒ 稳态吞吐上界）。推翻条件：出现真实并发基线。
+    server:
+      capacity: ${RATE_LIMIT_SERVER_CAPACITY:200}
+      refill-per-sec: ${RATE_LIMIT_SERVER_REFILL_PER_SEC:50}
+      # 昂贵后台任务（如 feed 收件箱重建）在**执行处**无条件扣给服务器桶的量。
+      # 锚点："一次收件箱重建 ≈ 十次普通读"。⚠️ 任务成本不属于任何用户（多个用户被去抖
+      #       合并成一次重建）⇒ 只扣服务器桶、不碰用户桶。推翻条件：有异步任务实测耗时。
+      task-cost: ${RATE_LIMIT_SERVER_TASK_COST:10}
+    # 用户桶：per-key 配额（登录态 key = user:{userId}、匿名态 key = anon:{ip}）。
+    # ⚠️ 匿名桶刻意比登录桶**宽 3 倍**：IP 是共享的（NAT / 内网 / 校园网下一片用户共用一个出口 IP），
+    #    按登录桶口径会误伤整片人。锚点：登录 20/2 = "正常人远达不到每分钟 120 次"。
+    #    推翻条件：有真实用户行为分布 / 真实匿名请求分布。
+    user:
+      authed:
+        capacity: ${RATE_LIMIT_USER_AUTHED_CAPACITY:20}
+        refill-per-sec: ${RATE_LIMIT_USER_AUTHED_REFILL_PER_SEC:2}
+      # ⚠️⚠️ 匿名桶在 MockMvc 里**全是 127.0.0.1** ⇒ 测试互相吃额度（NAT 语义退化成全局限流）。
+      #    故这两键必须可覆盖：非限流测试若被误伤，把它调成一个很大的数即可（对冲口径见
+      #    architecture/tech/限流.md §六；该环境的测试夹具前提见 T25）。
+      anon:
+        capacity: ${RATE_LIMIT_USER_ANON_CAPACITY:60}
+        refill-per-sec: ${RATE_LIMIT_USER_ANON_REFILL_PER_SEC:6}
+    cost:
+      # 未登记路由的兜底权重。★ **不是 0** —— "漏配 = 不限"正是要防的。
+      default-base: ${RATE_LIMIT_COST_DEFAULT_BASE:1}
+      # 信号②（"这一次查询有没有命中缓存"）：miss 时的乘数。**T26 起启用（3.0）**。
+      # 落地形态（时序）：miss 是**请求运行期事实**（门时取不到）⇒ 门按 base 扣、请求收尾按差额
+      #   base × (乘数 − 1) 补扣（两桶同扣、无折扣、仅"门放行过"的请求；结算细则见
+      #   architecture/tech/限流.md §四）。二值不计数（任一 miss 乘一次）：次数加权已否决——
+      #   "次数"的单位随实现漂移、"次数→系数"无依据，且冷启动/深翻会把正常用户 x(3n) 误伤
+      #   （已否决记录见 architecture/tech/限流.md §四）。
+      # 锚点："miss 一次 ≈ 三次命中"（凭"DB 远慢于 Redis"的量级差）。推翻条件：有命中/未命中的实测耗时比。
+      miss-multiplier: ${RATE_LIMIT_COST_MISS_MULTIPLIER:3.0}
+      # 被拒请求仍扣的"询问费"比例：0 = 被拒免费探路（防刷最弱）、1 = 用户为服务器过载全额买单。
+      # 锚点："被拒 = 打三折"，既不免费也不全款。推翻条件：出现正常用户被误伤的证据。
+      # ⚠️ 构造期只拒 [0,1] **之外**的值 ⇒ 0 是合法值、"键名写错"会静默绑成 0.0 而绕过校验；
+      #    该洞由 RateLimitPropertiesBindingTests#被拒折扣落在开区间（口径取开区间 (0,1)）兜住。
+      reject-discount: ${RATE_LIMIT_COST_REJECT_DISCOUNT:0.3}
+      # 权重表：key = 「<HTTP 方法> <空格> <路径模式>」（本仓端点无路径参数 ⇒ 即精确路径），value = 该端点一次的令牌数。
+      # 锚点：按"是否触达 DB 写 + 是否重活"排序 —— 登录/注册 5、上传与媒体扫描/恢复（同为重活）10、
+      #       其余非 GET 写路径 3；**读一律吃 default-base = 1**（故不在此枚举读端点）。
+      # 推翻条件：有按端点的实测成本。
+      # 覆盖口径（T26 起）：**全部非 GET 端点在此登记**——完整性由 RateLimitWeightTableTests 的
+      #       "扫描全部 handler 映射"用例兜住（新增端点漏配 ⇒ 该用例变红，逼一次定价决策）。
+      #       查表用「方法 空格 路径」精确匹配（未解码未规范化，与跳过清单同源）；未登记 ⇒ default-base。
+      # ⚠️⚠️ 键**必须**用方括号括起来（"[POST /x]": 3）！Spring 绑 Map 时会把键里
+      #      "小写字母数字与 - 之外"的字符**静默删掉**：写成 POST /favorite/add: 3 时
+      #      实际绑出来的是 POSTfavoriteadd —— 无任何报错，只是这条权重永远命不中、
+      #      悄无声息地全落 default-base。RateLimitProperties 把 key 形态钉成绑定期校验 ⇒ 漏了方括号会启动失败。
+      base:
+        # —— 认证入口（5：登录 / 注册是匿名可达的入口，比普通写贵）——
+        "[POST /user/login]": 5
+        "[POST /user/register]": 5
+        # —— 上传与媒体重活（10：流式写文件 + 批量回写；scan 为媒体全盘扫描，restore 同为媒体重操作）——
+        "[POST /api/upload/video]": 10
+        "[POST /api/upload/post]": 10
+        "[POST /api/upload/replace]": 10
+        "[POST /api/admin/media/scan]": 10
+        "[POST /api/admin/media/restore]": 10
+        # —— 用户资料修改 ——
+        "[POST /user/changePassword]": 3
+        "[POST /user/changeUserName]": 3
+        # —— 内容作者操作（delete 为级联软删，成本与"单个作品"同阶）——
+        "[POST /content/commentEnabled]": 3
+        "[POST /content/update]": 3
+        "[POST /content/mediaDelete]": 3
+        "[POST /content/delete]": 3
+        # —— 优惠券 / 点赞 / 评论 / 收藏 / 稍后再看 / 关注（各域写路径）——
+        "[POST /coupon/grab]": 3
+        "[POST /like/content/add]": 3
+        "[POST /like/content/remove]": 3
+        "[POST /like/comment/add]": 3
+        "[POST /like/comment/remove]": 3
+        "[POST /comment/add]": 3
+        "[POST /comment/delete]": 3
+        "[POST /favorite/add]": 3
+        "[POST /favorite/remove]": 3
+        "[POST /favorite/move]": 3
+        "[POST /favorite/folder/add]": 3
+        "[POST /favorite/folder/update]": 3
+        "[POST /favorite/folder/remove]": 3
+        "[POST /watchlater/add]": 3
+        "[POST /watchlater/remove]": 3
+        "[POST /watchlater/move]": 3
+        "[POST /follow/add]": 3
+        "[POST /follow/remove]": 3
+        # —— admin（人工操作、流量极小，但**无白名单** ⇒ 同样过闸计费）——
+        "[POST /api/admin/comment/delete]": 3
+        "[POST /api/admin/content/hide]": 3
+        "[POST /api/admin/content/unhide]": 3
+
 # ----------------------------------------------------------------------------
 # 可观测（第三批 T2 / 账 B3）：Actuator 端点暴露
 # 只开 health 与 metrics —— 观测面要"看得见"，但不该顺手把 env/beans/heapdump

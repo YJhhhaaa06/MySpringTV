@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.feed.cache;
 
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheKeys;
+import io.github.yjhhhaaa06.videoweb.common.cache.CacheMissSignal;
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheUnavailableException;
 import io.github.yjhhhaaa06.videoweb.common.config.FeedProperties;
 import lombok.extern.slf4j.Slf4j;
@@ -96,10 +97,12 @@ public class FeedCache {
             }
         } catch (CacheUnavailableException e) {
             log.warn("收件箱缓存读失败，降级 DB: userId={}", userId, e);
+            CacheMissSignal.mark();                            // T26 信号②：降级 = 没走成缓存
             // DB 失败必须上抛（不被此 catch 吞掉）：loader 在本 catch 块内执行，异常直接冒泡
             return descending(dbLoader.get());
         }
         // miss：DB 是真理源，顺带回填（回填失败不影响本次结果）
+        CacheMissSignal.mark();                                // T26 信号②：miss 回源
         List<Long> ascending = ascending(dbLoader.get());
         backfillInbox(dataKey, emptyKey, ascending);
         return descending(ascending);
@@ -242,11 +245,13 @@ public class FeedCache {
         } catch (CacheUnavailableException e) {
             // 本链 Redis 读的唯一捕获点 → 持栈；降级不放量：全量 DB 回源、不写回
             log.warn("大V发件箱缓存读失败，降级 DB, authorCount={}", authorIds.size(), e);
+            CacheMissSignal.mark();                            // T26 信号②：降级 = 没走成缓存
             Map<Long, List<Long>> loaded = loadQuietly(authorIds, dbLoader);
             return coalesce(authorIds, loaded);
         }
 
         if (!misses.isEmpty()) {
+            CacheMissSignal.mark();                            // T26 信号②：miss 回源
             Map<Long, List<Long>> loaded = loadQuietly(misses, dbLoader);
             for (Long authorId : misses) {
                 perAuthor.put(authorId, (loaded == null) ? List.of() : loaded.getOrDefault(authorId, List.of()));

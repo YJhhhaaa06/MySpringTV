@@ -2,6 +2,7 @@ package io.github.yjhhhaaa06.videoweb.content.cache;
 
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheAside;
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheKeys;
+import io.github.yjhhhaaa06.videoweb.common.cache.CacheMissSignal;
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheUnavailableException;
 import io.github.yjhhhaaa06.videoweb.common.cache.SingleFlight;
 import io.github.yjhhhaaa06.videoweb.common.config.ContentCacheProperties;
@@ -508,6 +509,7 @@ public class ContentCache {
             }
             List<ContentCacheDTO> loaded;
             try {
+                CacheMissSignal.mark();     // T26 信号②：索引键缺失 ⇒ 全表重建 = DB 回源（O(全表) 的重活）
                 loaded = contentDao.findAllContent();
             } catch (DataAccessException e) {
                 lastFailedRebuildAtMillis = System.currentTimeMillis();

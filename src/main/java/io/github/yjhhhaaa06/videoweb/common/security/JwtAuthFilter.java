@@ -10,6 +10,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -44,7 +45,18 @@ import java.io.IOException;
  */
 @Slf4j
 @Component
+@Order(JwtAuthFilter.AUTH_FILTER_ORDER)
 public class JwtAuthFilter extends OncePerRequestFilter {
+
+    /**
+     * 链序（限流专项 T25 引入显式定序）：必须排在 Spring Security 链（默认 {@code -100}）**之后**、
+     * 限流器（{@code RateLimitFilter}，取 {@code AUTH_FILTER_ORDER + 10}）**之前**——
+     * 用户 2026-10-16 拍板 A「先鉴权后扣费」：401 / 403 在本类短路，被鉴权拒绝的请求
+     * **到不了限流器**、不浪费令牌（见 {@code architecture/tech/限流.md} §三）。
+     * ⚠️ 此前本类**无 {@code @Order}**（最低优先级）；显式化是为了让"限流器在鉴权之内侧"
+     * 由两个可比的数字钉住，而不是依赖"没标注解 = 排最后"的隐式事实。
+     */
+    public static final int AUTH_FILTER_ORDER = 0;
 
     /** 请求属性名：登录用户 id。 */
     public static final String ATTR_USER_ID = "userId";
