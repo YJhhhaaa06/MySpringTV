@@ -1,5 +1,9 @@
 package io.github.yjhhhaaa06.videoweb.feed.service;
 
+import io.github.yjhhhaaa06.videoweb.common.cache.CacheKeys;
+import io.github.yjhhhaaa06.videoweb.common.cache.CacheUnavailableException;
+import io.github.yjhhhaaa06.videoweb.common.cache.RateLimitRedisOps;
+import io.github.yjhhhaaa06.videoweb.common.config.RateLimitProperties;
 import io.github.yjhhhaaa06.videoweb.feed.cache.FeedCache;
 import io.github.yjhhhaaa06.videoweb.follow.dao.FollowDao;
 import lombok.extern.slf4j.Slf4j;
@@ -20,9 +24,15 @@ import java.util.UUID;
  * Redis（{@code feed:inbox:{id}}）**只失效、不写**（单写 DB 真相 + 写后失效，与 fanout 同范式）。
  * 窗口口径 = **每关注作者最近 K 条** → 归并去重 → contentId 降序 → **裁剪到 C**。
  *
- * <h2>步骤（① 取锁 → ② 读关注集 → ③ 排除大V → ④ 单事务替换窗口 + 写同步状态 → ⑤ 提交后失效缓存 → ⑥ 释放锁）</h2>
+ * <h2>步骤（① 取锁 → ★ 任务自付费 → ② 读关注集 → ③ 排除大V → ④ 单事务替换窗口 + 写同步状态 → ⑤ 提交后失效缓存 → ⑥ 释放锁）</h2>
  * ④ 在 {@link FeedWindowWriter}（独立 bean，事务边界）；本类是**编排**（自身无事务）。
  * 顺序红线的论证见 {@link FeedWindowWriter} 类注释。
+ *
+ * <h2>任务主体自付费（限流专项 T27；口径唯一事实源 = {@code architecture/tech/限流.md} §四）</h2>
+ * 锁成功后、真正重建前，无条件扣一次服务器桶（{@code video.rate-limit.server.task-cost}）——
+ * "去重后只跑一次的成本不属于任何用户"，记账主体因此扩成**请求 + 任务**两类。
+ * ★ <b>立规</b>：新增昂贵后台任务（如将来的评论热度表重建）一律在**执行处**接同一扣减入口
+ * {@link RateLimitRedisOps#deductTaskCost}，不要另起炉灶（本方法是该规则的范例实现）。
  *
  * <h2>并发去重</h2>
  * 锁只是**去重优化**，不承担正确性：TTL（60s）到点后若真有并发重建交叉执行，两次都是同一份
@@ -47,13 +57,23 @@ public class FeedRebuildService {
     private final FeedBigVRouter bigVRouter;
     private final FeedWindowWriter windowWriter;
     private final FeedCache feedCache;
+    private final RateLimitRedisOps rateLimitRedisOps;
+    private final RateLimitProperties rateLimitProperties;
+
+    /** 服务器桶参数（构造期从配置派生；{@code BucketSpec} 构造期校验与配置绑定期校验双保险）。 */
+    private final RateLimitRedisOps.BucketSpec serverBucket;
 
     public FeedRebuildService(FollowDao followDao, FeedBigVRouter bigVRouter,
-                              FeedWindowWriter windowWriter, FeedCache feedCache) {
+                              FeedWindowWriter windowWriter, FeedCache feedCache,
+                              RateLimitRedisOps rateLimitRedisOps, RateLimitProperties rateLimitProperties) {
         this.followDao = followDao;
         this.bigVRouter = bigVRouter;
         this.windowWriter = windowWriter;
         this.feedCache = feedCache;
+        this.rateLimitRedisOps = rateLimitRedisOps;
+        this.rateLimitProperties = rateLimitProperties;
+        this.serverBucket = new RateLimitRedisOps.BucketSpec(
+                rateLimitProperties.server().capacity(), rateLimitProperties.server().refillPerSec());
     }
 
     /**
@@ -69,6 +89,7 @@ public class FeedRebuildService {
             log.debug("收件箱重建跳过（已有并发重建或 Redis 不可用）, userId={}", userId);
             return;
         }
+        deductTaskCost(userId);   // ★ 锁成功 ⇒ 本次真正干活 ⇒ 计费（自带 fail-open，绝不影响下面的重建步骤）
         try {
             List<Long> authors = excludeBigV(loadFollowedUserIds(userId));   // ② + ③
             windowWriter.replaceWindow(userId, authors);                     // ④ 单事务
@@ -81,6 +102,34 @@ public class FeedRebuildService {
             log.error("收件箱重建异常（已兜底，降级）, userId={}", userId, e);
         } finally {
             feedCache.releaseRebuildLock(userId, token);
+        }
+    }
+
+    // ==================== 任务主体自付费（T27） ====================
+
+    /**
+     * 在任务执行处无条件扣一次服务器桶（可为负、不碰任何用户桶）——命令层已保证
+     * "先补后扣"（近满桶时这笔成本不会被后续 refill 吸收），本方法只负责**接线与失败边界**。
+     *
+     * <p>扣减点 = 重建锁成功之后（类注释步骤 ★）：**"锁跳过 = 没干活 = 不扣"**，谁干活谁付费；
+     * 重复执行（跨去抖窗口的重复消息、锁 TTL 到点后的并发重建）= 重复计费——每次都真干了活，
+     * 这是想要的语义（容器重试**到不了**这里：{@code rebuildInbox} 契约"任何失败都不抛出"，
+     * 消费容器的本地重试只发生在它之前的"载荷非法"出口）。
+     *
+     * <p>★ <b>独立失败边界（红线：扣减失败不得让任务失败）</b>：这里自带 catch、
+     * **不依赖** {@link #rebuildInbox} 主 try 的兜底——主兜底会中止后续重建步骤，
+     * 语义就成了"扣减失败让任务失败"。Redis 不可达走 WARN（外部故障、可自愈）；
+     * {@code deductTaskCost} 不解析返回值，契约上只抛 {@link CacheUnavailableException}，
+     * {@code RuntimeException} 兜底是防御性的（任何意外都不得穿透去中止重建）。
+     */
+    private void deductTaskCost(long userId) {
+        try {
+            rateLimitRedisOps.deductTaskCost(CacheKeys.rateLimitServer(), serverBucket,
+                    rateLimitProperties.server().taskCost());
+        } catch (CacheUnavailableException e) {
+            log.warn("任务成本扣减失败（fail-open，不影响重建）, userId={}", userId, e);
+        } catch (RuntimeException e) {
+            log.error("任务成本扣减异常（已兜底，不影响重建）, userId={}", userId, e);
         }
     }
 

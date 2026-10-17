@@ -77,7 +77,10 @@ import static org.assertj.core.api.Assertions.within;
         "video.rate-limit.cost.reject-discount=0.3",
         // ★ T26-C3：本类只测闸门（信号①与折扣），固定隔离信号②——yaml 已启用 3.0，
         //   不 pin 的话，冷态请求（如 /start 首次回源）的差额会打到 CAP − COST 类断言上。
-        "video.rate-limit.cost.miss-multiplier=1.0"
+        "video.rate-limit.cost.miss-multiplier=1.0",
+        // ★ T27：任务自付费接线后，异步重建链会在执行处扣服务器桶——本类断言小桶的绝对值，
+        //   关掉本上下文的 MQ 消费者，防"夹具设值与断言之间"被异步扣减污染。
+        "spring.rabbitmq.listener.simple.auto-startup=false"
 })
 class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
 

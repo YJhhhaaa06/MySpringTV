@@ -63,7 +63,10 @@ import static org.assertj.core.api.Assertions.within;
         "video.rate-limit.cost.default-base=1",
         "video.rate-limit.cost.reject-discount=0.3",
         // ★ 本类的主体：信号②启用（3.0）。显式 pin，不依赖 yaml 默认值。
-        "video.rate-limit.cost.miss-multiplier=3.0"
+        "video.rate-limit.cost.miss-multiplier=3.0",
+        // ★ T27：任务自付费接线后，异步重建链会在执行处扣服务器桶——本类断言小桶绝对值，
+        //   关掉本上下文的 MQ 消费者，防"夹具设值与断言之间"被异步扣减污染。
+        "spring.rabbitmq.listener.simple.auto-startup=false"
 })
 class RateLimitMissPenaltyTests extends AbstractHttpIntegrationTest {
 
