@@ -78,3 +78,4 @@ __pycache__/
 # 直接冲突（S7 归档切分时实际踩到一次）。
 # 归档是**知识资产**（约 2.5k 行），纳入仓库；真正该忽略的是 /.docs/temp（草稿）。
 /src/test/resources
+/.docs/archive

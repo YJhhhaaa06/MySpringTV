@@ -7,7 +7,7 @@
 > 凡是"还剩多少/欠什么/为什么这么定"这类结论，都必须能由一条命令或一处代码验证。
 >
 > ★ **本目录只服务"独立开发"**：迁移期的三份事实源（遗留台账 / 决策留痕表 / 事务边界决策表）
-> 已全部移入 `archive/migration/`（见 §二），**不再维护** —— 只有"追溯当初为什么这么定"时才下钻。
+> 已全部移入 `archive/migration/`（见 §二），**不再维护** —— archive中的文档都是历史，可能无法反映现状，不要被历史的论调误导
 
 ---
 
@@ -72,7 +72,7 @@ Flyway + Testcontainers。**由 `old-project/TVhomework1`（Servlet + 手写连�
 | ★ **执行中登记（问题 / 需求 / 任务）** | `task/CURRENT_NEEDS.md`（当期需求，决策源 N# / R-##）+ `task/CURRENT_TASKS.md`（当期任务，四要素+回写）+ `task/CURRENT_ISSUES.md`（**本期**问题）+ `task/FURTHER_ISSUES.md`（结转留池） | 每窗开/收时 |
 | ★ **查某个编号是什么**（`T#` / `R-##` / `I-##` / `G#`） | ★ **活速查** = `architecture/domain/favorite.md` **附录「编号速查」**（每号**一行**结论）；★ **限流专项（第 5 张清单）** 的编号在 `architecture/tech/限流.md` **附录「编号速查」**（同款纪律：只许一行结论）；**逐条历史论证** = `archive/favorite-2026-10-15/收藏功能-编号索引.md`（`A.1` 任务 / `A.2` 决策 / `A.3` 问题 / `A.4` 约定）—— 代码 / mapper / 测试注释里有**数百处**编号引用 | 每期收尾时把已终结的编号收编进**速查**（只许**一行结论**，理由进 archive / git） |
 | ★ **加新功能 / 看设计** | `architecture/domain/`：**`favorite.md`**（收藏域设计：表 / 端点 / 计数口径 / 互动态 / 缓存 / 容量 / 稍后再看 / 公开夹 + **编号速查**附录）+ **`favorite-需求.md`**（用户可见规则，**唯一事实源**）+ `feed.md`（域文档样板）。本期做哪些 ⇒ `task/CURRENT_NEEDS.md` | 开工前登记 / 设计变更时 |
-| **知道下一步做什么** | ★ **第 5 张清单（限流专项）已收口**（`T23`–`T29`，2026-10-17）⇒ **活口径** `architecture/tech/限流.md` · **设计与论证** `archive/rate-limit-2026-10-17/`（只读）；**下一张清单方向待拍板** ⇒ `task/CURRENT_NEEDS.md` §三；结转账见 `task/FURTHER_ISSUES.md` | 排期/收尾时 |
+| **知道下一步做什么** | ★ **第 6 张清单 = ISSUES 处置专项**（**范围待拍板**）⇒ 方向与纳入见 `task/CURRENT_NEEDS.md` §三 / §四、问题池见 `task/CURRENT_ISSUES.md`、结转账见 `task/FURTHER_ISSUES.md` | 排期/收尾时 |
 | 知道**现在还欠着什么** | `task/FURTHER_ISSUES.md`（结转池 F-##；E 类存量数据债已并入 F-04 ~ F-09） | 每次裁剪**先登记再动代码** |
 | 知道**当初为什么这么定** | `archive/migration/决策留痕表.md`（A 架构 / B 范围 / C 保真度 / D 契约差异 / E 事务指针 / F 选型 / **G 可观测 / H 韧性 / I 一致性 / J MQ** / K 收口判据）；**收藏的决策理由**见 `archive/favorite-2026-10-15/收藏功能-编号索引.md` **A.2**（活口径另见 `architecture/domain/favorite.md`） | **只读追溯**，新决策不再往里加 |
 | 处理**某个事务边界** | `archive/migration/事务边界决策表.md`（§四 状态总表；逐条论证在 `archive/migration/事务边界明细-*.md`）；**写新事务**看 `architecture/tech/事务边界.md` | 开工前必须表态 |
