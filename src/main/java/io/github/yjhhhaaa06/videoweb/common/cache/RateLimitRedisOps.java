@@ -47,8 +47,11 @@ import java.util.List;
  * ② 补充用 {@code redis.call('TIME')} 取时钟（与 TTL 淘汰同一时钟源；Redis 5+ 脚本内 TIME 合法）。
  *
  * <h2>返回值承载：紧凑字符串（T24 的选定：行为确定 / 可调试 / 报错可定位）</h2>
- * Lua 返回 {@code "1:0"} / {@code "0:5"}（{@code allowed:retryAfterSeconds}）。
+ * Lua 返回 {@code "1:0:1:1"} / {@code "0:5:1:0"}（{@code allowed:retryAfterSeconds:uPass:sPass}）。
  * 不用 {@code RedisScript<List>}：字符串行为完全确定、可在 redis-cli 直接观察、解析失败可精确报错。
+ * ★ 后两段（逐桶判定）是 <b>T28</b> 追加的（登记 {@code I-21}）：可观测面按
+ * {@code scope=user|server} 分开计数，需要"这次是哪个桶挡的"——脚本里已经算过
+ * （{@code allowed = uPass and sPass}），不带出来就只能由调用方猜。
  *
  * <h2>失败边界（本层不 catch）</h2>
  * Redis 不可达 ⇒ 基类 {@code guarded} 归一为 {@link CacheUnavailableException}（fail-open 归 T25）；
@@ -67,8 +70,11 @@ public class RateLimitRedisOps extends RedisOps {
      * 请求侧脚本（一次 Lua 覆盖全流程）。KEYS: {@code [userKey, serverKey]}；
      * ARGV: {@code [userCap, userRate, userTtl, serverCap, serverRate, serverTtl, cost, rejectDiscount]}。
      *
-     * <p>返回 {@code "allowed:retrySeconds"}——被拒时 retry = 两桶"补到可过闸"所需时间的**较大者**，
-     * 向上取整；已够的一侧计 0；放行为 {@code "1:0"}。
+     * <p>返回 {@code "allowed:retrySeconds:uPass:sPass"}——被拒时 retry = 两桶"补到可过闸"所需时间的
+     * **较大者**，向上取整；已够的一侧计 0；放行为 {@code "1:0:1:1"}。
+     * ★ 后两段是**逐桶判定**（{@code userPassed} / {@code serverPassed}，T28 追加，登记 {@code I-21}）：
+     * 运维面要按 {@code scope=user|server} 分开看"是哪个桶挡的"，而这个判定在脚本里**已经算过**
+     * （{@code allowed = uPass and sPass}）——不带出来就只能由调用方猜，猜出来的维度比没有维度更坏。
      * ★ 两桶的补足目标都是 {@code cost}——⚠️ 用户桶**不是** {@code cost × (1 − discount)}：
      * 下一次进入闸门前还会**再扣一次询问费** {@code cost × discount}，届时桶存量需 {@code ≥ cost}
      * 才过得了闸；取尾款会把 Retry-After 系统性偏小 {@code cost × discount / rate}。
@@ -100,7 +106,9 @@ public class RateLimitRedisOps extends RedisOps {
             local uTokens = refill(KEYS[1], uCap, uRate) - cost * discount
             local sTokens = refill(KEYS[2], sCap, sRate)
 
-            local allowed = (uTokens >= tail) and (sTokens >= cost)
+            local uPass = uTokens >= tail
+            local sPass = sTokens >= cost
+            local allowed = uPass and sPass
 
             local retry = 0
             if allowed then
@@ -120,10 +128,15 @@ public class RateLimitRedisOps extends RedisOps {
             redis.call('SET', KEYS[1], tostring(uTokens) .. ':' .. tostring(now))
             redis.call('EXPIRE', KEYS[1], ARGV[3])
 
-            if allowed then
-              return '1:0'
+            local function flag(ok)
+              if ok then return '1' end
+              return '0'
             end
-            return '0:' .. tostring(retry)
+
+            if allowed then
+              return '1:0:' .. flag(uPass) .. ':' .. flag(sPass)
+            end
+            return '0:' .. tostring(retry) .. ':' .. flag(uPass) .. ':' .. flag(sPass)
             """;
 
     /**
@@ -277,25 +290,36 @@ public class RateLimitRedisOps extends RedisOps {
     }
 
     /**
-     * 解析脚本返回值（{@code "allowed:retrySeconds"}）。
+     * 解析脚本返回值（{@code "allowed:retrySeconds:uPass:sPass"}）。
      *
      * <p>★ 解析刻意放在 {@code eval}（含 {@code guarded} 的异常归一）**之外**：
      * 失败抛 {@link RateLimitScriptException} 而非被归一成 {@link CacheUnavailableException}
      * ——否则"限流器自身缺陷"会被 fail-open 伪装成"Redis 挂了"（T28 日志分档的依据）。
      *
      * <p>不做宽松容错：返回值由本类自己的脚本产生，格式漂移 = 代码缺陷，应显式爆出（ERROR）。
+     * 四段（T28 起）——逐桶判定两段只接受 {@code '0'}/{@code '1'}，其余一律按解析失败处理
+     * （"差一位就静默当成放行"是本机制最危险的失败形态）。
      */
     private static Decision parseDecision(String raw) {
-        if (raw == null || raw.length() < 3 || raw.charAt(1) != ':'
-                || (raw.charAt(0) != '0' && raw.charAt(0) != '1')) {
+        if (raw == null) {
             throw new RateLimitScriptException(
-                    "限流脚本返回值无法解析: [" + raw + "]（期望 \"<0|1>:<retrySeconds>\"）");
+                    "限流脚本返回值无法解析: [null]（期望 \"<0|1>:<retrySeconds>:<0|1>:<0|1>\"）");
+        }
+        String[] parts = raw.split(":", -1);
+        if (parts.length != 4 || !isFlag(parts[0]) || !isFlag(parts[2]) || !isFlag(parts[3])) {
+            throw new RateLimitScriptException(
+                    "限流脚本返回值无法解析: [" + raw + "]（期望 \"<0|1>:<retrySeconds>:<0|1>:<0|1>\"）");
         }
         try {
-            return new Decision(raw.charAt(0) == '1', Long.parseLong(raw.substring(2)));
+            return new Decision("1".equals(parts[0]), Long.parseLong(parts[1]),
+                    "1".equals(parts[2]), "1".equals(parts[3]));
         } catch (NumberFormatException e) {
             throw new RateLimitScriptException("限流脚本返回值无法解析: [" + raw + "]", e);
         }
+    }
+
+    private static boolean isFlag(String segment) {
+        return "0".equals(segment) || "1".equals(segment);
     }
 
     /**
@@ -327,9 +351,14 @@ public class RateLimitRedisOps extends RedisOps {
     /**
      * 过闸结果。
      *
-     * @param allowed          是否放行
+     * @param allowed           是否放行（= {@code userBucketPassed && serverBucketPassed}）
      * @param retryAfterSeconds 被拒时的 {@code Retry-After}（秒，向上取整；放行时为 0）
+     * @param userBucketPassed  <b>逐桶判定</b>：用户桶自身够不够（T28，登记 {@code I-21}）。
+     *                          ⚠️ 被拒时**两侧可能都为 {@code false}**——{@code allowed} 是 AND，
+     *                          不能由它反推出"是哪个桶挡的"（这正是它必须由脚本带出来的原因）
+     * @param serverBucketPassed 逐桶判定：服务器桶自身够不够
      */
-    public record Decision(boolean allowed, long retryAfterSeconds) {
+    public record Decision(boolean allowed, long retryAfterSeconds,
+                           boolean userBucketPassed, boolean serverBucketPassed) {
     }
 }

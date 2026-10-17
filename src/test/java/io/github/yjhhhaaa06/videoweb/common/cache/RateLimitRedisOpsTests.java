@@ -285,6 +285,51 @@ class RateLimitRedisOpsTests extends AbstractIntegrationTest {
         assertThat(decision.retryAfterSeconds()).as("max(2, 1) = 2 —— 不是 min").isEqualTo(2);
     }
 
+    // ==================== 逐桶判定（T28：可观测面 scope 的真值来源） ====================
+
+    @Test
+    @DisplayName("★ 逐桶判定：放行 ⇒ 两侧都过（Decision 的逐桶标记不是恒真/恒假的摆设）")
+    void 逐桶判定_放行时两侧都过() {
+        RateLimitRedisOps.Decision decision = acquire();
+
+        assertThat(decision.allowed()).isTrue();
+        assertThat(decision.userBucketPassed()).as("用户桶够尾款 ⇒ 通过").isTrue();
+        assertThat(decision.serverBucketPassed()).as("服务器桶够 cost ⇒ 通过").isTrue();
+    }
+
+    @Test
+    @DisplayName("★ 逐桶判定：拒绝时能分辨「谁挡的」——用户桶挡 / 服务器桶挡 / 两边都不够")
+    void 逐桶判定_拒绝时谁挡的可分辨() {
+        long t0 = System.currentTimeMillis();
+
+        // ① 用户桶挡（服务器桶够）：0.5 − 0.9 < 尾款 2.1 ⇒ user 不过；服务器桶是新桶（满）⇒ 过
+        putBucket(USER_KEY, "0.5", t0);
+        RateLimitRedisOps.Decision userBlocked = acquire();
+        assertThat(userBlocked.allowed()).isFalse();
+        assertThat(userBlocked.userBucketPassed()).as("用户桶是瓶颈（scope=user 的那条 rejected）").isFalse();
+        assertThat(userBlocked.serverBucketPassed()).as("服务器桶没挡（scope=server 那条应记 allowed）").isTrue();
+
+        // ② 服务器桶挡（用户桶够）：满用户桶 ⇒ 过；服务器桶 0.5 < cost 3 ⇒ 不过
+        clearRedis();
+        putBucket(USER_KEY, "10", t0);
+        putBucket(SERVER_KEY, "0.5", t0);
+        RateLimitRedisOps.Decision serverBlocked = acquire();
+        assertThat(serverBlocked.allowed()).isFalse();
+        assertThat(serverBlocked.userBucketPassed()).as("用户桶没挡（scope=user 那条应记 allowed）").isTrue();
+        assertThat(serverBlocked.serverBucketPassed())
+                .as("★ 服务器桶是瓶颈 —— 若逐桶判定被实现成「拒绝时两侧都记 rejected」，本断言必红")
+                .isFalse();
+
+        // ③ 两桶都不够：allowed 是 AND，但逐桶标记必须**各自**为 false（不能塌成一个"挡了"）
+        clearRedis();
+        putBucket(USER_KEY, "0", t0);
+        putBucket(SERVER_KEY, "0", t0);
+        RateLimitRedisOps.Decision bothBlocked = acquire();
+        assertThat(bothBlocked.allowed()).isFalse();
+        assertThat(bothBlocked.userBucketPassed()).isFalse();
+        assertThat(bothBlocked.serverBucketPassed()).isFalse();
+    }
+
     // ==================== TTL（自证性质的实现前提） ====================
 
     @Test
@@ -459,6 +504,28 @@ class RateLimitRedisOpsTests extends AbstractIntegrationTest {
         RateLimitRedisOps badRetry = new RateLimitRedisOps(new StubRedis("1:abc"), freshBreaker());
         assertThatThrownBy(() -> badRetry.tryAcquire(USER_KEY, SERVER_KEY, USER_BUCKET, SERVER_BUCKET, COST, DISCOUNT))
                 .as("retry 非数字 ⇒ 解析失败")
+                .isInstanceOf(RateLimitScriptException.class);
+    }
+
+    @Test
+    @DisplayName("★ 逐桶判定段缺失/非法 ⇒ 抛脚本异常（差一位不得被静默当成放行）")
+    void 逐桶判定段非法_抛脚本异常() {
+        // 三段（T24 旧形态残留 / 脚本只改了一半）⇒ 解析失败，不是"保守放行"
+        RateLimitRedisOps oldShape = new RateLimitRedisOps(new StubRedis("1:0:1"), freshBreaker());
+        assertThatThrownBy(() -> oldShape.tryAcquire(USER_KEY, SERVER_KEY, USER_BUCKET, SERVER_BUCKET, COST, DISCOUNT))
+                .as("旧的三段形态必须响亮失败（否则 scope 统计会静默读到缺省值）")
+                .isInstanceOf(RateLimitScriptException.class);
+
+        // 逐桶段取值不是 0/1
+        RateLimitRedisOps badFlag = new RateLimitRedisOps(new StubRedis("1:0:1:x"), freshBreaker());
+        assertThatThrownBy(() -> badFlag.tryAcquire(USER_KEY, SERVER_KEY, USER_BUCKET, SERVER_BUCKET, COST, DISCOUNT))
+                .isInstanceOf(RateLimitScriptException.class);
+
+        // 放行段与逐桶段矛盾（allowed=1 但 user 段=0）不属格式错，但格式校验只管形态：
+        // 这里钉的是"多一段/少一段"的边界，语义矛盾由脚本保证（allowed 由两段推出）。
+        RateLimitRedisOps extra = new RateLimitRedisOps(new StubRedis("1:0:1:1:9"), freshBreaker());
+        assertThatThrownBy(() -> extra.tryAcquire(USER_KEY, SERVER_KEY, USER_BUCKET, SERVER_BUCKET, COST, DISCOUNT))
+                .as("多一段同样是格式漂移")
                 .isInstanceOf(RateLimitScriptException.class);
     }
 }
