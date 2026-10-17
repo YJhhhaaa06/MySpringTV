@@ -29,8 +29,8 @@ import java.util.Set;
  * 限流闸门过滤器（限流专项 <b>T25</b>；口径的唯一事实源 = {@code architecture/tech/限流.md} §三）。
  *
  * <p>把 T24 落地的 {@link RateLimitRedisOps#tryAcquire}（一次 Lua：「惰性补充 + 询问费 + 两桶 AND
- * 闸门 + 放行扣减」）接到请求链上。本类只做**接线**四件事：链序、覆盖范围、429 出口、fail-open；
- * 算法 / 桶结构都在 Redis 层，成本信号①②（端点权重表 / 缓存 miss 系数）的接线归 <b>T26</b>。
+ * 闸门 + 放行扣减」）接到请求链上。本类只做**接线**五件事：链序、覆盖范围、429 出口、fail-open、
+ * 可观测（T28）；算法 / 桶结构都在 Redis 层，成本信号①②（端点权重表 / 缓存 miss 系数）的接线归 <b>T26</b>。
  *
  * <h2>★ 链序：鉴权之内侧（用户 2026-10-16 拍板 A「先鉴权后扣费」）</h2>
  * <pre>{@code
@@ -67,6 +67,24 @@ import java.util.Set;
  * **同样放行**——若它 500，限流器就成了整个 API 的单点故障；但它的日志档位
  * **必须更高（ERROR）**："限流静默消失"的唯一出口就是这行日志。
  * 正式的日志口径 / 指标归 <b>T28</b>；resilience 组测试钉住"两种失败都放行"的行为契约。
+ *
+ * <h2>可观测（T28 落地；细节见 {@code architecture/tech/限流.md} §五）</h2>
+ * <b>指标</b>（{@link RateLimitMetrics}）：{@code rate.limit.decisions{scope=user|server,
+ * result=allowed|rejected}} 记**逐桶**判定（一次请求记两条——两桶判定可以不同，并成一条就答不了
+ * "该扩服务器还是该管这个用户"）；{@code rate.limit.acquire} 记一次过闸命令的耗时。
+ * <p><b>日志三档</b>：
+ * <table>
+ *   <caption>日志三档</caption>
+ *   <tr><th>场景</th><th>档位</th><th>持栈</th></tr>
+ *   <tr><td>拒绝（429）</td><td>WARN 结论行</td><td>否</td></tr>
+ *   <tr><td>Redis 不可达 / 熔断打开（放行）</td><td>WARN 结论行</td><td>否</td></tr>
+ *   <tr><td><b>脚本 / 返回值解析异常</b>（放行）</td><td><b>ERROR</b></td><td>是（这是缺陷，要能定位）</td></tr>
+ * </table>
+ * ★ 前两档同为 WARN 但**用词可区分**（"限流拒绝" vs "限流器不可用"），第三档靠级别区分——
+ * 三者混作一档，"限流静默消失"就会被 fail-open 伪装成"Redis 挂了"。
+ * <p>★ 拒绝行**不记原始 key**（登录记 {@code userId}、匿名不落 IP），理由见 {@link #logRejected}。
+ * <p>★ <b>fail-open 不记决策指标</b>：判都没判出来，记什么都是假的；那两条路径只有日志出口
+ * （本仓无监控消费方，日志才是唯一会被看到的出口）。
  *
  * <h2>成本（T26 口径：信号① + 信号②）</h2>
  * <b>信号①（端点权重表）</b>：{@code cost = cost.base[「方法 空格 路径」]}，未登记 ⇒ {@code cost.default-base}
@@ -106,13 +124,16 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     private final RateLimitProperties properties;
     private final RateLimitRedisOps ops;
+    private final RateLimitMetrics metrics;
     private final ObjectMapper objectMapper;
 
     public RateLimitFilter(RateLimitProperties properties,
                            RateLimitRedisOps ops,
+                           RateLimitMetrics metrics,
                            ObjectMapper objectMapper) {
         this.properties = properties;
         this.ops = ops;
+        this.metrics = metrics;
         this.objectMapper = objectMapper;
     }
 
@@ -142,6 +163,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
         boolean allowedByGate = false;
         try {
             try {
+                long acquireStartNanos = System.nanoTime();
                 RateLimitRedisOps.Decision decision = ops.tryAcquire(
                         userKey,
                         CacheKeys.rateLimitServer(),
@@ -150,18 +172,23 @@ public class RateLimitFilter extends OncePerRequestFilter {
                                 properties.server().capacity(), properties.server().refillPerSec()),
                         cost,
                         properties.cost().rejectDiscount());
+                recordDecisions(decision);
+                metrics.recordAcquire(System.nanoTime() - acquireStartNanos);
                 if (!decision.allowed()) {
+                    logRejected(request, userId, cost, decision);
                     writeTooManyRequests(request, response, decision.retryAfterSeconds());
                     return;
                 }
                 allowedByGate = true;
             } catch (CacheUnavailableException e) {
                 // ★ fail-open（见类注释）：Redis 不可达 / 熔断打开（guarded 快速失败抛的也是它）。
-                log.warn("限流器不可用，放行（fail-open）: {}", e.getMessage());
+                log.warn("限流器不可用，放行（fail-open）: path={} userId={} 原因={}",
+                        pathOf(request), userIdForLog(userId), e.getMessage());
             } catch (RateLimitScriptException e) {
                 // ★ 限流器自身缺陷：同样放行（D-5），但档位必须更高——ERROR 是"限流已静默消失"
-                // 的唯一出口（T24 刻意不归一就是为了在这里按类型分开；正式口径归 T28）。
-                log.error("限流脚本/返回值异常，放行（fail-open）——限流器自身缺陷，必须排查", e);
+                // 的唯一出口（T24 刻意不归一就是为了在这里按类型分开）。
+                log.error("限流脚本/返回值异常，放行（fail-open）——限流器自身缺陷，必须排查: path={} userId={}",
+                        pathOf(request), userIdForLog(userId), e);
             }
 
             chain.doFilter(request, response);
@@ -189,7 +216,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
      * {@link CacheUnavailableException}（Redis 不可达）WARN；{@link RateLimitScriptException}
      * ERROR（**防御性**——{@code deductDelta} 当前不解析返回值、该分支不可达；保留是给"将来加解析"
      * 兜底：catch 挂在 finally 里，漏掉任何类型都会伤响应）；其余未预期异常兜底 ERROR（对照
-     * {@code FeedCache.tryAcquireRebuildLock} 的 RuntimeException 兜底手法）。正式日志口径归 T28。
+     * {@code FeedCache.tryAcquireRebuildLock} 的 RuntimeException 兜底手法）。这两档与主路径同口径
+     * （{@code architecture/tech/限流.md} §五：外部故障 WARN / 自身缺陷 ERROR），且同样不记桶 key。
      */
     private void settleMissPenalty(String userKey, RateLimitProperties.Bucket userBucket, double baseCost) {
         double multiplier = properties.cost().missMultiplier();
@@ -212,6 +240,51 @@ public class RateLimitFilter extends OncePerRequestFilter {
             // 兜底：本方法在 finally 里跑——未预期异常不得把"已完成的请求"变成失败
             log.error("缓存 miss 差额补扣出现未预期异常（已兜底，不影响响应）", e);
         }
+    }
+
+    /**
+     * 拒绝出口的三档日志之一（<b>T28</b>）：<b>WARN 结论行、不持栈</b>
+     * （对齐《可观测》§六"预期业务拒绝"档：WARN 是"业务层判断过、无需人工介入"的位置）。
+     *
+     * <h2>★ 不记什么（结构性保证，不是纪律）</h2>
+     * 不记桶 key（{@code ratelimit:anon:<ip>} / {@code ratelimit:user:<id>} 一律不进日志）；
+     * 登录态记 {@code userId}，匿名态记 {@code userId=-} 且<b>不落 IP</b>——
+     * IP 要脱敏得先扩 {@code LogMasker}（《可观测》§三 的脱敏面只认手机号），
+     * 本期选择"不落盘"而不是"落盘后手写 mask"（调用点各写一遍 = 必然漏）。
+     *
+     * <h2>★ 已知代价：429 是请求级日志</h2>
+     * 刷子场景下这里会**按请求**产生 WARN 行 ⇒ 会放大 {@code system.log}。
+     * 接受它：拒绝是"业务层判断过的结论"，静默才是更坏的失败模式；
+     * 第一条退路 = 按 key 节流（本期不做，口径见 {@code architecture/tech/限流.md} §五）。
+     */
+    private void logRejected(HttpServletRequest request, Long userId, double cost,
+                             RateLimitRedisOps.Decision decision) {
+        log.warn("限流拒绝: path={} userId={} cost={} blockedBy={} retryAfter={}s",
+                pathOf(request), userIdForLog(userId), cost, blockedBy(decision),
+                decision.retryAfterSeconds());
+    }
+
+    /** 逐桶判定 → 两条决策指标（{@code scope=user|server}，见 {@link RateLimitMetrics}）。 */
+    private void recordDecisions(RateLimitRedisOps.Decision decision) {
+        metrics.recordDecision(RateLimitMetrics.Scope.USER, decision.userBucketPassed());
+        metrics.recordDecision(RateLimitMetrics.Scope.SERVER, decision.serverBucketPassed());
+    }
+
+    /** 日志里的身份：登录态 = userId，匿名 = {@code -}（**不落 IP**，理由见 {@link #logRejected}）。 */
+    private static String userIdForLog(Long userId) {
+        return userId == null ? "-" : userId.toString();
+    }
+
+    /**
+     * 被拒时"谁挡的"（{@code user} / {@code server} / {@code both}）——逐桶判定的派生，
+     * 只用于日志可读性；指标侧记的是两个桶各自的原始判定（不做归类）。
+     * <p>只在 {@code !allowed} 时调用：此时至少一侧为 {@code false}，故无"都不是"分支。
+     */
+    private static String blockedBy(RateLimitRedisOps.Decision decision) {
+        if (!decision.userBucketPassed() && !decision.serverBucketPassed()) {
+            return "both";
+        }
+        return decision.userBucketPassed() ? "server" : "user";
     }
 
     /**
