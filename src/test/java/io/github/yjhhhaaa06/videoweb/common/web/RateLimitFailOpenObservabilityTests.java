@@ -39,7 +39,7 @@ import static org.mockito.Mockito.reset;
  *   <tr><td>{@link RateLimitScriptException}（**自身缺陷**）</td><td><b>ERROR</b></td><td>是</td><td>不记</td></tr>
  * </table>
  * ★ 若两档合并（都 WARN 或都 ERROR），"限流器自己坏了"就会被伪装成"Redis 挂了"⇒
- * **限流静默消失而无人知**（设计稿 §六 兜底②的原话）。
+ * **限流静默消失而无人知**（{@code architecture/tech/限流.md} §五 的三档口径）。
  *
  * <h2>★ 反向验证</h2>
  * <ul>
@@ -143,7 +143,10 @@ class RateLimitFailOpenObservabilityTests extends AbstractHttpIntegrationTest {
                     .as("结论行不持栈 —— 判据用**真实制表符**（写成 \"\\\\tat \" 会变成恒真的假绿）")
                     .doesNotContain("\tat ");
             assertThat(line).contains("path=/start").contains("userId=- ");
-            assertThat(line).as("不落原始 key / 匿名不落 IP").doesNotContain("ratelimit:").doesNotContain("127.0.0.1");
+            assertThat(line)
+                    .as("不落原始 key（本用例的原因文案是合成串；真实 Redis 异常文案可能带 **Redis 端点**"
+                            + "地址——基础设施地址、非用户 PII，口径见 architecture/tech/限流.md §五）")
+                    .doesNotContain("ratelimit:").doesNotContain("127.0.0.1");
             assertThat(system.countLinesContaining("限流脚本/返回值异常"))
                     .as("★ 档位必须可区分：外部故障不得同时被记成自身缺陷").isZero();
         }

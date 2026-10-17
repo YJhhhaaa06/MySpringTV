@@ -72,6 +72,9 @@
 - **现象②（T25 补登记）**：③的**别名黑名单不完整**——`ALIASES = 需求篇|设计篇|分期篇|三期设计|骨架 §`
   **不含"设计稿"**：T25 在代码/测试注释里新写了 8 处"设计稿 §X"（后被审查抓住、当场改指
   `architecture/tech/限流.md`），`doc_refs.py` 全程绿灯——同一类盲区的第二个实例。
+- **现象③（T28 补登记）**：同一盲区**第三次**复现——T28 的新类/新测试里又写了 2 处"设计稿 §X"
+  （审查抓到后改指 `architecture/tech/限流.md` §五）。三处都是"写的人以为门禁会拦、门禁没拦"，
+  说明这不是个别人疏忽，而是**黑名单式检查的结构性缺口**（新别名永远不会被自动发现）。
 - **证据（可复核）**：`grep -rnE "CURRENT_(TASKS|ISSUES|NEEDS)" src` 与 `tools/doc_refs.py` 的 `scan()`（只产三类结果）；
   别名盲区见 `tools/doc_refs.py` 的 `ALIASES` 常量。
 - **影响**：门禁的**可信度**——它把"没查"包装成"已成立"，而本仓的立足点正是"把纪律变成会失败的命令"。
@@ -151,9 +154,12 @@
   解析对四段**严格校验**（段数 / 标志位 `0|1`，任一不合即 `RateLimitScriptException`）。
   **响应体形状不变**（429 信封与 `Retry-After` 一字未改，§八 的"不区分"仍然成立）。
 - **去向**：**已解决**（2026-10-17，`T28` 落地——见下核销）。速查行见 `architecture/tech/限流.md` 附录。
-- **核销（T28，2026-10-17）**：`RateLimitRedisOps` 四段返回 + `Decision` 逐桶标记；
-  `RateLimitMetrics` 按 `scope` 记两条样本；判别用例 = `RateLimitObservabilityTests#服务器桶挡_只有server那条记rejected`
-  与 `RateLimitRedisOpsTests#逐桶判定_拒绝时谁挡的可分辨`（反向验证：标志位恒真 ⇒ 恰好 1 例红）。
+- **核销（T28，2026-10-17）**：`RateLimitRedisOps` 四段返回 + `Decision` 逐桶标记 + **自洽校验**
+  （`allowed` 必须等于 `uPass && sPass`，矛盾值同样抛 `RateLimitScriptException`——否则观测面会
+  "两侧都 allowed 却 429"且无 ERROR）；`RateLimitMetrics` 按 `scope` 记两条样本；判别用例 =
+  `RateLimitObservabilityTests#服务器桶挡_只有server那条记rejected` 与
+  `RateLimitRedisOpsTests#逐桶判定_拒绝时谁挡的可分辨`（反向验证：标志位恒真 ⇒ **恰好 1 例红**，
+  口径 = C1 当时只有 T24 用例；C2 落地后同一注入会连累 3 例）。
 
 > 📌 **征集专项收口的结转**：`I-14`（`FollowCacheTests` 全量偶发红 —— 别域消费者进验证窗口）
 > **已结转 `FURTHER_ISSUES.md` **F-24****（它**不属收藏域**，是 feed 域测试隔离债）⇒ 移出本表。

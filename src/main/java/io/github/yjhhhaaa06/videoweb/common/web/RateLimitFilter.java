@@ -172,8 +172,10 @@ public class RateLimitFilter extends OncePerRequestFilter {
                                 properties.server().capacity(), properties.server().refillPerSec()),
                         cost,
                         properties.cost().rejectDiscount());
-                recordDecisions(decision);
+                // ★ 耗时样本紧接命令返回就取（**在打点之前**）：否则窗口里会混进两次
+                //   counter 查找 + 自增，"一次 Lua 往返"的口径就不实了。
                 metrics.recordAcquire(System.nanoTime() - acquireStartNanos);
+                recordDecisions(decision);
                 if (!decision.allowed()) {
                     logRejected(request, userId, cost, decision);
                     writeTooManyRequests(request, response, decision.retryAfterSeconds());
@@ -244,12 +246,13 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     /**
      * 拒绝出口的三档日志之一（<b>T28</b>）：<b>WARN 结论行、不持栈</b>
-     * （对齐《可观测》§六"预期业务拒绝"档：WARN 是"业务层判断过、无需人工介入"的位置）。
+     * （对齐 {@code architecture/tech/可观测.md} §六"预期业务拒绝"档：WARN 是"业务层判断过、
+     * 无需人工介入"的位置）。
      *
      * <h2>★ 不记什么（结构性保证，不是纪律）</h2>
      * 不记桶 key（{@code ratelimit:anon:<ip>} / {@code ratelimit:user:<id>} 一律不进日志）；
      * 登录态记 {@code userId}，匿名态记 {@code userId=-} 且<b>不落 IP</b>——
-     * IP 要脱敏得先扩 {@code LogMasker}（《可观测》§三 的脱敏面只认手机号），
+     * IP 要脱敏得先扩 {@code LogMasker}（{@code architecture/tech/可观测.md} §三 的脱敏面只认手机号），
      * 本期选择"不落盘"而不是"落盘后手写 mask"（调用点各写一遍 = 必然漏）。
      *
      * <h2>★ 已知代价：429 是请求级日志</h2>

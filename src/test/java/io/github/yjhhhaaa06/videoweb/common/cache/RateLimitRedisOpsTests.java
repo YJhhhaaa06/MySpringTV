@@ -300,19 +300,22 @@ class RateLimitRedisOpsTests extends AbstractIntegrationTest {
     @Test
     @DisplayName("★ 逐桶判定：拒绝时能分辨「谁挡的」——用户桶挡 / 服务器桶挡 / 两边都不够")
     void 逐桶判定_拒绝时谁挡的可分辨() {
+        // ⚠️ **"挡"的那一侧一律用负数起步**：服务器桶 rate=10/s、cost=3 ⇒ 夹具写 0.5 时
+        //   距判定线只有 250ms 余量，慢机（尤其紧随 clearRedis 的 KEYS/DEL）会补到 3 而翻转成放行。
+        //   负数把余量拉到秒级，且不影响"谁挡的"这个判定本身。
         long t0 = System.currentTimeMillis();
 
-        // ① 用户桶挡（服务器桶够）：0.5 − 0.9 < 尾款 2.1 ⇒ user 不过；服务器桶是新桶（满）⇒ 过
-        putBucket(USER_KEY, "0.5", t0);
+        // ① 用户桶挡（服务器桶够）：−5 − 0.9 < 尾款 2.1 ⇒ user 不过；服务器桶是新桶（满）⇒ 过
+        putBucket(USER_KEY, "-5", t0);
         RateLimitRedisOps.Decision userBlocked = acquire();
         assertThat(userBlocked.allowed()).isFalse();
         assertThat(userBlocked.userBucketPassed()).as("用户桶是瓶颈（scope=user 的那条 rejected）").isFalse();
         assertThat(userBlocked.serverBucketPassed()).as("服务器桶没挡（scope=server 那条应记 allowed）").isTrue();
 
-        // ② 服务器桶挡（用户桶够）：满用户桶 ⇒ 过；服务器桶 0.5 < cost 3 ⇒ 不过
+        // ② 服务器桶挡（用户桶够）：满用户桶 ⇒ 过；服务器桶 −5 < cost 3 ⇒ 不过
         clearRedis();
         putBucket(USER_KEY, "10", t0);
-        putBucket(SERVER_KEY, "0.5", t0);
+        putBucket(SERVER_KEY, "-5", t0);
         RateLimitRedisOps.Decision serverBlocked = acquire();
         assertThat(serverBlocked.allowed()).isFalse();
         assertThat(serverBlocked.userBucketPassed()).as("用户桶没挡（scope=user 那条应记 allowed）").isTrue();
@@ -322,8 +325,8 @@ class RateLimitRedisOpsTests extends AbstractIntegrationTest {
 
         // ③ 两桶都不够：allowed 是 AND，但逐桶标记必须**各自**为 false（不能塌成一个"挡了"）
         clearRedis();
-        putBucket(USER_KEY, "0", t0);
-        putBucket(SERVER_KEY, "0", t0);
+        putBucket(USER_KEY, "-5", t0);
+        putBucket(SERVER_KEY, "-5", t0);
         RateLimitRedisOps.Decision bothBlocked = acquire();
         assertThat(bothBlocked.allowed()).isFalse();
         assertThat(bothBlocked.userBucketPassed()).isFalse();
@@ -501,7 +504,9 @@ class RateLimitRedisOpsTests extends AbstractIntegrationTest {
                 .isInstanceOf(RateLimitScriptException.class);
 
         // 形态四：retry 部分非数字（进入 NumberFormatException 分支）
-        RateLimitRedisOps badRetry = new RateLimitRedisOps(new StubRedis("1:abc"), freshBreaker());
+        // ⚠️ 必须写成**四段**（"1:abc:1:1"）：T28 起两段的 "1:abc" 会先在"段数不对"处被拦下，
+        //   那个输入已覆盖不到 NumberFormatException 这一支（这条是 T28-5 审查修正）。
+        RateLimitRedisOps badRetry = new RateLimitRedisOps(new StubRedis("1:abc:1:1"), freshBreaker());
         assertThatThrownBy(() -> badRetry.tryAcquire(USER_KEY, SERVER_KEY, USER_BUCKET, SERVER_BUCKET, COST, DISCOUNT))
                 .as("retry 非数字 ⇒ 解析失败")
                 .isInstanceOf(RateLimitScriptException.class);
@@ -521,8 +526,15 @@ class RateLimitRedisOpsTests extends AbstractIntegrationTest {
         assertThatThrownBy(() -> badFlag.tryAcquire(USER_KEY, SERVER_KEY, USER_BUCKET, SERVER_BUCKET, COST, DISCOUNT))
                 .isInstanceOf(RateLimitScriptException.class);
 
-        // 放行段与逐桶段矛盾（allowed=1 但 user 段=0）不属格式错，但格式校验只管形态：
-        // 这里钉的是"多一段/少一段"的边界，语义矛盾由脚本保证（allowed 由两段推出）。
+        // 放行段与逐桶段**矛盾**（allowed=1 但 user 段=0）：格式合法、语义不可能 ⇒ 必须爆
+        RateLimitRedisOps contradictory = new RateLimitRedisOps(new StubRedis("1:0:0:1"), freshBreaker());
+        assertThatThrownBy(() -> contradictory.tryAcquire(USER_KEY, SERVER_KEY, USER_BUCKET, SERVER_BUCKET,
+                COST, DISCOUNT))
+                .as("★ 自相矛盾的值不得被静默接受——否则观测面会给出「两侧都 allowed 却 429」"
+                        + "而没有任何 ERROR（限流器坏了、日志说一切正常）")
+                .isInstanceOf(RateLimitScriptException.class);
+
+        // 多一段同样是格式漂移
         RateLimitRedisOps extra = new RateLimitRedisOps(new StubRedis("1:0:1:1:9"), freshBreaker());
         assertThatThrownBy(() -> extra.tryAcquire(USER_KEY, SERVER_KEY, USER_BUCKET, SERVER_BUCKET, COST, DISCOUNT))
                 .as("多一段同样是格式漂移")

@@ -35,8 +35,8 @@ import java.util.concurrent.TimeUnit;
  * 与 {@code CacheMetrics} 同款：{@code counter(...).increment()} / {@code timer.record(...)} 只是
  * 进程内对象上的加一，不存在"打点失败"的正常路径，调用点不 try/catch。
  * <p>⚠️ <b>fail-open 不记决策指标</b>（判都没判出来，记什么都是假的）：那两条路径由
- * {@code RateLimitFilter} 的 WARN / ERROR 日志承载（设计稿 §十 的立场——本仓无监控消费方，
- * 日志才是唯一会被看到的出口）。
+ * {@code RateLimitFilter} 的 WARN / ERROR 日志承载（{@code architecture/tech/限流.md} §五 的立场——
+ * 本仓无监控消费方，日志才是唯一会被看到的出口）。
  */
 @Component
 public class RateLimitMetrics {

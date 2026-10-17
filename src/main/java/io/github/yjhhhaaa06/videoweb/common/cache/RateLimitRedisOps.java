@@ -299,6 +299,9 @@ public class RateLimitRedisOps extends RedisOps {
      * <p>不做宽松容错：返回值由本类自己的脚本产生，格式漂移 = 代码缺陷，应显式爆出（ERROR）。
      * 四段（T28 起）——逐桶判定两段只接受 {@code '0'}/{@code '1'}，其余一律按解析失败处理
      * （"差一位就静默当成放行"是本机制最危险的失败形态）。
+     * ★ 另加一条**自洽校验**：{@code allowed} 必须等于 {@code uPass && sPass}（脚本里就是这么来的）。
+     * 放过去的话，观测面会出现"两侧都记 allowed 却 429"的矛盾读数，而**没有任何 ERROR**——
+     * "限流器坏了、日志却说一切正常"比异常冒泡更坏。
      */
     private static Decision parseDecision(String raw) {
         if (raw == null) {
@@ -311,8 +314,17 @@ public class RateLimitRedisOps extends RedisOps {
                     "限流脚本返回值无法解析: [" + raw + "]（期望 \"<0|1>:<retrySeconds>:<0|1>:<0|1>\"）");
         }
         try {
-            return new Decision("1".equals(parts[0]), Long.parseLong(parts[1]),
-                    "1".equals(parts[2]), "1".equals(parts[3]));
+            boolean allowed = "1".equals(parts[0]);
+            boolean userPassed = "1".equals(parts[2]);
+            boolean serverPassed = "1".equals(parts[3]);
+            // ★ 自洽校验：脚本里 allowed 就是 (uPass and sPass)——两者矛盾只可能是返回值损坏。
+            //   放过去的话，观测面会出现"两侧都记 allowed 却 429"的自相矛盾读数（且不报 ERROR），
+            //   那正是本机制最坏的失败形态：**限流器坏了，日志说一切正常**。
+            if (allowed != (userPassed && serverPassed)) {
+                throw new RateLimitScriptException(
+                        "限流脚本返回值自相矛盾: [" + raw + "]（allowed 必须等于 uPass && sPass）");
+            }
+            return new Decision(allowed, Long.parseLong(parts[1]), userPassed, serverPassed);
         } catch (NumberFormatException e) {
             throw new RateLimitScriptException("限流脚本返回值无法解析: [" + raw + "]", e);
         }

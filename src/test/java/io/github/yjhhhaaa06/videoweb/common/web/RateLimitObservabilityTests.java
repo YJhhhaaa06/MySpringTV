@@ -38,12 +38,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 匿名桶在集成测试里全是 {@code 127.0.0.1} ⇒ 等价全局限流（D-3），故每测清桶、每用例自己设夹具。
  * <p>指标断言一律用**增量**（{@code MeterRegistry} 是上下文级共享对象，跨用例累积）。
  *
- * <h2>★ 反向验证</h2>
+ * <h2>★ 反向验证（实测口径见 `CURRENT_TASKS` 的 T28 回写）</h2>
  * <ul>
- *   <li>删掉 {@code logRejected} 调用 ⇒ 三条日志用例必红；</li>
- *   <li>把拒绝行改成 {@code log.error} ⇒ 档位断言必红；</li>
- *   <li>把 {@code recordDecisions} 改成"两侧都记 allowed"或"两侧都记 rejected" ⇒
- *       {@link #用户桶挡_只有user那条记rejected()} / {@link #服务器桶挡_只有server那条记rejected()} 必红。</li>
+ *   <li>删掉 {@code recordDecisions} 调用 ⇒ 本类 **5 例**红（四条指标用例 + Actuator 用例）；</li>
+ *   <li>把拒绝日志的调用删掉 ⇒ 两条日志用例红；把档位改成 ERROR ⇒ 档位断言红；</li>
+ *   <li>把 {@code recordDecisions} 两侧都记 {@code allowed}（= scope 退化成请求级）⇒
+ *       {@link #用户桶挡_只有user那条记rejected()} / {@link #服务器桶挡_只有server那条记rejected()} 红；</li>
+ *   <li>{@code blockedBy} 的 {@code both} 分支退化 ⇒ {@link #两桶都不够_blockedBy取both()} 红。</li>
  * </ul>
  */
 @TestPropertySource(properties = {
@@ -194,6 +195,29 @@ class RateLimitObservabilityTests extends AbstractHttpIntegrationTest {
         assertThat(decisions(RateLimitMetrics.Scope.USER, RateLimitMetrics.RESULT_REJECTED) - userRejectedBefore)
                 .as("★ 若 scope 被写死成 user（或「拒绝就两侧都记 rejected」），本断言必红")
                 .isEqualTo(0.0);
+        assertThat(rejectionLine()).as("日志侧同口径：挡的是服务器桶").contains("blockedBy=server");
+    }
+
+    @Test
+    @DisplayName("两桶都不够：blockedBy=both，且两侧各记一条 rejected（不塌成单一 side）")
+    void 两桶都不够_blockedBy取both() {
+        long now = System.currentTimeMillis();
+        putBucket(ANON_KEY, -5, now);
+        putBucket(SERVER_KEY, -5, now);
+        double userRejectedBefore = decisions(RateLimitMetrics.Scope.USER, RateLimitMetrics.RESULT_REJECTED);
+        double serverRejectedBefore = decisions(RateLimitMetrics.Scope.SERVER, RateLimitMetrics.RESULT_REJECTED);
+
+        ResponseEntity<String> resp = get("/start", null);
+
+        assertThat(resp.getStatusCode().value()).isEqualTo(429);
+        assertThat(decisions(RateLimitMetrics.Scope.USER, RateLimitMetrics.RESULT_REJECTED) - userRejectedBefore)
+                .as("两桶都不够 ⇒ 两侧各记一条 rejected（这就是「桶级失败数 ≠ 请求数」的来源）")
+                .isEqualTo(1.0);
+        assertThat(decisions(RateLimitMetrics.Scope.SERVER, RateLimitMetrics.RESULT_REJECTED) - serverRejectedBefore)
+                .isEqualTo(1.0);
+        assertThat(rejectionLine())
+                .as("三值之一的 both 也要被走到（否则「blockedBy 是契约」只是空话）")
+                .contains("blockedBy=both");
     }
 
     @Test
@@ -258,7 +282,16 @@ class RateLimitObservabilityTests extends AbstractHttpIntegrationTest {
         long now = System.currentTimeMillis();
         putBucket(ANON_KEY, -5, now);
         putBucket(SERVER_KEY, CAP, now);
+        // ★ 先取增量基线：`@TestPropertySource` 与 `RateLimitFilterContractTests` 逐条相同 ⇒
+        //   两者**共用同一个上下文与 MeterRegistry**（Spring TestContext 缓存），
+        //   `(scope=user,result=rejected)` 这个 meter 很可能已被别的类建出来——
+        //   只断言"200 + 含 COUNT"的话，删掉 `recordDecisions` 也照样绿（恒真断言）。
+        double rejectedBefore = decisions(RateLimitMetrics.Scope.USER, RateLimitMetrics.RESULT_REJECTED);
+
         assertThat(get("/start", null).getStatusCode().value()).isEqualTo(429);
+
+        assertThat(decisions(RateLimitMetrics.Scope.USER, RateLimitMetrics.RESULT_REJECTED) - rejectedBefore)
+                .as("本用例自己的请求必须真的把该计量推了一格").isEqualTo(1.0);
 
         ResponseEntity<String> resp = get("/actuator/metrics/" + RateLimitMetrics.METRIC_DECISIONS
                 + "?tag=" + RateLimitMetrics.TAG_SCOPE + ":" + RateLimitMetrics.Scope.USER.tag()
