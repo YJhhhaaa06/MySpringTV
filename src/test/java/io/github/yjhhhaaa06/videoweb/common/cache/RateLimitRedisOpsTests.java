@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
+import org.springframework.test.context.TestPropertySource;
 
 import java.time.Duration;
 import java.util.List;
@@ -42,6 +43,12 @@ import static org.assertj.core.api.Assertions.within;
  * </ul>
  * 文中 {@code T25} / {@code T28} 等后续任务编号的锚点见 {@code architecture/tech/限流.md} 对应章节。
  */
+@TestPropertySource(properties = {
+        // ★ T27-C4（审查修正）：任务自付费接线后，异步重建链会在执行处扣服务器桶（ratelimit:server），
+        //   而本类断言该键的精确绝对值——关掉本上下文的 MQ 消费者，防"夹具设值与断言之间"
+        //   被异步扣减污染（与限流.md §四③ 的桶断言测试类开关规则对齐，本类是其覆盖面之一）。
+        "spring.rabbitmq.listener.simple.auto-startup=false"
+})
 class RateLimitRedisOpsTests extends AbstractIntegrationTest {
 
     /**
