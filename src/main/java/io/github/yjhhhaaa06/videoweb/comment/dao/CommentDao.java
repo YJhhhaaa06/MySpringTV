@@ -101,10 +101,9 @@ public interface CommentDao {
      *
      * <p>⚠️ 本方法在 **S2 里被有意排除**（当时列为"评论点赞计数，随 S3(like)"）。现由 **S3** 补上。
      *
-     * <p><b>无防负守卫</b>（对比同类的 {@link #updateReplyCount} 有），TV 原样行为，故保留。
-     * 注意 {@code comment.like_count} 是**有符号** {@code int}（而 {@code content.like_count} 是
-     * {@code int unsigned}）：同一场景（计数为 0 时再 −1）此处**静默变成 −1 而不报错**，
-     * 内容侧则会因 UNSIGNED 下溢报 500。这个不对称是 TV 既有行为，不修。
+     * <p><b>T34 补防负守卫</b>（TV 原 SQL 无守卫）。{@code comment.like_count} 是**有符号** {@code int}
+     * （而 {@code content.like_count} 是 {@code int unsigned}）：守卫用原生 {@code like_count + delta >= 0}
+     * 即可（那层 UNSIGNED 下溢只在内容侧发生），拦住后计数停在 0 而不是静默变成 −1。
      */
     int updateLikeCount(@Param("commentId") long commentId, @Param("delta") int delta);
 

@@ -36,11 +36,13 @@ import java.util.Map;
  * 直接调用会把"必须在提交后"变成一条**注释约定**（TV 的老问题：写错位置就是回滚了但缓存已改）。
  * 发事件 + {@code AFTER_COMMIT} 把时序交给框架，见 {@link LikeChangedEvent} 的说明。
  *
- * <h2>已知并接受的旧实现尖锐处（不修）</h2>
- * 两处 {@code updateLikeCount} 都**无防负守卫**，而底层列类型不对称：
- * {@code content.like_count} 是 {@code int unsigned} ⇒ 计数为 0 时再 −1 会下溢报错 → 500；
- * {@code comment.like_count} 是**有符号** int ⇒ 同场景静默变 −1。
- * 触发前提是数据不自洽（有记录但计数为 0），正常路径走不到。详见决策表 L-1/L-2。
+ * <h2>计数防负守卫（T34）</h2>
+ * 两处 {@code updateLikeCount} 现已加防负守卫，但**形式因列类型而异**：
+ * {@code content.like_count} 是 {@code int unsigned} ⇒ 守卫必须 {@code CAST(... AS SIGNED) + delta >= 0}
+ * （否则 {@code 0 + (-1)} 在 unsigned 列上先触发 1690 下溢，守卫自身也炸）；
+ * {@code comment.like_count} 是**有符号** int ⇒ 原生 {@code col + delta >= 0} 即可。
+ * 语义 = block：拦住 ⇒ 影响 0 行、不抛错、不回滚 ⇒ **取消赞照常成功**（计数停在 0，不再 500 / −1）。
+ * 触发前提是数据不自洽（有记录但计数为 0），正常路径走不到。
  */
 @Service
 public class LikeService {

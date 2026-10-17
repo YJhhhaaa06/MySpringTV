@@ -101,11 +101,12 @@
     </update>
 
     <!-- TV: UPDATE comment SET like_count = like_count + ? WHERE comment_id = ?
-         ⚠️ 一字未改——**没有**防负守卫）。comment.like_count 是有符号 int，
-         故 0 时再 -1 只会静默变 -1（内容侧 counterpart 是 unsigned，会报 500）。
+         ★ T34 补防负守卫（TV 原 SQL 无守卫）。comment.like_count 是**有符号 int** ⇒
+         守卫用原生比较即可（无须 CAST——那层下溢只在 unsigned 上发生，理由见上面 updateReplyCount）。
          本方法由 S3 补上（S2 曾有意排除它）。 -->
     <update id="updateLikeCount">
-        UPDATE comment SET like_count = like_count + #{delta} WHERE comment_id = #{commentId}
+        UPDATE comment SET like_count = like_count + #{delta}
+        WHERE comment_id = #{commentId} AND like_count + #{delta} &gt;= 0
     </update>
 
     <!--
