@@ -59,6 +59,37 @@
 > ★ **本期为例外形态（ISSUES 处置专项）**：**不填任务四要素** —— 只在 `CURRENT_NEEDS.md` §四
 > 标注「**推荐合并处理的几项**」；**任务开窗时再探索、决定处置方式**，届时才按下面模板落 `T#`。
 
+**已完成**：
+
+### T34 计数防负守卫（unsigned-safe 形式；来源 `F-04` / 批 A）【已完成】
+
+> ⚠️ **先质疑（G14）**：
+> - **任务**：前提成立 —— 4 处 unsigned 计数列（`content.comment_count` / `content.like_count` /
+>   `users.follow_count` / `users.follower_count`）的 `±delta` 语句无守卫；存量"计数为 0 但明细有行"时
+>   点取消赞 / 取关会因 UNSIGNED 下溢报 1690 → 500（已实测复现）。T32 已把数据侧对账归零，本任务收**守卫面**。
+> - **设计**：⚠️ 守卫**不能**照抄 `comment.updateReplyCount` 的 `col + delta >= 0` —— 该形式在 **unsigned**
+>   列上**自身也下溢** 1690（实测确认）。采用 `CAST(col AS SIGNED) + delta >= 0`。`comment.like_count`
+>   （有符号、不 500）按用户 2026-10-18 拍板**一并加**守卫，求 6 处计数更新口径统一。
+
+* **入口线索**：`mapper/ContentMapper.xml` 的 `updateCommentCount` / `updateLikeCount`；
+  `mapper/UserMapper.xml` 的 `updateFollowCount` / `updateFollowerCount`；`mapper/CommentMapper.xml` 的
+  `updateLikeCount`；DAO Javadoc（`ContentDao` / `UserDao` / `CommentDao`）+ `LikeService` 类头。
+* **目标**：给 5 处 `±delta` 计数更新加防负守卫（unsigned 侧 CAST、signed 侧原生），
+  使"计数为 0 时再 −1"**不 500 / 不 −1**；自拆三 commit（**按文件互斥切分**，每 commit 可编译且绿）：
+  **T34a** = `comment.like_count`（含 `LikeService` 类头文档）；**T34b** = `content` 两列（含 3 条守卫用例）；
+  **T34c** = `users` 两列（`follow_count` / `follower_count`，含取关用例）。
+* **红线边界**：① 不改 schema / 不改列类型（V1 冻结）；② 守卫是 **block**（影响 0 行、不抛错、不回滚）——
+  不改成抛错 / clamp；③ `comment.updateReplyCount` 既有守卫不动。
+* **强制探索**：验证 unsigned 列上"朴素守卫"是否也下溢（实测结论 = 是 ⇒ 必须 CAST）。
+* **验收**：5 处守卫各配一条"**去掉守卫必红**"的用例（种出"计数 0 + 明细有行"，走真实入口，
+  断言 200 + DB 终态），+ 既有"正常 −1→0"用例作对照；回归全绿；`doc_refs` / `doc_links` 0 违规。
+* **回写**：① 5 处 `±delta` 计数更新全部加防负守卫（unsigned 用 `CAST(... AS SIGNED)`、signed 用原生比较），
+  **不改 schema**；4 条"去掉守卫必红"用例（守卫临时改 `1 = 1` ⇒ 4 条全红，恢复 ⇒ 绿，反向验证通过）。
+  ② 守卫为 **block** 语义（影响 0 行、不抛错、不回滚）⇒ "计数为 0 + 明细有行"时取消赞/取关照常 200
+  （明细行照删、计数停 0），**不存在"永远无法取消"** ⇒ 不新增 `F-##`。③ 回归全绿（全量 **620** 例；
+  ⚠️ 本环境跑全量需 `DB_POOL_MAX_SIZE=4`，否则 Testcontainers MySQL 报 `Too many connections` ⇒ 8 例上下文加载失败，
+  **与 T34 无关**，隔离复跑该 3 类全绿）。
+
 **待开窗登记**（编号从 **`T30`** 起）：批 **A** 存量数据债 / 批 **B** 并发窗口复核 / 批 **C** 结构加固 —— 覆盖编号见 `CURRENT_NEEDS.md` §四。
 
 ```
