@@ -24,7 +24,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
  * 本项目跑 JUnit Platform 6（Boot 4 自带），而 archunit-junit5 的引擎是给 Platform 1.x 写的。
  * 核心包是纯库，直接在普通 {@code @Test} 里 import + check 即可——功能够用、依赖面更小。
  *
- * <h2>四条规则与它们的来历</h2>
+ * <h2>五条规则与它们的来历</h2>
  * <table>
  *   <caption>规则 → 治什么</caption>
  *   <tr><th>规则</th><th>治什么</th></tr>
@@ -36,13 +36,15 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
  *       <td>S6-B2d：曾出现"评论域去发内容域的事件"</td></tr>
  *   <tr><td>{@link #content不得依赖comment的服务与模型()}</td>
  *       <td>S6-B2d：{@code content⇄comment} 双向环</td></tr>
+ *   <tr><td>{@link #任何域都不得依赖feed()}</td>
+ *       <td>S9 消掉的 {@code content⇄feed} 双向环（T35 补钉，F-03）</td></tr>
  * </table>
  *
  * <p><b>刻意不写的规则</b>：不做"全局无环"断言。
  * {@code content→like} 与 {@code comment→like} 的**双向**是真实业务需要——
  * 点赞要改对方的计数列（content-thin，同事务），对方的列表要显示"我点过赞吗"。
  * 强行消环只能靠合并域或引入异步，代价远大于收益。本测试只禁**已经证明有害**的那些边
- * （缓存实现、跨域发事件、common 倒挂），不假装架构比现实更干净。
+ * （缓存实现、跨域发事件、common 倒挂、他域→feed 倒灌），不假装架构比现实更干净。
  */
 class ArchitectureTests {
 
@@ -53,7 +55,7 @@ class ArchitectureTests {
      * {@code interaction} 由**收藏二期 T9** 新增（R-10 的互动域），
      * 一并纳入边界约束（否则新域会成为**没有任何规则约束的空洞**）。
      *
-     * <p>⚠️ 域集合是**这四条规则的唯一作用域**：加域漏登记 ⇒ 规则 1/2/3 对它是**永远绿的假绿**
+     * <p>⚠️ 域集合是**这五条规则的唯一作用域**：加域漏登记 ⇒ 规则 1/2/3/5 对它是**永远绿的假绿**
      * （"ArchUnit 规则通过"不是有效验收，"{@code DOMAINS} 含它"才是）。
      */
     private static final String[] DOMAINS = {"user", "content", "comment", "like", "follow", "coupon",
@@ -61,7 +63,7 @@ class ArchitectureTests {
 
     private static final String BASE = "io.github.yjhhhaaa06.videoweb";
 
-    /** 只导入一次：全项目类文件扫描有成本，四个用例共用。 */
+    /** 只导入一次：全项目类文件扫描有成本，五个用例共用。 */
     private static final JavaClasses CLASSES = new ClassFileImporter().importPackages(BASE);
 
     /**
@@ -175,5 +177,51 @@ class ArchitectureTests {
                 .because("content 对 comment 只应有 content-thin 的 DAO 薄依赖（S6-B2d）。"
                         + "需要评论能否被读时，用 ContentService.isCommentReadable 这条窄查询");
         rule.check(CLASSES);
+    }
+
+    /**
+     * 规则 5：**任何域都不得依赖 {@code feed}**——feed 是纯下游聚合域（S9）。
+     *
+     * <p>由来：{@code /feed} 的读编排原本落在 content 的 service 包，形成
+     * {@code content ⇄ feed} 双向环；S9 把编排整体迁到 feed 域消掉环
+     * （feed.md §八"依赖方向与消环"）。但那次"消环"只靠**约定**守住——
+     * 遗留台账 C1 于 2026-10-03 补记"无规则禁止重新引入"（登记 {@code FURTHER_ISSUES.md} F-03），
+     * 本条把欠下的钉子补上（T35）。通知 feed 的**正道**是发领域事件
+     * （content 的 {@code ContentPublishedEvent} / follow 的 {@code FollowChangedEvent}），
+     * 由 {@code feed.event} 订阅；任何域直连 feed 的 service / mq / cache 都等于把环接回去。
+     *
+     * <p>范围边界（三条，按现实划线）：
+     * <ol>
+     *   <li>from = 其余**全部 10 个域**（不止 content）：S9 的不变式是
+     *       "feed → {content, follow, like} 单向 ⇒ 全链路无包环"（feed.md §八结论）——
+     *       只禁 content 会漏掉别的倒灌边（如 comment → feed 会经
+     *       feed → {@code content.dao} → {@code comment.dao} 传出**传递三环**）。
+     *       落地时实测全仓（main + test）没有任何 DOMAINS 域 import feed ⇒ 整条编码**零误伤**。</li>
+     *   <li>⚠️ feed 今天**不发布领域事件**（{@code feed.event} 里只有两个订阅方）⇒ 本条暂不需要
+     *       规则 3 同款的 event 落点豁口。**推翻条件**：若将来 feed 发布事件且他域需在
+     *       自己的 {@code X.event} 消费，届时给本条开"仅限 event 落点"的口子——改前先修订本注释。</li>
+     *   <li>本类只按 {@code DOMAINS} 归属检查（测试类也按其包名归属）：测试侧唯一 import feed 的
+     *       {@code ratelimit.CacheMissSignalWiringTests} 落在非 DOMAINS 包，
+     *       与既有 4 条规则同款不在扫描面内。</li>
+     * </ol>
+     *
+     * <p>判别力（T35-1 反向验证）：往 content 注入一个对 {@code feed.mq.FeedTopology} 的
+     * 字段依赖 ⇒ 本条必红；还原 ⇒ 绿。
+     */
+    @Test
+    void 任何域都不得依赖feed() {
+        for (String from : DOMAINS) {
+            if (from.equals("feed")) {
+                continue;
+            }
+            ArchRule rule = noClasses()
+                    .that().resideInAPackage("..videoweb." + from + "..")
+                    .should().dependOnClassesThat().resideInAPackage("..videoweb.feed..")
+                    .because(from + " 不得依赖 feed（S9 消环 / T35 补钉，F-03）：feed 是纯下游聚合域，"
+                            + "feed → {content, follow, like} 单向、全链路无包环。"
+                            + "想通知 feed 请发领域事件（ContentPublishedEvent / FollowChangedEvent），"
+                            + "由 feed.event 订阅；直连 feed 等于把 S9 消掉的环接回去");
+            rule.check(CLASSES);
+        }
     }
 }
