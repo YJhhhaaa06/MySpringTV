@@ -4,7 +4,12 @@
 > 此后**只增不改**（新增版本号，回写历史脚本会被 checksum 校验挡下 —— **校验和覆盖整个文件字节，注释也算**，见 §2.4）。
 > **本篇只讲 schema 演进策略 / V1 冻结口径 / 环境与表结构总览 / 存量数据债 / 结构校验 / 检查清单**。
 > **事务切分（`@Transactional` 载体、`readOnly`、去事务）不在本篇**，去向见文末 [§边界与去向](#边界与去向机制外链)。
-> 表"怎么被业务使用"（读路径、写扩散、缓存失效）见各域文档，如 [feed 域架构](../domain/feed/feed.md)。
+> 表"怎么被业务使用"（读路径、写扩散、缓存失效）见各域文档，如 [feed 域架构](../../domain/feed/feed.md)。
+>
+> ⚠️ **路径重定向（2026-10-18）**：本文件已从 `architecture/tech/数据与Schema演进.md` 移入
+> `architecture/tech/data-evolution/`。`src/main/resources/db/migration/V2__favorite_tables.sql` 与
+> `V4__watch_later.sql` 的注释仍写**旧路径** —— 那是 **Flyway checksum 冻结**（改一字符就 `Migration checksum mismatch`），
+> 按本节重定向读作本文件即可（见 §2.4）。
 
 ---
 
@@ -190,7 +195,7 @@ registry.add("video.upload.root", AbstractIntegrationTest::testMediaRoot); // �
 V1 共定义 **15 张业务表**，V2 再增 **2 张**（收藏一期），V4 再增 **1 张**（收藏三期 T17 稍后再看）；
 **当前**活库/测试库的 `information_schema`
 （`table_type='BASE TABLE'`）计数 = **19** = 18 张业务表 + 1 张 Flyway 元表 `flyway_schema_history`
-（与 `InfrastructureConnectivityTests` 的断言一致）。按归属域列出（归属判据见 [模块边界与依赖](./模块边界与依赖.md)）：
+（与 `InfrastructureConnectivityTests` 的断言一致）。按归属域列出（归属判据见 [模块边界与依赖](../module-boundary/模块边界与依赖.md)）：
 
 | # | 表 | 归属域 | 用途（一句） |
 |---|---|---|---|
@@ -199,7 +204,7 @@ V1 共定义 **15 张业务表**，V2 再增 **2 张**（收藏一期），V4 �
 | 3 | `follow` | follow | 关注关系（`uk_user_follow` 防重复；被关注者上有粉丝侧索引） |
 | 4 | `feed_inbox` | feed | 收件箱窗口：**每用户一个有界窗口**，时间线真相源（`uk_user_content`） |
 | 5 | `feed_inbox_sync` | feed | 收件箱窗口同步状态：**存在即已同步**（读侧闸门据此决定是否回退纯拉） |
-| 6 | `content` | content | 内容主表（视频/图文统一，含计数、软删、媒体完整性聚合、评论区开关、`ft_search` 全文索引） |
+| 6 | `content` | content | 内容主表（视频/图文统一，含计数、软删、媒体完整性聚合、评论区开关、`ft_search` 全文索引；**`type`：1 视频 / 2 图文**） |
 | 7 | `content_media` | content | 内容资源（`type`：1 视频 / 2 图片 / 3 封面） |
 | 8 | `comment` | comment | 评论主表（含楼中楼 `@` 引用、回复计数） |
 | 9 | `comment_like` | comment | 评论点赞（`uk_user_comment`） |
@@ -233,7 +238,7 @@ V1 共定义 **15 张业务表**，V2 再增 **2 张**（收藏一期），V4 �
 |---|---|---|---|---|
 | 18 | `watch_later` | favorite | 稍后再看：`uk_user_content (user_id, content_id)` 幂等（重复 add 撞它 ⇒ `ON DUPLICATE KEY UPDATE create_time` **移到最前**）+ `idx_user_time (user_id, create_time)` 服务倒序分页 | **独立于收藏夹**（不共表）；**只存视频**（写入侧校验，不进结构）；无外键（同 V1/V2 其余表） |
 
-> 📌 本表出现的 `R-##` / `T#` 编号见 [favorite.md 附录「编号速查」](../domain/favorite/favorite.md)（编号的**活**查证入口；逐条论证在 `archive/favorite-2026-10-15/收藏功能-编号索引.md`）。
+> 📌 本表出现的 `R-##` / `T#` 编号见 [favorite.md 附录「编号速查」](../../domain/favorite/favorite.md)（编号的**活**查证入口；逐条论证在 `archive/favorite-2026-10-15/收藏功能-编号索引.md`）。
 
 > 落地形态的两处非显然设计（都是"一次到位 / 别在下游重复推导"的东西）：
 > ① `favorite_folder.default_uniq` 是 **VIRTUAL 生成列**（默认夹 `1`、自建夹 `NULL`），
@@ -313,7 +318,7 @@ ORDER BY table_name, ordinal_position;
 - **不回写任何历史脚本**（V1 冻结）；所有变更**只增新版本号**。
 - **不动 `spring.flyway` 三个关键键**：`baseline-version: 0`、`baseline-on-migrate: true`、`clean-disabled: true`。
 - 媒体列**存相对 URL**（§3.3），不要写入绝对路径。
-- 事务/`@Transactional` 的取舍不在本篇：见 [事务边界](./事务边界.md)。
+- 事务/`@Transactional` 的取舍不在本篇：见 [事务边界](../transaction/事务边界.md)。
 
 ---
 
@@ -321,10 +326,10 @@ ORDER BY table_name, ordinal_position;
 
 | 不在本篇的内容 | 去向 |
 |---|---|
-| 事务切分原则、事务边界载体独立 bean、`readOnly`、去事务口径 | [事务边界](./事务边界.md) |
-| 各域业务语义（表怎么被读/写、缓存失效、写扩散） | [feed 域架构](../domain/feed/feed.md) 及各域文档 |
-| 缓存 key 命名、三态、写后失效 | [缓存与数据一致性](./缓存与数据一致性.md) |
-| 包结构与依赖方向（"哪个域拥有哪张表"的判据） | [模块边界与依赖](./模块边界与依赖.md) |
+| 事务切分原则、事务边界载体独立 bean、`readOnly`、去事务口径 | [事务边界](../transaction/事务边界.md) |
+| 各域业务语义（表怎么被读/写、缓存失效、写扩散） | [feed 域架构](../../domain/feed/feed.md) 及各域文档 |
+| 缓存 key 命名、三态、写后失效 | [缓存与数据一致性](../cache/缓存与数据一致性.md) |
+| 包结构与依赖方向（"哪个域拥有哪张表"的判据） | [模块边界与依赖](../module-boundary/模块边界与依赖.md) |
 | `*Properties` 的绑定校验机制（fail-fast） | 各配置类注释（本篇只引用键与值） |
 
 > 本篇**不引用**任何迁移期文档（决策留痕表 / 遗留台账 / 事务边界决策表 / `archive/`）；

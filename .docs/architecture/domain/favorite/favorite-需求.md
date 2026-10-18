@@ -116,5 +116,5 @@
 | 分几期、骨架设计（表 / 端点 / 计数口径 / 容量 / 稍后再看 / 公开夹） | 同目录 [favorite](./favorite.md) |
 | 本域**历史论证**（当初为什么这么定） | [archive/favorite-2026-10-15/](../../../archive/favorite-2026-10-15/)（**只读追溯**，不再维护） |
 | 本期做哪些、任务怎么拆 | `task/CURRENT_NEEDS.md` / `task/CURRENT_TASKS.md` |
-| 缓存三态 / 事务写法 / 跨域依赖 / Flyway 纪律 | `../tech/` 各篇 |
+| 缓存三态 / 事务写法 / 跨域依赖 / Flyway 纪律 | `../../tech/` 各篇 |
 | 未排期的债与候选 | `task/FURTHER_ISSUES.md` |

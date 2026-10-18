@@ -28,9 +28,9 @@ import static org.assertj.core.api.Assertions.within;
 
 /**
  * {@link RateLimitFilter}（限流闸门）的 **HTTP 级契约测试**（限流专项 T25；
- * 口径见 {@code architecture/tech/限流.md} §三）。
+ * 口径见 {@code architecture/tech/rate-limit/限流.md} §三）。
  *
- * <h2>★ 测试参数整体调小 + 覆盖生效守门（对冲"匿名桶退化为全局限流"，见 {@code architecture/tech/限流.md} §三）</h2>
+ * <h2>★ 测试参数整体调小 + 覆盖生效守门（对冲"匿名桶退化为全局限流"，见 {@code architecture/tech/rate-limit/限流.md} §三）</h2>
  * MockMvc / 本机 HTTP 的匿名请求 IP 全是 {@code 127.0.0.1} ⇒ 匿名桶在本环境退化为
  * "全局限流"。本类用 {@link TestPropertySource} **内联属性**把桶参数整体调小
  * （cap=50、rate=1/s）——★ T26 起权重表生效（{@code POST /user/register} = 5）⇒ cap 由 4 上调为 50：
@@ -56,7 +56,7 @@ import static org.assertj.core.api.Assertions.within;
  *       若有人把限流器挪到鉴权外侧，这条会因匿名桶被扣而变红。</li>
  * </ul>
  *
- * <h2>★ 反向验证指向（清单归宿 = {@code architecture/tech/限流.md} §六）</h2>
+ * <h2>★ 反向验证指向（清单归宿 = {@code architecture/tech/rate-limit/限流.md} §六）</h2>
  * 把闸门改成"只判服务器桶"（删 user 侧条件）⇒ {@link #两桶AND_服务器桶不足_被拒时服务器桶一个字节都不写()}
  * 必红；把"被拒只扣询问费"改错 ⇒ {@link #不够_429信封与RetryAfter_被拒只扣询问费_独立oracle()} 必红；
  * 删掉跳过清单任一条 ⇒ {@link #跳过清单_桶一个字节都不动()} 必红。

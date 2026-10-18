@@ -21,7 +21,7 @@ import static org.assertj.core.api.Assertions.within;
 
 /**
  * {@code RateLimitRedisOps}（限流桶的 Redis 命令层）的**契约测试**（限流专项 T24；
- * 口径见 {@code architecture/tech/限流.md}）。
+ * 口径见 {@code architecture/tech/rate-limit/限流.md}）。
  *
  * <h2>两侧独立 oracle（防迎合实现）</h2>
  * 桶状态的断言全部**直读 Redis 键**（键名与值格式**硬编码字面量**——键形状是冻结契约，
@@ -35,13 +35,13 @@ import static org.assertj.core.api.Assertions.within;
  * 全部由三个参数按设计语义推出：容量 {@code cap}、速率 {@code rate}、成本 {@code cost} 与折扣 {@code discount}
  * （如"新桶 = 满桶 ⇒ 扣全款后 = cap − cost"）。改数值只改上面的常量，**改语义才改断言**。
  *
- * <h2>★ 反向验证指向（清单归宿 = {@code architecture/tech/限流.md} §六）</h2>
+ * <h2>★ 反向验证指向（清单归宿 = {@code architecture/tech/rate-limit/限流.md} §六）</h2>
  * <ul>
  *   <li>删掉脚本里的惰性补充（{@code refill}）⇒ {@link #老桶按公式复算}、{@link #很久没请求的桶补满封顶} 必红；</li>
  *   <li>删掉脚本里的 {@code EXPIRE} ⇒ {@link #两桶TTL按各自参数派生且访问续期} 必红；</li>
  *   <li>把"被拒只扣询问费"改错（免扣 / 全款）⇒ {@link #用户桶不够_被拒_只扣询问费_服务器桶一个字节都不写} 必红。</li>
  * </ul>
- * 文中 {@code T25} / {@code T28} 等后续任务编号的锚点见 {@code architecture/tech/限流.md} 对应章节。
+ * 文中 {@code T25} / {@code T28} 等后续任务编号的锚点见 {@code architecture/tech/rate-limit/限流.md} 对应章节。
  */
 @TestPropertySource(properties = {
         // ★ T27-C4（审查修正）：任务自付费接线后，异步重建链会在执行处扣服务器桶（ratelimit:server），

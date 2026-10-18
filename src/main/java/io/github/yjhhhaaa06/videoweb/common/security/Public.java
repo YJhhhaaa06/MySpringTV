@@ -29,6 +29,12 @@ import java.lang.annotation.Target;
  * 新增公开端点必须显式标本注解，漏标 = 匿名访问得 401（可见故障，不是安全漏洞）。
  * 台账见 {@code 安全与鉴权-已知代价.md}。
  *
+ * <h2>作用域边界（别把它读成"整个应用只有这一个放行口"）</h2>
+ * 默认拒绝的保护域 = {@code requestMappingHandlerMapping} 里的**控制器端点**。
+ * 静态资源（{@code /upload/**}、{@code /static/**}）、{@code /actuator/**}、未映射路径
+ * 由**别的** {@code HandlerMapping} 承接，本注解与判定机制都不参与（现状见
+ * {@code 安全与鉴权.md} §2.3 与 §七）。
+ *
  * <h2>冲突语义</h2>
  * 同一处理器同时出现 {@code @Public} 与 {@link RequiresLogin} / {@link RequiresAdmin} 时
  * **取更严的一条**（要求登录）并打 WARN —— 声明矛盾属于配置错误，不允许"安静的宽松"。

@@ -17,8 +17,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * S9 新增配置 {@code video.feed.*} 的**绑定契约**测试。
  *
  * <h2>为什么要钉 Duration 的"单位后缀"（SOP 坑 4）</h2>
- * {@code Duration} 属性写**裸数字**会被解析成秒级——{@code 60} 变成 {@code PT60S}（1 分钟）而非 60 分钟，
- * **不报任何配置错误**，只是行为诡异（缓存几乎立刻失效 / 去抖窗口变成 60 秒）。
+ * {@code Duration} 属性写**裸数字**会被解析成毫秒级——{@code 60} 变成 {@code PT0.06S}（60 毫秒）而非 60 分钟，
+ * **不报任何配置错误**，只是行为诡异（缓存几乎立刻失效 / 去抖窗口变成 60 毫秒）。
  * 本类把关键 Duration 的**绑定结果**钉死（{@code 60m} → 60 分钟、{@code 7d} → 7 天），
  * 谁把单位后缀改掉，这里立刻失败。
  *
@@ -43,7 +43,7 @@ class FeedPropertiesBindingTests extends AbstractIntegrationTest {
     @DisplayName("★Duration 必须带单位后缀：inbox-ttl=60m / rebuild-debounce=1s / dlq-ttl=7d")
     void duration单位绑定正确() {
         assertThat(feedProperties.inboxTtl())
-                .as("60m 必须是 60 分钟（裸数字 60 会变成 PT60S——1 分钟）")
+                .as("60m 必须是 60 分钟（裸数字 60 会变成 PT0.06S——60 毫秒）")
                 .isEqualTo(Duration.ofMinutes(60));
         assertThat(feedProperties.outboxTtl()).isEqualTo(Duration.ofMinutes(60));
         assertThat(feedProperties.rebuildDebounce())

@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <h2>为什么必须有 follow-ttl 这一条</h2>
  * 与 {@link JwtPropertiesBindingTests} 同一个坑，而且**更隐蔽**：{@code video.cache.follow-ttl} 的
  * 绑定目标也是 {@link Duration}。YAML 里写裸数字（{@code follow-ttl: 30}）会被解析成
- * <b>{@code PT30S}</b>（30 秒）而不是 30 分钟——**不报任何配置错误**，
+ * <b>{@code PT0.03S}</b>（30 毫秒）而不是 30 分钟——**不报任何配置错误**，
  * 只表现为"关注列表缓存命中率莫名很低"（缓存几乎立刻失效）。
  *
  * <p>同款坑在本项目已出现两次（`jwt.expire-hours`、`cache.like-ttl`），故这里对新键再钉一次。
@@ -39,12 +39,12 @@ class FollowPropertiesBindingTests extends AbstractIntegrationTest {
     private BigVProperties bigVProperties;
 
     @Test
-    @DisplayName("follow-ttl 必须绑定为**分钟级**时长，不得退化为秒级（裸数字会解析成 PT30S）")
+    @DisplayName("follow-ttl 必须绑定为**分钟级**时长，不得退化为毫秒级（裸数字会解析成 PT0.03S）")
     void 关注缓存TTL为分钟级而非秒级() {
         Duration ttl = followCacheProperties.followTtl();
 
         assertThat(ttl)
-                .as("配置写裸数字会被解析为 PT30S（30 秒）——必须带 m 后缀")
+                .as("配置写裸数字会被解析为 PT0.03S（30 毫秒）——必须带 m 后缀")
                 .isGreaterThanOrEqualTo(Duration.ofMinutes(5));
         assertThat(ttl)
                 .as("TV 原值为 30 分钟，允许覆盖但不应偏离量级")

@@ -29,7 +29,7 @@ import java.nio.file.Path;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestPropertySource(properties = {
         // 限流桶参数整体调大（限流专项 T25；对冲"测试环境匿名桶退化成全局限流"的已知代价，
-        // 口径见 architecture/tech/限流.md §三）。
+        // 口径见 architecture/tech/rate-limit/限流.md §三）。
         // 自 T25 起限流过滤器对**所有**到达 DispatcherServlet 的请求过闸，而集成测试的
         // 匿名请求 IP 全是 127.0.0.1 ⇒ 匿名桶在测试环境退化为"全局限流"：不调大则
         // 既有回归用例会在几十个请求后互相吃光额度、大面积 429 假红。

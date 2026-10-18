@@ -21,16 +21,18 @@ Flyway + Testcontainers。**由 `old-project/TVhomework1`（Servlet + 手写连�
 |---|---|
 | 迁移 | ✅ **已收口** —— 老端点 **43 / 43 / 0**；判据四条腿复算通过（过程与明细见 `archive/migration/`，判据见 `archive/migration/决策留痕表.md` **K-2**） |
 | 收藏功能 | ✅ **一期（有无）已交付**（T1–T8，2026-10-08 → 2026-10-11）；✅ **二期（性能 + R-10 契约演进）已交付并收尾**（T9–T12，2026-10-11 → 2026-10-12）；✅ **第 3 张清单（跨域性能与契约收口）已交付并收尾**（T13–T15，2026-10-13 → 2026-10-14；结论见 `archive/favorite-2026-10-15/收藏功能-编号索引.md` **A.1**）；✅ **第 4 张清单（收藏三期 · 周边）已交付并收口**（**R-14 拍板 2026-10-14**）：✅ **T16 收藏夹容量上限已交付**（5000 / 500 / 20 + "允许重名"契约测试；★ 它是**软上限** ⇒ 越界窗口登记 **F-23**）｜✅ **T17 稍后再看已交付**（独立表 **V4** `watch_later` + 四端点（list/add/remove/move）+ "移入收藏夹"；★ 只加视频、重复加移到最前、除清单外无状态面；回归 **490 例**）｜✅ **T18 他人公开夹"点开看内容"已交付**（补一期 R-08：`PublicFavoriteFolderVO` 加 `id` + **匿名端点** `GET /favorite/folder/items?folderId=X`；★ 私密 / 不存在 **同 404 且同文案（不可区分）**、夹内装配与"我的"列表**共用一份**；前端公开夹**可点开**，回归 **498 例**）｜✅ **T19 稍后再看前端已交付**（抽屉独立「稍后再看」入口 + `#/watchlater` 清单页（移出 / 移入收藏夹）+ 详情页按钮；★「除清单外无状态」⇒ 按钮**无持久态**；随 T19 一并**补做 T18 真机浏览器核对**）｜✅ **收藏专项一轮已收口（2026-10-15）** —— 设计与需求**沉淀进架构**（`architecture/domain/favorite/favorite.md` 域设计 + **编号速查**附录；`architecture/domain/favorite/favorite-需求.md` 用户可见规则；`architecture/domain/favorite/favorite-已知代价.md` 代价台账）、**四份原始设计文档已归档** `archive/favorite-2026-10-15/`（**只读追溯**） |
-| 限流 | ✅ **专项已收口**（`T23`–`T29`，2026-10-16 → 10-17）—— 令牌桶（用户桶 + 服务器桶，非对称扣减）+ 429 契约 + 权重表 / miss 系数 / 任务自付费 + 可观测 + fail-open；**活口径**见 `architecture/tech/限流.md`，设计稿归档 `archive/rate-limit-2026-10-17/`，剩余代价 = `D-1`~`D-8` |
+| 限流 | ✅ **专项已收口**（`T23`–`T29`，2026-10-16 → 10-17）—— 令牌桶（用户桶 + 服务器桶，非对称扣减）+ 429 契约 + 权重表 / miss 系数 / 任务自付费 + 可观测 + fail-open；**活口径**见 `architecture/tech/rate-limit/限流.md`，设计稿归档 `archive/rate-limit-2026-10-17/`，剩余代价 = `D-1`~`D-8` |
 | 回归基线 | `python tools/run_tests.py` → **575 例全绿**（默认排除 `resilience`）｜`--group resilience` → **41 例全绿**（合计 **616**）——**2026-10-17 T29 收口时复跑确认**（T29 不新增用例：它只做沉淀 / 门禁 / 登记台重建） |
 | 环境 | dev 库 `spring_tv`@3306、媒体根 `D:/data/projects/MySpringTV/media` |
-| 未结的账 | `task/FURTHER_ISSUES.md`：**F-01 / F-02**（Security 链，属"上线准备度"）+ **F-04 ~ F-08**（继承的存量数据债，须逐条表态、不阻塞）+ **F-10**（已失效内容的媒体仍可直连下载）+ **F-13 / F-14**（投币 / 异步重算）+ **F-18**（装配期 Bean 环根治）+ **F-21**（点赞缓存；**组合方案已否决**）｜✅ **已核销 / 已交付**（一行摘要见 `FURTHER_ISSUES.md`「已核销」）：**F-09**（本来不是问题）/ **F-11**（T16）/ **F-12**（编号口径已定）/ **F-15**（归前端重制）/ **F-16**（T13）/ **F-17 ①②**（T15）/ **F-20**（整体核销 2026-10-16：①=T21 区间读 / ②=T14 / ③④⑤=不做 / ⑥=F-21）/ **F-22**（限流 = 工作本身、非"问题"）/ **F-24**（T22 2026-10-16：`FollowCacheTests` 全量偶发红 = **别域消费者进验证窗口**（含 `FollowPartialWindowTests` 未爆形态）⇒ **收窄 DAO-spy 断言的「主体作用域」** + 形态纪律升格进 `AGENTS.md`；由 **I-14** 结转）｜ **F-19 / F-23**（2026-10-18 拍板：**判为已知代价（不修）**，登记于 `architecture/domain/favorite/favorite-已知代价.md`） |
+| 未结的账 | `task/FURTHER_ISSUES.md`：**F-10**（已失效内容的媒体仍可直连下载）+ **F-13 / F-14**（投币 / 异步重算）+ **F-18**（装配期 Bean 环根治）+ **F-21**（点赞缓存；**组合方案已否决**）｜🏗 **已交付、登记行待收编**：**F-03**（T35）/ **F-04**（T34）/ **F-07**（数据侧 E-4）——仍在登记表但状态是"已交付"｜✅ **已核销 / 已交付**（一行摘要见 `FURTHER_ISSUES.md`「已核销」）：**F-09**（本来不是问题）/ **F-11**（T16）/ **F-12**（编号口径已定）/ **F-15**（归前端重制）/ **F-16**（T13）/ **F-17 ①②**（T15）/ **F-20**（整体核销 2026-10-16：①=T21 区间读 / ②=T14 / ③④⑤=不做 / ⑥=F-21）/ **F-22**（限流 = 工作本身、非"问题"）/ **F-24**（T22 2026-10-16：`FollowCacheTests` 全量偶发红 = **别域消费者进验证窗口**（含 `FollowPartialWindowTests` 未爆形态）⇒ **收窄 DAO-spy 断言的「主体作用域」** + 形态纪律升格进 `AGENTS.md`；由 **I-14** 结转）｜ **F-19 / F-23**（2026-10-18 拍板：**判为已知代价（不修）**，登记于 `architecture/domain/favorite/favorite-已知代价.md`）｜ **F-01 / F-02**（2026-10-18 拍板：**不迁 Spring Security**，判为已知代价，登记于 `architecture/tech/security/安全与鉴权-已知代价.md`；同期落地"默认拒绝 + 处理器级角色判定"两条真风险） |
 
 > ⚠️ **三条必须知道的边界**：
 > ① **前端**在 `src/main/resources/static/`（18 文件）。⚠️ 后续若再动 HTTP 层，须同步 `static/js/api.js`；
 > 迁移期记下的契约差异见 `archive/migration/决策留痕表.md` **D-13~D-15**。
-> ② 鉴权**还没迁 Spring Security**，当前是自研 `JwtAuthFilter` + `@RequiresLogin`，
-> `SecurityPassthroughConfig` 是**临时态** —— 已结转 `task/FURTHER_ISSUES.md` **F-01 / F-02**。
+> ② 鉴权**不迁 Spring Security**（2026-10-18 拍板，F-01/F-02 已核销）：自研 `JwtAuthFilter`
+> + **默认拒绝**（`@Public` 是唯一放行口）+ 处理器级角色判定（`@RequiresAdmin`），
+> `SecurityPassthroughConfig` 是**终态**而非临时态。口径 = `architecture/tech/security/安全与鉴权.md`，
+> 已接受的代价 = 同目录 `安全与鉴权-已知代价.md`。
 > ③ ★ **老项目 `old-project/TVhomework1` 只读留存、禁止删除**（它是当初行为判据的唯一事实源）；
 > ⚠️ **V1 baseline 冻结，不要改**（改了会让测试库与活库分叉；增量演进已到 **V4**（`watch_later`，收藏三期 T17），下一次走 **V5**）。
 
@@ -44,7 +46,10 @@ Flyway + Testcontainers。**由 `old-project/TVhomework1`（Servlet + 手写连�
 ├── architecture/         ← ★ **活的事实源**（域设计 + 横切机制）—— 功能"沉淀"的落点；主索引 = `architecture/ARCHITECTURE.md`
 │   ├── domain/           ← 业务域（**按域分目录**）：`favorite/`（**`favorite.md`** 域设计 + **编号速查**附录 · **`favorite-需求.md`** 用户可见规则 · **`favorite-已知代价.md`** 代价台账）/ `feed/`（`feed.md`）
 │   ├── 已知代价-模板.md   ← 代价台账**通用模板**（其它域 / 横切面复制即用；登记纪律与标签定义内嵌）
-│   └── tech/             ← 横切机制（缓存 / 事务 / MQ / 安全 …）
+│   └── tech/             ← 横切机制（**按面分目录**，2026-10-18 起与 `domain/` 同款）：
+│                             `security/`（安全与鉴权 + **已知代价**）· `rate-limit/` · `observability/` ·
+│                             `cache/` · `resilience/` · `mq/` · `events/` · `transaction/` ·
+│                             `module-boundary/` · `data-evolution/`（每目录内 `<面>.md`，可带 `<面>-已知代价.md`）
 ├── task/                 ← **执行登记台**（随期滚动）：`CURRENT_{TASKS,NEEDS,ISSUES}.md` + `FURTHER_ISSUES.md`（结转池）+ 两份模板
 │                            ⚠️ 登记台**完成即清出**（归宿 = git commit），文件**复用、不改名**；
 │                            **编号（T# / R-## / I-## / F-## / G#）不回收** ⇒ ★ **活速查**进 `architecture/domain/favorite/favorite.md` 附录，
@@ -71,12 +76,12 @@ Flyway + Testcontainers。**由 `old-project/TVhomework1`（Servlet + 手写连�
 |------|--------|---------|
 | ★ **写新代码 / 了解架构** | **`architecture/ARCHITECTURE.md`**（主索引：模块地图 + "写代码前读哪篇" + 写作规范）→ 横切机制见 `architecture/tech/` 各篇、业务域见 `architecture/domain/` | 架构变更时 |
 | ★ **执行中登记（问题 / 需求 / 任务）** | `task/CURRENT_NEEDS.md`（当期需求，决策源 N# / R-##）+ `task/CURRENT_TASKS.md`（当期任务，四要素+回写）+ `task/CURRENT_ISSUES.md`（**本期**问题）+ `task/FURTHER_ISSUES.md`（结转留池） | 每窗开/收时 |
-| ★ **查某个编号是什么**（`T#` / `R-##` / `I-##` / `G#`） | ★ **活速查** = `architecture/domain/favorite/favorite.md` **附录「编号速查」**（每号**一行**结论）；★ **限流专项（第 5 张清单）** 的编号在 `architecture/tech/限流.md` **附录「编号速查」**（同款纪律：只许一行结论）；**逐条历史论证** = `archive/favorite-2026-10-15/收藏功能-编号索引.md`（`A.1` 任务 / `A.2` 决策 / `A.3` 问题 / `A.4` 约定）—— 代码 / mapper / 测试注释里有**数百处**编号引用 | 每期收尾时把已终结的编号收编进**速查**（只许**一行结论**，理由进 archive / git） |
+| ★ **查某个编号是什么**（`T#` / `R-##` / `I-##` / `G#`） | ★ **活速查** = `architecture/domain/favorite/favorite.md` **附录「编号速查」**（每号**一行**结论）；★ **限流专项（第 5 张清单）** 的编号在 `architecture/tech/rate-limit/限流.md` **附录「编号速查」**（同款纪律：只许一行结论）；**逐条历史论证** = `archive/favorite-2026-10-15/收藏功能-编号索引.md`（`A.1` 任务 / `A.2` 决策 / `A.3` 问题 / `A.4` 约定）—— 代码 / mapper / 测试注释里有**数百处**编号引用 | 每期收尾时把已终结的编号收编进**速查**（只许**一行结论**，理由进 archive / git） |
 | ★ **加新功能 / 看设计** | `architecture/domain/`（**按域分目录**）：**`favorite/`** = **`favorite.md`**（收藏域设计：表 / 端点 / 计数口径 / 互动态 / 缓存 / 容量 / 稍后再看 / 公开夹 + **编号速查**附录）+ **`favorite-需求.md`**（用户可见规则，**唯一事实源**）+ **`favorite-已知代价.md`**（**已拍板接受的代价台账**）；`feed/feed.md`（域文档样板）。本期做哪些 ⇒ `task/CURRENT_NEEDS.md` | 开工前登记 / 设计变更时 |
 | **知道下一步做什么** | ★ **第 6 张清单 = ISSUES 处置专项**（**范围待拍板**）⇒ 方向与纳入见 `task/CURRENT_NEEDS.md` §三 / §四、问题池见 `task/CURRENT_ISSUES.md`、结转账见 `task/FURTHER_ISSUES.md` | 排期/收尾时 |
 | 知道**现在还欠着什么** | `task/FURTHER_ISSUES.md`（结转池 F-##；E 类存量数据债已并入 F-04 ~ F-09） | 每次裁剪**先登记再动代码** |
 | 知道**当初为什么这么定** | `archive/migration/决策留痕表.md`（A 架构 / B 范围 / C 保真度 / D 契约差异 / E 事务指针 / F 选型 / **G 可观测 / H 韧性 / I 一致性 / J MQ** / K 收口判据）；**收藏的决策理由**见 `archive/favorite-2026-10-15/收藏功能-编号索引.md` **A.2**（活口径另见 `architecture/domain/favorite/favorite.md`） | **只读追溯**，新决策不再往里加 |
-| 处理**某个事务边界** | `archive/migration/事务边界决策表.md`（§四 状态总表；逐条论证在 `archive/migration/事务边界明细-*.md`）；**写新事务**看 `architecture/tech/事务边界.md` | 开工前必须表态 |
+| 处理**某个事务边界** | `archive/migration/事务边界决策表.md`（§四 状态总表；逐条论证在 `archive/migration/事务边界明细-*.md`）；**写新事务**看 `architecture/tech/transaction/事务边界.md` | 开工前必须表态 |
 | 动**测试** | **仓库根 `AGENTS.md`「测试纪律」节**（防"测试迎合"四条 + 实测补充，唯一事实源）；分层 / DoD / 老测试资产处置的历史论证见 `archive/migration/测试策略与阶段验收.md` | 测试体系变更 |
 | 写**脚本** | `tools/README.md`（**Python 硬性约定**：UTF-8 / 路径 / 默认只预演） | 加脚本时 |
 | 查**老项目某个行为** | 直接 grep `old-project/TVhomework1`（**只读行为规格书，禁止写入、禁止删除**） | — |
@@ -117,7 +122,7 @@ python tools/doc_archive.py --plan <计划.json>   # 归档已完成章节（默
 **永不触碰** dev 媒体根）。
 
 ⚠️ **dev 直连库** `spring_tv`@3306、媒体根 `D:/data/projects/MySpringTV/media` ——
-**任何 schema 变更前先看 `architecture/tech/数据与Schema演进.md`**（V1 冻结、下一次演进走 **V2**；
+**任何 schema 变更前先看 `architecture/tech/data-evolution/数据与Schema演进.md`**（V1 冻结、增量演进已到 **V4**、下一次演进走 **V5**；
 当初的 K-1 / K-3 / K-7 论证在 `archive/migration/决策留痕表.md`）。
 
 ---
@@ -132,7 +137,7 @@ python tools/doc_archive.py --plan <计划.json>   # 归档已完成章节（默
    —— **悬空指针比不引用更坏，它让人以为查过了**（`tools/doc_links.py` 管文档侧；**编号侧靠 §四 那条 grep**）。
    ⚠️ **但 `src/main/resources/db/migration/**` 是例外：已应用的迁移文件逐字节冻结，连注释都不能改**
    （Flyway checksum 覆盖全文 ⇒ 改了直接 `Migration checksum mismatch`、应用起不来；详见
-   `architecture/tech/数据与Schema演进.md` **§2.4**）。那里的历史指向由**目标文档**承接重定向。
+   `architecture/tech/data-evolution/数据与Schema演进.md` **§2.4**）。那里的历史指向由**目标文档**承接重定向。
 4. ★ **编号纪律（2026-10-11 起）**：① **编号不回收**，且**每个前缀只服务一个编号空间**
    （`F-##` 是唯一活着的 F 空间；迁移期的 `F0-x` / `F-Dx` 已冻结、不得再生成新号；`T#` 的双空间冲突见 **F-12**）。
    ② **引用编号时必须同时给第二锚点**（`favorite.md §x` 或 `类#方法`）—— **"只有编号、没有第二锚点"的引用不合格**，

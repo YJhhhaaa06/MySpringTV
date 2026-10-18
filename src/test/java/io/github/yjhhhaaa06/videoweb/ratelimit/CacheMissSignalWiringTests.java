@@ -21,7 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 信号②的**接线面**证明：六个缓存类的"冷读（要回源 DB）"必须标记、命中（含空标记命中）必须不标记
- * （限流专项 T26；口径见 {@code architecture/tech/限流.md} §四）。
+ * （限流专项 T26；口径见 {@code architecture/tech/rate-limit/限流.md} §四）。
  *
  * <h2>★ 为什么本类不在 {@code common.cache}（信号类的同包）</h2>
  * 本测试要 import 六个业务域的 {@code *Cache}（接线面横跨全域），而

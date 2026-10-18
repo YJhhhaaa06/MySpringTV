@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * <h2>为什么必须有这一条</h2>
  * 上限是**对外契约**（同"默认公开"那条：一上线就改不动），而它们的载体是 YAML 键
  * —— 键名 / 前缀写错时 {@code @ConfigurationProperties} 的**原生类型绑定不会报错，只会给 0**
- * （本仓已有同族坑：{@code Duration} 裸数字被静默解析成秒级，见
+ * （本仓已有同族坑：{@code Duration} 裸数字被静默解析成毫秒级，见
  * {@link JwtPropertiesBindingTests} / {@link FavoriteCachePropertiesBindingTests}）。
  * 故这里把四个数字**逐个钉死**：改数必须连本用例一起改（那正是"改数不动代码"的代价面）。
  *

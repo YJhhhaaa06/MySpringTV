@@ -23,7 +23,7 @@ import static org.assertj.core.api.Assertions.within;
 
 /**
  * 端点权重表（成本信号①）的契约测试（限流专项 T26；口径的唯一事实源 =
- * {@code architecture/tech/限流.md} §四）。
+ * {@code architecture/tech/rate-limit/限流.md} §四）。
  *
  * <h2>三个用例各证什么</h2>
  * <ul>
