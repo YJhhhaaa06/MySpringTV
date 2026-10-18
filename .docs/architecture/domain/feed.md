@@ -323,6 +323,8 @@ fanout:
 - **禁止跨域触碰 `cache` 包**（不得读 `follow.cache`）——由 ArchUnit 规则 2 变成会失败的测试。
 - **跨域事件只能由自己的 `event` 包消费**——ArchUnit 规则 3；故订阅方落在 `feed.event`。
 - **事件方向是单向的**：content 发"内容已发布"、feed 订阅 ⇒ **content 不再依赖 feed**（消掉环）。
+  ★ 该不变式由 ArchUnit **规则 5** 钉住（2026-10-18 T35，此前只靠约定——见
+  [模块边界与依赖](../tech/模块边界与依赖.md) §五；S9 当时欠下的钉子）。
 
 > 结论：`feed → {content, follow, like}` 单向，加上"content/follow 只发事件、不反向依赖"，
 > 全链路无包环。

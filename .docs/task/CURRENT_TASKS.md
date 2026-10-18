@@ -90,6 +90,40 @@
   ⚠️ 本环境跑全量需 `DB_POOL_MAX_SIZE=4`，否则 Testcontainers MySQL 报 `Too many connections` ⇒ 8 例上下文加载失败，
   **与 T34 无关**，隔离复跑该 3 类全绿）。
 
+### T35 ArchUnit 规则 5：任何域不得依赖 feed（S9 消环补钉；来源 `F-03`）【已完成】
+
+> ⚠️ **先质疑（G14）**：
+> - **任务**：前提成立——规则 5 落地前实测全仓（main + test）没有任何 DOMAINS 域 import feed
+>   （唯一的测试侧 importer 在非 DOMAINS 的 `ratelimit` 包），S9 消掉的环今天确实**只靠约定**守住
+>   （遗留台账 C1 2026-10-03 自记"见 SOP 待补项"），与本仓"结构不靠约定靠测试"的立仓原则直接相悖。
+> - **设计**：⚠️ 已知代价——补规则属**加固**非缺陷修复（F-03 原判断正确）；范围比登记原文
+>   （content→feed）宽一档（from = 其余 10 域全禁），代价是"若将来出现合法的 `X→feed`
+>   需求需改规则"——但 feed.md §八 的不变式本就是"全链路无包环"，宽档才是忠实编码，
+>   且今天零 importer ⇒ 零误伤。**已知代价后选择做**。
+> - ★ **同窗调查、判不修的另一条**：`F-18`（@Lazy 断环 → 抽窄装载组件）**维持留池**——
+>   无缺陷（删注解 = 启动期响亮失败）；抽组件只消 bean 装配边、消不掉 §六 有意保留的
+>   favorite→content 包级边（ContentDao 薄依赖）；却要动 T6-5 装载契约 + 15+ 处注释锚点。
+>   升级条件（互动域再聚合新域）未触发。
+
+* **入口线索**：`ArchitectureTests`（4 条规则）；feed.md §八"依赖方向与消环"；遗留台账 C1 末段。
+* **目标**：把 S9 消掉的 `content⇄feed` 环从"靠约定"变成"会失败的测试"——规则 5：
+  `noClasses().that().resideInAPackage(..videoweb.<X>..)`（X ∈ 其余 10 域）
+  `.should().dependOnClassesThat().resideInAPackage(..videoweb.feed..)`。
+* **红线边界**：① 不碰任何生产代码；② 沿用 from ∈ `DOMAINS` 的写法（`ratelimit` 等非 DOMAINS
+  测试包不在扫描面，与既有 4 条规则同款）；③ 规则 javadoc 必须带"推翻条件"（feed 将来发布
+  领域事件且他域需消费 ⇒ 先开 event 落点豁口再修）。
+* **强制探索**：① 反向验证判别力（注入 ⇒ 红 / 还原 ⇒ 绿，见回写）；② 核对 feed 今天不发布
+  领域事件（`feed.event` 只有订阅方）⇒ 规则暂无豁口需求；③ 核对测试侧唯一 feed importer
+  的包归属（`ratelimit`，非 DOMAINS ⇒ 不误伤）。
+* **验收**：`ArchitectureTests` 5 条全绿；反向验证红/绿两态均实测；本任务自拆两 commit
+  （**T35-1** = 规则 + 反向验证，**T35-2** = 文档与台账本登记）；`doc_refs` / `doc_links` 0 违规。
+* **回写**：① 规则 5 已落（`ArchitectureTests.任何域都不得依赖feed`），类头 javadoc 四条→五条；
+  反向验证实测：`ContentService` 注入 `feed.mq.FeedTopology` 字段 ⇒ `Failures: 1`（违规指向
+  `任何域都不得依赖feed` / `FeedTopology`），还原 ⇒ `tests=5 failures=0` 全绿，探针已还原
+  （工作树仅剩测试文件改动）。② 文档收口：《模块边界与依赖》§五（规则表 + 治病条目）与
+  §七（清单第 8 条）、feed.md §八（钉子注脚）、`FURTHER_ISSUES.md` F-03 → 已交付。
+  ③ 未碰生产代码 ⇒ 不跑全量回归（`ArchitectureTests` 为纯 ArchUnit 扫描，无 Spring 上下文）。
+
 **待开窗登记**（编号从 **`T30`** 起）：批 **A** 存量数据债 / 批 **B** 并发窗口复核 / 批 **C** 结构加固 —— 覆盖编号见 `CURRENT_NEEDS.md` §四。
 
 ```
