@@ -9,7 +9,7 @@ import java.util.List;
 /**
  * 限流桶的 **Redis 命令层**（限流专项 T24）——只负责"把脚本发出去"，
  * 不含接线语义（覆盖范围 / 429 出口 / fail-open 都在过滤器，T25）。
- * 口径的唯一事实源 = {@code architecture/tech/限流.md}；文中后续任务编号的锚点：
+ * 口径的唯一事实源 = {@code architecture/tech/rate-limit/限流.md}；文中后续任务编号的锚点：
  * {@code T25} → §三（接线），{@code T26} → §四（权重），{@code T27} → §四（任务自付费），
  * {@code T28} → §五（可观测）。
  *
@@ -36,7 +36,7 @@ import java.util.List;
  * 用户桶每次访问都写（放行 / 被拒都刷新）；服务器桶只在放行与任务扣减时写
  * （被拒时它一个字节都不写、也就无从刷新——其淘汰按自证性质无损）。
  * ★ 对用户桶，"每访必刷"是必须的：TTL 自证性质以"淘汰 ⟺ 空闲 ≥ TTL"为前提，不刷新则活跃桶也会到期。
- * ★ 自证边界的精确表述（T24 的复核结论，见 {@code architecture/tech/限流.md}；登记为 {@code I-18}）：对 {@code tokens ≥ 0} 的桶，
+ * ★ 自证边界的精确表述（T24 的复核结论，见 {@code architecture/tech/rate-limit/限流.md}；登记为 {@code I-18}）：对 {@code tokens ≥ 0} 的桶，
  * 淘汰 ⟺ 空闲 ≥ 满桶时间 ⇒ 按惰性公式它本来就该是满桶 ⇒ **淘汰无损**；
  * 对 {@code tokens < 0}（欠账态）的桶，淘汰会把**剩余欠账豁免**（本仓首版参数恰整除，差额 = |t|）
  * ——这是语义选择而非缺陷："沉默满桶时间后重新做人"；持续活跃的刷子不受影响（访问使 TTL 恒被刷新）。
@@ -224,7 +224,7 @@ public class RateLimitRedisOps extends RedisOps {
      * @param userBucket     用户桶参数（容量 / 补充速率；TTL 由此派生）
      * @param serverBucket   服务器桶参数
      * @param cost           本次请求的**门时成本** = 信号①（端点权重表 / 兜底权重，由过滤器查表传入，
-     *                       见 {@code architecture/tech/限流.md} §四）。
+     *                       见 {@code architecture/tech/rate-limit/限流.md} §四）。
      *                       ⚠️ 信号②（缓存 miss）**不在这里**——它是请求运行期事实，由调用方在
      *                       请求收尾按差额补扣（见 {@link #deductDelta}）
      * @param rejectDiscount 被拒时仍扣的"询问费"比例（配置**绑定期**校验 ∈ [0,1]；默认 0.3 落在
@@ -353,7 +353,7 @@ public class RateLimitRedisOps extends RedisOps {
          * {@code TTL = ceil(capacity / refillPerSec)} = 把空桶补满所需时间（秒，向上取整）。
          *
          * <p>向上取整是为了"淘汰后重建为满桶"与"惰性公式算出满桶"对齐（自证性质，
-         * 见类注释与 {@code architecture/tech/限流.md}）。
+         * 见类注释与 {@code architecture/tech/rate-limit/限流.md}）。
          */
         public long ttlSeconds() {
             return ((long) capacity + refillPerSec - 1) / refillPerSec;

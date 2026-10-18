@@ -179,8 +179,9 @@ class SecurityContractTests extends AbstractIntegrationTest {
     @Test
     @DisplayName("S8：admin 8 端点判为需登录（TV 的 `/api/admin` 是**前缀**保护项 ⇒ 类级注解）")
     void admin类级注解覆盖全部端点() {
-        // ⚠️ 本组断言是 401/403 契约的**机制级**保证：
-        //   缺了类级 @RequiresLogin，匿名请求会掉到 isAdminPath 判成 403（而非契约要求的 401）。
+        // ⚠️ 本组断言是 401/403 契约的**机制级**保证：三个 admin 控制器都标的是 @RequiresAdmin，
+        //   它**蕴含**登录（见 RequiresAdmin蕴含需登录）——所以匿名访问这些端点得 401 而非 403。
+        //   （旧实现靠额外标 @RequiresLogin 才能得到 401，漏标就会掉成 403。）
         //   端到端侧由 AdminSecurityTests 断言状态码，两者不可互相替代（SOP §2.5）。
         assertThat(requiresLogin("GET", "/api/admin/content/list")).isTrue();
         assertThat(requiresLogin("POST", "/api/admin/content/hide")).isTrue();
@@ -369,6 +370,34 @@ class SecurityContractTests extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("★「admin 蕴含登录」的判别点：@Public + @RequiresAdmin ⇒ 仍要求登录（唯一能区分两者的输入）")
+    void Public与RequiresAdmin冲突时仍要求登录() throws NoSuchMethodException {
+        // ⚠️ 为什么要这一条：adminOnly 探针**没有** @Public，而默认拒绝本身就会让 loginRequired=true
+        //   ⇒ 单看那一条，"admin 蕴含登录"这半边可以删掉而不变红（= 空转断言）。
+        //   只有 explicitPublic=true 且 adminRequired=true 的输入才能区分
+        //   `adminRequired || loginDeclared || !explicitPublic` 与漏掉 adminRequired 的版本。
+        RequestMappingLookup.HandlerAuthz authz = resolveOnProbe("publicAndAdmin");
+
+        assertThat(authz.adminRequired()).isTrue();
+        assertThat(authz.loginRequired())
+                .as("漏掉'admin 蕴含登录'时会判成匿名放行（loginRequired=false），"
+                        + "anonymous 请求到不了角色段 ⇒ 403 契约退化")
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("OPTIONS 不参与授权判定：交 MVC 回 Allow（否则匿名 OPTIONS 会从 200 变 401）")
+    void OPTIONS不参与授权判定() {
+        // Spring 对"路径能匹配、方法不匹配"的 OPTIONS 会返回内部 HttpOptionsHandler ——
+        // 它是一个**不带任何业务注解**的 HandlerMethod，默认拒绝下会被判成需登录。
+        // 本仓无 CORS（不会产生预检），但 curl / 探活工具会看到 401，属于未被设计的行为变化。
+        assertThat(mappingLookup.resolve(new MockHttpServletRequest("OPTIONS", "/favorite/add")))
+                .as("受保护端点的 OPTIONS 也交 MVC 处理（Options 不执行业务逻辑）")
+                .isEqualTo(RequestMappingLookup.HandlerAuthz.NONE);
+        assertThat(requiresLogin("OPTIONS", "/user/me")).isFalse();
+    }
+
+    @Test
     @DisplayName("★成对断言：角色要求只在 @RequiresAdmin 端点成立，普通受保护端点不得被判为需管理员")
     void 非admin端点不得被判为需管理员() {
         // 真实端点对（不是桩）：一边是 3 个 admin 控制器，一边是同域之外的受保护端点。
@@ -439,6 +468,12 @@ class SecurityContractTests extends AbstractIntegrationTest {
         @RequiresLogin
         public void publicAndLogin() {
             // 矛盾声明：取更严
+        }
+
+        @Public
+        @RequiresAdmin
+        public void publicAndAdmin() {
+            // 矛盾声明：取更严（**且这是"admin 蕴含登录"唯一的判别输入**）
         }
     }
 }

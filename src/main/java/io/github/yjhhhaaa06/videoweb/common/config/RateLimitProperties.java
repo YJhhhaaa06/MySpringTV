@@ -6,7 +6,7 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
- * 限流配置（限流专项 <b>T23</b>；口径的唯一事实源 = {@code architecture/tech/限流.md}）。
+ * 限流配置（限流专项 <b>T23</b>；口径的唯一事实源 = {@code architecture/tech/rate-limit/限流.md}）。
  *
  * <p>与 {@link FavoriteLimitProperties} / {@link RedisBreakerProperties} 同款：标准配置绑定 +
  * 环境变量可覆盖，放在 {@code common.config}（本项目的 {@code @ConfigurationProperties} 记录
@@ -22,11 +22,11 @@ import java.util.regex.Pattern;
  * ★ <b>嵌套 record 是能绑的</b>（Boot 4.1.1 实测：{@code Binder} 直绑与真实
  * {@code @ConfigurationProperties} 两条路径都绑上，层层非 {@code null}）——
  * 本仓 {@code application.yaml} 里 feed 段那句"record 只认本前缀下的扁平键、嵌套会被静默忽略
- * 并绑成 0"**经实测不成立**（登记为 {@code I-15}，见 {@code architecture/tech/限流.md} §二）。
+ * 并绑成 0"**经实测不成立**（登记为 {@code I-15}，见 {@code architecture/tech/rate-limit/限流.md} §二）。
  * 这里选择嵌套而非拆成四个类：它与 YAML 层级**字面对应**，"哪个键属于哪一段"不用靠命名去猜。
  *
  * <h2>★ 数值全是<b>拍的</b>（本仓无真实流量）</h2>
- * 每个数值的「推导锚点」与「推翻条件」登记在 {@code architecture/tech/限流.md}。
+ * 每个数值的「推导锚点」与「推翻条件」登记在 {@code architecture/tech/rate-limit/限流.md}。
  * 三条量级锚点（别当成实测基线读）：
  * <ul>
  *   <li>{@code server.capacity = 200} ≈ 容器默认最大工作线程数（"瞬时在途请求上限"），
@@ -104,7 +104,7 @@ public record RateLimitProperties(Server server, User user, Cost cost) {
      *
      * <p>★ 匿名桶**必须比登录桶宽**（首版 3 倍）：IP 是**共享**的（NAT / 内网 / 校园网下几十个用户
      * 共用一个出口 IP），按登录桶的口径会**误伤整片人**。这是"匿名单独建桶"相对"只吃服务器桶"的代价面，
-     * 已知代价见 {@code architecture/tech/限流.md}。
+     * 已知代价见 {@code architecture/tech/rate-limit/限流.md}。
      *
      * @param authed 登录态用户桶（key = {@code user:{userId}}）
      * @param anon   匿名态用户桶（key = {@code anon:{ip}}）
@@ -117,7 +117,7 @@ public record RateLimitProperties(Server server, User user, Cost cost) {
     }
 
     /**
-     * 成本信号与折扣（口径见 {@code architecture/tech/限流.md} §二 / §四）。
+     * 成本信号与折扣（口径见 {@code architecture/tech/rate-limit/限流.md} §二 / §四）。
      *
      * @param base           权重表：key = 「{@code <方法> <路径模式>}」（Spring 路由模式，非具体 id，
      *                       如 {@code POST /favorite/add}），value = 该端点一次的令牌数。
@@ -129,8 +129,8 @@ public record RateLimitProperties(Server server, User user, Cost cost) {
      * @param defaultBase    未登记路由的兜底权重（首版 1）。★ **不是 0** —— "漏配 = 不限"正是要防的。
      * @param missMultiplier 信号②：本次请求发生缓存 miss 时的乘数。**T26 起已启用 3.0**
      *                       （锚点"miss 一次 ≈ 三次命中"）；{@code 1.0 = 关闭}（此时连一次往返都不花）；
-     *                       落地为**门后差额** {@code base × (m−1)} 补扣（见 {@code architecture/tech/限流.md} §四）
-     * @param rejectDiscount 被拒请求仍扣的"询问费"比例（首版 0.3；口径见 {@code architecture/tech/限流.md} §二）：
+     *                       落地为**门后差额** {@code base × (m−1)} 补扣（见 {@code architecture/tech/rate-limit/限流.md} §四）
+     * @param rejectDiscount 被拒请求仍扣的"询问费"比例（首版 0.3；口径见 {@code architecture/tech/rate-limit/限流.md} §二）：
      *                       {@code 0} 则被拒请求可零成本探路、{@code 1} 则用户为服务器过载全额买单。
      *                       ⚠️ {@code 0} 是**合法值**（故本键键名写错会静默绑成 0.0 而绕过下面的区间校验）
      *                       —— 该洞由 {@code RateLimitPropertiesBindingTests#被拒折扣落在开区间} 兜住

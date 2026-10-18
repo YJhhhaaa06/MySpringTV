@@ -4,11 +4,11 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.annotation.AnnotatedElementUtils;
+import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Component;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerExecutionChain;
 import org.springframework.web.servlet.HandlerMapping;
-import org.springframework.web.servlet.handler.HandlerMappingIntrospector;
 
 /**
  * 判定「当前请求的处理器要求什么」——把三个注解读成一对布尔量。
@@ -77,6 +77,13 @@ public class RequestMappingLookup {
      * @return 未映射的路径返回 {@link HandlerAuthz#NONE}（匿名放行，404 交 DispatcherServlet）
      */
     public HandlerAuthz resolve(HttpServletRequest request) {
+        // OPTIONS 不参与授权判定：Spring 对"路径能匹配、方法不匹配"的 OPTIONS 会返回内部
+        // HttpOptionsHandler（一个**不带任何业务注解**的 HandlerMethod）⇒ 按默认拒绝会判成需登录，
+        // 匿名 OPTIONS 从"200 + Allow"变成 401。本仓无 CORS（不会产生预检），但 curl / 探活工具会看到；
+        // 且 OPTIONS 不执行业务逻辑，交给 MVC 回 Allow 更合语义。
+        if (HttpMethod.OPTIONS.matches(request.getMethod())) {
+            return HandlerAuthz.NONE;
+        }
         HandlerMethod handler = resolveHandler(request);
         if (handler == null) {
             // 未映射的路径：不要求登录，交由 DispatcherServlet 产出 404

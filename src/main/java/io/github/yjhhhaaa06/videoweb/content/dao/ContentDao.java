@@ -66,12 +66,12 @@ public interface ContentDao {
      * <p>与 {@link #isContentExist} 的差别只有一条：它**带回 {@code type}**。既可判"存在"
      * （无行 ⇒ {@code null}），又可判"是不是视频"（{@code type != 1}）—— 一趟查询覆盖
      * 稍后再看 {@code add}/{@code move} 的 404 / 400 两条拒因，省掉一次往返。
-     * 口径 = {@code content.type}（见 {@code 数据与Schema演进.md} §七：**内容的 type 只有 1 视频 / 2 图文**；
+     * 口径 = {@code content.type}（见 {@code 数据与Schema演进.md} §四：**内容的 type 只有 1 视频 / 2 图文**；
      * 媒体表的 type 另有 3 封面，与这里无关）。
      *
      * <p>★ 这是 favorite → content 的又一条 **DAO 薄依赖**（同 {@link #isContentExist} 的形态：
      * 同事务内一条窄查询、只读一列、不碰对方 service/model/cache），合法性见
-     * {@code 模块边界与依赖.md} §三。
+     * {@code 模块边界与依赖.md} §六（本条是"读状态走对方 Service"判据的**显式登记读例外**）。
      *
      * <p>⚠️ 返回类型是**包装类型** {@code Integer}：无行 / 已软删 ⇒ {@code null}（调用方据此 404）。
      * 若声明成 {@code int}，MyBatis 在无行时返回 null 会 NPE（同 {@link #getContentStatus} 的实测口径）。

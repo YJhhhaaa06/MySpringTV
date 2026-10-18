@@ -42,7 +42,7 @@ public enum ErrorCode {
     // ⇒ GlobalExceptionHandler 的 HttpStatus.resolve 天然认它，**不需要**新增 handler 分支。
     // ⚠️ 实际出口**不看本枚举**：限流发生在过滤器链上（在 DispatcherServlet 之前），
     //    @RestControllerAdvice 覆盖不到 ⇒ 由过滤器自写 ApiResponse + Retry-After 响应头
-    //    （同 JwtAuthFilter#writeError 的形态，见 architecture/tech/限流.md）。
+    //    （同 JwtAuthFilter#writeError 的形态，见 architecture/tech/rate-limit/限流.md）。
     //    本项是**对外契约的声明**（429 这个业务码存在、且与 HTTP 对齐）与过滤器取值的唯一来源。
     RATE_LIMITED(429, "请求过于频繁"),
 

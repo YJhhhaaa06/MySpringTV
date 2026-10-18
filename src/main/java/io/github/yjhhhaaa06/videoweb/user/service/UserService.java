@@ -216,7 +216,7 @@ public class UserService implements AdminChecker {
     }
 
     /**
-     * 是否管理员（承接 TV {@code UserService.isAdmin}，供 admin 路径鉴权用）。
+     * 是否管理员（承接 TV {@code UserService.isAdmin}，供 {@code @RequiresAdmin} 端点鉴权用）。
      *
      * <p>本方法同时是 {@link AdminChecker} 端口的实现（S6-B1）——由本类提供实现、
      * 由 {@code common.security.JwtAuthFilter} 按接口消费，避免 {@code common} 反向依赖 {@code user}。

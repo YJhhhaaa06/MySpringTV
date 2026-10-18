@@ -26,7 +26,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 限流闸门过滤器（限流专项 <b>T25</b>；口径的唯一事实源 = {@code architecture/tech/限流.md} §三）。
+ * 限流闸门过滤器（限流专项 <b>T25</b>；口径的唯一事实源 = {@code architecture/tech/rate-limit/限流.md} §三）。
  *
  * <p>把 T24 落地的 {@link RateLimitRedisOps#tryAcquire}（一次 Lua：「惰性补充 + 询问费 + 两桶 AND
  * 闸门 + 放行扣减」）接到请求链上。本类只做**接线**五件事：链序、覆盖范围、429 出口、fail-open、
@@ -42,7 +42,7 @@ import java.util.Set;
  * ⚠️ 本任务给 {@code JwtAuthFilter} 与本类都补了显式 {@code @Order}（此前它无序、排最低）——
  * 链序一旦变动必须同步《安全与鉴权》§2.1 与本类注释。
  *
- * <h2>覆盖范围（口径的唯一事实源 = {@code architecture/tech/限流.md} §三）</h2>
+ * <h2>覆盖范围（口径的唯一事实源 = {@code architecture/tech/rate-limit/限流.md} §三）</h2>
  * 除跳过清单外**全部过闸**：含匿名读接口、未映射路径（扫描流正是要防的对象之一）、
  * {@code /api/admin}（通过鉴权的管理员请求同样过闸）。**无任何白名单**（含管理员——
  * 管理端人工操作流量极小，不值得开"绕过口"）。
@@ -68,7 +68,7 @@ import java.util.Set;
  * **必须更高（ERROR）**："限流静默消失"的唯一出口就是这行日志。
  * 正式的日志口径 / 指标归 <b>T28</b>；resilience 组测试钉住"两种失败都放行"的行为契约。
  *
- * <h2>可观测（T28 落地；细节见 {@code architecture/tech/限流.md} §五）</h2>
+ * <h2>可观测（T28 落地；细节见 {@code architecture/tech/rate-limit/限流.md} §五）</h2>
  * <b>指标</b>（{@link RateLimitMetrics}）：{@code rate.limit.decisions{scope=user|server,
  * result=allowed|rejected}} 记**逐桶**判定（一次请求记两条——两桶判定可以不同，并成一条就答不了
  * "该扩服务器还是该管这个用户"）；{@code rate.limit.acquire} 记一次过闸命令的耗时。
@@ -95,7 +95,7 @@ import java.util.Set;
  * {@code base × (multiplier − 1)} 补扣。标记的读写点：进闸门 {@link CacheMissSignal#clear()}、
  * 收尾 {@link CacheMissSignal#consume()}（"唯一 set/clear 点"纪律，同 {@code RequestIdFilter} 对 MDC）。
  * 结算细则（两桶同扣、仅"门放行过"的请求、失败吞掉）与二值（不计数）的理由见
- * {@code architecture/tech/限流.md} §四。
+ * {@code architecture/tech/rate-limit/限流.md} §四。
  */
 @Slf4j
 @Component
@@ -116,7 +116,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
      * 跳过清单的**前缀**匹配（带尾 {@code /}，避免 {@code /staticfoo} 这类假想业务路径被误跳）。
      * {@code /actuator/} 用带斜杠前缀：{@code /actuator} 本身（端点链接页，200）不在清单内、
      * 会过闸——一次请求一枚令牌，可忽略。⚠️ 比原始清单的 {@code /actuator/**} 略窄
-     * （多放行裸 {@code /actuator} 一个路径），已留痕 {@code architecture/tech/限流.md} §三。
+     * （多放行裸 {@code /actuator} 一个路径），已留痕 {@code architecture/tech/rate-limit/限流.md} §三。
      */
     private static final List<String> SKIP_PREFIXES = List.of("/static/", "/actuator/", "/upload/");
 
@@ -219,7 +219,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
      * ERROR（**防御性**——{@code deductDelta} 当前不解析返回值、该分支不可达；保留是给"将来加解析"
      * 兜底：catch 挂在 finally 里，漏掉任何类型都会伤响应）；其余未预期异常兜底 ERROR（对照
      * {@code FeedCache.tryAcquireRebuildLock} 的 RuntimeException 兜底手法）。这两档与主路径同口径
-     * （{@code architecture/tech/限流.md} §五：外部故障 WARN / 自身缺陷 ERROR），且同样不记桶 key。
+     * （{@code architecture/tech/rate-limit/限流.md} §五：外部故障 WARN / 自身缺陷 ERROR），且同样不记桶 key。
      */
     private void settleMissPenalty(String userKey, RateLimitProperties.Bucket userBucket, double baseCost) {
         double multiplier = properties.cost().missMultiplier();
@@ -246,19 +246,19 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     /**
      * 拒绝出口的三档日志之一（<b>T28</b>）：<b>WARN 结论行、不持栈</b>
-     * （对齐 {@code architecture/tech/可观测.md} §六"预期业务拒绝"档：WARN 是"业务层判断过、
+     * （对齐 {@code architecture/tech/observability/可观测.md} §六"预期业务拒绝"档：WARN 是"业务层判断过、
      * 无需人工介入"的位置）。
      *
      * <h2>★ 不记什么（结构性保证，不是纪律）</h2>
      * 不记桶 key（{@code ratelimit:anon:<ip>} / {@code ratelimit:user:<id>} 一律不进日志）；
      * 登录态记 {@code userId}，匿名态记 {@code userId=-} 且<b>不落 IP</b>——
-     * IP 要脱敏得先扩 {@code LogMasker}（{@code architecture/tech/可观测.md} §三 的脱敏面只认手机号），
+     * IP 要脱敏得先扩 {@code LogMasker}（{@code architecture/tech/observability/可观测.md} §三 的脱敏面只认手机号），
      * 本期选择"不落盘"而不是"落盘后手写 mask"（调用点各写一遍 = 必然漏）。
      *
      * <h2>★ 已知代价：429 是请求级日志</h2>
      * 刷子场景下这里会**按请求**产生 WARN 行 ⇒ 会放大 {@code system.log}。
      * 接受它：拒绝是"业务层判断过的结论"，静默才是更坏的失败模式；
-     * 第一条退路 = 按 key 节流（本期不做，口径见 {@code architecture/tech/限流.md} §五）。
+     * 第一条退路 = 按 key 节流（本期不做，口径见 {@code architecture/tech/rate-limit/限流.md} §五）。
      */
     private void logRejected(HttpServletRequest request, Long userId, double cost,
                              RateLimitRedisOps.Decision decision) {
@@ -313,10 +313,10 @@ public class RateLimitFilter extends OncePerRequestFilter {
     /**
      * 跳过清单（见类注释「覆盖范围」）。静态资源 / actuator 不是业务成本，也不该被 429。
      *
-     * <p>⚠️ 路径取**未解码、未规范化**的 {@code getRequestURI()}（与 {@code JwtAuthFilter#isAdminPath}
-     * 同款假设）——"用 {@code /static/../api/...} 让前缀匹配基于原始 URI"这类规范化绕过，
-     * 依赖 Spring Security 的默认 {@code StrictHttpFirewall}（排在本过滤器之前）拒绝含
-     * {@code ..} / {@code //} 的请求。该依赖属**潜伏边界**声明：若将来迁移 Security（F-01/F-02）
+     * <p>⚠️ 路径取**未解码、未规范化**的 {@code getRequestURI()} ——"用 {@code /static/../api/...}
+     * 让前缀匹配基于原始 URI"这类规范化绕过，依赖 Spring Security 的默认 {@code StrictHttpFirewall}
+     * （排在本过滤器之前）拒绝含 {@code ..} / {@code //} 的请求。该依赖属**潜伏边界**声明：
+     * 若将来推翻"不迁 Security"的决定（F-01/F-02，见 {@code 安全与鉴权-已知代价.md} 第 2 条）
      * 或关闭防火墙，须回到这里重估。另：{@code getRequestURI()} 不含 query（servlet 规范），
      * 精确匹配不会被 {@code ?x=1} 击穿。
      */

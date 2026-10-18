@@ -10,7 +10,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * 本仓其余域的写后副作用都走"自域事件 + AFTER_COMMIT 监听器"，但收藏域走不通，两条硬理由：
  * <ol>
  *   <li>★ <b>T11 时点的理由（历史）：收藏当时有两个无事务写点</b> —— {@code addItem} /
- *       {@code removeItems} 单写不套事务（事务边界篇 §四），而
+ *       {@code removeItems} 单写不套事务（事务边界篇 §七.1：缺原子性需求就别加事务），而
  *       {@code @TransactionalEventListener} 的 {@code fallbackExecution} 默认 {@code false}
  *       （领域事件篇 §5.2）⇒ 无事务时发布的事件**不会被投递给 AFTER_COMMIT 监听器**，
  *       缓存会**静默永不更新**。★ **T12 起两写点因计数重算升级为有事务**（见

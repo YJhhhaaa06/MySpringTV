@@ -9,7 +9,7 @@ package io.github.yjhhhaaa06.videoweb.common.cache;
  * 处理中，而限流闸门在 {@code DispatcherServlet} 之前 ⇒ 门时取不到，只能在请求处理完后
  * **结算**。本类就是"请求处理期间是否发生过回源"的运行期载体：各缓存类在自己的 DB 回源点
  * 调 {@link #mark()}，限流器在请求收尾处 {@link #consume()}。结算口径（门时按基础价扣、
- * 门后按差额 {@code base × (multiplier − 1)} 补扣）见 {@code architecture/tech/限流.md} §四。
+ * 门后按差额 {@code base × (multiplier − 1)} 补扣）见 {@code architecture/tech/rate-limit/限流.md} §四。
  *
  * <h2>★ 三条设计口径</h2>
  * <ul>
