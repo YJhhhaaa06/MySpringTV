@@ -31,8 +31,8 @@
 | 脚本 | 干什么 | 默认 | `--apply` 做什么 |
 |------|--------|------|------------------|
 | `db_clean.py` | **DB 清理**：顺 15 类悬挂引用逐表清扫（`NOT EXISTS`） | 报「将删 N / 保留 M」 | 单事务执行删除 + 末尾复核残留 |
-| `media_clean.py` | **媒体清理**：盘上文件若无任何 `content_media.url` 指向它 ⇒ 孤儿 ⇒ **移到** `<媒体根同级>/trash/` | 列孤儿（含大小 / 样例 20 个） | 搬走 + 写 `trash/manifest-<时间戳>.txt` |
-| `recount.py` | **计数重算**：重算 7 个计数列，口径 = **不含软删行** | 逐列报"当前漂移行数"（= `F-07` 探针） | 单事务重算 + 复核漂移归零 |
+| `media_clean.py` | **媒体清理**：盘上文件若无任何 `content_media.url` 指向它 ⇒ 孤儿 ⇒ **移到** `<媒体根同级>/trash/` | 列孤儿（含大小 / 样例 20 个） | 有孤儿时搬走并写 `trash/manifest-<时间戳>.txt`（无孤儿则不写） |
+| `recount.py` | **计数重算**：重算 7 个计数列，口径 = **不含软删行** | 逐列报"当前漂移行数"（= `F-07` 探针） | 单事务重算 + 复核并打印剩余漂移（**不改变退出码**，要判失败请自己看输出） |
 | `devclean.py` | **一键编排**：`备份(DB) → 媒体确认关卡 → DB → 媒体 → 重算` | **全链 dry-run** | 先备份 DB、含媒体步需 `--media-backed-up` |
 
 ### 3.1 顺序是**依赖**，不是偏好
@@ -80,8 +80,10 @@ dry-run 与 apply **走同一段 SQL**：dry-run = 在同一事务里**真跑删
 # 编排（推荐：先看全链预演）
 python tools/devclean/devclean.py                            # 全链 dry-run
 python tools/devclean/devclean.py --only media               # 只预演媒体步骤
+python tools/devclean/devclean.py --skip media               # 跳过媒体步骤（可重复）
 python tools/devclean/devclean.py --apply --media-backed-up  # 真跑（自动先备份 DB）
 python tools/devclean/devclean.py --apply --no-backup        # 跳过 DB 备份（自担风险）
+python tools/devclean/devclean.py --apply --out backups      # 备份输出目录（仅 --apply 且未 --no-backup 时生效）
 
 # 单跑（三步都可独立执行）
 python tools/devclean/db_clean.py                            # 报「将删 N / 保留 M」
@@ -92,8 +94,9 @@ python tools/devclean/recount.py                             # = F-07 探针
 python tools/devclean/recount.py --apply
 ```
 
-`devclean.py --apply` 的两道关卡：① **先备份 DB**（调 `tools/backup.py`，**DB-only**，媒体不备份）；
-② **含媒体步时必须显式 `--media-backed-up`**，否则直接中止（媒体目录很大，脚本绝不代劳）。
+`devclean.py --apply` 的两道关卡，**按这个顺序执行**：① **先备份 DB**（调 `tools/backup.py`，**DB-only**，媒体不备份）；
+② 然后才检查**含媒体步时必须显式 `--media-backed-up`** —— 缺这个开关会**中止清理**，
+但 ① 的备份目录**已经落下了**（不是白跑，别以为它没执行）。
 
 ---
 

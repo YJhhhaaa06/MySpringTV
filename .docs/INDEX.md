@@ -105,7 +105,7 @@ python tools/docs/doc_refs.py      # ★ `src/` 代码注释的文档引用（�
 > `endpoint_matrix.py`（端点完整性 43/43/0）、`migration_matrix.py`（反面盘点，未表态 = 0）、
 > `flyway_parity.py`（结构连续性：活库 vs V1 列集）、`realdata_probe.py`（真实数据探针）。
 > 需要复算迁移结论时从那里跑 —— 它们已改为**向上找 `pom.xml`** 定位仓库根，位置无关；
-> **用法与前提**（子集不给整体结论 / `--strict` / mysql 客户端位置）见 `archive/migration/tools/README.md`。
+> **用法与前提**（需本机有 `old-project/` / 子集不给整体结论 / `--strict` / mysql 客户端位置）见 `archive/migration/tools/README.md`。
 >
 > ⚠️ **跑"全绿"必须带 `clean`**：`target/classes` 留着上一轮 class 时增量编译会跳过重编，
 > "源码编译不过"会被旧 class 掩盖而测试照样绿（2026-10-03 实测到该路径）。

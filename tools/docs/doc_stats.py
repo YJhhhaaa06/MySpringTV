@@ -159,7 +159,7 @@ def report(docs: list[Doc], top: int, min_kb: float) -> int:
     print("-" * 78)
     for d in shown:
         kind = "归档" if d.rel.startswith(".docs/archive/") else "正文"
-        if d.size_kb >= BIG_FILE_KB:
+        if d.size_kb > BIG_FILE_KB:
             flag = "★ 偏大" if kind == "正文" else "（归档）"
         else:
             flag = "ok"
@@ -180,7 +180,7 @@ def report(docs: list[Doc], top: int, min_kb: float) -> int:
                         print(f"            └ {sub.lines:>5} 行  {sub.display}")
 
     # 汇总提示
-    over = [d for d in docs if d.size_kb >= BIG_FILE_KB]
+    over = [d for d in docs if d.size_kb > BIG_FILE_KB]
     big_secs = [
         (d.rel, s)
         for d in docs

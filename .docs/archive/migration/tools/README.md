@@ -14,11 +14,14 @@
 归档时它们的"仓库根"推导已从**固定层级**改为**向上找 `pom.xml`** ——
 所以在本目录直接 `python .docs/archive/migration/tools/xxx.py` 即可，不需要 `cd`、也不需要改路径。
 
-## 二、三条前提（**误读这三条就会得出错误结论**）
+## 二、四条前提（**误读这几条就会得出错误结论**）
 
+0. **需要本机存在 `old-project/TVhomework1`**：`endpoint_matrix` / `migration_matrix` 要拿老项目源码做对照，
+   而该目录被 `.gitignore` 排除、**不在仓库里**（`tvconf.py` 直接拼这个路径）⇒ 没有它就无法复算。
 1. **老仓没有任何 mapper XML**：老项目 SQL 是 DAO 里的**内联字符串**（`String sql = "..."`，9 个 DAO / 89 条）。
-   新仓的 9 个 mapper XML / 102 条是**语义重写**，与老侧**不是 1:1** ——
-   **语句数下降不是缺口**（连接参数与事务管道本就要删掉）。
+   迁移时新仓是 9 个 mapper XML / 102 条，且是**语义重写**、与老侧**不是 1:1** ——
+   **语句数下降不是缺口**（连接参数与事务管道本就要删掉）。⚠️ 这两个数字是**当时的快照**，
+   mapper 早已增长，别拿它当现状。
 2. **`flyway_parity.py` 需要 mysql 客户端**：本机它在
    `C:\Program Files\MySQL\MySQL Server 8.0\bin\`（**不在 PATH**），`tvconf.mysql_exe()` 会自动探测，
    也可用 `--exe` 或 `MYSQL_EXE` 指定。连接参数默认取自 `application.yaml` 的 dev 默认值。

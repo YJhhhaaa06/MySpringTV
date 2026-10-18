@@ -21,10 +21,10 @@
 5. 仓库路径：`tools/` `src/` `.mvn/` 下的 `.py/.java/.xml/.yaml/.cmd/.sh` —— ★ **不要求反引号包裹**
    （`python tools/xxx.py` 这种最常见的形态也必须抓到，见下方 `check()` 里的历史注）。
 
-支持 `*` 通配（如 `archive/事务边界明细-*.md`）。
+支持 `*` 通配（如 `archive/migration/事务边界明细-*.md`）。**`*` 只在单个路径段内生效**，不跨目录。
 
-**解析面 = `.docs/` 全树**（2026-10-18 改造）：任何引用只要能在 `.docs/` 下**按后缀**找到同名文件
-（含 `*` 通配）就算指得到 —— **不再维护"搜索目录清单"**，详见下方"判定口径"最后一条。
+**解析面 = `.docs/` 全树**：引用能在 `.docs/` 下**按路径段尾部对齐**找到文件就算指得到 ——
+**没有"搜索目录清单"**，新建归档目录不用改脚本（见"判定口径"最后一条）。
 
 ## 判定口径（降噪设计，**改之前先读**）
 
@@ -35,17 +35,16 @@
   （`见 archive/xxx.md 的 S4 小节（§二·E）` 会跨行）。同一段落里出现过 `archive/` 即视为可指到；
 - **允许占位名**：含 `xxx` / `Xxx` / `...` 的路径是文档里的示例模板（如 `<模块>`），不报；
 - **区分"不存在"与"尚未创建"**：脚注写 ⏳，提示"若这是待创建的文件，可忽略"。
-- ★ **解析面是全树后缀匹配，不是硬编码目录清单**（2026-10-18）：旧版有一份
-  `SEARCH_DIRS = (.docs, archive, archive/migration, archive/migration/report, archive/favorite-2026-10-15)`，
-  **每新建一个归档目录就得手工加一行**，漏加就把"搬家"误报成"悬空"（`rate-limit-2026-10-17/`
-  就是这么漏掉的）。现改为：把 `.docs/**/*.md` 的相对路径建一次索引，引用的**路径后缀**
-  能匹配上任一条即算指到 ⇒ 以后新归档目录**不用改脚本**。
-  ⚠️ 它只回答"这个文件名在 `.docs` 里存在吗"，**不保证指对了那一份**（同名文件以路径为准）——
-  这条从来如此（旧的清单也是按基名在几个目录里试），不是改造引入的新弱点。
-- ★ **`old-project` 解析已随迁移收口删除**（2026-10-18）：旧版对 `.docs/report/` 的路径
-  额外按老项目根解析（那三份调研报告写的是 TV 的现状）。而 `main()` 早就跳过 `archive/`、
-  三份报告也已归档 ⇒ 那条分支是**不可达的死代码**，却让门禁依赖 `old-project/` 目录是否存在。
-  删掉后本门禁只看 `.docs/`，与老项目彻底解耦。
+- ★ **解析面 = 全树索引 + 按段尾部对齐**（`_suffix_match`），**不是硬编码目录清单**：
+  目录清单每加一个归档目录就要手工同步，漏一次就把"搬家"误报成"悬空"。
+  支持的两种省略：**只写基名**（`《决策留痕表.md》`）、**省略前导目录**（`report/x.md` 实际在
+  `archive/migration/report/x.md`）。**刻意不支持**：省略**中间**目录（`archive/x.md` 不匹配
+  `archive/migration/x.md`）与 `*` 跨目录 —— 二者都会把"目录写错"变成"看起来对"。
+  ⚠️ 它只回答"这个路径在 `.docs` 里指得到吗"，**不保证是读者想指的那一份**（同名文件请写全路径）。
+- **只看本仓 `.docs`**：不对 `old-project/` 做任何兜底解析（迁移期那三份调研报告已归档，
+  归档目录本就不扫 ⇒ 兜底不可达，却让门禁依赖老项目目录是否存在）。
+- ★ **零样本必须报错**（`main()`）：扫到 0 份正文时以退出码 `2` 失败 ——
+  "扫 0 份 ⇒ 报全绿"是这类门禁最危险假绿（多半是仓库根或目录解析错了）。
 
 ## 用法
 
@@ -53,13 +52,14 @@
     python tools/docs/doc_links.py --verbose  # 附行号
     python tools/docs/doc_links.py --strict   # 把 ⏳（尚未创建）也算失败
 
-退出码：0 = 无悬空引用；1 = 存在悬空引用。
+退出码：0 = 无悬空引用；1 = 存在悬空引用；2 = 没扫到任何正文文档（路径/仓库根不对，不出"假绿"）。
 """
 
 from __future__ import annotations
 
 import argparse
 import re
+import sys
 from fnmatch import fnmatch
 from pathlib import Path
 
@@ -90,21 +90,40 @@ def corpus() -> list[str]:
     return _CORPUS
 
 
-def _suffix_match(rel: str, name: str) -> bool:
-    """`name` 是否指向 `rel`：整条相等，或**从某个 `/` 边界起的后缀**匹配（`*` 按 fnmatch）。
+def _segments(path: str) -> list[str]:
+    """按 `/` 切段并丢掉空段与 `.`（`./a.md`、`a//b.md` 归一化）。
 
-    为什么是"从某个边界起的后缀"而不是 `rel.endswith(name)`：引用有两种常见省略 ——
-    只写基名（`《决策留痕表.md》`），或省略中间目录（`archive/事务边界明细-*.md` 实际在
-    `archive/migration/` 下）。两种都得认，否则就把"搬家"报成"悬空"。
+    ⚠️ **不要用 `lstrip("./")`**：它按**字符集**剥离，会把 `.docs/x.md` 削成 `docs/x.md`。
+    `..` 段**保留**（全树索引里没有它的语义，交给"引用方目录相对解析"那条分支处理）。
     """
-    if fnmatch(rel, name):
-        return True
-    parts = rel.split("/")
-    return any(fnmatch("/".join(parts[i:]), name) for i in range(1, len(parts)))
+    return [s for s in path.split("/") if s not in ("", ".")]
+
+
+def _suffix_match(rel: str, name: str) -> bool:
+    """`name` 是否指向 `rel`：**按路径段**做尾部对齐匹配（段内可用 `fnmatch` 通配）。
+
+    支持两种省略（都是"从某个段边界起对齐"，不是字符串后缀）：
+    ① 只写基名 —— `《决策留痕表.md》` ⇒ 任一段等于它就算；
+    ② 省略**前导**目录 —— `report/x.md` 实际在 `archive/migration/report/x.md` 下。
+
+    ⚠️ 两条**刻意不支持**（旧版也不支持，别以为是退化）：
+    - **省略中间目录**：`archive/x.md` **不**匹配 `archive/migration/x.md` —— 那会让"目录写错"
+      和"目录省略"无法区分，等于放弃检查；
+    - **`*` 跨目录**：按段匹配 ⇒ `archive/*.md` 只命中 `archive/` **直属**的 `.md`
+      （若按整串 `fnmatch`，`*` 会吃掉 `/`，指向"直属"的引用能在子目录里蒙对 ⇒ 假绿）。
+    """
+    rel_segs = rel.split("/")
+    name_segs = _segments(name)
+    if not name_segs or len(name_segs) > len(rel_segs):
+        return False
+    for start in range(len(rel_segs) - len(name_segs) + 1):
+        if all(fnmatch(rel_segs[start + k], name_segs[k]) for k in range(len(name_segs))):
+            return True
+    return False
 
 
 def try_resolve(name: str, base: Path | None = None) -> bool:
-    """按三种形态试探：**引用方所在目录**相对解析 / `.docs` 全树后缀匹配。
+    """按两种形态试探：**引用方所在目录**相对解析 / `.docs` 全树尾部对齐匹配。
 
     ⚠️ `base` 是**引用方文档所在目录**（markdown 链接按它相对解析，不是按 `.docs` 根）。
     2026-10-08 第一版漏了它 ⇒ `.docs/architecture/tech/可观测.md` 里的 `./事务边界.md`
@@ -115,8 +134,8 @@ def try_resolve(name: str, base: Path | None = None) -> bool:
         return False
     stripped = name[len(".docs/"):] if name.startswith(".docs/") else name
     if base is not None:
-        rel = stripped[2:] if stripped.startswith("./") else stripped
-        if (base / rel).is_file():
+        rel = "/".join(_segments(stripped))
+        if rel and (base / rel).is_file():
             return True
     return resolve(stripped)
 
@@ -221,8 +240,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--strict", action="store_true", help='把"尚未创建"也计为失败')
     args = parser.parse_args(argv)
 
-    # 跳过 archive/：归档是当时的记录，里面的旧章节名是**正确的历史**
-    docs = sorted(p for p in DOCS.rglob("*.md") if "archive" not in p.parts)
+    # 跳过 archive/：归档是当时的记录，里面的旧章节名是**正确的历史**。
+    # ⚠️ 判据按**相对 `.docs` 的路径段**：`p` 是绝对路径，若写成 `"archive" not in p.parts`，
+    #    仓库恰好放在 `D:/archive/...` 之类位置时**所有文档都会被当成归档跳过**、
+    #    扫 0 份却报绿（2026-10-18 复查实测）。
+    docs = sorted(p for p in DOCS.rglob("*.md") if "archive" not in p.relative_to(DOCS).parts)
+    if not docs:
+        print(f"未找到任何正文文档：{DOCS}", file=sys.stderr)
+        print("（这几乎一定是仓库根解析错了或目录被挪走 —— 不做'扫 0 份 ⇒ 报绿'的假绿。）", file=sys.stderr)
+        return 2
     dangling = 0
     pending = 0
     for doc in docs:

@@ -13,7 +13,7 @@
 |------|------|---------|
 | **可复用·跨用途**（回归 / 备份） | `tools/` 根级 | ✅ 入库 |
 | **可复用·单一用途**（≥2 个脚本服务同一件事） | `tools/<用途>/` ＋ 该目录 `README.md` | ✅ 入库 |
-| **一次性**（本次任务用完即弃） | `temp-script/` | ❌ 已在 `.gitignore` |
+| **一次性**（本次任务用完即弃） | `temp-script/` | ❌ 不入库（在本机 `.git/info/exclude`；新克隆请自行忽略，或丢进已忽略的 `scratch/`） |
 | ★ **已归档**（迁移期专用，2026-10-06 随迁移文档迁出） | `.docs/archive/migration/tools/` | ✅ 入库（在 `.docs` 下） |
 
 判据：**"下一个切片还会跑它吗？"** 会 ⇒ `tools/`；不会 ⇒ `temp-script/`。
@@ -77,12 +77,14 @@ ROOT = Path(__file__).resolve().parent.parent   # 脚本在 tools/ 根级时
 
 **脚本在子目录里时不要数层级**（`parent.parent` 会从仓库根变成 `tools/`，而症状是**静默扫 0 份**）：
 用**向上找 `pom.xml`**（模板 = `tools/docs/common.py` 的 `_find_repo_root()`），或 `parents[N]` 但**必须注释层级依据**
-（先例 = `tools/devclean/common.py` 的 `parents[2]`）。这样 `python tools/xxx.py` 在任何目录下跑都对。
+（先例 = `tools/devclean/common.py` 的 `parents[2]`）。这样"仓库根"与 cwd 无关；
+但 `python tools/xxx.py` 这条**相对命令**仍要在仓库根敲，跨目录请用绝对路径。
 
 ### 3.3 用 `argparse`，给 `--help` 与"默认只预演"
 
 **会改数据 / 文件的脚本默认必须只预演**（先打印"将要做什么"，不落盘），落盘要显式加开关
 （`--apply`）。这是本项目"先看结论再执行"的纪律在脚本层的体现。
+**唯一例外**：**纯增量、绝不覆盖**的脚本可以默认真跑（先例 = `backup.py`：它只新建 `<时间戳>/` 目录）。
 
 > ⚠️ 别图省事把开关叫 `--dry-run` 却让它默认落盘——**名字与默认值对不上时，照文档敲命令的人会直接改到文件**。
 
@@ -103,7 +105,7 @@ ROOT = Path(__file__).resolve().parent.parent   # 脚本在 tools/ 根级时
 
 | 脚本 | 作用 | 读写 |
 |------|------|------|
-| `run_tests.py` | **一键跑测试**：全量 `clean verify` / `--group` 选跑 / `--test` 单类；完整输出落盘 + 摘要回显 | ✅ 只读（仅写 `target/test-reports/`） |
+| `run_tests.py` | **一键跑测试**：全量 `clean verify` / `--group` 选跑 / `--test` 单类；完整输出落盘 + 摘要回显 | ✅ 不改源码（脚本只写 `target/test-reports/`；Maven 的 `clean` 会重建 `target/**`） |
 | `backup.py` | **DB 一键备份**（`mysqldump`），产物 = `<时间戳>/db.sql` + `manifest.txt`（含 sha256） | ❌ 会写（**纯增量**：只新建 `<时间戳>/` 目录，**绝不覆盖**；故**默认真跑**，`--dry-run` 才预演） |
 
 要点（用法以 `--help` 为准）：
@@ -111,7 +113,8 @@ ROOT = Path(__file__).resolve().parent.parent   # 脚本在 tools/ 根级时
 - `run_tests.py` 三个产物落 `target/test-reports/`：`run-<时间戳>.log`（完整输出）、`latest.json`（机器可读）、
   `report-<时间戳>.md`（按类汇总 + 失败栈摘要）。**结果一律从 surefire XML 取，不解析控制台** ——
   控制台只用于阶段耗时打点（日志按**子进程实际编码**解码：Windows 上 JVM 写管道用 ANSI 代码页 `GetACP()`，不是 UTF-8）。
-  必须带 `clean`（否则旧 class 会掩盖编译错误），并用 `-Dmaven.test.failure.ignore=true` 跑完全部失败后再透传退出码。
+  必须带 `clean`（否则旧 class 会掩盖编译错误），并用 `-Dmaven.test.failure.ignore=true` 跑完全部失败后再**按 surefire 结果合成退出码**
+  （测试失败 → `1`；构建失败 → Maven 的码；子进程没起来 → `127`；全绿 → `0`）。
   两条防呆：**指定 `--group` / `--test` 却零命中 ⇒ 按失败退出**；**早于本次运行起点的 surefire XML 一律不采信**。
   ⚠️ **默认排除 `resilience` 组**（`DEFAULT_EXCLUDED_GROUPS`；故障注入组不进默认回归集），
   且会把显式 `--group` 的 tag 从排除集里剔除，避免 `-Dgroups=X` 与 `-DexcludedGroups=X` 交叠导致**零用例**。
@@ -171,5 +174,5 @@ python tools/devclean/devclean.py
 >
 > ★ **迁移期的 5 个脚本已归档**到 `.docs/archive/migration/tools/`（`endpoint_matrix` / `migration_matrix` /
 > `flyway_parity` / `realdata_probe` / `tvconf`），日常开发用不到它们。需要**复算迁移结论**时，
-> 用法与三条前提（子集不给整体结论 / `--strict` / mysql 客户端位置）见
-> [该目录的 README](../../.docs/archive/migration/tools/README.md)。
+> 用法与前提（需本机有 `old-project/` / 子集不给整体结论 / `--strict` / mysql 客户端位置）见
+> [该目录的 README](../.docs/archive/migration/tools/README.md)。
