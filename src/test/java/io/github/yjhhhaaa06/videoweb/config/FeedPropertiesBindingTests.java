@@ -47,7 +47,7 @@ class FeedPropertiesBindingTests extends AbstractIntegrationTest {
                 .isEqualTo(Duration.ofMinutes(60));
         assertThat(feedProperties.outboxTtl()).isEqualTo(Duration.ofMinutes(60));
         assertThat(feedProperties.rebuildDebounce())
-                .as("去抖窗口默认 1 秒（裸数字 1 = PT1S，恰好相同；仍显式钉住）")
+                .as("去抖窗口默认 1 秒（裸数字 1 = PT0.001S，即 1 毫秒，与 1s 差 1000 倍；仍显式钉住）")
                 .isEqualTo(Duration.ofSeconds(1));
         assertThat(feedProperties.dlqTtl())
                 .as("DLQ 消息 TTL 默认 7 天（TV feed.dlq.ttlMillis=604800000）")

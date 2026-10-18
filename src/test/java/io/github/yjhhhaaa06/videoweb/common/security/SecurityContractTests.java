@@ -389,12 +389,15 @@ class SecurityContractTests extends AbstractIntegrationTest {
     @DisplayName("OPTIONS 不参与授权判定：交 MVC 回 Allow（否则匿名 OPTIONS 会从 200 变 401）")
     void OPTIONS不参与授权判定() {
         // Spring 对"路径能匹配、方法不匹配"的 OPTIONS 会返回内部 HttpOptionsHandler ——
-        // 它是一个**不带任何业务注解**的 HandlerMethod，默认拒绝下会被判成需登录。
+        // 它是一个**不属于任何业务控制器**的 HandlerMethod，默认拒绝下会被判成需登录。
         // 本仓无 CORS（不会产生预检），但 curl / 探活工具会看到 401，属于未被设计的行为变化。
-        assertThat(mappingLookup.resolve(new MockHttpServletRequest("OPTIONS", "/favorite/add")))
-                .as("受保护端点的 OPTIONS 也交 MVC 处理（Options 不执行业务逻辑）")
-                .isEqualTo(RequestMappingLookup.HandlerAuthz.NONE);
-        assertThat(requiresLogin("OPTIONS", "/user/me")).isFalse();
+        RequestMappingLookup.HandlerAuthz authz =
+                mappingLookup.resolve(new MockHttpServletRequest("OPTIONS", "/favorite/add"));
+
+        // ⚠️ 两个维度都要断：只比 HandlerAuthz.NONE 会变成"对生产常量自证"
+        //   （NONE 被人改成 (false,true) 时不报警），只断 loginRequired 则会漏掉 adminRequired。
+        assertThat(authz.loginRequired()).as("受保护端点的 OPTIONS 也交 MVC（不执行业务逻辑）").isFalse();
+        assertThat(authz.adminRequired()).isFalse();
     }
 
     @Test
@@ -442,7 +445,15 @@ class SecurityContractTests extends AbstractIntegrationTest {
                 .isEmpty();
     }
 
-    /** 桩控制器：只为给 {@link HandlerMethod} 提供"带/不带注解"的四种形态，不注册进容器。 */
+    /**
+     * 桩控制器：只为给 {@link HandlerMethod} 提供"带/不带注解"的四种形态，不注册进容器。
+     *
+     * <p>★ 标 {@code @RestController} 是**必需**的：`RequestMappingLookup` 只对"属于某个
+     * {@code @Controller} 的处理器"做授权判定（框架内部 handler 被筛掉，见
+     * `RequestMappingLookup#isControllerEndpoint`）。不标 ⇒ 这些探针会被当成"非业务端点"恒放行，
+     * 断言全部空转。
+     */
+    @RestController
     static class AuthzProbe {
 
         public void undeclared() {

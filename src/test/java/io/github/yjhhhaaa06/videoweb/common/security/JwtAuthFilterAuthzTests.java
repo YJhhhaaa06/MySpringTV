@@ -6,6 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerExecutionChain;
 import org.springframework.web.servlet.HandlerMapping;
@@ -55,7 +56,11 @@ class JwtAuthFilterAuthzTests {
     }
 
     private Outcome call(JwtAuthFilter filter, String token) throws Exception {
-        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/probe");
+        return call(filter, token, "POST");
+    }
+
+    private Outcome call(JwtAuthFilter filter, String token, String method) throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest(method, "/probe");
         if (token != null) {
             request.addHeader("Authorization", "Bearer " + token);
         }
@@ -65,6 +70,18 @@ class JwtAuthFilterAuthzTests {
         return new Outcome(passed.get(), response.getStatus(),
                 response.getContentAsString(), request.getAttribute(JwtAuthFilter.ATTR_USER_ID),
                 request.getAttribute(AccessLogFilter.ATTR_BUSINESS_CODE));
+    }
+
+    @Test
+    @DisplayName("★OPTIONS 的豁免只针对**框架内部 handler**：控制器里显式声明的 OPTIONS 业务方法照常过授权")
+    void 显式OPTIONS业务方法不被豁免() throws Exception {
+        // 判别力：若把筛子写成"请求方法是 OPTIONS 就放行"（不看处理器属于谁），本用例变红 ——
+        // 那正是"OPTIONS 短路"最容易埋的洞：未来真有人写 @RequestMapping(method = OPTIONS)
+        // 的业务端点时，鉴权会被静默跳过。
+        Outcome out = call(filterFor("adminOnly"), jwtService.generateToken(NORMAL_ID), "OPTIONS");
+
+        assertThat(out.passed()).isFalse();
+        assertThat(out.status()).isEqualTo(403);
     }
 
     @Test
@@ -132,7 +149,14 @@ class JwtAuthFilterAuthzTests {
                            Object businessCode) {
     }
 
-    /** 桩控制器：三种授权形态各一个方法，不注册进容器。 */
+    /**
+     * 桩控制器：三种授权形态各一个方法，不注册进容器。
+     *
+     * <p>★ 标 {@code @RestController} 是**有意**的：{@code RequestMappingLookup} 只对"属于某个
+     * {@code @Controller} 的处理器"做授权判定（框架内部 handler 如 OPTIONS 的 {@code HttpOptionsHandler}
+     * 被筛掉）⇒ 桩必须真的是控制器，否则这些用例会因"不是业务端点"而恒放行。
+     */
+    @RestController
     static class Probe {
 
         @RequiresAdmin

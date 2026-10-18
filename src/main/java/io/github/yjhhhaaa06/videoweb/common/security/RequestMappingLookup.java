@@ -4,8 +4,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.annotation.AnnotatedElementUtils;
-import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Controller;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerExecutionChain;
 import org.springframework.web.servlet.HandlerMapping;
@@ -77,16 +77,13 @@ public class RequestMappingLookup {
      * @return 未映射的路径返回 {@link HandlerAuthz#NONE}（匿名放行，404 交 DispatcherServlet）
      */
     public HandlerAuthz resolve(HttpServletRequest request) {
-        // OPTIONS 不参与授权判定：Spring 对"路径能匹配、方法不匹配"的 OPTIONS 会返回内部
-        // HttpOptionsHandler（一个**不带任何业务注解**的 HandlerMethod）⇒ 按默认拒绝会判成需登录，
-        // 匿名 OPTIONS 从"200 + Allow"变成 401。本仓无 CORS（不会产生预检），但 curl / 探活工具会看到；
-        // 且 OPTIONS 不执行业务逻辑，交给 MVC 回 Allow 更合语义。
-        if (HttpMethod.OPTIONS.matches(request.getMethod())) {
-            return HandlerAuthz.NONE;
-        }
         HandlerMethod handler = resolveHandler(request);
         if (handler == null) {
             // 未映射的路径：不要求登录，交由 DispatcherServlet 产出 404
+            return HandlerAuthz.NONE;
+        }
+        if (!isControllerEndpoint(handler)) {
+            // Spring 内部 handler（不属于任何业务控制器）⇒ 不参与授权判定。见方法注释。
             return HandlerAuthz.NONE;
         }
 
@@ -129,6 +126,30 @@ public class RequestMappingLookup {
 
         /** 匿名放行：未映射路径 / 静态资源 / 显式 {@code @Public}。 */
         public static final HandlerAuthz NONE = new HandlerAuthz(false, false);
+    }
+
+    /**
+     * 只对**业务控制器**给出的处理器做授权判定。
+     *
+     * <h2>为什么需要这个筛子</h2>
+     * 默认拒绝的前提是"处理器对应一个业务端点"。但 {@code requestMappingHandlerMapping} 也会产出
+     * **框架内部**的 {@link HandlerMethod}，最典型的是 OPTIONS：
+     * 对"路径能匹配、方法不匹配"的请求，Spring 返回内部的 {@code HttpOptionsHandler}
+     * （外层是 HandlerMethod，bean 类型是框架内部类、不带任何业务注解）。若不筛掉：
+     * <ul>
+     *   <li>匿名 {@code OPTIONS /xx} 会被判成"未标 {@code @Public} ⇒ 需登录" ⇒ 从"200 + Allow"变 **401**
+     *       （本仓无 CORS，但 curl / 探活工具会看到）；</li>
+     *   <li>而且它不执行业务逻辑，拦它没有安全收益。</li>
+     * </ul>
+     * 筛掉的判据是"bean 类型上有没有 {@code @Controller}"（{@code @RestController} 是它的组合注解），
+     * 而不是"请求方法是不是 OPTIONS"——后者会误伤**控制器里显式声明**的 OPTIONS 业务方法
+     * （那类处理器同样是业务端点，必须照常过授权）。
+     *
+     * <p>⚠️ 由此推论：授权判定的保护域 = **{@code @Controller} 端点**。未映射路径、静态资源、
+     * {@code /actuator/**}（别的 HandlerMapping）、框架内部 handler 都在域外（见 {@code 安全与鉴权.md} §2.3）。
+     */
+    private boolean isControllerEndpoint(HandlerMethod handler) {
+        return AnnotatedElementUtils.hasAnnotation(handler.getBeanType(), Controller.class);
     }
 
     private boolean hasAnnotation(HandlerMethod handler, Class<? extends java.lang.annotation.Annotation> type) {
