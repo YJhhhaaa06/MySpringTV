@@ -27,7 +27,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 本测试要 import 六个业务域的 {@code *Cache}（接线面横跨全域），而
  * {@code ArchitectureTests} 规则 1 约束 {@code ..videoweb.common..} 面——把跨域 import 的测试
  * 放进该包有踩线之嫌；跨切面测试的**既有先例**是独立测试包（{@code observability} /
- * {@code resilience}，均不在 {@code DOMAINS} 内、不受四条规则约束）。
+ * {@code resilience}，均不在 {@code DOMAINS} 内、不受五条规则约束）。
  *
  * <h2>夹具口径</h2>
  * 六个用例全部使用**不存在**的 id（990_000_000 段）：对"是否回源"没有影响（照样打一次空结果的
