@@ -6,6 +6,7 @@ import io.github.yjhhhaaa06.videoweb.comment.service.CommentService;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.common.model.dto.CursorResult;
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
+import io.github.yjhhhaaa06.videoweb.common.security.Public;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import io.github.yjhhhaaa06.videoweb.common.web.PageParams;
@@ -129,6 +130,7 @@ public class CommentController {
      * <p>缺 {@code contentId} / 非法 → 400；内容不存在 / 评论区已关 → **200 + 空**（不是 404/409，
      * 见 {@code CommentService.getCommentsForContent} 的门禁说明）。
      */
+    @Public
     @GetMapping("/show")
     public ApiResponse<?> show(@CurrentUserId(required = false) Long userId,
                                @RequestParam(required = false) Long contentId,
@@ -164,6 +166,7 @@ public class CommentController {
      * <p>缺 / 非法 {@code rootId} → 400；主楼不存在或已删 → 404；
      * 非法 / 越界 {@code cursor} → 静默归一到 0 或空页（**不报错**，见 {@code PageParams.normalizeCursor}）。
      */
+    @Public
     @GetMapping("/replies")
     public ApiResponse<CursorResult<CommentVO>> replies(@CurrentUserId(required = false) Long userId,
                                                         @RequestParam(required = false) Long rootId,

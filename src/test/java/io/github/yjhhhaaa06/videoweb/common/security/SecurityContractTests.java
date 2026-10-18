@@ -4,12 +4,34 @@ import io.github.yjhhhaaa06.videoweb.support.AbstractIntegrationTest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationContext;
+import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.util.ClassUtils;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.method.HandlerMethod;
+import org.springframework.web.servlet.HandlerExecutionChain;
+import org.springframework.web.servlet.HandlerMapping;
+
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 安全契约测试：{@link RequiresLogin} → 是否真的被 {@link RequestMappingLookup} 识别。
+ * 安全契约测试：三个授权注解（{@link Public} / {@link RequiresLogin} / {@link RequiresAdmin}）
+ * → 是否真的被 {@link RequestMappingLookup} 识别。
+ *
+ * <h2>★ 2026-10-18：判定口径从「声明才拦」改为「声明才放」（F-01 的两条真风险）</h2>
+ * <ol>
+ *   <li><b>默认拒绝</b>：未标任何注解 ⇒ 需登录。放行口只有 {@link Public} 一处。</li>
+ *   <li><b>角色判定跟着处理器走</b>：{@link RequiresAdmin} 取代 {@code path.startsWith("/api/admin")}，
+ *       并且**蕴含**登录要求（匿名访问 admin 端点仍得 401，不再依赖两个注解同时写对）。</li>
+ * </ol>
+ * 两条都由本类钉住；{@code 所有admin前缀控制器都必须标RequiresAdmin} 是新增控制器的护栏。
  *
  * <h2>存在理由（这个类本该在切片 0 就存在）</h2>
  * {@link RequiresLogin} 的 Javadoc 一直写着"可被测试自动校验（见 {@code SecurityContractTests}）"，
@@ -34,9 +56,35 @@ class SecurityContractTests extends AbstractIntegrationTest {
     @Autowired
     private RequestMappingLookup mappingLookup;
 
+    @Autowired
+    private ApplicationContext applicationContext;
+
     private boolean requiresLogin(String method, String uri) {
         return mappingLookup.requiresLogin(new MockHttpServletRequest(method, uri));
     }
+
+    private boolean requiresAdmin(String method, String uri) {
+        return mappingLookup.requiresAdmin(new MockHttpServletRequest(method, uri));
+    }
+
+    /**
+     * 用**桩处理器**构造 lookup：不依赖容器里真有这样一个端点，就能断言「注解 → 判定」这条链。
+     *
+     * <p>为什么需要它：默认拒绝 / 冲突取严 / admin 蕴含登录这三种形态，**绝不能**在真实控制器上造
+     * （那会把矛盾注解写进生产代码）。而"未标注解"这一形态恰恰是本轮新增的**默认值**，
+     * 只能靠桩来钉。
+     */
+    private RequestMappingLookup lookupFor(String methodName) throws NoSuchMethodException {
+        Method method = AuthzProbe.class.getMethod(methodName);
+        HandlerMapping stub = request -> new HandlerExecutionChain(new HandlerMethod(PROBE, method));
+        return new RequestMappingLookup(stub);
+    }
+
+    private RequestMappingLookup.HandlerAuthz resolveOnProbe(String methodName) throws NoSuchMethodException {
+        return lookupFor(methodName).resolve(new MockHttpServletRequest("GET", "/probe"));
+    }
+
+    private static final AuthzProbe PROBE = new AuthzProbe();
 
     @Test
     @DisplayName("★回归：类级 @RequiresLogin 且**不接收** @CurrentUserId 的端点也必须判为需登录")
@@ -264,5 +312,133 @@ class SecurityContractTests extends AbstractIntegrationTest {
         // /upload/** 由 SimpleUrlHandlerMapping（资源处理器）承接，不在 requestMappingHandlerMapping 里
         // ⇒ RequestMappingLookup 返回 false。这不是"漏保护"：媒体文件本就公开（TV 一致）。
         assertThat(requiresLogin("GET", "/upload/video/some-file.mp4")).isFalse();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 2026-10-18：默认拒绝（fail-closed）与处理器级角色判定
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("★默认拒绝：未标任何注解的端点判定为**需登录**（放行口只有 @Public）")
+    void 未标注解的端点默认需登录() throws NoSuchMethodException {
+        RequestMappingLookup.HandlerAuthz authz = resolveOnProbe("undeclared");
+
+        // 判别力：把 RequestMappingLookup.resolve 的兜底从 fail-closed 改回 fail-open
+        // （即 `loginRequired = loginDeclared`），本断言立刻变红。
+        assertThat(authz.loginRequired())
+                .as("漏标注解 = 401（可见故障），而不是对匿名开放 —— 旧口径下只有"
+                        + "'不接收 @CurrentUserId 的端点'会真正敞开，正是历史 bug 的形态")
+                .isTrue();
+        assertThat(authz.adminRequired()).isFalse();
+        assertThat(resolveOnProbe("loginOnly").loginRequired())
+                .as("显式 @RequiresLogin 与默认值等价 —— 它的价值只剩'可读性声明'，不是判定来源")
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("默认拒绝的反向对照：@Public 是唯一放行口，标了就匿名可访问")
+    void Public注解是唯一放行口() throws NoSuchMethodException {
+        RequestMappingLookup.HandlerAuthz authz = resolveOnProbe("publicOnly");
+
+        assertThat(authz.loginRequired())
+                .as("没有这条反向对照，'全部端点都需登录'也能让上一条通过（假绿）")
+                .isFalse();
+        assertThat(authz.adminRequired()).isFalse();
+    }
+
+    @Test
+    @DisplayName("★声明冲突：@Public 与 @RequiresLogin 同时出现 ⇒ 取更严（需登录），不允许安静的宽松")
+    void Public与RequiresLogin冲突时取严() throws NoSuchMethodException {
+        RequestMappingLookup.HandlerAuthz authz = resolveOnProbe("publicAndLogin");
+
+        assertThat(authz.loginRequired())
+                .as("矛盾声明若按 @Public 判宽 ⇒ 一处笔误就静默放开一个端点")
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("★@RequiresAdmin 蕴含需登录：匿名访问 admin 端点得 401（不再依赖两个注解同时写对）")
+    void RequiresAdmin蕴含需登录() throws NoSuchMethodException {
+        RequestMappingLookup.HandlerAuthz authz = resolveOnProbe("adminOnly");
+
+        assertThat(authz.adminRequired()).isTrue();
+        assertThat(authz.loginRequired())
+                .as("旧实现要求 admin 控制器**额外**标 @RequiresLogin，否则匿名请求跳过了登录段、"
+                        + "掉进角色段得 403（'拦得对但状态码错'）—— 该陷阱现在被语义消除")
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("★成对断言：角色要求只在 @RequiresAdmin 端点成立，普通受保护端点不得被判为需管理员")
+    void 非admin端点不得被判为需管理员() {
+        // 真实端点对（不是桩）：一边是 3 个 admin 控制器，一边是同域之外的受保护端点。
+        // 判别力：若实现把"是否 admin"写成恒 true（或仍按 /api/admin 之外的前缀误命中），下面三条立刻红。
+        assertThat(requiresAdmin("GET", "/api/admin/content/list")).isTrue();
+        assertThat(requiresAdmin("GET", "/favorite/status"))
+                .as("收藏状态是私有视角但**不是**管理端点")
+                .isFalse();
+        assertThat(requiresAdmin("GET", "/like/content/count"))
+                .as("历史 bug 端点：受 @RequiresLogin 保护，但与角色无关")
+                .isFalse();
+        assertThat(requiresAdmin("GET", "/user/me")).isFalse();
+        assertThat(requiresAdmin("GET", "/start")).as("公开端点同样不是 admin").isFalse();
+    }
+
+    @Test
+    @DisplayName("★护栏：凡落在 /api/admin 前缀的控制器都必须标 @RequiresAdmin（漏标=只要求登录）")
+    void 所有admin前缀控制器都必须标RequiresAdmin() {
+        List<String> violations = new ArrayList<>();
+        for (Map.Entry<String, Object> entry : applicationContext.getBeansWithAnnotation(RestController.class).entrySet()) {
+            Class<?> type = ClassUtils.getUserClass(entry.getValue().getClass());
+            RequestMapping mapping = AnnotatedElementUtils.findMergedAnnotation(type, RequestMapping.class);
+            if (mapping == null) {
+                continue;
+            }
+            String[] paths = mapping.value().length > 0 ? mapping.value() : mapping.path();
+            boolean adminPath = false;
+            for (String path : paths) {
+                if (path.startsWith("/api/admin")) {
+                    adminPath = true;
+                }
+            }
+            if (adminPath && !AnnotatedElementUtils.hasAnnotation(type, RequiresAdmin.class)) {
+                violations.add(type.getName());
+            }
+        }
+
+        // 这条就是"角色权威源从路径前缀改成注解"的代价护栏：前缀不再自动兜底，
+        // 靠它保证"新增 admin 控制器漏标注解"这件事**会红**，而不是静默降级成普通登录端点。
+        assertThat(violations)
+                .as("这些控制器在 /api/admin 前缀下却没标 @RequiresAdmin ⇒ 非管理员也能访问")
+                .isEmpty();
+    }
+
+    /** 桩控制器：只为给 {@link HandlerMethod} 提供"带/不带注解"的四种形态，不注册进容器。 */
+    static class AuthzProbe {
+
+        public void undeclared() {
+            // 什么都没标 ⇒ 默认拒绝
+        }
+
+        @Public
+        public void publicOnly() {
+            // 唯一放行口
+        }
+
+        @RequiresLogin
+        public void loginOnly() {
+            // 显式登录（与默认值等价，保留为"显式声明"的形态）
+        }
+
+        @RequiresAdmin
+        public void adminOnly() {
+            // 管理员：蕴含登录
+        }
+
+        @Public
+        @RequiresLogin
+        public void publicAndLogin() {
+            // 矛盾声明：取更严
+        }
     }
 }

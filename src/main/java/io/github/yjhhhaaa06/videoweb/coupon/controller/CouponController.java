@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.coupon.controller;
 
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
+import io.github.yjhhhaaa06.videoweb.common.security.Public;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import io.github.yjhhhaaa06.videoweb.coupon.model.dto.GrabCouponRequest;
@@ -55,6 +56,7 @@ public class CouponController {
     }
 
     /** 未结束的优惠券列表。**公开端点**（TV AuthFilter 未保护 {@code /coupon/list}）。 */
+    @Public
     @GetMapping("/list")
     public ApiResponse<List<CouponVO>> list() {
         return ApiResponse.success(couponService.listAvailableCoupons());

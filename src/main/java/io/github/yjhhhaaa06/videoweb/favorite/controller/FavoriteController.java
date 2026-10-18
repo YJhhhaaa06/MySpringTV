@@ -2,6 +2,7 @@ package io.github.yjhhhaaa06.videoweb.favorite.controller;
 
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
+import io.github.yjhhhaaa06.videoweb.common.security.Public;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
 import io.github.yjhhhaaa06.videoweb.common.web.PageParams;
@@ -206,6 +207,7 @@ public class FavoriteController {
      *
      * @param userId 被查看的用户 id（必传）；缺参 / 非数字 → 400（Spring 参数绑定 → 全局出口）
      */
+    @Public
     @GetMapping("/folder/public")
     public ApiResponse<List<PublicFavoriteFolderVO>> publicFolders(@RequestParam long userId) {
         return ApiResponse.success(favoriteService.listPublicFolders(userId));
@@ -233,6 +235,7 @@ public class FavoriteController {
      * @param pageSize 页大小（同上 → 缺省 {@value #FAVORITE_PAGE_SIZE_DEFAULT}，恒 ≤
      *                 {@value #FAVORITE_PAGE_SIZE_MAX}）
      */
+    @Public
     @GetMapping("/folder/items")
     public ApiResponse<PageResult<FavoriteItemVO>> publicFolderItems(@RequestParam long folderId,
                                                                      @RequestParam(required = false) String page,
@@ -347,6 +350,7 @@ public class FavoriteController {
      *
      * @param contentId 内容 id（必传）；缺参 / 非数字 → 400
      */
+    @Public
     @GetMapping("/count")
     public ApiResponse<Long> contentCount(@RequestParam long contentId) {
         return ApiResponse.success(favoriteService.getFavoriteCount(contentId));

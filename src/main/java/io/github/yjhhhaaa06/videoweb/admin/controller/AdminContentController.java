@@ -2,7 +2,7 @@ package io.github.yjhhhaaa06.videoweb.admin.controller;
 
 import io.github.yjhhhaaa06.videoweb.common.log.AuditLog;
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
-import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
+import io.github.yjhhhaaa06.videoweb.common.security.RequiresAdmin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.AdminContentVO;
 import io.github.yjhhhaaa06.videoweb.content.service.ContentService;
@@ -29,25 +29,26 @@ import java.util.List;
  *       <td>**T2 已补**（2026-10-03）：{@code common.log.AuditLog}（原记"不搬"随之作废——
  *           那正是《遗留台账》B12 说的"只写了动作没写后果"）</td></tr>
  *   <tr><td>{@code AuthFilter} 对 {@code /api/admin} 判 non-null + {@code role==1}</td>
- *       <td>**类级** {@link RequiresLogin}（登录）+ 既有 {@code JwtAuthFilter.isAdminPath}（角色）</td></tr>
+ *       <td>**类级** {@link RequiresAdmin}（登录 + 角色，一个注解两件事）</td></tr>
  * </table>
  *
- * <h2>★ 为什么必须加类级 {@link RequiresLogin}（不能省）</h2>
- * 角色判定（{@code role == 1}）早在 S6-B1 就落到了 {@code JwtAuthFilter.isAdminPath → AdminChecker}，
- * 本切片**零鉴权改动**。但 {@code JwtAuthFilter} 的三段是**有序**的：
+ * <h2>★ 为什么是类级 {@link RequiresAdmin}（一个注解顶替原先的两处判据）</h2>
+ * 2026-10-18 起"仅管理员"由本注解一处表达，{@code JwtAuthFilter} 的三段变为：
  * <pre>
  * ① 解析 token
- * ② 需要登录却无身份 ⇒ 401        ← 依据 @RequiresLogin
- * ③ /api/admin 前缀   ⇒ 非管理员 / 匿名 ⇒ 403
+ * ② {@code @RequiresAdmin} 蕴含"需要登录" ⇒ 匿名 ⇒ 401
+ * ③ {@code @RequiresAdmin} ⇒ 非管理员 ⇒ 403
  * </pre>
- * 若不加 {@link RequiresLogin}，**匿名**请求会在第 ② 段被跳过、直接掉进第 ③ 段判成 **403**，
- * 而 TV 是 **401**（{@code /api/admin} 在 {@code PROTECTED_PREFIXES} 里，先触发登录判定）。
- * 即"不用加也能拦住"是假象——**拦得对，但给错了状态码**。
- * 旧 pytest 对匿名 401 / 非管理员 403 有**成对**断言，故这一步是契约要求，不是保险。
+ * 旧实现是「{@code /api/admin} **路径前缀**判角色」＋「额外标 {@code @RequiresLogin} 让匿名先得 401」——
+ * 两个判据分散在两处，且有陷阱：漏标 {@code @RequiresLogin} 时匿名请求会跳过登录段、
+ * 掉进角色段得 **403**（契约要求 **401**，"拦得对但状态码错"）。
+ * 现在"仅管理员"在语义上必然包含"需登录"，401/403 的分工**不再依赖两个注解同时写对**；
+ * 前缀判据已删除（授权规则与路由匹配是同一个事实，见 {@link RequiresAdmin} 类注释）。
+ * 匿名 401 / 非管理员 403 的成对契约仍由 {@code AdminSecurityTests} 钉住。
  */
 @RestController
 @RequestMapping("/api/admin/content")
-@RequiresLogin
+@RequiresAdmin
 public class AdminContentController {
 
     private final ContentService contentService;

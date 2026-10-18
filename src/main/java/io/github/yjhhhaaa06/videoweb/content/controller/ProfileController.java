@@ -2,6 +2,7 @@ package io.github.yjhhhaaa06.videoweb.content.controller;
 
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
+import io.github.yjhhhaaa06.videoweb.common.security.Public;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import io.github.yjhhhaaa06.videoweb.common.web.PageParams;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ProfileVO;
@@ -53,6 +54,7 @@ public class ProfileController {
      *
      * @param userId 被查看的用户 id（必传）
      */
+    @Public
     @GetMapping("/profile")
     public ApiResponse<ProfileVO> profile(@CurrentUserId(required = false) Long currentUserId,
                                           @RequestParam(required = false) String userId,

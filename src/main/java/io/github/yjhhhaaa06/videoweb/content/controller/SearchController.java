@@ -4,6 +4,7 @@ import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
+import io.github.yjhhhaaa06.videoweb.common.security.Public;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import io.github.yjhhhaaa06.videoweb.common.web.PageParams;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentDetailVO;
@@ -69,6 +70,7 @@ public class SearchController {
      * <p>缺 {@code contentId} → 400（TV 文案 {@code "contentId不能为空"}）；
      * 内容不存在 / 已软删 / 媒体损坏 → 404（TV 文案 {@code "找不到对应内容"}）。
      */
+    @Public
     @GetMapping("/IdSearch")
     public ApiResponse<ContentDetailVO> idSearch(@CurrentUserId(required = false) Long userId,
                                                  @RequestParam(required = false) Long contentId) {
@@ -89,6 +91,7 @@ public class SearchController {
      * 分页：缺省 == 显式 {@code page=1&pageSize=100}；{@code pageSize=999 → 100}；
      * {@code pageSize=51} 原样回显；非法值回落缺省（**不是 500**，T19 顺带修掉的旧坑）。
      */
+    @Public
     @GetMapping("/keywordSearch")
     public ApiResponse<PageResult<ContentVO>> keywordSearch(@CurrentUserId(required = false) Long userId,
                                                             @RequestParam(required = false) String keyword,

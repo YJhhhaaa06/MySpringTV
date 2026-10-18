@@ -22,7 +22,7 @@ import java.io.IOException;
  * JWT 鉴权过滤器（决策③「保留 jwt，暂不迁移 Spring Security」）。
  *
  * <p>职责：解析 {@code Authorization: Bearer <token>}，校验后将 {@code userId} 放入请求属性，
- * 供 Controller 经 {@link CurrentUserId} 参数解析器取得。
+ * 供 Controller 经 {@link CurrentUserId} 参数解析器取得；并按处理器上的注解做放行 / 401 / 403 判定。
  *
  * <p><b>相对 TV AuthFilter 的两处关键改进</b>（对应踩坑清单与决策③）：
  * <ol>
@@ -30,14 +30,23 @@ import java.io.IOException;
  *       {@code PROTECTED_PREFIXES} + {@code PROTECTED_EXACT} 两个静态集合，
  *       「加一个需要登录的接口 = 记得改这张清单」——漏改就是安全缺口，
  *       且无法自动校验（红线靠人记得）。
- *       新设计改为**声明式**：需要登录的端点打 {@link RequiresLogin} 注解，
- *       由 {@link #requiresLogin} 通过 HandlerMapping 反射判定。单一事实源就在方法上。</li>
+ *       新设计改为**声明式**：授权要求写在处理器上（{@link Public} / {@link RequiresLogin} /
+ *       {@link RequiresAdmin}），由 {@link #resolveAuthz} 通过 HandlerMapping 反射判定。</li>
  *   <li>缺失/非法 token 时，**仅当该端点需要登录**才拒绝；否则匿名放行
  *       （TV 也是这个语义，但依赖清单维护正确）。</li>
  * </ol>
  *
+ * <h2>★ 2026-10-18：两个口径变更（F-01 的两条"真风险"）</h2>
+ * <ol>
+ *   <li><b>默认拒绝</b>：判定从「标了 {@code @RequiresLogin} 才拦」改为「没标 {@code @Public} 就拦」
+ *       ⇒ 新增端点漏标注解 = 401（可见故障），而不是对全世界开放。详见 {@link Public}。</li>
+ *   <li><b>管理员判定跟着处理器走</b>：删掉 {@code path.startsWith("/api/admin")} 前缀判据，
+ *       改为 {@link RequiresAdmin} 注解 ⇒ 授权规则与路由匹配是同一份事实。详见 {@link RequiresAdmin}。</li>
+ * </ol>
+ *
  * <p><b>已知边界</b>（与决策③一致，非缺陷）：单 Token 无吊销能力——token 到期前无法即时踢下线。
- * 留后项：Redis token 版本号 / 双 Token。
+ * 留后项：Redis token 版本号 / 双 Token。其余已拍板接受的代价见
+ * {@code 安全与鉴权-已知代价.md}。
  *
  * <p><b>为何不用 {@code @ControllerAdvice} 处理这里的异常</b>：过滤器在 DispatcherServlet 之前，
  * advice 覆盖不到。故本类自行书写错误响应（唯一一处），控制器层异常仍统一走
@@ -52,7 +61,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
      * 链序（限流专项 T25 引入显式定序）：必须排在 Spring Security 链（默认 {@code -100}）**之后**、
      * 限流器（{@code RateLimitFilter}，取 {@code AUTH_FILTER_ORDER + 10}）**之前**——
      * 用户 2026-10-16 拍板 A「先鉴权后扣费」：401 / 403 在本类短路，被鉴权拒绝的请求
-     * **到不了限流器**、不浪费令牌（见 {@code architecture/tech/限流.md} §三）。
+     * **到不了限流器**、不浪费令牌（见 {@code 限流.md} §三）。
      * ⚠️ 此前本类**无 {@code @Order}**（最低优先级）；显式化是为了让"限流器在鉴权之内侧"
      * 由两个可比的数字钉住，而不是依赖"没标注解 = 排最后"的隐式事实。
      */
@@ -83,7 +92,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {
-        boolean loginRequired = requiresLogin(request);
+        // 一次解析同时拿到两个维度：角色要求蕴含登录要求（见 HandlerAuthz）
+        RequestMappingLookup.HandlerAuthz authz = resolveAuthz(request);
 
         // 1) 解析令牌（存在即校验，无论端点是否需要登录——便于将来加 @CurrentUserId 可选注入）
         String token = extractToken(request);
@@ -93,7 +103,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 request.setAttribute(ATTR_USER_ID, userId);
             } catch (BusinessException e) {
                 // 令牌非法/过期。仅在需要登录时拒绝；否则按匿名处理（不要因坏 token 阻断公开接口）
-                if (loginRequired) {
+                if (authz.loginRequired()) {
                     writeError(request, response, e.getCode(), e.getMessage());
                     return;
                 }
@@ -102,14 +112,16 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         }
 
         // 2) 需要登录却无身份 ⇒ 401
-        if (loginRequired && request.getAttribute(ATTR_USER_ID) == null) {
+        //    ★ 顺序不可交换：@RequiresAdmin 的端点也要求登录 ⇒ 匿名访问 admin 端点得 401（契约），
+        //      而不是掉到第 ③ 段变成 403。
+        if (authz.loginRequired() && request.getAttribute(ATTR_USER_ID) == null) {
             writeError(request, response, ErrorCode.UNAUTHORIZED.getCode(), ErrorCode.UNAUTHORIZED.getMessage());
             return;
         }
 
-        // 3) 管理员路径：叠加角色校验（沿袭 TV：/api/admin 需 role==1）
+        // 3) 处理器声明 @RequiresAdmin：叠加角色校验（role == 1）
         //    走 AdminChecker 窄端口而非直接注入 UserService —— 依赖方向为「业务→基建」（S6-B1）
-        if (isAdminPath(request)) {
+        if (authz.adminRequired()) {
             Long userId = (Long) request.getAttribute(ATTR_USER_ID);
             if (userId == null || !adminChecker.isAdmin(userId)) {
                 writeError(request, response, ErrorCode.FORBIDDEN.getCode(), ErrorCode.FORBIDDEN.getMessage());
@@ -121,17 +133,11 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     }
 
     /**
-     * 端点是否需要登录——由方法/类上的 {@link RequiresLogin} 声明，
+     * 端点要求什么——由处理器上的 {@link Public} / {@link RequiresLogin} / {@link RequiresAdmin} 声明，
      * 取代 TV 的两份静态路径清单（单一事实源，见类注释）。
      */
-    private boolean requiresLogin(HttpServletRequest request) {
-        return mappingLookup.requiresLogin(request);
-    }
-
-    /** 管理员路径前缀。TV 同样是硬编码前缀，此处保留（角色规则数量少且稳定，无清单维护问题）。 */
-    private boolean isAdminPath(HttpServletRequest request) {
-        String path = path(request);
-        return path.startsWith("/api/admin");
+    private RequestMappingLookup.HandlerAuthz resolveAuthz(HttpServletRequest request) {
+        return mappingLookup.resolve(request);
     }
 
     private String extractToken(HttpServletRequest request) {
@@ -141,10 +147,6 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         }
         String token = header.substring(BEARER_PREFIX.length()).trim();
         return token.isEmpty() ? null : token;
-    }
-
-    private String path(HttpServletRequest request) {
-        return request.getRequestURI().substring(request.getContextPath().length());
     }
 
     /**

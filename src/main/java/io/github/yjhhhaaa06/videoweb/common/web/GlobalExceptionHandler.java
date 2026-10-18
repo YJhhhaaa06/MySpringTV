@@ -30,9 +30,13 @@ import java.util.stream.Collectors;
  * 这里把 HTTP status 与业务 code 对齐（401→401、403→403、404→404、409→409），
  * 同时**保留 body 里的 code**，两层语义一致。
  *
- * <p>注意：Spring Security 未接入（决策③后置），因此暂无
- * {@code AuthenticationEntryPoint}/{@code AccessDeniedHandler} 需要对齐；
- * 接入时须回到本类补齐 401/403 的出口一致性。
+ * <p>注意：Spring Security **不接管授权**（F-01/F-02 于 2026-10-18 拍板不迁），
+ * 因此没有 {@code AuthenticationEntryPoint}/{@code AccessDeniedHandler} 需要对齐——
+ * 401/403 的短路出口只有 {@code JwtAuthFilter#writeError} 一处。
+ * ⚠️ 若将来真的迁到方法安全（推翻条件见 {@code 安全与鉴权.md} §六），本类的
+ * {@code @ExceptionHandler(Exception.class)} 会把 {@code @PreAuthorize} 抛出的
+ * {@code AccessDeniedException} **吞成 500**（{@code ExceptionTranslationFilter} 在外侧，轮不到），
+ * 届时必须先补一条显式重抛。
  */
 @Slf4j
 @RestControllerAdvice
