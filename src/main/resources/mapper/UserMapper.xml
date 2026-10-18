@@ -82,16 +82,20 @@
          ====================================================================== -->
 
     <!-- TV: updateFollowCount —— update users set follow_count = follow_count + ? where id=?
-         ⚠️ 一字未改——**没有**防负守卫（users.follow_count 是 int unsigned，0 时再 -1 会下溢报 500）。
-         TV 原样行为，保留；详见 UserDao#updateFollowCount 的 Javadoc。 -->
+         ★ T34 补防负守卫（TV 原 SQL 无守卫）。users.follow_count 是 int unsigned ⇒
+         守卫**不能**用 `follow_count + delta >= 0`（在 unsigned 列上自身下溢 1690），
+         须 CAST(... AS SIGNED)。block 语义：拦住 ⇒ 影响 0 行、不抛错、不回滚。
+         详见 UserDao#updateFollowCount 的 Javadoc。 -->
     <update id="updateFollowCount">
-        update users set follow_count = follow_count + #{delta} where id = #{userId}
+        update users set follow_count = follow_count + #{delta}
+        where id = #{userId} and CAST(follow_count AS SIGNED) + #{delta} &gt;= 0
     </update>
 
     <!-- TV: updateFollowerCount —— update users set follower_count = follower_count + ? where id=?
-         ⚠️ 同上：无防负守卫，原样保留。 -->
+         ★ 同上：T34 补防负守卫（users.follower_count 也是 int unsigned ⇒ CAST(... AS SIGNED)）。 -->
     <update id="updateFollowerCount">
-        update users set follower_count = follower_count + #{delta} where id = #{userId}
+        update users set follower_count = follower_count + #{delta}
+        where id = #{userId} and CAST(follower_count AS SIGNED) + #{delta} &gt;= 0
     </update>
 
     <!-- TV: findUsersByIds —— SELECT id, username FROM users WHERE id IN (...) ORDER BY id

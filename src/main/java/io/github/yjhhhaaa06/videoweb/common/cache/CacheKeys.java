@@ -261,7 +261,7 @@ public final class CacheKeys {
      * 匿名态用户桶：{@code ratelimit:anon:{ip}}（同上）。
      *
      * <p>key 由客户端 IP 得来——NAT / 内网下多个用户共享一个出口 IP，
-     * 故匿名桶参数刻意比登录桶宽（已知代价见 {@code architecture/tech/限流.md}）。
+     * 故匿名桶参数刻意比登录桶宽（已知代价见 {@code architecture/tech/rate-limit/限流.md}）。
      */
     public static String rateLimitAnon(String clientIp) {
         return "ratelimit:anon:" + clientIp;

@@ -62,7 +62,7 @@ import java.util.Set;
  *       照常校验（{@code isContentExist} 带 {@code is_deleted = 0}），
  *       「失效不可移入」由此**自然产生**，没有专门分支。</li>
  *   <li>跨域只走三条合法通道：对方的 Service 公开方法 / 同事务内的 DAO 薄依赖 / 自己的
- *       {@code event} 包订阅别人的事件（见 {@code architecture/tech/模块边界与依赖.md} §三）。
+ *       {@code event} 包订阅别人的事件（见 {@code architecture/tech/module-boundary/模块边界与依赖.md} §三）。
  *       ⚠️ 本域**没有** {@code event} 包也不该有：收藏不是"别人要响应的事实"。
  *       T4 新增一条 **DAO 薄依赖**：{@code ContentDao.isContentExist}（收藏/移动前判内容存在，
  *       与 like 域对 content/comment 的薄依赖同形态——同事务内一条窄查询，不碰对方的
@@ -74,7 +74,7 @@ import java.util.Set;
  * </ul>
  *
  * <h2>事务</h2>
- * 写路径的切分口径见 {@code architecture/tech/事务边界.md}；{@code @Transactional} 标在
+ * 写路径的切分口径见 {@code architecture/tech/transaction/事务边界.md}；{@code @Transactional} 标在
  * **本类的 public 入口**上，别标在同类内部调用的私有方法上（自调用绕过代理 ⇒ 静默失效）。
  * <ul>
  *   <li>{@link #moveItem} —— **两条写必须同进同退**（插入目标夹 + 从源夹删除）⇒

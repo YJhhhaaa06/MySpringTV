@@ -59,7 +59,7 @@ class RateLimitPropertiesBindingTests extends AbstractIntegrationTest {
         assertThat(server.taskCost()).as("任务自付费单价（锚点：一次重建 ≈ 十次普通读）").isPositive();
         // ★ 本条（含下面两条 Bucket 的）只在**测试层**兜住，构造期校验刻意不管：桶补满时间
         //   ceil(capacity / refill) 若 < 1 秒，`capacity` 就成了唯一的有效上界、`refill` 退化为
-        //   "几乎立刻补满"（口径可见 architecture/tech/限流.md §二）。
+        //   "几乎立刻补满"（口径可见 architecture/tech/rate-limit/限流.md §二）。
         assertThat(server.refillPerSec())
                 .as("补充速率必须为正，且不得大于容量（否则补满时间 < 1 秒，refill 不再是有效的稳态上界）")
                 .isPositive()

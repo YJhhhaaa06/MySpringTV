@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * 限流桶**复用全仓熔断**的行为契约（限流专项 T28 验收②；{@code architecture/tech/限流.md} §五）。
+ * 限流桶**复用全仓熔断**的行为契约（限流专项 T28 验收②；{@code architecture/tech/rate-limit/限流.md} §五）。
  *
  * <h2>要证明的一句话</h2>
  * 限流器经 {@code RedisOps.guarded} 发脚本 ⇒ 熔断打开时**不是**"再撞一次超时然后 fail-open"，

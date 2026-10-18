@@ -11,7 +11,7 @@
 
 本工具把那条手工 grep 升级为**会失败的命令**（本仓的"可复算"哲学）。
 
-## 检查什么（扫 `src/`，**跳过 `db/migration/**`**）
+## 检查什么（扫 `src/` 下九类后缀，**跳过 `src/main/resources/db/migration/**`**）
 
 1. **`.md` 引用可解析**：注释里出现的文档名（`xxx.md`）必须能指到**真实文件** ——
    带路径的按路径解析；只有基名的按**基名**在 `.docs/` 全树与仓库根查找。
@@ -39,10 +39,10 @@
 
 ## 用法
 
-    python tools/doc_refs.py             # 列出违规（0 处则退出码 0）
-    python tools/doc_refs.py --verbose   # 附行号
+    python tools/docs/doc_refs.py             # 列出违规（0 处则退出码 0）
+    python tools/docs/doc_refs.py --verbose   # 附行号
 
-退出码：0 = 无违规；1 = 有违规。
+退出码：0 = 无违规；1 = 有违规；2 = 一个文件都没扫到（路径/仓库根不对，不出"假绿"）。
 """
 
 from __future__ import annotations
@@ -52,14 +52,18 @@ import re
 import sys
 from pathlib import Path
 
-# ── Windows 中文环境必备：强制 stdout/stderr 用 UTF-8（见 tools/README.md §3.1）
-for _stream in (sys.stdout, sys.stderr):
-    if hasattr(_stream, "reconfigure"):
-        _stream.reconfigure(encoding="utf-8", errors="replace")
+if __package__:  # `python -m tools.docs.doc_refs`
+    from .common import ROOT, setup_stdio
+else:  # `python tools/docs/doc_refs.py`（文档化用法：脚本目录自动进 sys.path）
+    from common import ROOT, setup_stdio
 
-ROOT = Path(__file__).resolve().parent.parent
+setup_stdio()  # tools/README.md §3.1：中文输出必须强制 UTF-8
+
 SRC = ROOT / "src"
-SKIP_PARTS = {"migration"}  # src/main/resources/db/migration/** —— 冻结，跳过
+# 冻结目录 = `src/main/resources/db/migration/**`（Flyway checksum 覆盖全文，改不了）。
+# ⚠️ 判据用**精确路径**而不是"路径里有 `migration` 段就跳"：后者会把未来某个
+#    `src/main/java/.../migration/` 包**静默漏扫**（2026-10-18 复查收窄）。
+SKIP_DIR = SRC / "main" / "resources" / "db" / "migration"
 SCAN_SUFFIXES = {".java", ".xml", ".yaml", ".yml", ".js", ".json", ".properties", ".html", ".sql"}
 MD_TOKEN = re.compile(r"(?<![\w./-])([\w./-]+\.md)")
 # 别名黑名单：这些词**不是文件名**，任何工具都测不到 ⇒ 写进代码即静默断链
@@ -138,14 +142,17 @@ def pick(raw: str, by_name: dict[str, str], rels: set[str]) -> tuple[str, str]:
     return raw, DANGLING
 
 
-def scan() -> list[tuple[Path, int, str, str]]:
+def scan() -> tuple[list[tuple[Path, int, str, str]], int]:
+    """返回 (违规清单, 实际扫描的文件数)。**文件数给 `main()` 做零样本守卫。**"""
     by_name, rels = md_index()
     bad: list[tuple[Path, int, str, str]] = []
+    scanned = 0
     for p in sorted(SRC.rglob("*")):
         if not p.is_file() or p.suffix.lower() not in SCAN_SUFFIXES:
             continue
-        if SKIP_PARTS & set(p.parts):  # 命中 db/migration ⇒ 冻结（checksum 改不了），跳过
+        if p.is_relative_to(SKIP_DIR):  # 冻结的迁移目录（checksum 改不了），跳过
             continue
+        scanned += 1
         for i, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
             for m in MD_TOKEN.finditer(line):
                 raw = m.group(1)
@@ -162,7 +169,7 @@ def scan() -> list[tuple[Path, int, str, str]]:
                 bad.append((p, i, t.group(0), "裸登记台 token 禁入代码（CURRENT_* 每期重建；§五.5②）"))
             if a := ALIASES.search(_strip_md_tokens(line)):
                 bad.append((p, i, a.group(0), "别名禁入代码（INDEX §五.5③）"))
-    return bad
+    return bad, scanned
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -170,11 +177,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--verbose", "-v", action="store_true", help="附行号")
     args = parser.parse_args(argv)
 
-    bad = scan()
+    bad, scanned = scan()
+    # 零样本守卫：一个文件都没扫到时，"0 违规"是假绿（多半是仓库根解析错了）
+    if scanned == 0:
+        print(f"未扫描到任何文件：{SRC}", file=sys.stderr)
+        print("（这几乎一定是仓库根解析错了或目录被挪走 —— 不做'扫 0 份 ⇒ 报绿'的假绿。）", file=sys.stderr)
+        return 2
     if not bad:
         print("=" * 64)
         print("✅ src/ 的文档引用全部指得到；无别名；未引用 `task/` 登记台（`FURTHER_ISSUES` 结转池除外）")
-        print("   （INDEX §五.5 ①②③ 的**可测面**：解析可指到 / 非 archive-only / 非 task 登记台 / 已登记别名）")
+        print(f"   （扫描 {scanned} 个文件；INDEX §五.5 ①②③ 的**可测面**：解析可指到 / 非 archive-only / 非 task 登记台 / 已登记别名）")
         print("   ⚠️ 仍不可测：④ 第二锚点是否真的存在、是否指对；① 活文档是否在 T1 就建（开工纪律）")
         print("=" * 64)
         return 0

@@ -19,7 +19,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.doThrow;
 
 /**
- * 任务主体自付费的**接线**契约（限流专项 T27；口径唯一事实源 = {@code architecture/tech/限流.md}
+ * 任务主体自付费的**接线**契约（限流专项 T27；口径唯一事实源 = {@code architecture/tech/rate-limit/限流.md}
  * §四）——断言"重建被执行 ⇒ 服务器桶按 {@code task-cost} 减少"，而不是断言 Lua 脚本内部的
  * 扣减数学（那由 {@code RateLimitRedisOpsTests} 的独立 oracle 覆盖）。
  *

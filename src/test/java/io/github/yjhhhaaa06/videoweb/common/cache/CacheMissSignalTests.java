@@ -10,7 +10,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * {@link CacheMissSignal} 的行为契约（限流专项 T26 的信号②运行期载体；
- * 结算口径见 {@code architecture/tech/限流.md} §四）。
+ * 结算口径见 {@code architecture/tech/rate-limit/限流.md} §四）。
  *
  * <h2>本类证明什么 / 反向验证指向</h2>
  * <ul>

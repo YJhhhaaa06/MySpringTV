@@ -138,9 +138,12 @@
             <artifactId>spring-boot-starter-flyway-test</artifactId>
             <scope>test</scope>
         </dependency>
-        <!-- 注意：本项目**暂未迁移到 Spring Security**（决策③后置）。
-             切片 0 的鉴权由自研 JwtAuthFilter 承担（沿用 TV 的 AuthFilter 口径）。
-             此件及上方 spring-boot-starter-security 均为后续切片预置。 -->
+        <!-- 注意：本项目**不迁移到 Spring Security 的授权链**（F-01/F-02 于 2026-10-18 拍板不迁，
+             理由与推翻条件见 安全与鉴权.md §六）。此处两个 security 依赖的用途：
+             ① spring-boot-starter-security —— 只用其 BCrypt；链上保留是为了它的
+                StrictHttpFirewall（规范化拦截）并配合 SecurityPassthroughConfig 压掉默认保护链；
+             ② spring-boot-starter-security-test —— 目前未使用（保留给"将来若改方法安全"的路线）。
+             ⚠️ 不要把 ① 收窄成 spring-security-crypto（会连防火墙一起丢掉，见 安全与鉴权-已知代价.md 第 2 条）。 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security-test</artifactId>

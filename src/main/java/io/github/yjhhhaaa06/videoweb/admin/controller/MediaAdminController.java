@@ -5,7 +5,7 @@ import io.github.yjhhhaaa06.videoweb.admin.model.audit.RestoreResult;
 import io.github.yjhhhaaa06.videoweb.admin.service.MediaAuditService;
 import io.github.yjhhhaaa06.videoweb.common.log.AuditLog;
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
-import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
+import io.github.yjhhhaaa06.videoweb.common.security.RequiresAdmin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -37,7 +37,7 @@ import org.springframework.web.multipart.MultipartFile;
  * 故让 part 可缺省、由 {@code MediaAuditService.restoreMedia} 显式判
  * {@code null || size<=0} 抛 {@code ParamException} —— 这样文案与旧版逐字一致。
  *
- * <p>类级 {@link RequiresLogin} 的理由见 {@code AdminContentController} 的类注释。
+ * <p>类级 {@link RequiresAdmin} 的理由见 {@code AdminContentController} 的类注释。
  *
  * <h2>两个端点的实现是同一个 {@code scanAll}</h2>
  * {@code GET /media/list} 与 {@code POST /media/scan} 都调 {@code scanAll}——TV 原样。
@@ -46,7 +46,7 @@ import org.springframework.web.multipart.MultipartFile;
  */
 @RestController
 @RequestMapping("/api/admin/media")
-@RequiresLogin
+@RequiresAdmin
 public class MediaAdminController {
 
     private final MediaAuditService mediaAuditService;

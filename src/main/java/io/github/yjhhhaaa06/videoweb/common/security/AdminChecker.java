@@ -4,7 +4,7 @@ package io.github.yjhhhaaa06.videoweb.common.security;
  * "是否管理员"的**窄端口**（S6-B1）。
  *
  * <h2>它解决什么</h2>
- * {@link JwtAuthFilter} 需要判断调用者是不是管理员（{@code /api/admin} 前缀的路径，
+ * {@link JwtAuthFilter} 需要判断调用者是不是管理员（标了 {@code @RequiresAdmin} 的处理器，
  * 沿袭 TV：需 {@code role == 1}）。此前它直接注入 {@code user.service.UserService}，
  * 于是形成了**基建反向依赖业务模块**的倒挂：
  *

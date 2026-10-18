@@ -17,7 +17,7 @@ import java.time.Duration;
  * 可单独覆盖、不与投递线程池的参数混在一个命名空间里。
  * ⚠️ 这**不是**"record 只能绑自身前缀下的扁平键"——record **能**绑嵌套段（Boot 4.1.1 实测；
  * 本仓 {@link RateLimitProperties} 是"一个 record + 三段嵌套"的入库实例，口径见
- * {@code architecture/tech/限流.md} §二）⇒ **别再按这条约束设计**。
+ * {@code architecture/tech/rate-limit/限流.md} §二）⇒ **别再按这条约束设计**。
  *
  * @param bufferCapacity 待重放内存队列容量（满则丢弃 + 节流 WARNING）
  * @param probeInterval  恢复探测周期（同时是"不可达窗口"长度与恢复补偿的时延上界）

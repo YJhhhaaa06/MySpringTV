@@ -218,6 +218,55 @@ class LikeFlowTests extends AbstractLikeIntegrationTest {
         assertThat(countCommentLikeRows(commentId)).isEqualTo(1L);
     }
 
+    // ==================== 计数防负守卫（T34） ====================
+
+    /**
+     * ★ F-04 的尖锐场景（content 侧，unsigned）：{@code content_like} 有行、但 {@code content.like_count}
+     * 停在 0（数据不自洽）。取消点赞时若不设守卫，`0 + (-1)` 会因 UNSIGNED 下溢报 1690 → 500。
+     * 断言 200（不回滚、不失败）+ 记录照删 + 计数停在 0（守卫 block，不自愈成负）。
+     *
+     * <p><b>判别力</b>：去掉守卫 ⇒ 本用例因 500 变红；"正常 −1→0" 由 {@link #取消内容点赞} 作对照。
+     */
+    @Test
+    @DisplayName("★取消内容点赞：计数为 0 但记录仍在 ⇒ 守卫拦住下溢，返回 200 而非 500（T34）")
+    void 取消点赞_计数为零不报500() {
+        String token = registerAndGetToken(OTHER_PHONE, OTHER);
+        long userId = userIdOf(OTHER_PHONE);
+        long contentId = insertContent(ANY_AUTHOR_ID);
+        // 夹具：有记录但计数停在 0（模拟历史增量丢失）—— 绕开接口直插，免得把计数一起改掉
+        jdbcTemplate.update("INSERT INTO content_like (user_id, content_id) VALUES (?, ?)", userId, contentId);
+        assertThat(contentLikeCountColumn(contentId)).as("夹具：有记录但计数停在 0").isZero();
+
+        ResponseEntity<String> resp = unlikeContent(contentId, token);
+
+        assertThat(resp.getStatusCode()).as("守卫拦住下溢；不得 500").isEqualTo(HttpStatus.OK);
+        assertThat(countContentLikeRows(contentId, userId)).as("记录照删（守卫只作用于计数列）").isZero();
+        assertThat(contentLikeCountColumn(contentId)).as("计数停在 0，不为负/不报错").isZero();
+    }
+
+    /**
+     * {@code comment.like_count} 是**有符号** int：同场景不 500，但若不加守卫会静默变成 −1。
+     * T34 一并加守卫后，计数停在 0。
+     *
+     * <p><b>判别力</b>：状态码两版都 200 ⇒ 靠**列值**判别 —— 去掉守卫 ⇒ 列变成 −1 ⇒ 本用例红。
+     */
+    @Test
+    @DisplayName("★取消评论点赞：计数为 0 但记录仍在 ⇒ 守卫拦住，计数停在 0（不是 −1）（T34）")
+    void 取消评论点赞_计数为零不出现负一() {
+        String token = registerAndGetToken(OTHER_PHONE, OTHER);
+        long userId = userIdOf(OTHER_PHONE);
+        long contentId = insertContent(ANY_AUTHOR_ID);
+        long commentId = insertComment(contentId, ANY_AUTHOR_ID, "被取消赞的评论", null, null);
+        jdbcTemplate.update("INSERT INTO comment_like (user_id, comment_id) VALUES (?, ?)", userId, commentId);
+        assertThat(commentLikeCountColumn(commentId)).as("夹具：有记录但计数停在 0").isZero();
+
+        ResponseEntity<String> resp = unlikeComment(commentId, token);
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(countCommentLikeRows(commentId)).isZero();
+        assertThat(commentLikeCountColumn(commentId)).as("守卫拦住 −1 ⇒ 停在 0").isZero();
+    }
+
     // ==================== 鉴权（类级 @RequiresLogin） ====================
 
     @Test

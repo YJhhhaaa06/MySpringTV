@@ -11,6 +11,7 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -122,15 +123,40 @@ class CommentCounterTests extends AbstractCommentIntegrationTest {
         long mainId = insertComment(contentId, authorId, "主楼", null, null);
         long replyId = insertComment(contentId, authorId, "回复", mainId, null);
         assertThat(replyCountOf(mainId)).as("种出不一致状态：有回复但计数停在 0").isZero();
-        // 夹具必须让 content.comment_count 与评论行数自洽（主楼 + 1 回复 = 2）。
-        // 否则本次删除会触发 content.comment_count（int unsigned）从 0 再 -1 的下溢，
-        // 那是 CM-2 记录的"已知并接受的旧实现尖锐处"，会以 500 掩盖本用例真正要测的防负守卫。
+        // 夹具让 content.comment_count 与评论行数自洽（主楼 + 1 回复 = 2）。
+        // ⚠️ T34 起 content.comment_count 已有防负守卫：即便停在 0，删回复也不会再 500（守卫 block，
+        //    见 删评论时commentCount为零不报500）。此处仍保持自洽，只为让断言聚焦 reply_count，
+        //    不被计数列的边缘态干扰。
         jdbcTemplate.update("UPDATE content SET comment_count = 2 WHERE id = ?", contentId);
 
         assertThat(deleteComment(replyId, token).getStatusCode()).isEqualTo(HttpStatus.OK);
 
         assertThat(replyCountOf(mainId)).as("防负守卫：0 + (-1) < 0 ⇒ 该 UPDATE 不生效").isZero();
         assertThat(isCommentDeleted(replyId)).as("计数被守卫拦住不影响软删本身").isTrue();
+    }
+
+    /**
+     * ★ F-04 的尖锐场景（content 侧，unsigned）：评论行存在、但 {@code content.comment_count} 停在 0。
+     * 删评论时若不设守卫，`0 + (-1)` 会因 UNSIGNED 下溢报 1690 → 500。
+     * 断言 200（不回滚、不失败）+ 评论照软删 + 计数停在 0（守卫 block）。
+     *
+     * <p><b>判别力</b>：去掉守卫 ⇒ 本用例因 500 变红；"正常 −1" 由 {@link #先单删回复再删主楼不得二次扣减} 作对照。
+     */
+    @Test
+    @DisplayName("★删评论：content.comment_count 为 0 但评论仍在 ⇒ 守卫拦住下溢，返回 200 而非 500（T34）")
+    void 删评论时commentCount为零不报500() {
+        String token = registerAndGetToken(AUTHOR_PHONE, AUTHOR);
+        long authorId = userIdOf(AUTHOR_PHONE);
+        long contentId = insertContent(authorId, true);
+        long mainId = insertComment(contentId, authorId, "主楼", null, null);
+        // 夹具不自洽：有评论行，但 content.comment_count 停在 0（insertComment 直插、不联动计数）
+        assertThat(commentCountOf(contentId)).as("夹具：有评论但计数停在 0").isZero();
+
+        ResponseEntity<String> resp = deleteComment(mainId, token);
+
+        assertThat(resp.getStatusCode()).as("守卫拦住下溢；不得 500").isEqualTo(HttpStatus.OK);
+        assertThat(isCommentDeleted(mainId)).as("评论照软删（守卫只作用于计数列）").isTrue();
+        assertThat(commentCountOf(contentId)).as("计数停在 0（守卫 block）").isZero();
     }
 
     // ==================== 不变式 3：两条路径的事务原子性 ====================

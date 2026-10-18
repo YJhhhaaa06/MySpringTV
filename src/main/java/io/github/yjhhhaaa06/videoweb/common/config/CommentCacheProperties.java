@@ -15,7 +15,8 @@ import java.time.Duration;
  * 本实现统一用 {@code Duration}（Spring 的原生表达），消除这个历史不一致；
  * {@code video.cache.comment-ttl: 10m} 与 TV 的 {@code cache.comment.ttlMinutes=10} 等价。
  *
- * <p>⚠️ {@code Duration} 属性**必须带单位后缀**（坑 4：裸数字 10 会被解析成 PT10S）。
+ * <p>⚠️ {@code Duration} 属性**必须带单位后缀**（坑 4：无后缀的默认单位是**毫秒**，
+ * 裸数字 10 会被解析成 {@code PT0.01S}，即 10 毫秒）。
  *
  * @param commentTtl 评论缓存 key 的存活时长，TV 原值 10 分钟
  */

@@ -47,7 +47,7 @@ import java.util.List;
  * </table>
  *
  * <p>⚠️ 删除自建夹要**一并删条目**（R-02）；删夹与删条目必须同事务
- * （见 {@code architecture/tech/事务边界.md}）——事务边界在 {@code FavoriteService.deleteFolder}。
+ * （见 {@code architecture/tech/transaction/事务边界.md}）——事务边界在 {@code FavoriteService.deleteFolder}。
  */
 @Mapper
 public interface FavoriteFolderDao {

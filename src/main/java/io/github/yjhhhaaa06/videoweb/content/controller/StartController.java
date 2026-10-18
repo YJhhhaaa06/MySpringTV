@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.content.controller;
 
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
+import io.github.yjhhhaaa06.videoweb.common.security.Public;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import io.github.yjhhhaaa06.videoweb.common.web.PageParams;
 import io.github.yjhhhaaa06.videoweb.content.cache.ContentCache;
@@ -72,6 +73,7 @@ public class StartController {
      * @param categoryId 分区 id：0..9；空 / 非数字 ⇒ 不过滤
      * @return 推荐列表（可能为空：无内容 / 索引装载失败降级）
      */
+    @Public
     @GetMapping("/start")
     public ApiResponse<List<ContentVO>> start(@CurrentUserId(required = false) Long userId,
                                              @RequestParam(required = false) String type,

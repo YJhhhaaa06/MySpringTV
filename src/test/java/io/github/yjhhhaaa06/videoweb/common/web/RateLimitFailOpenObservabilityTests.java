@@ -27,7 +27,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.reset;
 
 /**
- * fail-open 的**日志档位**与**指标口径**（限流专项 T28；{@code architecture/tech/限流.md} §五）。
+ * fail-open 的**日志档位**与**指标口径**（限流专项 T28；{@code architecture/tech/rate-limit/限流.md} §五）。
  *
  * <h2>为什么这条必须单独钉</h2>
  * 两种失败都放行是 T25 的行为契约（{@code RateLimitFailOpenTests}），但**放行之后**两条路径
@@ -39,7 +39,7 @@ import static org.mockito.Mockito.reset;
  *   <tr><td>{@link RateLimitScriptException}（**自身缺陷**）</td><td><b>ERROR</b></td><td>是</td><td>不记</td></tr>
  * </table>
  * ★ 若两档合并（都 WARN 或都 ERROR），"限流器自己坏了"就会被伪装成"Redis 挂了"⇒
- * **限流静默消失而无人知**（{@code architecture/tech/限流.md} §五 的三档口径）。
+ * **限流静默消失而无人知**（{@code architecture/tech/rate-limit/限流.md} §五 的三档口径）。
  *
  * <h2>★ 反向验证</h2>
  * <ul>
@@ -145,7 +145,7 @@ class RateLimitFailOpenObservabilityTests extends AbstractHttpIntegrationTest {
             assertThat(line).contains("path=/start").contains("userId=- ");
             assertThat(line)
                     .as("不落原始 key（本用例的原因文案是合成串；真实 Redis 异常文案可能带 **Redis 端点**"
-                            + "地址——基础设施地址、非用户 PII，口径见 architecture/tech/限流.md §五）")
+                            + "地址——基础设施地址、非用户 PII，口径见 architecture/tech/rate-limit/限流.md §五）")
                     .doesNotContain("ratelimit:").doesNotContain("127.0.0.1");
             assertThat(system.countLinesContaining("限流脚本/返回值异常"))
                     .as("★ 档位必须可区分：外部故障不得同时被记成自身缺陷").isZero();

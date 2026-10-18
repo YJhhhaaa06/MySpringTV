@@ -14,9 +14,11 @@ import org.springframework.web.method.support.ModelAndViewContainer;
  *
  * <h2>两种语义（S5 起）</h2>
  * <ul>
- *   <li>{@code @CurrentUserId}（{@code required = true}，默认）——若取不到（说明该端点忘了标
- *       {@link RequiresLogin}），抛 {@link io.github.yjhhhaaa06.videoweb.common.exception.AuthException}
- *       （401）而**不是**返回 null：<b>失败要显式</b>，避免把"未登录"静默变成 {@code userId = 0} 这种脏数据。</li>
+ *   <li>{@code @CurrentUserId}（{@code required = true}，默认）——若取不到，抛
+ *       {@link io.github.yjhhhaaa06.videoweb.common.exception.AuthException}
+ *       （401）而**不是**返回 null：<b>失败要显式</b>，避免把"未登录"静默变成 {@code userId = 0} 这种脏数据。
+ *       ⚠️ 它**不再是**"忘了标注解"的兜底信号：未标 {@link Public} 的端点在 {@link JwtAuthFilter}
+ *       就被默认拒绝拦成 401，到不了这里。公开端点若漏标 {@code @Public} ⇒ 401（可见故障）。</li>
  *   <li>{@code @CurrentUserId(required = false)}——取不到就注入 {@code null}。
  *       服务"匿名可见但已登录则个性化"的端点（{@code /start} / {@code /search/*} / {@code /profile} /
  *       {@code /comment/show} / {@code /comment/replies}）。</li>

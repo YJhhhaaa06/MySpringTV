@@ -2,6 +2,7 @@ package io.github.yjhhhaaa06.videoweb.user.controller;
 
 import io.github.yjhhhaaa06.videoweb.common.log.AuditLog;
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
+import io.github.yjhhhaaa06.videoweb.common.security.Public;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import io.github.yjhhhaaa06.videoweb.user.model.dto.ChangePasswordRequest;
@@ -54,12 +55,14 @@ public class UserController {
     }
 
     /** 注册并自动登录。token 可能为 null（注册成功但自动登录失败），见《事务边界决策表》U-1。 */
+    @Public
     @PostMapping("/register")
     public ApiResponse<LoginVO> register(@RequestBody @Valid RegisterRequest request) {
         return ApiResponse.success(userService.registerAndLogin(request));
     }
 
     /** 登录。 */
+    @Public
     @PostMapping("/login")
     public ApiResponse<LoginVO> login(@RequestBody @Valid LoginRequest request) {
         return ApiResponse.success(userService.login(request.phone(), request.password()));

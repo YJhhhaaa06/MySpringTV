@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.within;
 
 /**
  * 信号②**关闭态**（{@code miss-multiplier = 1.0}）的契约测试（限流专项 T26；
- * 口径见 {@code architecture/tech/限流.md} §四）。
+ * 口径见 {@code architecture/tech/rate-limit/限流.md} §四）。
  *
  * <h2>钉住的语义</h2>
  * 1.0 = 关闭（沿用本仓"0/1 = 关闭"惯例）：冷读 miss **也不补扣**——只按 base 扣。

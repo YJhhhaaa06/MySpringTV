@@ -3,7 +3,7 @@ package io.github.yjhhhaaa06.videoweb.admin.controller;
 import io.github.yjhhhaaa06.videoweb.comment.service.CommentService;
 import io.github.yjhhhaaa06.videoweb.common.log.AuditLog;
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
-import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
+import io.github.yjhhhaaa06.videoweb.common.security.RequiresAdmin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -23,12 +23,12 @@ import org.springframework.web.bind.annotation.RestController;
  * 管理员删除**可删任意评论**（{@code deleteCommentByAdmin(commentId)} 不接收 userId，
  * 内部以 {@code ownerId=0, isAdmin=true} 调私有 {@code doDeleteComment}）。
  *
- * <p>类级 {@link RequiresLogin} 的理由见 {@code AdminContentController} 的类注释
- * （缺它时匿名请求会得到 403 而非契约要求的 401）。
+ * <p>类级 {@link RequiresAdmin} 的理由见 {@code AdminContentController} 的类注释
+ * （"仅管理员"蕴含"需登录"⇒ 匿名得 401 而非 403；判据不再依赖路径前缀）。
  */
 @RestController
 @RequestMapping("/api/admin/comment")
-@RequiresLogin
+@RequiresAdmin
 public class AdminCommentController {
 
     private final CommentService commentService;

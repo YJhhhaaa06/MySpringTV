@@ -57,7 +57,7 @@ import java.time.Duration;
  * <h2>校验口径：NaN / 非正数 = 启动即拒</h2>
  * 沿袭 TV {@code validatePositiveBatch} 的"宁可启动即拒"取向（{@link BigVProperties} 同款），
  * 与本项目"配置绑定期校验"的统一口径一致。{@code Duration} 属性**必须带单位后缀**
- * （裸数字会解析成秒级，见 {@code JwtProperties} 的坑记录）。
+ * （裸数字会解析成毫秒级，见 {@code JwtProperties} 的坑记录）。
  *
  * @param inboxTtl            收件箱读缓存 TTL（&gt; 0）
  * @param inboxWindowPerAuthor 每关注作者最近 K 条（&gt; 0）

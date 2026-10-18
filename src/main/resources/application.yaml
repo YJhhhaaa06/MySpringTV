@@ -157,9 +157,10 @@ video:
   jwt:
     secret: ${JWT_SECRET:dev-only-change-me-in-production}
     # ⚠️ 必须带单位后缀（2h），**不能**写裸数字 2。
-    # 绑定目标是 java.time.Duration：裸数字会被当作"2 个单位、无单位"，解析为 **PT2S（2 秒）**，
-    # 于是签发的 token 在 iat 之后 2 秒即过期，表现为"刚登录就 401"，且**不报任何配置错误**。
-    # 这类静默误解析正是切片 0 踩到的坑（JwtPropertiesBindingTests 已加断言防回归）。
+    # 绑定目标是 java.time.Duration：**无后缀时默认单位是毫秒**（DurationStyle 的 MILLIS）
+    # ⇒ 裸数字 2 解析为 **PT0.002S（2 毫秒）**，签发的 token 立刻过期，表现为"刚登录就 401"，
+    # 且**不报任何配置错误**。★ 该单位由 JwtPropertiesBindingTests#裸数字按毫秒解析 实测钉住
+    #（本注释曾长期写"PT2S（2 秒）"，2026-10-18 实测纠偏——结论不变，只是差三个数量级）。
     # TV 原值 jwt.expireHours=2（小时），此处等价表达为 2h。
     expire-hours: ${JWT_EXPIRE_HOURS:2h}
 
@@ -184,7 +185,7 @@ video:
 
   # 缓存（决策⑤：显式封装层，不用 @Cacheable）
   # 口径对齐 TV AppConfig.getLikeTtlSeconds() ← app.properties 的 cache.like.ttlMinutes=15。
-  # ⚠️ 同上：Duration 属性**必须带单位后缀**。写裸数字 15 会解析成 PT15S（15 秒），
+  # ⚠️ 同上：Duration 属性**必须带单位后缀**。写裸数字 15 会解析成 PT0.015S（15 毫秒），
   # 缓存几乎立刻失效——不报错，只是命中率莫名很低。
   cache:
     like-ttl: ${LIKE_CACHE_TTL:15m}
@@ -192,7 +193,7 @@ video:
     # ← app.properties 的 cache.follow.ttlMinutes=30。
     # TV 取值理由（原注释）："follow 30min（关系低频变 + MULTI 双写失效清晰；
     # 压测以空关系为主，依据写路径特性保守延长）"——刻意比 like 的 15 分钟长。
-    # ⚠️ 同上：Duration 属性**必须带单位后缀**，写裸数字 30 会解析成 PT30S。
+    # ⚠️ 同上：Duration 属性**必须带单位后缀**，写裸数字 30 会解析成 PT0.03S（30 毫秒）。
     follow-ttl: ${FOLLOW_CACHE_TTL:30m}
     # 内容缓存（S5 切片）。口径对齐 TV AppConfig.getContentTtlMillis()
     # ← app.properties 的 cache.content.ttlMinutes=30。
@@ -210,7 +211,7 @@ video:
     # cache.content.indexRebuildCooldownMillis=10000（10s）。
     # 含义：DB 故障 + 索引缺失时，把"每请求一次全表重建（findAllContent）"收敛为"每冷却窗口一次"。
     # ⚠️ 0 = 关闭退避（与 TV 同口径，"测试注入大值即等效关闭"）。
-    # ⚠️ 必须带单位后缀，写裸数字会被解析成秒级。
+    # ⚠️ 必须带单位后缀，写裸数字会被解析成毫秒级。
     content-index-rebuild-cooldown: ${CONTENT_INDEX_REBUILD_COOLDOWN:10s}
     # ------------------------------------------------------------------------
     # Redis 熔断器（第三批 T3 / 账 B4）。对应 TV app.properties 的 redis.breaker.*
@@ -225,7 +226,7 @@ video:
       sliding-window-size: ${REDIS_BREAKER_WINDOW_SIZE:10}
       minimum-number-of-calls: ${REDIS_BREAKER_MIN_CALLS:5}
       # OPEN 冷却时长（期满放行单个探针）。TV: redis.breaker.cooldownMillis=10000。
-      # ⚠️ Duration 必须带单位后缀（10s），写裸数字会解析成秒级。
+      # ⚠️ Duration 必须带单位后缀（10s），写裸数字会解析成毫秒级。
       wait-duration-in-open-state: ${REDIS_BREAKER_OPEN_WAIT:10s}
       permitted-number-of-calls-in-half-open-state: ${REDIS_BREAKER_HALF_OPEN_CALLS:1}
     # 评论缓存（S5 切片）。口径对齐 TV AppConfig.getCommentTtlSeconds()
@@ -240,7 +241,7 @@ video:
     # 写路径都在提交后条件写/失效、读路径都热在详情页。
     # 刻意比 follow / content 的 30m 短：收藏的失效驱动有 add/remove/move/删夹 四个写点，
     # 短 TTL 让"万一漏了一处失效"的最坏影响面更小。
-    # ⚠️ 同上：Duration 属性**必须带单位后缀**，写裸数字 15 会被解析成 PT15S（15 秒）。
+    # ⚠️ 同上：Duration 属性**必须带单位后缀**，写裸数字 15 会被解析成 PT0.015S（15 毫秒）。
     favorite-ttl: ${FAVORITE_CACHE_TTL:15m}
 
   # 媒体资源 URL 前缀（S5 切片）。替代 TV 的 RequestContext.getContextPath()
@@ -290,7 +291,7 @@ video:
     user-ids: ${BIGV_USER_IDS:}
 
   # feed 批次参数（S9）。逐条对齐 TV app.properties 的 feed.*（见 FeedProperties 类注释的对照表）。
-  # ⚠️ 凡 Duration 属性**必须带单位后缀**（60m/1s/7d），裸数字会被解析成秒级，不报错只是行为诡异。
+  # ⚠️ 凡 Duration 属性**必须带单位后缀**（60m/1s/7d），裸数字会被解析成毫秒级，不报错只是行为诡异。
   feed:
     # 收件箱读缓存（ZSet）TTL，命中滑动续期。TV: feed.inbox.ttlMinutes=60
     inbox-ttl: ${FEED_INBOX_TTL:60m}
@@ -322,7 +323,7 @@ video:
     #    分家的理由是**关注点分离**（业务窗口 vs 投递基建）＋ **独立前缀便于环境变量覆盖**
     #    （FEED_DELIVERY_* 与 FEED_* 一眼可辨），**不是**"record 绑不了嵌套"——
     #    record **能**绑嵌套段（Boot 4.1.1 实测；本仓 RateLimitProperties 就是"一个 record + 三段嵌套"，
-    #    口径见 architecture/tech/限流.md §二）⇒ 别再按"嵌套会被静默忽略并绑成 0"这条约束设计。
+    #    口径见 architecture/tech/rate-limit/限流.md §二）⇒ 别再按"嵌套会被静默忽略并绑成 0"这条约束设计。
     delivery:
       # 有界队列容量（满则丢弃 + WARNING；不得改 CallerRunsPolicy，否则 RT 解耦白做）。TV=1000
       queue-capacity: ${FEED_DELIVERY_QUEUE_CAPACITY:1000}
@@ -338,12 +339,12 @@ video:
       probe-interval: ${FEED_COMPENSATE_PROBE_INTERVAL:30s}
 
   # --------------------------------------------------------------------------
-  # 限流（限流专项 T23；★ 口径的唯一事实源 = architecture/tech/限流.md）
+  # 限流（限流专项 T23；★ 口径的唯一事实源 = architecture/tech/rate-limit/限流.md）
   # 结构 = 两个记账主体各一个桶（登录/匿名 + 服务器）＋ 成本信号①（端点权重表）。
   # --------------------------------------------------------------------------
   # ⚠️⚠️ 下面每一个数字都是**拍的**（本仓无真实流量）。它们的作用是把口径做成
   #      **可复算、可替换**的配置，**不是**让数值可信。每项的「推导锚点」与「推翻条件」
-  #      登记在 architecture/tech/限流.md（同 video.favorite.* 的"刻意的演示值"纪律）。
+  #      登记在 architecture/tech/rate-limit/限流.md（同 video.favorite.* 的"刻意的演示值"纪律）。
   # ⚠️ 键名写错不会报错，只会绑成 0 / 0.0 —— 但 RateLimitProperties 的构造器对所有
   #      "必须为正"的量**绑定期校验**（非法 ⇒ 上下文起不来），故这类错是响亮的。
   # ⚠️ 所有标量键都可用环境变量覆盖（测试注入用，同 BIGV_THRESHOLD 的"测试用低阈值覆盖"手法）；
@@ -370,7 +371,7 @@ video:
         refill-per-sec: ${RATE_LIMIT_USER_AUTHED_REFILL_PER_SEC:2}
       # ⚠️⚠️ 匿名桶在 MockMvc 里**全是 127.0.0.1** ⇒ 测试互相吃额度（NAT 语义退化成全局限流）。
       #    故这两键必须可覆盖：非限流测试若被误伤，把它调成一个很大的数即可（对冲口径见
-      #    architecture/tech/限流.md §六；该环境的测试夹具前提见 T25）。
+      #    architecture/tech/rate-limit/限流.md §六；该环境的测试夹具前提见 T25）。
       anon:
         capacity: ${RATE_LIMIT_USER_ANON_CAPACITY:60}
         refill-per-sec: ${RATE_LIMIT_USER_ANON_REFILL_PER_SEC:6}
@@ -380,9 +381,9 @@ video:
       # 信号②（"这一次查询有没有命中缓存"）：miss 时的乘数。**T26 起启用（3.0）**。
       # 落地形态（时序）：miss 是**请求运行期事实**（门时取不到）⇒ 门按 base 扣、请求收尾按差额
       #   base × (乘数 − 1) 补扣（两桶同扣、无折扣、仅"门放行过"的请求；结算细则见
-      #   architecture/tech/限流.md §四）。二值不计数（任一 miss 乘一次）：次数加权已否决——
+      #   architecture/tech/rate-limit/限流.md §四）。二值不计数（任一 miss 乘一次）：次数加权已否决——
       #   "次数"的单位随实现漂移、"次数→系数"无依据，且冷启动/深翻会把正常用户 x(3n) 误伤
-      #   （已否决记录见 architecture/tech/限流.md §四）。
+      #   （已否决记录见 architecture/tech/rate-limit/限流.md §四）。
       # 锚点："miss 一次 ≈ 三次命中"（凭"DB 远慢于 Redis"的量级差）。推翻条件：有命中/未命中的实测耗时比。
       miss-multiplier: ${RATE_LIMIT_COST_MISS_MULTIPLIER:3.0}
       # 被拒请求仍扣的"询问费"比例：0 = 被拒免费探路（防刷最弱）、1 = 用户为服务器过载全额买单。

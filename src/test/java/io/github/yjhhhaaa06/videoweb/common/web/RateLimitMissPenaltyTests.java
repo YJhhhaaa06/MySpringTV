@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.within;
 
 /**
  * 缓存 miss 差额补扣（信号②）的 **HTTP 级契约测试**（限流专项 T26；口径的唯一事实源 =
- * {@code architecture/tech/限流.md} §四）。
+ * {@code architecture/tech/rate-limit/限流.md} §四）。
  *
  * <h2>两阶段语义（本类要钉住的东西）</h2>
  * miss 是**请求运行期事实**（门时取不到）⇒ 门按 {@code base} 扣、请求收尾按差额

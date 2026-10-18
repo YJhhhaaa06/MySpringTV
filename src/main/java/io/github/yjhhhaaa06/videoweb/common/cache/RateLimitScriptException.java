@@ -1,7 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.common.cache;
 
 /**
- * 限流脚本的**返回值解析失败**（限流专项 T24；口径见 {@code architecture/tech/限流.md}）。
+ * 限流脚本的**返回值解析失败**（限流专项 T24；口径见 {@code architecture/tech/rate-limit/限流.md}）。
  *
  * <h2>为什么必须与 {@link CacheUnavailableException} 分开（T28 的日志分档基础）</h2>
  * 过滤器对两者都会 fail-open（放行），但**语义完全不同**：

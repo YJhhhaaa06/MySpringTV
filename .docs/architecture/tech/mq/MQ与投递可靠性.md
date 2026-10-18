@@ -3,7 +3,7 @@
 > 定位（先读这一句）：**本仓 MQ 的拓扑、可靠性配置、投递管道与补偿口径** —— 一件事只有一处。
 > **本篇只讲"机制"**：拓扑怎么声明、失败往哪走、投递为何不占 Web 线程、补偿缓冲为何存在。
 > feed 的 **fanout 业务**（写扩散步骤 / 游标口径 / 只多不丢）与**重建去抖语义**归
-> [feed 域架构](../domain/feed.md)——本篇**只链接不复述**；缓存 / 事务 / 事件范式 / 观测同样不在本篇，
+> [feed 域架构](../../domain/feed/feed.md)——本篇**只链接不复述**；缓存 / 事务 / 事件范式 / 观测同样不在本篇，
 > 去向见文末 [§十 边界与去向](#十边界与去向机制外链)。
 >
 > 证据来源：`feed/mq/*`、`common/config/Feed*.java`、`application.yaml` 的 `spring.rabbitmq.*`。
@@ -14,11 +14,11 @@
 ## 一、全景：一条消息从发布到消费
 
 ```
-① 发布（AFTER_COMMIT，见 ../domain/feed.md 的事件订阅）
+① 发布（AFTER_COMMIT，见 ../domain/feed/feed.md 的事件订阅）
 
    FeedPushNotifier.publishContentPublished ─┐
    AuthorBackfillNotifier.publishAuthorBackfill ─┤
-   InboxRebuildNotifier.publishInboxRebuild ─► InboxRebuildDebouncer（去抖，见 ../domain/feed.md）
+   InboxRebuildNotifier.publishInboxRebuild ─► InboxRebuildDebouncer（去抖，见 ../domain/feed/feed.md）
                                                  └─┐
                                                    ▼
                          FeedDelivery.deliver（非阻塞、绝不抛）
@@ -204,7 +204,7 @@ Boot 自动装配的 `RabbitAdmin` 实现 `ConnectionListener`，在**每条新�
 ### 6.1 为什么能安全重放
 
 三类消息的**消费侧本就幂等**：写扩散 / 补推 = `INSERT IGNORE`；重建 = 整窗替换 + `SET NX EX` 去重锁
-（明细见 [feed 域](../domain/feed.md)）。⇒ 重放是**至少一次**语义、零副作用。**这是本方案成立的基石。**
+（明细见 [feed 域](../../domain/feed/feed.md)）。⇒ 重放是**至少一次**语义、零副作用。**这是本方案成立的基石。**
 
 ### 6.2 不可达窗口（本类必须先于"每次投递都等连接超时"）
 
@@ -271,7 +271,7 @@ Boot 自动装配的 `RabbitAdmin` 实现 `ConnectionListener`，在**每条新�
 **重放从方法入口整体重跑**：消费者不做"部分确认"，失败即整条消息重来——
 上限由幂等手段吸收（重跑等价于再执行一次同一幂等操作）。
 
-> 具体写扩散步骤 / 游标口径 / "只多不丢"不变量 / 重建六步与去抖语义**归 [feed 域](../domain/feed.md)**，本篇不复述。
+> 具体写扩散步骤 / 游标口径 / "只多不丢"不变量 / 重建六步与去抖语义**归 [feed 域](../../domain/feed/feed.md)**，本篇不复述。
 > 重建过程自身的 Redis / DB 失败在 `FeedRebuildService` 内**降级吞掉并 ACK**（不走死信）；
 > **只有"载荷不可用"（空 / 非法 JSON）才在消费者侧抛出** ⇒ 重试耗尽转死信留证。
 
@@ -324,7 +324,7 @@ TV 的探测周期是 `MqDeliveryBuffer` 的**包内常量**（`30_000ms`，原�
 - [ ] 目标交换机 / 路由键**只从 `FeedTopology` 取**，不写字符串字面量（§2.1）。
 - [ ] 从 `FeedDelivery.deliver` 出去（**不要在业务代码里直接用 `RabbitTemplate`**）；它非阻塞、绝不抛、走后台单 worker。
 - [ ] 载荷**只放可重算的最小标识**（id 即可），不放内容快照（§7.3）；用 record，走 `JsonCodec`。
-- [ ] 投递点放在 `AFTER_COMMIT`（提交后副作用，见 [feed 域](../domain/feed.md) 的事件订阅）。
+- [ ] 投递点放在 `AFTER_COMMIT`（提交后副作用，见 [feed 域](../../domain/feed/feed.md) 的事件订阅）。
 - [ ] **不要**给投递加"等 confirm / 等 broker 应答"——发布侧**有意不启用** `publisher-confirm`（§四）。
 - [ ] 确保**消费侧幂等**（`INSERT IGNORE` / 整窗替换）——重复投递是常态（至少一次，§七）。
 
@@ -346,13 +346,13 @@ TV 的探测周期是 `MqDeliveryBuffer` 的**包内常量**（`30_000ms`，原�
 
 | 不在本篇的内容 | 去向 |
 |---|---|
-| feed 的 fanout 写扩散步骤、游标口径、"只多不丢" | [feed 域架构](../domain/feed.md)（本篇只链接） |
-| 重建触发链、去抖语义、重建六步、同步态 | [feed 域架构](../domain/feed.md)（本篇只链接） |
-| 事件"谁声明、谁订阅"、`AFTER_COMMIT` 范式、禁止代发 | [领域事件与解耦](./领域事件与解耦.md) |
-| 缓存三态 / 空标记 / 写后失效 / 消费侧读缓存回源 | [缓存与数据一致性](./缓存与数据一致性.md) |
-| 事务切分原则、事务边界载体（`FeedWindowWriter` 等） | [事务边界](./事务边界.md) |
-| 日志四输出端 / MDC / 指标 / 审计 | [可观测](./可观测.md) |
-| 模块包结构与依赖方向（`feed/event` 订阅、ArchUnit） | [模块边界与依赖](./模块边界与依赖.md) |
+| feed 的 fanout 写扩散步骤、游标口径、"只多不丢" | [feed 域架构](../../domain/feed/feed.md)（本篇只链接） |
+| 重建触发链、去抖语义、重建六步、同步态 | [feed 域架构](../../domain/feed/feed.md)（本篇只链接） |
+| 事件"谁声明、谁订阅"、`AFTER_COMMIT` 范式、禁止代发 | [领域事件与解耦](../events/领域事件与解耦.md) |
+| 缓存三态 / 空标记 / 写后失效 / 消费侧读缓存回源 | [缓存与数据一致性](../cache/缓存与数据一致性.md) |
+| 事务切分原则、事务边界载体（`FeedWindowWriter` 等） | [事务边界](../transaction/事务边界.md) |
+| 日志四输出端 / MDC / 指标 / 审计 | [可观测](../observability/可观测.md) |
+| 模块包结构与依赖方向（`feed/event` 订阅、ArchUnit） | [模块边界与依赖](../module-boundary/模块边界与依赖.md) |
 
 > 本篇**只讲 MQ 机制**：拓扑 / 重连 / 重试+DLQ / 预取 / 发布三态 / 后台单 worker / 补偿缓冲 / 探针 / 幂等。
 > 不含任何迁移期文档（决策留痕表 / 遗留台账 / 事务边界决策表 / archive）。

@@ -23,7 +23,7 @@ import java.lang.annotation.Target;
  * {@code /profile}、{@code /comment/show}、{@code /comment/replies}。
  * TV 的写法是 {@code Long userId = (Long) req.getAttribute("userId")}——**天然可空**。
  *
- * <p>原实现的注解语义是"必须有身份"（取不到就抛 401，防止"忘了标 {@code @RequiresLogin}"
+ * <p>原实现的注解语义是"必须有身份"（取不到就抛 401，防止"忘了标注解"
  * 时把未登录静默变成 {@code userId = 0}）。对上面这批端点，那个语义恰好相反：
  * 它们**本来就不该要求登录**。故新增 {@code required = false}：
  * <ul>
@@ -32,9 +32,15 @@ import java.lang.annotation.Target;
  *   <li>{@code required = false} —— 取不到 ⇒ 注入 {@code null}（参数类型须为包装类型
  *       {@code Long}）。用于"匿名可见 + 已登录则个性化"。</li>
  * </ul>
- * ★ 注意：{@code required = false} 的参数**不得**同时依赖 {@code @RequiresLogin}——
+ * ★ 注意（2026-10-18 起）：需要"匿名可见"的端点**必须同时标 {@link Public}**——
+ * 授权默认拒绝，漏标 {@code @Public} 时请求在过滤器就被 401 拦下，**到不了**本参数解析器。
+ * 反过来，{@code required = false} 的参数**不得**再配 {@code @RequiresLogin}——
  * 两者语义相反（前者是"可有可无"，后者是"必须有"）。测试里对公开端点断言
  * {@code requiresLogin == false} 就是这条纪律的固化（见 {@code SecurityContractTests}）。
+ *
+ * <p>另：{@code required = true} 的 401 兜底仍然保留，但它**不再是**"忘了标注解"的信号——
+ * 没标注解的端点已经被默认拒绝拦在过滤器层。它现在的价值是"标注了要登录、但 userId 缺失"
+ * 这条路径的显式失败（避免把未登录静默变成 {@code userId = 0}）。
  */
 @Documented
 @Retention(RetentionPolicy.RUNTIME)

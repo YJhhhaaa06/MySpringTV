@@ -28,7 +28,7 @@ import java.util.UUID;
  * ④ 在 {@link FeedWindowWriter}（独立 bean，事务边界）；本类是**编排**（自身无事务）。
  * 顺序红线的论证见 {@link FeedWindowWriter} 类注释。
  *
- * <h2>任务主体自付费（限流专项 T27；口径唯一事实源 = {@code architecture/tech/限流.md} §四）</h2>
+ * <h2>任务主体自付费（限流专项 T27；口径唯一事实源 = {@code architecture/tech/rate-limit/限流.md} §四）</h2>
  * 锁成功后、真正重建前，无条件扣一次服务器桶（{@code video.rate-limit.server.task-cost}）——
  * "去重后只跑一次的成本不属于任何用户"，记账主体因此扩成**请求 + 任务**两类。
  * ★ <b>立规</b>：新增昂贵后台任务（如将来的评论热度表重建）一律在**执行处**接同一扣减入口

@@ -19,7 +19,7 @@ import java.time.Duration;
  *
  * <p>⚠️ 分家**不是**因为"record 绑不了嵌套键"——那说法经实测**不成立**：record **能**绑嵌套段
  * （Boot 4.1.1 实测；本仓 {@link RateLimitProperties} 就是"一个 record + 三段嵌套"的入库实例，
- * 口径见 {@code architecture/tech/限流.md} §二）。旧注释按"绑定能力限制"论证，已经误导过设计选型
+ * 口径见 {@code architecture/tech/rate-limit/限流.md} §二）。旧注释按"绑定能力限制"论证，已经误导过设计选型
  * ⇒ **别再按这条约束设计**；真要合并，理由只能是"关注点该不该合"。
  *
  * <h2>校验口径</h2>
