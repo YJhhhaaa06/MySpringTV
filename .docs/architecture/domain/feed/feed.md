@@ -118,7 +118,7 @@ GET /feed ─► FeedController ─► FeedService.getFeed
   `LikeService.batchIsContentLiked`，而条目的关注态只能留着 Java 默认的 `false` —— 那是个**谎言**
   （feed 里都是已关注作者的内容）。T13 的三态 `Boolean` 解开了这个死结：未选中的维度是 `null`
   （= 本面不查），于是既能走互动域、又**不再撒谎**。各面带哪几维是**编译期常量**，见
-  [favorite](./favorite.md) **§六 互动态**。
+  [favorite](../favorite/favorite.md) **§六 互动态**。
 - **跳过 null 会让返回页短于 `pageSize`**（内容已软删 / 缓存空标记）。这不是"到底"，前端已按
   `shortPageMeansEnd:false` 处置。
 
@@ -324,7 +324,7 @@ fanout:
 - **跨域事件只能由自己的 `event` 包消费**——ArchUnit 规则 3；故订阅方落在 `feed.event`。
 - **事件方向是单向的**：content 发"内容已发布"、feed 订阅 ⇒ **content 不再依赖 feed**（消掉环）。
   ★ 该不变式由 ArchUnit **规则 5** 钉住（2026-10-18 T35，此前只靠约定——见
-  [模块边界与依赖](../tech/模块边界与依赖.md) §五；S9 当时欠下的钉子）。
+  [模块边界与依赖](../../tech/模块边界与依赖.md) §五；S9 当时欠下的钉子）。
 
 > 结论：`feed → {content, follow, like}` 单向，加上"content/follow 只发事件、不反向依赖"，
 > 全链路无包环。

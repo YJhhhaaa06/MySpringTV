@@ -4,7 +4,7 @@
 > 此后**只增不改**（新增版本号，回写历史脚本会被 checksum 校验挡下 —— **校验和覆盖整个文件字节，注释也算**，见 §2.4）。
 > **本篇只讲 schema 演进策略 / V1 冻结口径 / 环境与表结构总览 / 存量数据债 / 结构校验 / 检查清单**。
 > **事务切分（`@Transactional` 载体、`readOnly`、去事务）不在本篇**，去向见文末 [§边界与去向](#边界与去向机制外链)。
-> 表"怎么被业务使用"（读路径、写扩散、缓存失效）见各域文档，如 [feed 域架构](../domain/feed.md)。
+> 表"怎么被业务使用"（读路径、写扩散、缓存失效）见各域文档，如 [feed 域架构](../domain/feed/feed.md)。
 
 ---
 
@@ -233,7 +233,7 @@ V1 共定义 **15 张业务表**，V2 再增 **2 张**（收藏一期），V4 �
 |---|---|---|---|---|
 | 18 | `watch_later` | favorite | 稍后再看：`uk_user_content (user_id, content_id)` 幂等（重复 add 撞它 ⇒ `ON DUPLICATE KEY UPDATE create_time` **移到最前**）+ `idx_user_time (user_id, create_time)` 服务倒序分页 | **独立于收藏夹**（不共表）；**只存视频**（写入侧校验，不进结构）；无外键（同 V1/V2 其余表） |
 
-> 📌 本表出现的 `R-##` / `T#` 编号见 [favorite.md 附录「编号速查」](../domain/favorite.md)（编号的**活**查证入口；逐条论证在 `archive/favorite-2026-10-15/收藏功能-编号索引.md`）。
+> 📌 本表出现的 `R-##` / `T#` 编号见 [favorite.md 附录「编号速查」](../domain/favorite/favorite.md)（编号的**活**查证入口；逐条论证在 `archive/favorite-2026-10-15/收藏功能-编号索引.md`）。
 
 > 落地形态的两处非显然设计（都是"一次到位 / 别在下游重复推导"的东西）：
 > ① `favorite_folder.default_uniq` 是 **VIRTUAL 生成列**（默认夹 `1`、自建夹 `NULL`），
@@ -322,7 +322,7 @@ ORDER BY table_name, ordinal_position;
 | 不在本篇的内容 | 去向 |
 |---|---|
 | 事务切分原则、事务边界载体独立 bean、`readOnly`、去事务口径 | [事务边界](./事务边界.md) |
-| 各域业务语义（表怎么被读/写、缓存失效、写扩散） | [feed 域架构](../domain/feed.md) 及各域文档 |
+| 各域业务语义（表怎么被读/写、缓存失效、写扩散） | [feed 域架构](../domain/feed/feed.md) 及各域文档 |
 | 缓存 key 命名、三态、写后失效 | [缓存与数据一致性](./缓存与数据一致性.md) |
 | 包结构与依赖方向（"哪个域拥有哪张表"的判据） | [模块边界与依赖](./模块边界与依赖.md) |
 | `*Properties` 的绑定校验机制（fail-fast） | 各配置类注释（本篇只引用键与值） |

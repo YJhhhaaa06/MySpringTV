@@ -2,8 +2,9 @@
 
 > **这是历史存档，不是当前事实源。**
 > 它记录的是**收藏专项一轮（`T1`–`T19`）**的**当时文本**，其中的状态 / 计数 / 结论**可能已经过期**。
-> **当前口径** → [favorite.md](../../architecture/domain/favorite.md)（域设计）·
-> [favorite-需求.md](../../architecture/domain/favorite-需求.md)（用户可见规则）；
+> **当前口径** → [favorite.md](../../architecture/domain/favorite/favorite.md)（域设计）·
+> [favorite-需求.md](../../architecture/domain/favorite/favorite-需求.md)（用户可见规则）·
+> [favorite-已知代价.md](../../architecture/domain/favorite/favorite-已知代价.md)（代价台账）；
 > **当前进度** → [`.docs/INDEX.md`](../../INDEX.md)。
 
 ---
@@ -15,9 +16,9 @@
 
 | 文件 | 原位置 | 现角色 |
 |---|---|---|
-| `收藏功能-需求.md` | `.docs/task/` | 冻结版（**活版** = `architecture/domain/favorite-需求.md`） |
-| `收藏功能-分期与设计.md` | `.docs/task/` | 冻结版（**活版** = `architecture/domain/favorite.md`） |
-| `收藏功能-三期设计.md` | `.docs/task/` | 冻结版（**活版** = `architecture/domain/favorite.md` §八–§十） |
+| `收藏功能-需求.md` | `.docs/task/` | 冻结版（**活版** = `architecture/domain/favorite/favorite-需求.md`） |
+| `收藏功能-分期与设计.md` | `.docs/task/` | 冻结版（**活版** = `architecture/domain/favorite/favorite.md`） |
+| `收藏功能-三期设计.md` | `.docs/task/` | 冻结版（**活版** = `architecture/domain/favorite/favorite.md` §八–§十） |
 | `收藏功能-编号索引.md` | `.docs/task/` | ★ **编号的冻结权威定义**（**活速查** = `favorite.md` 附录） |
 
 - **轮次**：第 1 轮（收藏专项）｜**起止**：2026-10-07 → 2026-10-15｜**归档日**：2026-10-15
@@ -33,7 +34,7 @@
 
 | 你要查 | 去哪 |
 |---|---|
-| **某编号是什么 / 现在的口径** | `architecture/domain/favorite.md` **附录「编号速查」**（每号一行） |
+| **某编号是什么 / 现在的口径** | `architecture/domain/favorite/favorite.md` **附录「编号速查」**（每号一行） |
 | **当初为什么这么定**（逐条论证 / 实测明细） | 本目录 `收藏功能-编号索引.md`（`A.1` 任务 / `A.2` 决策 / `A.3` 问题 / `A.4` 约定） |
 | 某处**代码注释**里的编号 | 同上两条 —— **口径型**→`favorite.md`；**历史型**→本目录 |
 

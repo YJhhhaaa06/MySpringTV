@@ -45,7 +45,7 @@
 **本期暂无待拍板事项** —— 下一编号从 **`R-17`** 起（方向由本期开窗时登记）。
 
 > ★ **活速查的落点规则**：每个专项的编号速查落在**该功能不随期滚动的活文档**里
-> （限流 = `architecture/tech/限流.md` 附录；收藏 = `architecture/domain/favorite.md` 附录）——
+> （限流 = `architecture/tech/限流.md` 附录；收藏 = `architecture/domain/favorite/favorite.md` 附录）——
 > 依据 = `INDEX.md` §五.5 不变式①（"新功能域开工就建 + 编号速查附录"）。
 > ⚠️ 本文件与 `CURRENT_TASKS.md` **每期重建**，**不得承载编号解析入口**。
 

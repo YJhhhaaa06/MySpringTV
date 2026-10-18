@@ -41,7 +41,7 @@ io.github.yjhhhaaa06.videoweb
 ```
 
 > 业务域的内部结构**不在本目录统一描述**——只有"有独有架构、讲不清会出事"的域才单独成篇
-> （当前 = [feed](domain/feed.md) · 收藏域 [favorite](domain/favorite.md)）。
+> （当前 = [feed](domain/feed/feed.md) · 收藏域 [favorite](domain/favorite/favorite.md)）。
 > 薄域（coupon / upload / admin 等）不建文档。
 
 ### 1.2 横切机制的一句话版
@@ -75,8 +75,8 @@ io.github.yjhhhaaa06.videoweb
 | 动**鉴权**（端点是否需登录、管理员判定） | [安全与鉴权](tech/安全与鉴权.md) | 鉴权链变更 |
 | **改表 / 加 Flyway 迁移** | [数据与Schema演进](tech/数据与Schema演进.md) | schema 演进 |
 | **写 `@Transactional`** | [事务边界](tech/事务边界.md) | 事务口径变更 |
-| 了解**关注动态流**整体数据流 | [domain/feed](domain/feed.md) | feed 编排变更 |
-| 了解**收藏 / 收藏夹 / 稍后再看**的数据模型与口径 | [domain/favorite](domain/favorite.md)（用户可见规则见 [favorite-需求](domain/favorite-需求.md)） | 收藏域口径变更 |
+| 了解**关注动态流**整体数据流 | [domain/feed](domain/feed/feed.md) | feed 编排变更 |
+| 了解**收藏 / 收藏夹 / 稍后再看**的数据模型与口径 | [domain/favorite](domain/favorite/favorite.md)（用户可见规则见 [favorite-需求](domain/favorite/favorite-需求.md)；已拍板接受的代价见 [favorite-已知代价](domain/favorite/favorite-已知代价.md)） | 收藏域口径变更 |
 
 ---
 
@@ -101,9 +101,10 @@ io.github.yjhhhaaa06.videoweb
 | [限流](tech/限流.md) | 令牌桶口径、两桶非对称扣减、桶参数与权重表、429 契约、接线位置 | 熔断/单飞 → 韧性；过滤器链序 → 安全与鉴权；脱敏 → 可观测；排期 → `task/` |
 | [数据与Schema演进](tech/数据与Schema演进.md) | Flyway 策略、V1 冻结、环境、存量数据债 | 事务 → 事务边界 |
 | [事务边界](tech/事务边界.md) | 切分原则、载体独立 bean、`readOnly`、去事务口径 | 提交后副作用的语义 → 领域事件；逐处明细（已归档） |
-| [domain/feed](domain/feed.md) | 动态流数据流、两路读、大V路由、重建、消环 | 缓存/MQ/事务机制 → 上述各篇 |
-| [domain/favorite](domain/favorite.md) | 收藏域数据模型、端点、计数口径、失效口径、互动态形态、缓存边界、容量上限、稍后再看、公开夹 | 横切机制 → 上述各篇；用户可见规则 → favorite-需求 |
-| [domain/favorite-需求](domain/favorite-需求.md) | 收藏的**用户可见行为与规则**（唯一事实源） | 骨架设计 → favorite；横切机制 → 上述各篇 |
+| [domain/feed](domain/feed/feed.md) | 动态流数据流、两路读、大V路由、重建、消环 | 缓存/MQ/事务机制 → 上述各篇 |
+| [domain/favorite](domain/favorite/favorite.md) | 收藏域数据模型、端点、计数口径、失效口径、互动态形态、缓存边界、容量上限、稍后再看、公开夹 | 横切机制 → 上述各篇；用户可见规则 → favorite-需求 |
+| [domain/favorite-需求](domain/favorite/favorite-需求.md) | 收藏的**用户可见行为与规则**（唯一事实源） | 骨架设计 → favorite；横切机制 → 上述各篇 |
+| [domain/favorite-已知代价](domain/favorite/favorite-已知代价.md) | 收藏域**已拍板接受**的代价台账（牺牲了什么 / 影响多大 / 何时疼 / 为何接受 + 重开信号） | 设计论证与机制 → favorite；未处置的问题 → `task/FURTHER_ISSUES.md` |
 
 ---
 
@@ -123,6 +124,10 @@ io.github.yjhhhaaa06.videoweb
 7. **体量红线**：单文件 ≤ 40 KB、单章节 ≤ 300 行（`python tools/doc_stats.py` 阈值）。
 8. **末尾固定节《边界与去向（机制外链）》**：列"不在本篇的内容 → 去向"。
 9. 类名 / 配置键用 inline code；参数给**默认值**。
+10. **域已知代价台账**：每个成篇的域 / 横切面可配一份代价台账 —— 域 = `domain/<域>/<域>-已知代价.md`，
+    **通用模板 = [已知代价-模板](已知代价-模板.md)（复制即用）**，填好的范例见
+    [favorite 的台账](domain/favorite/favorite-已知代价.md)。条目正文**读者视角**——先说人话、再给机制细节，
+    新接手的人**不翻源码**就能读懂 What / Impact；只登记**已拍板接受**的，还在评审的进 `task/FURTHER_ISSUES.md`。
 
 ---
 
