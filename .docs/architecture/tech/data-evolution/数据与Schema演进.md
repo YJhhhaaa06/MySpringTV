@@ -259,6 +259,14 @@ V1 共定义 **15 张业务表**，V2 再增 **2 张**（收藏一期），V4 �
 > 归属以"哪个域的 DAO/Mapper 触碰它"为准。`video` / `videoinfo` 在全仓 `src/` 下**无任何 Mapper/DAO 引用**
 > （除 V1 脚本自身），故标为**遗留、无当前域消费**。
 
+> ⚠️ **计数列的 `±` 更新写法 ⇒ 看列类型（`T34`）**：`int unsigned` 计数列（`content.like_count` /
+> `content.comment_count` / `users.follow_count` / `users.follower_count`）的防负守卫**必须**写成
+> `CAST(col AS SIGNED) + delta >= 0` —— 朴素 `col + delta >= 0` 在 unsigned 列上**自身也下溢**（1690，实测）；
+> `comment.like_count`（**有符号**）用原生 `col + delta >= 0` 即可。语义 = **block**：守卫拦住 ⇒
+> 影响 0 行、不抛错、不回滚 ⇒ 取消赞 / 取关照常成功（计数停在 0）。
+> ★ **例外且有意**：`content.coin_count` 因"投币不可取消 ⇒ **只增无减**"而**不需要守卫** ——
+> 见 [coin.md](../../domain/coin/coin.md) §二。
+
 ---
 
 ## 五、存量数据债

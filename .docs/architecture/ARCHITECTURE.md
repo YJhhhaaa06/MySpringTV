@@ -38,6 +38,7 @@ io.github.yjhhhaaa06.videoweb
     ├── upload/    文件上传
     ├── admin/     内容管理端
     ├── favorite/  收藏（收藏夹 / 收藏记录 / 稍后再看；2026-10-07 收藏一期起，2026-10-15 一轮收口）
+    ├── coin/      投币（硬币：签到得币 · 视频投币 · UP主 1/10 · 不可取消；2026-10-19 设计落地）
     └── interaction/ 互动域（聚合"我 赞/藏/关注了吗"三态；**无 controller/dao/cache/event**，R-10 §3.6，2026-10-11 收藏二期 T9 起）
 ```
 
@@ -78,6 +79,7 @@ io.github.yjhhhaaa06.videoweb
 | **写 `@Transactional`** | [事务边界](tech/transaction/事务边界.md) | 事务口径变更 |
 | 了解**关注动态流**整体数据流 | [domain/feed](domain/feed/feed.md) | feed 编排变更 |
 | 了解**收藏 / 收藏夹 / 稍后再看**的数据模型与口径 | [domain/favorite](domain/favorite/favorite.md)（用户可见规则见 [favorite-需求](domain/favorite/favorite-需求.md)；已拍板接受的代价见 [favorite-已知代价](domain/favorite/favorite-已知代价.md)） | 收藏域口径变更 |
+| 了解**投币 / 硬币**的数据模型与口径 | [domain/coin](domain/coin/coin.md)（用户可见规则见 [coin-需求](domain/coin/coin-需求.md)） | 投币域口径变更 |
 
 ---
 
@@ -112,6 +114,8 @@ io.github.yjhhhaaa06.videoweb
 | [domain/favorite](domain/favorite/favorite.md) | 收藏域数据模型、端点、计数口径、失效口径、互动态形态、缓存边界、容量上限、稍后再看、公开夹 | 横切机制 → 上述各篇；用户可见规则 → favorite-需求 |
 | [domain/favorite-需求](domain/favorite/favorite-需求.md) | 收藏的**用户可见行为与规则**（唯一事实源） | 骨架设计 → favorite；横切机制 → 上述各篇 |
 | [domain/favorite-已知代价](domain/favorite/favorite-已知代价.md) | 收藏域**已拍板接受**的代价台账（牺牲了什么 / 影响多大 / 何时疼 / 为何接受 + 重开信号） | 设计论证与机制 → favorite；未处置的问题 → `task/FURTHER_ISSUES.md` |
+| [domain/coin](domain/coin/coin.md) | 投币域：数据模型、端点、**硬币经济的单位约定**、写路径并发口径、缓存形态（两个 key）、互动态表达、依赖边与 F-18 复核、已知代价 | 横切机制 → 上述各篇；用户可见规则 → coin-需求 |
+| [domain/coin-需求](domain/coin/coin-需求.md) | 投币 / 硬币的**用户可见行为与规则**（唯一事实源；含三处**刻意偏离 B站**的说明） | 骨架设计 → coin；横切机制 → 上述各篇 |
 
 ---
 

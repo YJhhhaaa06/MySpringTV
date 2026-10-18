@@ -22,7 +22,7 @@ Flyway + Testcontainers。由 `old-project/TVhomework1`（Servlet + 手写连接
 | **写代码读哪里** | `architecture/` 是**唯一活的事实源**（域设计 + 横切机制），主索引 `architecture/ARCHITECTURE.md` |
 | **本期做什么** | `task/CURRENT_NEEDS.md`（需求 / 决策源）+ `task/CURRENT_TASKS.md`（任务）+ `task/CURRENT_ISSUES.md`（本期问题）+ `task/FURTHER_ISSUES.md`（结转池） |
 | **已收口的专项** | 收藏（2026-10-15 收口）、限流（2026-10-17 收口）—— 结论已沉淀进 `architecture/`，过程文档留着只作追溯 |
-| **回归基线** | `python tools/run_tests.py` → **575 例全绿**（默认排除 `resilience`）｜`--group resilience` → **41 例**（合计 616）。数字会漂，以最近一次复跑为准 |
+| **回归基线** | `python tools/run_tests.py`（默认排除 `resilience`）＋ `--group resilience`；**最近一次 = 全量 620 例**（2026-10-18）。数字会漂，以最近一次复跑为准。⚠️ 跑全量须设 `DB_POOL_MAX_SIZE=4` |
 | **环境** | dev 库 `spring_tv`@3306、媒体根 `D:/data/projects/MySpringTV/media` |
 | **还欠什么** | `task/FURTHER_ISSUES.md`（`F-##` 结转池）+ 各域 `*-已知代价.md`（**已拍板接受、不修**的账） |
 
@@ -93,10 +93,11 @@ python tools/docs/doc_refs.py      # ★ `src/` 代码注释的文档引用（�
 > ⚠️ **`src/main/resources/db/migration/**` 是例外** —— 已应用的迁移**逐字节冻结**（改不了），
 > 其旧路径由**归档 README** 承接重定向（见 `archive/favorite-2026-10-15/README.md` §三）。
 
-**环境前置**：Docker 必须在跑（Testcontainers 自起 mysql/redis/rabbitmq，**不需要**手工起容器）；
-测试素材在外部目录 `D:\dev\WorkSpace\VideoPlatform\TestResource`（`TV_TEST_RESOURCE_DIR` 可覆盖，
+**环境前置**：Docker 必须在跑（Testcontainers 自起 mysql/redis/rabbitmq，**不需要**手工起容器）；测试素材在外部目录 `D:\dev\WorkSpace\VideoPlatform\TestResource`（`TV_TEST_RESOURCE_DIR` 可覆盖，
 **缺失即显式失败**，有意设计）；测试落盘根被**无条件覆盖**到 `target/test-media`（`mvn clean` 回收，
 **永不触碰** dev 媒体根）。
+
+> ⚠️ **跑全量回归须设 `DB_POOL_MAX_SIZE=4`** —— 否则 Testcontainers MySQL 报 `Too many connections` ⇒ 若干测试类**上下文加载失败**（**不是代码缺陷**，2026-10-18 实测）。反向验证里 `git checkout --` 还原前**先 commit 基线**（否则会把未提交改动一起抹掉）。
 
 ⚠️ **dev 直连库** `spring_tv`@3306、媒体根 `D:/data/projects/MySpringTV/media` ——
 **任何 schema 变更前先看 `architecture/tech/data-evolution/数据与Schema演进.md`**。
