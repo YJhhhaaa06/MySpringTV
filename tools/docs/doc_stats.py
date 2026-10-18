@@ -12,19 +12,19 @@ S6 收口时实测：`.docs` 12 份文档 / 3,900+ 行 / 257 KB，其中
 
 ## 用法
 
-    python tools/doc_stats.py                 # 全量报告
-    python tools/doc_stats.py --top 6         # 只对最大的 6 份做章节拆解
-    python tools/doc_stats.py --min-kb 8      # 只列 >= 8KB 的文件
+    python tools/docs/doc_stats.py                 # 全量报告
+    python tools/docs/doc_stats.py --top 6         # 只对最大的 6 份做章节拆解
+    python tools/docs/doc_stats.py --min-kb 8      # 只列 >= 8KB 的文件
 
-## 判据（与 SOP §七 文档纪律配套）
+## 判据（与 `architecture/ARCHITECTURE.md` §四「写作规范」的体量红线配套 —— 两处阈值必须一致）
 
 - **单文件 > 40 KB** ：该考虑拆分或归档。文档超过这个体量后，
   人（和 LLM）都很难在上下文里装下，只能靠 grep 找片段，离"可检索的事实源"越来越远。
 - **已完成阶段的历史明细** ：其价值已被代码 + 测试 + 结论表吸收，
-  应移入 `.docs/archive/`，正文只留**当前有效结论**（SOP §七.2）。
+  应移入 `.docs/archive/`，正文只留**当前有效结论**（归档 SOP 见 `.docs/INDEX.md` §五.5）。
 - **单章节 > 300 行** ：通常意味着它其实是另一份文档。
 
-脚本**只度量、不判定**——判定要结合内容，见 `tools/README.md` 的口径说明。
+脚本**只度量、不判定**——判定要结合内容，见 `tools/docs/README.md` 的口径说明。
 """
 
 from __future__ import annotations
@@ -35,13 +35,12 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# ── Windows 中文环境必备：强制 stdout/stderr 用 UTF-8 ────────────────────────
-# Windows 的默认控制台编码是 GBK(cp936)。本项目文档与输出全是中文，
-# 不强制 UTF-8 会得到**乱码**，遇到 emoji/制表符还会直接 UnicodeEncodeError 崩溃。
-# 这是本项目所有 Python 脚本的**统一约定**（见 tools/README.md）。
-for _stream in (sys.stdout, sys.stderr):
-    if hasattr(_stream, "reconfigure"):
-        _stream.reconfigure(encoding="utf-8", errors="replace")
+if __package__:  # `python -m tools.docs.doc_stats`
+    from .common import ROOT, setup_stdio
+else:  # `python tools/docs/doc_stats.py`（文档化用法：脚本目录自动进 sys.path）
+    from common import ROOT, setup_stdio
+
+setup_stdio()  # tools/README.md §3.1：中文输出必须强制 UTF-8
 
 # 只统计这些后缀
 GLOB = "*.md"
@@ -222,16 +221,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    root = Path(__file__).resolve().parent.parent
-    docs_dir = Path(args.docs) if args.docs else root / ".docs"
+    docs_dir = Path(args.docs) if args.docs else ROOT / ".docs"
     if not docs_dir.is_absolute():
-        docs_dir = (root / docs_dir).resolve()
+        docs_dir = (ROOT / docs_dir).resolve()
 
     if not docs_dir.is_dir():
         print(f"目录不存在：{docs_dir}", file=sys.stderr)
         return 2
 
-    docs = collect(docs_dir, root)
+    docs = collect(docs_dir, ROOT)
     if not docs:
         print(f"未找到 {GLOB}：{docs_dir}", file=sys.stderr)
         return 2

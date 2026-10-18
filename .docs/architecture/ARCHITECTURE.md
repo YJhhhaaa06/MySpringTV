@@ -128,7 +128,7 @@ io.github.yjhhhaaa06.videoweb
    ★ **例外（2026-10-15 放宽）**：允许对 `archive/` 挂一条**"历史出处"脚注**
    （如"逐条论证见 `archive/<域>-<日期>/`"）—— 它**只做追溯、不承担结论**；结论仍必须自证于代码。
 6. **表格优先**：事实对照用表；流程 / 结构用围栏代码块画。
-7. **体量红线**：单文件 ≤ 40 KB、单章节 ≤ 300 行（`python tools/doc_stats.py` 阈值）。
+7. **体量红线**：单文件 ≤ 40 KB、单章节 ≤ 300 行（`python tools/docs/doc_stats.py` 阈值）。
 8. **末尾固定节《边界与去向（机制外链）》**：列"不在本篇的内容 → 去向"。
 9. 类名 / 配置键用 inline code；参数给**默认值**。
 10. **已知代价台账**：每个成篇的域 / 横切面可配一份代价台账 —— 域 = `domain/<域>/<域>-已知代价.md`，
@@ -142,8 +142,8 @@ io.github.yjhhhaaa06.videoweb
 ## 五、维护
 
 ```bash
-python tools/doc_stats.py      # 体量（防膨胀）
-python tools/doc_links.py      # 交叉引用是否指得到（改链接后必跑）
+python tools/docs/doc_stats.py      # 体量（防膨胀）
+python tools/docs/doc_links.py      # 交叉引用是否指得到（改链接后必跑）
 ```
 
 > ⚠️ 新增或移动架构文档后**必跑 `doc_links.py`**——**悬空指针比不引用更坏**，它让人以为查过了。

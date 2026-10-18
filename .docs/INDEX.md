@@ -83,7 +83,7 @@ Flyway + Testcontainers。**由 `old-project/TVhomework1`（Servlet + 手写连�
 | 知道**当初为什么这么定** | `archive/migration/决策留痕表.md`（A 架构 / B 范围 / C 保真度 / D 契约差异 / E 事务指针 / F 选型 / **G 可观测 / H 韧性 / I 一致性 / J MQ** / K 收口判据）；**收藏的决策理由**见 `archive/favorite-2026-10-15/收藏功能-编号索引.md` **A.2**（活口径另见 `architecture/domain/favorite/favorite.md`） | **只读追溯**，新决策不再往里加 |
 | 处理**某个事务边界** | `archive/migration/事务边界决策表.md`（§四 状态总表；逐条论证在 `archive/migration/事务边界明细-*.md`）；**写新事务**看 `architecture/tech/transaction/事务边界.md` | 开工前必须表态 |
 | 动**测试** | **仓库根 `AGENTS.md`「测试纪律」节**（防"测试迎合"四条 + 实测补充，唯一事实源）；分层 / DoD / 老测试资产处置的历史论证见 `archive/migration/测试策略与阶段验收.md` | 测试体系变更 |
-| 写**脚本** | `tools/README.md`（**Python 硬性约定**：UTF-8 / 路径 / 默认只预演） | 加脚本时 |
+| 写**脚本** | `tools/README.md`（**Python 硬性约定**：UTF-8 / 路径 / 默认只预演）+ 分目录 README：`tools/docs/README.md`（文档门禁）/ `tools/devclean/README.md`（开发期数据清理） | 加脚本时 |
 | 查**老项目某个行为** | 直接 grep `old-project/TVhomework1`（**只读行为规格书，禁止写入、禁止删除**） | — |
 | **踩到坑**（Duration 单位 / MyBatis 前缀 / record 绑定 / ArchUnit 扫测试类…） | `archive/migration/迁移工作流-切片SOP.md` **§二 坑表**（18 条，多数与迁移无关、写新代码同样适用） | 踩到新坑时 |
 | 追溯**迁移期的进度与论证** | `archive/migration/`（端点对照表 / 各批次工单 / 切片计划 / 三份调研报告）；需要复算时跑 `archive/migration/tools/` 下的脚本 | — |
@@ -95,17 +95,17 @@ Flyway + Testcontainers。**由 `old-project/TVhomework1`（Servlet + 手写连�
 **任何"状态/计数"结论都必须能一条命令复算**。日常维护只有这五条：
 
 ```bash
-python tools/doc_stats.py          # 文档体量（防膨胀；阈值 单文件 40 KB / 单章节 300 行）
-python tools/doc_links.py          # 文档交叉引用是否指得到（**归档/清出后必跑**）
-python tools/doc_refs.py           # ★ `src/` 代码注释的文档引用（含别名黑名单；**挪家后必跑**，见 §五.5）
-python tools/doc_archive.py --plan <计划.json>   # 归档已完成章节（默认只预演，--apply 落盘）
+python tools/docs/doc_stats.py     # 文档体量（防膨胀；阈值 单文件 40 KB / 单章节 300 行）
+python tools/docs/doc_links.py     # 文档交叉引用是否指得到（**归档/清出后必跑**）
+python tools/docs/doc_refs.py      # ★ `src/` 代码注释的文档引用（含别名黑名单；**挪家后必跑**，见 §五.5）
 .\mvnw.cmd -B clean verify        # 回归基线（⚠️ 必须带 clean，见《测试策略》§五.1）
 ```
 
 > ★ **迁移期的三条"判据腿"脚本已随文档一并归档**到 `.docs/archive/migration/tools/`：
 > `endpoint_matrix.py`（端点完整性 43/43/0）、`migration_matrix.py`（反面盘点，未表态 = 0）、
 > `flyway_parity.py`（结构连续性：活库 vs V1 列集）、`realdata_probe.py`（真实数据探针）。
-> 需要复算迁移结论时从那里跑 —— 它们已改为**向上找 `pom.xml`** 定位仓库根，位置无关。
+> 需要复算迁移结论时从那里跑 —— 它们已改为**向上找 `pom.xml`** 定位仓库根，位置无关；
+> **用法与前提**（子集不给整体结论 / `--strict` / mysql 客户端位置）见 `archive/migration/tools/README.md`。
 >
 > ⚠️ **跑"全绿"必须带 `clean`**：`target/classes` 留着上一轮 class 时增量编译会跳过重编，
 > "源码编译不过"会被旧 class 掩盖而测试照样绿（2026-10-03 实测到该路径）。
@@ -134,7 +134,7 @@ python tools/doc_archive.py --plan <计划.json>   # 归档已完成章节（默
 2. **同一事实只写一处**：单一事实源见 §三"读这个"列；别处只能**链接**，不许复述
    （复述必然漂移——2026-10-03 就发现 DoD 写了两份且已经不一致）。
 3. **归档 / 清出要连同"引用修复"一起做**：移走或删掉一条内容后，正文与**代码注释**里指向它的引用必须改指新位置
-   —— **悬空指针比不引用更坏，它让人以为查过了**（`tools/doc_links.py` 管文档侧；**编号侧靠 §四 那条 grep**）。
+   —— **悬空指针比不引用更坏，它让人以为查过了**（`tools/docs/doc_links.py` 管文档侧；**编号侧靠 §四 那条 grep**）。
    ⚠️ **但 `src/main/resources/db/migration/**` 是例外：已应用的迁移文件逐字节冻结，连注释都不能改**
    （Flyway checksum 覆盖全文 ⇒ 改了直接 `Migration checksum mismatch`、应用起不来；详见
    `architecture/tech/data-evolution/数据与Schema演进.md` **§2.4**）。那里的历史指向由**目标文档**承接重定向。
@@ -160,7 +160,7 @@ python tools/doc_archive.py --plan <计划.json>   # 归档已完成章节（默
       ⇒ 写进注释即**静默断链**（§五.4④ 已禁"方案代号"，本条把**文档别名**一并禁掉）。
    ④ **第二锚点优先 `类#方法`**（代码侧锚点**不随文档重组漂移**）；**章节号 `§x` 仅作补充**。
    ⚠️ 附：`task/FURTHER_ISSUES.md` 的「**已核销**」**一行摘要永不删**（`F-##` 在代码里有引用；同 §五.1"改状态不删行"）。
-   ★ **门禁**：`python tools/doc_refs.py`（§四）把 ②③ 变成**会失败的命令**，纳入每期**收尾 checklist**。
+   ★ **门禁**：`python tools/docs/doc_refs.py`（§四）把 ②③ 变成**会失败的命令**，纳入每期**收尾 checklist**。
    ★ **专项收口 SOP（五步）**：① **先收编**（该期全部编号 → 活速查，**只许一行结论**）；
    ② **建带日期归档目录** `archive/<域>-<归档日>/` ＋ README（**承接冻结迁移文件**的旧路径重定向）；
    ③ **按映射表清扫引用**（`src/` 逐条判性质：**口径 → 活文档**、**历史 → archive**；**排除 `db/migration/**`**）；

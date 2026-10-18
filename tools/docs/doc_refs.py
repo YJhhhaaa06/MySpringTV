@@ -39,8 +39,8 @@
 
 ## 用法
 
-    python tools/doc_refs.py             # 列出违规（0 处则退出码 0）
-    python tools/doc_refs.py --verbose   # 附行号
+    python tools/docs/doc_refs.py             # 列出违规（0 处则退出码 0）
+    python tools/docs/doc_refs.py --verbose   # 附行号
 
 退出码：0 = 无违规；1 = 有违规。
 """
@@ -49,15 +49,15 @@ from __future__ import annotations
 
 import argparse
 import re
-import sys
 from pathlib import Path
 
-# ── Windows 中文环境必备：强制 stdout/stderr 用 UTF-8（见 tools/README.md §3.1）
-for _stream in (sys.stdout, sys.stderr):
-    if hasattr(_stream, "reconfigure"):
-        _stream.reconfigure(encoding="utf-8", errors="replace")
+if __package__:  # `python -m tools.docs.doc_refs`
+    from .common import ROOT, setup_stdio
+else:  # `python tools/docs/doc_refs.py`（文档化用法：脚本目录自动进 sys.path）
+    from common import ROOT, setup_stdio
 
-ROOT = Path(__file__).resolve().parent.parent
+setup_stdio()  # tools/README.md §3.1：中文输出必须强制 UTF-8
+
 SRC = ROOT / "src"
 SKIP_PARTS = {"migration"}  # src/main/resources/db/migration/** —— 冻结，跳过
 SCAN_SUFFIXES = {".java", ".xml", ".yaml", ".yml", ".js", ".json", ".properties", ".html", ".sql"}
