@@ -14,8 +14,9 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * **只在事务成功提交后**才被调用；事务回滚 ⇒ **完全不调用**。
  * 于是"回滚后缓存被污染"从"靠注释纪律"变成"框架层面不可能发生"。
  *
- * <p>配套测试（关键，勿删）：{@code CoinCacheTests#事务回滚后两个key都不存在}（外层事务
- * 回滚 + 预热两个 key）与 {@code #写路径最后一步失败时两个key都不存在}（打桩
+ * <p>配套测试（关键，勿删）：{@code CoinCacheTests#事务回滚后两个key保持预热值}（外层事务
+ * 回滚 + 预热两个 key ⇒ 断言**值没被动过**；冷 key 的"不存在"在两种实现下都成立，没有判别力）
+ * 与 {@code #写路径最后一步失败后事务回滚且缓存未被污染}（打桩
  * {@code ContentDao.updateCoinCount} 让事务在**已有成功写之后**失败）。前者是
  * {@code AFTER_COMMIT} 的真正存在证明：**事件已经发布、事务却回滚**，缓存必须没动过。
  * 若把本注解改成普通的 {@code @EventListener}（或把缓存写挪进服务体），该用例立刻变红。

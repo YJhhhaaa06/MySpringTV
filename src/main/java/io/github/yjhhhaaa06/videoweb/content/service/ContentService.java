@@ -618,18 +618,19 @@ public class ContentService {
      * ② {@code updateContentDeletedState(2)}。校验与写必须同进同退——否则并发下
      * "校验通过但状态已被别人改掉"会静默写入错误状态。
      *
-     * <h2>★ 提交后：三条失效由**既有订阅方**承接（A10 闭合，零新代码）</h2>
+     * <h2>★ 提交后：四条失效由**既有订阅方**承接（A10 闭合 + T39 投币，零新代码）</h2>
      * TV 下架后依次调三行：{@code contentCache.removeContent} +
      * {@code commentCache.invalidateComments} + {@code likeService.deleteContentLike}。
-     * S6-B2 起这三件事已改由「内容域发事件、评论域与点赞域各自订阅」承担：
+     * S6-B2 起这三件事已改由「内容域发事件、评论域与点赞域各自订阅」承担（T39 起投币域同样订阅）：
      * <pre>
      *   events.publishEvent(remove(contentId))        // 本行
      *     ├─ ContentCacheChangedListener      → removeContent（DEL 内容 key + 从**全部**索引剔除）
      *     ├─ ContentRemovedCommentListener    → invalidateComments（评论两键组整组失效）
-     *     └─ ContentRemovedLikeListener       → deleteContentLike（点赞计数 key 失效）
+     *     ├─ ContentRemovedLikeListener       → deleteContentLike（点赞计数 key 失效）
+     *     └─ ContentRemovedCoinListener       → deleteContentCoinCount（投币计数 key 失效，**不删行**）
      * </pre>
-     * 三者都在本事务**提交后**执行（AFTER_COMMIT）；事务回滚 ⇒ 一条都不执行。
-     * 这既与 TV 的三行**逐条等价**，又让内容域不必知道评论域/点赞域有缓存。
+     * 四者都在本事务**提交后**执行（AFTER_COMMIT）；事务回滚 ⇒ 一条都不执行。
+     * 这既与 TV 的三行**逐条等价**，又让内容域不必知道评论域/点赞域/投币域有缓存。
      *
      * <p>下架只改 {@code is_deleted}，**不动**评论/点赞/媒体记录与物理文件——"隐藏≠删除"，
      * 恢复后数据完好（旧 pytest {@code test_hide_content.py} 对此有逐字断言）。

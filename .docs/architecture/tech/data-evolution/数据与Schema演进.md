@@ -77,7 +77,7 @@ V1 一旦在任一库上被应用，就写进了该库的 `flyway_schema_history
 
 **结论**：V1 是**冻结**的。它是一份"已经发生过的历史"，不是可以被编辑的当前状态。
 
-### 2.3 增量演进：逐版本新增（当前已应用到 V4）
+### 2.3 增量演进：逐版本新增（当前已应用到 V5）
 
 要改结构，**新增一个版本号更高的脚本**，绝不回写 V1：
 
@@ -87,7 +87,8 @@ db/migration/
 ├── V2__favorite_tables.sql           ← 已应用（2026-10-08 收藏一期 T1），同样冻结
 ├── V3__backfill_favorite_count.sql   ← 已应用（2026-10-12 收藏二期 T12）：**只改数据、不改结构**
 ├── V4__watch_later.sql               ← 已应用（2026-10-14 收藏三期 T17）：稍后再看建表
-└── V5__<描述>.sql                    ← 下一次演进写这里（编号递增，绝不回写 V1~V4）
+├── V5__coin.sql                      ← 已应用（2026-10-19 投币 T36）：`content_coin` + 三列
+└── V6__<描述>.sql                    ← 下一次演进写这里（编号递增，绝不回写 V1~V5）
 ```
 
 - V2 在**所有环境**都会被执行（活库：V1 已应用 ⇒ 只有 V2 是新的，会真正跑；空库：V1→V2 顺序跑完）。
@@ -97,8 +98,12 @@ db/migration/
   见 §四"V2 增量"）。它同时是这条策略的**首个实例**：活库走"baseline 0 + V1 no-op + 只跑 V2"，
   空库/测试容器走"V1 → V2 顺序跑完"。
 - ★ **现状更新（2026-10-12）**：收藏二期 T12 又落了 **`V3__backfill_favorite_count.sql`**（数据迁移，见 §四）。
-- ★ **现状更新（2026-10-14）**：收藏三期 T17 落了 **`V4__watch_later.sql`**（稍后再看建表，见 §四）
-  ⇒ **下一次演进走 V5**；V2 / V3 / V4 同 V1 一样**逐字节冻结**。
+- ★ **现状更新（2026-10-19）**：投币专项 T36 落了 **`V5__coin.sql`**（`content_coin` 建表 + `users` 两列 +
+  `content.coin_count`，见 §四）⇒ **下一次演进走 V6**；V2 / V3 / V4 / V5 同 V1 一样**逐字节冻结**。
+
+⚠️ **V5 落地时活库路径的特殊之处**：三条 `ALTER TABLE … ADD COLUMN` 是裸语句（MySQL 8.0 不支持
+`ADD COLUMN IF NOT EXISTS`），只由 Flyway 应用一次；落笔前已用 `information_schema` 复核活库
+`spring_tv` 无同名列/表（取证见 `V5__coin.sql` 头部注释）。
 
 ### 2.4 ★ 已应用的迁移**连注释也不能改**（2026-10-11 实测踩到）
 
@@ -192,9 +197,10 @@ registry.add("video.upload.root", AbstractIntegrationTest::testMediaRoot); // �
 
 ## 四、表结构总览
 
-V1 共定义 **15 张业务表**，V2 再增 **2 张**（收藏一期），V4 再增 **1 张**（收藏三期 T17 稍后再看）；
+V1 共定义 **15 张业务表**，V2 再增 **2 张**（收藏一期），V4 再增 **1 张**（收藏三期 T17 稍后再看），
+V5 再增 **1 张**（投币 T36 `content_coin`）+ **3 列**（`users.coin_deci` / `users.last_sign_date` / `content.coin_count`）；
 **当前**活库/测试库的 `information_schema`
-（`table_type='BASE TABLE'`）计数 = **19** = 18 张业务表 + 1 张 Flyway 元表 `flyway_schema_history`
+（`table_type='BASE TABLE'`）计数 = **20** = 19 张业务表 + 1 张 Flyway 元表 `flyway_schema_history`
 （与 `InfrastructureConnectivityTests` 的断言一致）。按归属域列出（归属判据见 [模块边界与依赖](../module-boundary/模块边界与依赖.md)）：
 
 | # | 表 | 归属域 | 用途（一句） |
@@ -238,7 +244,16 @@ V1 共定义 **15 张业务表**，V2 再增 **2 张**（收藏一期），V4 �
 |---|---|---|---|---|
 | 18 | `watch_later` | favorite | 稍后再看：`uk_user_content (user_id, content_id)` 幂等（重复 add 撞它 ⇒ `ON DUPLICATE KEY UPDATE create_time` **移到最前**）+ `idx_user_time (user_id, create_time)` 服务倒序分页 | **独立于收藏夹**（不共表）；**只存视频**（写入侧校验，不进结构）；无外键（同 V1/V2 其余表） |
 
-> 📌 本表出现的 `R-##` / `T#` 编号见 [favorite.md 附录「编号速查」](../../domain/favorite/favorite.md)（编号的**活**查证入口；逐条论证在 `archive/favorite-2026-10-15/收藏功能-编号索引.md`）。
+**V5 增量（`V5__coin.sql`，2026-10-19 投币专项 T36）**：
+
+| # | 表 / 列 | 归属域 | 用途（一句） | 口径 |
+|---|---|---|---|---|
+| 19 | `content_coin` | coin | 投币记录：`uk_user_content` 保证"一人一内容一行（累计 1~2 枚）"、`idx_content_id` 服务 `SUM(amount)` 复算；**没有**状态 / 软删列（不可取消） | 单行聚合而非逐次流水（封顶走条件 `UPDATE`）；被拒的投币随事务回滚、**不落行** |
+| — | `users.coin_deci` | （列在 users 上，业务归 coin） | 硬币余额的**十分位整数**（值 = 币 × 10） | **有符号** `int`（扣款靠 `coin_deci >= ?` 条件守卫，不用 unsigned + CAST） |
+| — | `users.last_sign_date` | （同上） | 最近签到日（上海自然日） | `date`、可空（NULL = 从未签到，是幂等判据的一半） |
+| — | `content.coin_count` | （列在 content 上，业务归 coin） | 累计被投币数 | `int unsigned` 但**只增不减** ⇒ **刻意没有** like / comment 的防负守卫（口径差异，非漏改） |
+
+> 📌 本表出现的 `R-##` / `T#` 编号：收藏相关见 [favorite.md 附录「编号速查」](../../domain/favorite/favorite.md)，投币相关见 [coin.md 附录「编号速查」](../../domain/coin/coin.md)（编号的**活**查证入口；逐条论证在相应 `archive/` 或 git）。
 
 > 落地形态的两处非显然设计（都是"一次到位 / 别在下游重复推导"的东西）：
 > ① `favorite_folder.default_uniq` 是 **VIRTUAL 生成列**（默认夹 `1`、自建夹 `NULL`），
@@ -285,7 +300,7 @@ V1 共定义 **15 张业务表**，V2 再增 **2 张**（收藏一期），V4 �
 
 | 手段 | 说明 |
 |---|---|
-| **CI 下限断言** | `InfrastructureConnectivityTests` 断言 `information_schema.tables`（`table_type='BASE TABLE'`）计数 = **18**（17 业务表 + `flyway_schema_history`），且 `flyway_schema_history` 的**全部行**版本序为 `1 → 2`、`type=SQL`、`success=1`。这是在**空库路径**上可复算的结构连续性锚点。⚠️ 断言**全部版本行**而非只看首行：只看首行时"新增的 V2 没被应用"是察觉不到的（首行永远是 V1）。 |
+| **CI 下限断言** | `InfrastructureConnectivityTests` 断言 `information_schema.tables`（`table_type='BASE TABLE'`）计数 = **20**（19 业务表 + `flyway_schema_history`），且 `flyway_schema_history` 的**全部行**版本序为 `1 → 2 → 3 → 4 → 5`、`type=SQL`、`success=1`。这是在**空库路径**上可复算的结构连续性锚点。⚠️ 断言**全部版本行**而非只看首行：只看首行时"新增的 V2/V3/V4/V5 没被应用"是察觉不到的（首行永远是 V1）。★ **每加一个 `V<n>` 都要同时改两处锚点**：本行提到的计数/版本序，以及 `favorite/WatchLaterSchemaTests#全部迁移版本都被应用`（`endsWith` 末版本）—— 后者 T36 首次漏改、由全量回归抓到。 |
 | **列集对拍** | 本仓 `tools/` 下**当前无**专门的结构比对脚本。复算方式：取活库列清单，与 V1 脚本中各 `CREATE TABLE` 的列清单做**差集**——两侧应仅相差 `flyway_schema_history`。 |
 | **收藏域结构契约** | `favorite/FavoriteSchemaTests`（T1）把 V2 的**列集 / 唯一键 / 索引**钉成会失败的用例；唯一键那两条是**真插两行**看它拦不拦（不是查 `information_schema`）。 |
 
