@@ -44,6 +44,7 @@ import java.util.Set;
  * ③ 用户行 + 总数 + 窗口 id（DB）    —— 用户不存在 ⇒ 404
  * ④ 页内内容批量（ContentCache）      —— 取不到的条目**跳过**（已删/媒体损坏）
  * ⑤ 页内互动态（互动域批量，只带赞维）  —— 仅登录且列表非空
+ * ⑥ 页内公共计数（coin 域批量）        —— 列表非空即读，**与登录态无关**（T40）
  * </pre>
  * ①② 放在 ③ 之前是 TV 的原样顺序（缓存读比 DB 读便宜，且 404 时白读一次也无害）。
  *
@@ -67,7 +68,8 @@ public class ProfileService {
      * ★ 主页内容列表带哪几维互动态（R-13 的**编译期常量**）—— 只带 {@code LIKE}。
      *
      * <p>理由见类注释"T13"节：关注维已由 {@code ProfileVO.isFollowed} 给出；收藏维本面不显示。
-     * ⚠️ 这是**常量**不是契约：{@code interaction} 键集仍恒三维（未选中的两维是 {@code null}）。
+     * ⚠️ 这是**常量**不是契约：{@code interaction} 键集仍恒四维（未选中的两维是 {@code null}，
+     * {@code coin} 作为第四维本面**恒 {@code null}**）。
      */
     private static final Set<InteractionDimension> PROFILE_DIMENSIONS = Set.of(InteractionDimension.LIKE);
 
@@ -132,6 +134,11 @@ public class ProfileService {
         // ⑤ 页内互动态（只对该页批量查询；匿名由 filler 短路 ⇒ interaction 保持 null）
         if (currentUserId != null && !contentList.isEmpty()) {
             contentStatusFiller.fillInteractionBatch(contentList, currentUserId, PROFILE_DIMENSIONS);
+        }
+        // ⑥ 页内公共计数 coinCount（T40）：与登录态无关 ⇒ 放在上面 if **之外**（只判列表非空）。
+        //    匿名访问主页同样要显示投币数；一趟批量（不得逐条）。
+        if (!contentList.isEmpty()) {
+            contentStatusFiller.fillCoinCountBatch(contentList);
         }
 
         return new ProfileVO(profileUserId, user.getUsername(),

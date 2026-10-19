@@ -11,8 +11,9 @@ package io.github.yjhhhaaa06.videoweb.interaction.model;
  *       R-10 §六 的"无环"收益落空）⇒ 不得反查"这条内容的作者是谁"。调用方（详情 / 列表）
  *       本来就持有它，直传即可。</li>
  *   <li><b>{@code type}</b>：内容类型（取值同 {@code content.type}：1=视频、2=图文）。它是
- *       "**哪些互动维度适用**"的判据位置 —— 今天两种类型都适用三维（赞 / 藏 / 关注作者），
- *       故暂不参与分支；留给"按类型收窄的维度"（如投币 —— {@code FURTHER_ISSUES.md} 登记 F-13）。
+ *       "**哪些互动维度适用**"的判据 —— 赞 / 藏 / 关注作者三维两种类型都适用；T40 起
+ *       **投币维只适用于视频**（{@code type == 1}，图文帖的 {@code coin} 为 {@code null}），
+ *       该分流在 {@code InteractionService#getStatus} 内做。
  *       ⚠️ 类型只能由调用方传入**数值**：互动域不得 import content 的类型枚举（同成环理由）。</li>
  * </ul>
  *

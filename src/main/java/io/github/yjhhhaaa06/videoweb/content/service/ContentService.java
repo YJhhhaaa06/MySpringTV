@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.content.service;
 
+import io.github.yjhhhaaa06.videoweb.coin.service.CoinService;
 import io.github.yjhhhaaa06.videoweb.common.exception.ConflictException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ForbiddenException;
 import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
@@ -82,6 +83,7 @@ public class ContentService {
     private final ContentCache contentCache;
     private final InteractionService interactionService;
     private final ContentStatusFiller contentStatusFiller;
+    private final CoinService coinService;
     private final ApplicationEventPublisher events;
 
     /**
@@ -90,7 +92,7 @@ public class ContentService {
      * <p>对标 B站：搜索结果卡片只给"封面 + 标题 + UP 主 + 播放量"，**不显示**赞 / 藏 / 关注态
      * ⇒ 三维**一趟都不查**（每请求省 3 趟批量）。
      * ⚠️ 0 维**不等于"不填"**：仍会调 {@link ContentStatusFiller} ⇒ 互动域返回一个
-     * "对象在、三维全 {@code null}"的 {@code interaction}。
+     * "对象在、四维全 {@code null}"的 {@code interaction}。
      * ★ 若改成"跳过填充"，登录用户拿到的就是 {@code interaction: null} ⇒ 与**匿名**不可区分
      * （匿名是"没有这个对象"，0 维是"对象在但没有一个维度被查"，两者必须可区分）。
      */
@@ -103,6 +105,7 @@ public class ContentService {
                           ContentCache contentCache,
                           InteractionService interactionService,
                           ContentStatusFiller contentStatusFiller,
+                          CoinService coinService,
                           ApplicationEventPublisher events) {
         this.contentDao = contentDao;
         this.contentMediaDao = contentMediaDao;
@@ -111,6 +114,7 @@ public class ContentService {
         this.contentCache = contentCache;
         this.interactionService = interactionService;
         this.contentStatusFiller = contentStatusFiller;
+        this.coinService = coinService;
         this.events = events;
     }
 
@@ -152,9 +156,14 @@ public class ContentService {
             }
             result.add(contentCache.toContentVO(dto));
         }
-        // ⚠️ 0 维也**必须**调（KEYWORD_SEARCH_DIMENSIONS 的注释）：拿到"对象在、三维全 null"
+        // ⚠️ 0 维也**必须**调（KEYWORD_SEARCH_DIMENSIONS 的注释）：拿到"对象在、四维全 null"
         if (userId != null && !result.isEmpty()) {
             contentStatusFiller.fillInteractionBatch(result, userId, KEYWORD_SEARCH_DIMENSIONS);
+        }
+        // ★ T40：公共计数与登录态无关 ⇒ 放在上面那个 `userId != null` 的 if **之外**
+        //   （只判列表非空）。匿名搜索同样要显示投币数。
+        if (!result.isEmpty()) {
+            contentStatusFiller.fillCoinCountBatch(result);
         }
         return new PageResult<>(result, total, page, pageSize);
     }
@@ -199,12 +208,14 @@ public class ContentService {
      *
      * <p>T10（R-10，{@code favorite.md} §六）：互动态（赞 / 藏 / 关注作者）整体
      * 走互动域，收进响应的 {@code interaction} 子对象；**匿名 ⇒ 子对象为 {@code null}**
-     * （互动域对 {@code userId == null} 短路、"不查任何维度"——不是三个 {@code false}）。
+     * （互动域对 {@code userId == null} 短路、"不查任何维度"——不是四个 {@code false}）。
      * 顶层 {@code isLiked} / {@code isFollowed} 已从 {@code ContentDetailVO} 删除
      * （breaking，用户 2026-10-11 接受；**T13 起列表 {@code ContentVO} 同样删除**、改内嵌
      * {@code interaction} —— 两个 VO 从此同形，见 {@code ContentVO} 类注释）。
-     * <p>⚠️ 本方法走 {@code getStatus}（**单条、恒三维**）—— R-13 刻意不给单条契约加维度入参，
-     * 详情面因此 **JSON 逐字不变**（T13 的 breaking 只落在 4 个列表面）。
+     * <p>⚠️ 本方法走 {@code getStatus}（**单条、恒四维**）—— R-13 刻意不给单条契约加维度入参，
+     * 详情面因此 **JSON 逐字不变**（T13 的 breaking 只落在 4 个列表面）；T40 起详情多出
+     * {@code interaction.coin} 与顶层 {@code coinCount} 两个字段（同一个恒四维的子对象，
+     * 只是多一维 + 一个公共计数）。
      *
      * @return {@code null} = 内容不存在 / 已软删 / 媒体损坏（Controller 据此 404）
      */
@@ -214,8 +225,12 @@ public class ContentService {
             return null;
         }
         ContentDetailVO vo = contentCache.toDetailVO(dto);
-        // 单条三维走互动域单条契约；匿名（userId == null）由它短路返回 null ⇒ "interaction": null
+        // 单条四维走互动域单条契约；匿名（userId == null）由它短路返回 null ⇒ "interaction": null。
+        // coin 维在互动域内按 type 分流：视频 ⇒ 0/1/2；图文 ⇒ null（"该维不适用"）。
         vo.setInteraction(interactionService.getStatus(userId, contentId, vo.getAuthorId(), vo.getType()));
+        // 公共计数与登录态无关（匿名详情也要显示）⇒ 放在互动域短路之外，单条读。
+        // ★ 不进 ContentCacheDTO：coinCount 来自 content.coin_count / coin 域独立缓存，见 VO 类注释。
+        vo.setCoinCount(coinService.getCoinCount(contentId));
         return vo;
     }
 

@@ -121,6 +121,49 @@ public abstract class AbstractCoinIntegrationTest extends AbstractHttpIntegratio
         return key.longValue();
     }
 
+    /**
+     * 造一条媒体行，返回 {@code content_media.id}（T40 从
+     * {@code content.AbstractContentIntegrationTest#insertMedia} 逐字搬来）。
+     *
+     * <p>⚠️ 上面的 {@link #insertContent} **只插 content 行、没有媒体行** —— 写路径（T38）
+     * 不需要它，但**读路径**（详情 / 列表）会把这种记录当"媒体损坏"直接跳过 / 404
+     * （{@code ContentCache#buildContentMedia} 的口径）。故 T40 的读面用例必须用下面两个
+     * "可构建"夹具。
+     */
+    protected long insertMedia(long contentId, String url, int type, int sort) {
+        GeneratedKeyHolder keyHolder = new GeneratedKeyHolder();
+        jdbcTemplate.update(connection -> {
+            PreparedStatement ps = connection.prepareStatement(
+                    "INSERT INTO content_media (content_id, url, type, sort) VALUES (?, ?, ?, ?)",
+                    new String[]{"id"});
+            ps.setLong(1, contentId);
+            ps.setString(2, url);
+            ps.setInt(3, type);
+            ps.setInt(4, sort);
+            return ps;
+        }, keyHolder);
+        Number key = keyHolder.getKey();
+        assertThat(key).as("content_media 插入必须回填自增 id").isNotNull();
+        return key.longValue();
+    }
+
+    /** 造一条**可构建**的视频内容（视频行 + 封面行）——读面夹具，逐字同内容切片基类。 */
+    protected long insertVideoContent(long authorId, String title) {
+        long contentId = insertContent(authorId, 1, title);
+        insertMedia(contentId, "/upload/video/" + contentId + ".mp4", 1, 1);
+        insertMedia(contentId, "/upload/cover/" + contentId + ".png", 3, 1);
+        return contentId;
+    }
+
+    /** 造一条**可构建**的图文内容（2 张图 + 封面）——读面夹具，逐字同内容切片基类。 */
+    protected long insertPostContent(long authorId, String title) {
+        long contentId = insertContent(authorId, 2, title);
+        insertMedia(contentId, "/upload/image/" + contentId + "_1.jpg", 2, 1);
+        insertMedia(contentId, "/upload/image/" + contentId + "_2.jpg", 2, 2);
+        insertMedia(contentId, "/upload/cover/" + contentId + ".png", 3, 1);
+        return contentId;
+    }
+
     // ==================== 用户夹具（T38 从 CoinSignInTests 下沉） ====================
 
     /**

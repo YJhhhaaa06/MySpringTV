@@ -29,6 +29,8 @@ import java.util.Set;
  * <h2>鉴权：公开</h2>
  * TV 清单不含 {@code /start} ⇒ 匿名可访问；带 token 则填充互动态
  * （{@code @CurrentUserId(required = false)}）；匿名 ⇒ 每条 {@code "interaction": null}。
+ * ★ T40：公共计数 {@code coinCount} **与登录态无关** ⇒ 无论匿名都批量填充
+ * （放在互动态填充之后、**不在**任何匿名短路里）。
  *
  * <h2>★ 两个"看起来像 bug、其实是规格"的点（勿改）</h2>
  * <ol>
@@ -53,8 +55,9 @@ public class StartController {
      *
      * <p>只带 {@code FOLLOW}：对标 B站 首页卡片只显示「已关注」，不显示点赞 / 收藏
      * ⇒ 那两维本面**不查**（对应 JSON 里是 {@code null}，前端静默忽略）。
-     * ⚠️ 这是**常量**不是契约：响应键集恒三维（{@code interaction} 里 {@code isLiked} /
-     * {@code isFavorited} 为 {@code null}），将来要加回来只改本行。
+     * ⚠️ 这是**常量**不是契约：响应键集恒四维（{@code interaction} 里未选中的
+     * {@code isLiked} / {@code isFavorited} 为 {@code null}，{@code coin} 作为第四维**恒**
+     * {@code null} —— 列表不查该维），将来要加回来只改本行。
      */
     private static final Set<InteractionDimension> START_DIMENSIONS = Set.of(InteractionDimension.FOLLOW);
 
@@ -83,6 +86,8 @@ public class StartController {
                 PageParams.parseIntOrNull(categoryId),
                 RECOMMEND_LIMIT);
         contentStatusFiller.fillInteractionBatch(recommend, userId, START_DIMENSIONS);
+        // 公共计数与登录态无关（匿名也要显示投币数）⇒ 独立一趟批量，放在互动态填充之后、短路之外。
+        contentStatusFiller.fillCoinCountBatch(recommend);
         return ApiResponse.success(recommend);
     }
 }

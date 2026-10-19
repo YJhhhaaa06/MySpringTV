@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.content.service;
 
+import io.github.yjhhhaaa06.videoweb.coin.service.CoinService;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentVO;
 import io.github.yjhhhaaa06.videoweb.interaction.model.InteractionDimension;
 import io.github.yjhhhaaa06.videoweb.interaction.model.InteractionTarget;
@@ -42,15 +43,25 @@ import java.util.Set;
  * （见 {@link InteractionDimension}）。本类只负责透传。
  *
  * <p>匿名（{@code userId == null}）短路：互动域返回 {@code null}，VO 的 {@code interaction}
- * 保持 {@code null}（= "没有登录态"，不是三个 {@code false}）。
+ * 保持 {@code null}（= "没有登录态"，不是四个 {@code false}）。
+ *
+ * <h2>★ 两个填充方法**必须分开**：互动态看登录态，公共计数不看（T40）</h2>
+ * {@link #fillInteractionBatch} 在 {@code userId == null} 时短路（匿名没有"我的状态"）；
+ * 而 {@link #fillCoinCountBatch} 填的是**公共计数** {@code coinCount}（这条内容被投了几枚），
+ * **与登录态无关** —— 匿名列表同样要显示投币数。故它是一条**独立的批量读**，
+ * 调用点必须把它放在互动态的匿名短路**之外**。
+ * <p>★ 两条都是**批量**语义（一趟 {@code MGET} / 互动域一趟批量），不得改成循环调单条
+ * （同 T9 红线，见类注释"批量而非逐条"）。
  */
 @Component
 public class ContentStatusFiller {
 
     private final InteractionService interactionService;
+    private final CoinService coinService;
 
-    public ContentStatusFiller(InteractionService interactionService) {
+    public ContentStatusFiller(InteractionService interactionService, CoinService coinService) {
         this.interactionService = interactionService;
+        this.coinService = coinService;
     }
 
     /**
@@ -61,10 +72,10 @@ public class ContentStatusFiller {
      * 本类不做分支。
      *
      * <p>⚠️ {@code dimensions} 为**空集**（{@code /search/keywordSearch} 的取值）时
-     * 本方法**仍要调用**互动域 —— 它一趟都不查、但会返回"对象在、三维全 {@code null}"的对象。
+     * 本方法**仍要调用**互动域 —— 它一趟都不查、但会返回"对象在、四维全 {@code null}"的对象。
      * ★ **直接跳过调用会得到 {@code interaction: null} ⇒ 与"匿名"不可区分**（这是错的）。
      *
-     * @param dimensions 要填的维度（编译期常量；空集 ⇒ 只产出一个"三维全 null"的对象）
+     * @param dimensions 要填的维度（编译期常量；空集 ⇒ 只产出一个"四维全 null"的对象）
      */
     public void fillInteractionBatch(List<ContentVO> list, Long userId,
                                      Set<InteractionDimension> dimensions) {
@@ -82,6 +93,34 @@ public class ContentStatusFiller {
         }
         for (ContentVO vo : list) {
             vo.setInteraction(statuses.get(vo.getId()));
+        }
+    }
+
+    /**
+     * 列表页批量回填**公共计数** {@code coinCount}（{@code /start}、{@code /search/keywordSearch}、
+     * {@code /profile} 共用；T40）。
+     *
+     * <p>★ <b>与 {@link #fillInteractionBatch} 分开、且不受匿名短路影响</b>：这里填的是
+     * "这条内容被投了几枚"（公共计数），**匿名访客也要看到**；而互动态是"我的状态"，
+     * 匿名时整体为 {@code null}。把两者塞进同一个方法要么让匿名少了计数、要么让匿名多了
+     * 一个空壳对象 —— 两种都是错的。
+     *
+     * <p>★ 一趟批量（{@code CoinService#batchGetCoinCount}：{@code MGET} + 一趟 DB 回填），
+     * **绝不逐条调 {@code getCoinCount}**（100 条列表会退化 100 次往返）。
+     * 返回映射对入参每个 id 都有一条（DB 里没有的记 {@code 0}），故缺失分支不存在；
+     * 仍用 {@code getOrDefault} 兜底，避免实现将来只回部分键时抛 NPE。
+     */
+    public void fillCoinCountBatch(List<ContentVO> list) {
+        if (list == null || list.isEmpty()) {
+            return;
+        }
+        List<Long> ids = new ArrayList<>(list.size());
+        for (ContentVO vo : list) {
+            ids.add(vo.getId());
+        }
+        Map<Long, Long> counts = coinService.batchGetCoinCount(ids);
+        for (ContentVO vo : list) {
+            vo.setCoinCount(counts.getOrDefault(vo.getId(), 0L));
         }
     }
 

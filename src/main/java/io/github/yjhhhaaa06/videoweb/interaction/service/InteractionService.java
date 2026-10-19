@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.interaction.service;
 
+import io.github.yjhhhaaa06.videoweb.coin.service.CoinService;
 import io.github.yjhhhaaa06.videoweb.favorite.service.FavoriteService;
 import io.github.yjhhhaaa06.videoweb.follow.service.FollowService;
 import io.github.yjhhhaaa06.videoweb.interaction.model.InteractionDimension;
@@ -18,13 +19,14 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 互动域：把"**当前用户对内容的互动态**"（点过赞吗 / 收藏了吗 / 关注作者了吗）聚合成一处
- * （R-10，详细设计见 {@code favorite.md} §六）。
+ * 互动域：把"**当前用户对内容的互动态**"（点过赞吗 / 收藏了吗 / 关注作者了吗 / 投了几枚）
+ * 聚合成一处（R-10，详细设计见 {@code favorite.md} §六；第四维投币见
+ * {@code architecture/domain/coin/coin.md} §七）。
  *
  * <h2>它解决什么（依赖方向，不是边数）</h2>
- * 内容详情 / 列表要展示这三个"与我有关"的状态，它们分别属于 like / favorite / follow 三个域。
- * 本域只做**组装**：content 域依赖本域（**1 条边**，见 T10），不再直接 import 那三个域；
- * 三个域的数据归属不变（本域不是数据所有者）。
+ * 内容详情 / 列表要展示这些"与我有关"的状态，它们分别属于 like / favorite / follow / coin 四个域。
+ * 本域只做**组装**：content 域依赖本域（**1 条边**，见 T10），不再直接 import 那四个域；
+ * 四个域的数据归属不变（本域不是数据所有者）。
  * ⚠️ 总跨域边数其实**增加**了（3 → 1+3）——本方案的收益是"方向变单向 / 分层清晰"，
  * 别记成"依赖变少"（R-10 结论原话，见 {@code favorite.md 附录「编号速查」} R-10）。
  *
@@ -47,11 +49,22 @@ import java.util.Set;
  * <h2>两种契约（单条 + 批量）与各自的消费面</h2>
  * <ul>
  *   <li>{@link #getStatus} —— 单条（详情路径）。★ R-13 **刻意不给它加维度入参**：
- *       只有详情用它、且详情恒要三维，不为它扩大 T9 刚钉死的契约面；</li>
+ *       只有详情用它、且详情恒要**四维**，不为它扩大 T9 刚钉死的契约面；</li>
  *   <li>{@link #batchGetStatus} —— 批量（列表路径），**带维度集合**入参（R-13）。
  *       ★ 它的存在理由：只给单条会让列表退回"逐条调用"（100 条推荐页 = 200 次往返，
  *       正是 {@code ContentStatusFiller} 当年要治的问题）；故批量必须**原样透传批量语义**，
  *       每个被选中的维度各一趟批量、**不得循环调单条**。</li>
+ * </ul>
+ *
+ * <h2>★ 第四维为什么只在这一条契约上（T40）</h2>
+ * 详情要"我投了几枚"（投币按钮的 0/1/2 展示态），列表面**没有任何展示位** ——
+ * 故 {@code coin} 只在 {@link #getStatus} 里按 {@code type} 分流填充，
+ * {@link #batchGetStatus} **恒不查该维**（返回对象里它保持 {@code null}）。
+ * <ul>
+ *   <li>★ **不给 {@link InteractionDimension} 加 {@code COIN} 常量**：没有列表面需要它（YAGNI），
+ *       而给批量契约加维度入参只会扩大 R-13 刚钉死的契约面；</li>
+ *   <li>★ 单条契约**本来就恒四维**（它没有维度入参，详情永远要全部四维），
+ *       所以"加一维"在这里不破"单条契约不扩面"的初衷。</li>
  * </ul>
  *
  * <h2>★ 维度选择（R-13，2026-10-13）</h2>
@@ -59,15 +72,15 @@ import java.util.Set;
  * **没被选中的维度不查**（对应 {@code InteractionStatusVO} 里那一位是 {@code null}）。
  * 四个列表面今天的取值：{@code /start} = {@code {FOLLOW}}、{@code /search/keywordSearch} =
  * **空集**、{@code /feed} 与 {@code /profile} = {@code {LIKE}}（各面常量写在各自调用点上）。
- * ⚠️ **空集（0 维）是合法入参**：一趟都不查，但**仍返回对象**（三维全 {@code null}），
+ * ⚠️ **空集（0 维）是合法入参**：一趟都不查，但**仍返回对象**（四维全 {@code null}），
  * 不是返回 {@code null} —— 后者是"匿名"的语义（见下），两者必须可区分。
  *
  * <h2>匿名语义（userId == null）</h2>
- * **不查任何互动域，直接返回 {@code null}**（不是三个 {@code false}、不是空 Map、
- * 也不是"三维全 null 的空壳对象"）—— "没有登录态"与"登录但无互动"必须可区分（R-10 §六）。
+ * **不查任何互动域，直接返回 {@code null}**（不是四个 {@code false}、不是空 Map、
+ * 也不是"四维全 null 的空壳对象"）—— "没有登录态"与"登录但无互动"必须可区分（R-10 §六）。
  * 两个契约同款。
  *
- * <p>本类全是**纯读**（三趟缓存 / DB 读）⇒ 不加 {@code @Transactional}（事务边界篇 §四）。
+ * <p>本类全是**纯读**（四趟缓存 / DB 读）⇒ 不加 {@code @Transactional}（事务边界篇 §四）。
  */
 @Service
 public class InteractionService {
@@ -75,6 +88,7 @@ public class InteractionService {
     private final LikeService likeService;
     private final FavoriteService favoriteService;
     private final FollowService followService;
+    private final CoinService coinService;
 
     /**
      * <h2>★ 为什么 {@code favoriteService} 是 {@code @Lazy}（装配环的唯一断点，T10 发现）</h2>
@@ -91,33 +105,43 @@ public class InteractionService {
      * <p>⚠️ 别把"无环"读成传递闭包：R-10 的"无环"只成立在**直连边**上（本域不 import content）；
      * 上面那个环在传递闭包上真实存在（第二锚点：favorite.md §六 的"T10 落地实测"；登记
      * {@code favorite.md 附录「编号速查」} I-10；备选的根治方案见 {@code FURTHER_ISSUES.md} F-18）。
+     *
+     * <h2>★ 为什么 {@code coinService} **不需要** {@code @Lazy}（T40 判断）</h2>
+     * 判据是它有没有指回来的边：{@code coin.service} 只依赖 {@code content.dao} /
+     * {@code user.dao} / 自己的 cache（{@code CoinCache}），**没有任何指回
+     * interaction / content.service 的依赖** ⇒ 把本域注入它**不会**多出装配期环
+     * （上面的 {@code contentService → interactionService → favoriteService → contentService}
+     * 一格都没变）。{@code @Lazy} 只在"本域指出去的那条边"（T9 的 favorite 聚合边）需要断环；
+     * 给 coin 也加只会多一层没人需要的代理，并把"环在哪"这个信息稀释掉。
      */
     public InteractionService(LikeService likeService, @Lazy FavoriteService favoriteService,
-                              FollowService followService) {
+                              FollowService followService, CoinService coinService) {
         this.likeService = likeService;
         this.favoriteService = favoriteService;
         this.followService = followService;
+        this.coinService = coinService;
     }
 
     /**
      * 单条互动状态（T10 之后详情路径改调本方法）。
      *
-     * <p>三维各一次**单条**读：内容赞（{@code LikeService.isContentLiked}）、
+     * <p>四维各一次**单条**读：内容赞（{@code LikeService.isContentLiked}）、
      * 判收藏存在（{@code FavoriteService.isFavorited}，不 JOIN 的轻量点查）、
-     * 关注作者（{@code FollowService.isFollowing}）。
+     * 关注作者（{@code FollowService.isFollowing}）、我投了几枚（{@code CoinService.getCoinAmount}）。
      *
      * <p>⚠️ {@code authorId <= 0}（作者未知）⇒ 关注维度不查询、按 false 作答
-     * （与既有列表填充跳过非正作者 id 的口径一致）；赞 / 藏维度不受影响。
+     * （与既有列表填充跳过非正作者 id 的口径一致）；赞 / 藏 / 投币维度不受影响。
      *
-     * <p>⚠️ {@code type} 今天是"**预留的判据位置**"：视频 / 图文都适用三维，故暂不参与分支；
-     * 将来按类型收窄维度（如投币）时在**本域内**用它判定，而不是去反查内容类型
-     * （反查即依赖 content、即成环）。详见 {@link InteractionTarget} 与 F-13（{@code FURTHER_ISSUES.md} 登记）。
+     * <p>⚠️ {@code type} 是**第四维的适用判据**（T40 起真正参与分支）：投币只适用于视频
+     * （{@code type == 1}）；图文帖该维**不适用** ⇒ {@code coin} 保持 {@code null}。
+     * 判据由调用方传入而**不反查内容类型**（反查即依赖 content、即成环），
+     * 详见 {@link InteractionTarget}。
      *
      * @param userId    当前登录用户；{@code null} = 匿名 ⇒ 返回 {@code null}（不查任何互动域）
      * @param contentId 内容 id
      * @param authorId  内容作者 id（{@code <= 0} = 未知）
-     * @param type      内容类型（1=视频、2=图文；"哪些维度适用"的判据位置，见上）
-     * @return 三维状态；匿名 ⇒ {@code null}
+     * @param type      内容类型（1=视频、2=图文；决定投币维是否适用）
+     * @return 四维状态；匿名 ⇒ {@code null}
      */
     public InteractionStatusVO getStatus(Long userId, long contentId, long authorId, int type) {
         if (userId == null) {
@@ -127,6 +151,9 @@ public class InteractionService {
         status.setIsLiked(likeService.isContentLiked(userId, contentId));
         status.setIsFavorited(favoriteService.isFavorited(userId, contentId));
         status.setIsFollowed(authorId > 0 && followService.isFollowing(userId, authorId));
+        // 第四维（T40）：只有视频（type == 1）适用投币；图文帖保持 null（"该维不适用"）。
+        // 与前三态共用 null —— 客户端语义都是"不显示该维"，不另造表示（见 InteractionStatusVO 类注释）。
+        status.setCoin(type == 1 ? coinService.getCoinAmount(userId, contentId) : null);
         return status;
     }
 
@@ -149,8 +176,9 @@ public class InteractionService {
      * {@link InteractionDimension} 的三态口径）。
      * <ul>
      *   <li>⚠️ **空集（0 维）⇒ 一趟都不查**，但**仍为每个入参 id 返回一个对象**
-     *       （三维全 {@code null}）—— 不是返回 {@code null}（那是匿名语义）；</li>
-     *   <li>⚠️ {@code dimensions == null} 按**全量三维**处理：漏传的代价是"多查"，
+     *       （四维全 {@code null}）—— 不是返回 {@code null}（那是匿名语义）；</li>
+     *   <li>⚠️ {@code dimensions == null} 按**全量三维**处理（枚举只有赞 / 藏 / 关注三维；
+     *       {@code coin} 不在枚举里 ⇒ 批量**恒不查**该维）：漏传的代价是"多查"，
      *       而不是"少给"（与本域"匿名 ⇒ 不查"同款取向：宁可保守、不静默丢信息）。
      *       调用点应当显式传常量，不要依赖这个兜底。</li>
      * </ul>
@@ -165,8 +193,10 @@ public class InteractionService {
      *
      * @param userId     当前登录用户；{@code null} = 匿名 ⇒ 返回 {@code null}（不查任何互动域）
      * @param targets    目标列表（可为空 ⇒ 空 Map；{@code null} 同空处理）
-     * @param dimensions 要查的维度集合（{@code null} ⇒ 全量三维；空集 ⇒ 一趟不查但对象仍在）
-     * @return contentId → 三维状态（每个入参 id 恰好一条）；匿名 ⇒ {@code null}
+     * @param dimensions 要查的维度集合（{@code null} ⇒ 全量三维；空集 ⇒ 一趟不查但对象仍在；
+     *                   {@code coin} 不在枚举里 ⇒ 本契约恒不查该维）
+     * @return contentId → 互动状态（每个入参 id 恰好一条；前三维按选中查，{@code coin} 恒 {@code null}）；
+     *         匿名 ⇒ {@code null}
      */
     public Map<Long, InteractionStatusVO> batchGetStatus(Long userId, List<InteractionTarget> targets,
                                                         Set<InteractionDimension> dimensions) {
@@ -205,6 +235,8 @@ public class InteractionService {
         Map<Long, InteractionStatusVO> result = new LinkedHashMap<>();
         for (Map.Entry<Long, InteractionTarget> entry : byContentId.entrySet()) {
             InteractionStatusVO status = new InteractionStatusVO();
+            // ★ T40：coin 在本契约里**刻意不查**（列表各面无展示位，InteractionDimension 也没有
+            //   COIN 常量）⇒ 它保持 null。这不是漏填：契约就是"列表的 coin 恒 null"。
             // ★ 三态：选中 ⇒ 查得的布尔；未选中 ⇒ 保持 null（"本面不查该维"，不是 false）
             if (dims.contains(InteractionDimension.LIKE)) {
                 status.setIsLiked(Boolean.TRUE.equals(likedMap.get(entry.getKey())));

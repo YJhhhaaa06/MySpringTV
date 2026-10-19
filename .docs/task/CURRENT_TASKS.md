@@ -128,7 +128,7 @@
 * **反向验证（已实测）**：① 去掉两台 Lua 的 `if EXISTS` 守卫 ⇒ 「冷 key 不写半套」**1 红**；② 把 `CoinChangedListener` 改成普通 `@EventListener`（等价于事务内直接调）⇒ 「事务回滚后两个 key 都不存在」**1 红**（事务未提交时 field 已是 `"1"`）；还原后 34 例全绿。
 * **口径调整（G13）**：`batchGetCoinCount` 的 DB 里**不存在的 id 不写缓存**（内容不存在是 404 路径，写 0 会在 TTL 内钉成假值）；`getCoinAmount/getCoinCount` 接单飞，**批量路径不接**（同 `LikeCache` 的批量纪律）；写失败时除 `log.warn` 外**尽力失效** hash/空标记/count（"写失败 ⇒ 失效让读自愈"，尤其要清可能残留的空标记）。
 
-### T40 读面接入：互动态 `coin` + 公共计数 `coinCount`（来源 `R-17` / 设计 §三 · §七）【待执行】
+### T40 读面接入：互动态 `coin` + 公共计数 `coinCount`（来源 `R-17` / 设计 §三 · §七）【已完成】
 
 > ⚠️ **先质疑（G14）**：
 > - **任务**：前提成立 —— 没有读面，前端拿不到"我投了几枚 / 这条被投了几枚"。
@@ -139,7 +139,8 @@
 * **红线边界**：① **`coinCount` 绝不进 `ContentCacheDTO`**（冻结的缓存形状不动 —— 最易被"顺手"破坏的一处）；② **不加** `COIN` 维度常量；③ **不得循环调单条**（批量语义原样透传 —— `ContentStatusFiller` 类注释的既有纪律）；④ 列表 `coin` 恒 `null` 是**契约**、不是漏填。
 * **强制探索**：① 逐条复算 `InteractionStatusContractTests` / `ProfileReadTests` 的"键集恰好三维"断言，按新口径改成"**恰好四维**"（**不许为变绿而删断言**）；② 取证详情页 `getStatus` 的 `type` 来源；③ 确认 `coinCount` 在详情 / 列表两条路径都能由 `content.coin_count` **独立复算**。
 * **验收**：`CoinReadTests`（HTTP + 独立 oracle）：① 详情 `interaction.coin` 与 `content_coin.amount` **复算一致**；② **图文帖 ⇒ `coin = null`** 且 `coinCount` 有值；③ 匿名 ⇒ `interaction` 整体 `null`（**不是**四维全 null 的空壳）；④ 列表：`coin` **恒 `null`**、`coinCount` 与 DB 复算一致；⑤ 键集 = **恰好四维**。
-* **回写**：（待执行）
+* **回写**：`InteractionStatusVO` +`coin`（`Integer`，手写 getter；键集 3→4）；`InteractionService#getStatus` 按 `type == 1` 经 `CoinService#getCoinAmount` 填、图文留 `null`，`batchGetStatus` **一行未动**、`InteractionDimension` **未加 `COIN`**；`ContentVO`/`ContentDetailVO` +`coinCount`（`Long`，`ContentCacheDTO` 一字符未改）；`ContentStatusFiller#fillCoinCountBatch`（**独立于互动态填充**，因公共计数与登录态无关）在 `/start` `/search` `/profile` 三处**匿名短路之外**调用，`FeedService` 自持一趟批量（不依赖 content 装配组件），详情单条 `getCoinCount`。`CoinReadTests` 7 例 + `FeedReadTests` 补 1 例，`ContentReadTests` 3 处 / `WatchLaterIsolationTests` 1 处键集断言改"恰好四维"。
+* **反向验证（已实测）**：把 `getStatus` 的 `coin` 赋值改成恒 `null` ⇒ **5 红**（详情视频 / 键集 / 缓存链路 / `ContentReadTests.详情_视频字段形状` / `InteractionStatusContractTests.单条登录零互动`），图文用例仍绿（它要的就是 `null`，恰好证明图文档位的是"按 type 分流"）。还原后 67 例全绿。
 
 ### T41 前端接入（`api.js` / `detail.js` / `user.js`）（来源 `R-17` / 设计 §四）【待执行】
 
