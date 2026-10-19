@@ -750,6 +750,9 @@ body.drawer-open .drawer-backdrop { opacity: 1; pointer-events: auto; }
 .detail-actions { display: flex; gap: 12px; margin-top: 14px; }
 .like-btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 20px; border-radius: 999px; font-size: 14px; border: 1px solid var(--line); background: var(--bg-card); color: var(--text-2); transition: all .15s; }
 .like-btn.liked { background: var(--brand-weak); border-color: var(--brand); color: var(--brand); }
+/* 投币（T41）：已投满 2 枚的"已用完"态。★ 只做**视觉**禁用、不加 `disabled` 属性 ——
+   属性会吞掉 click，而契约要求点击给「对本稿件投币枚数已用完」提示（见 detail.js#updateCoinBtn）。 */
+.like-btn.coin-used { opacity: .62; cursor: not-allowed; }
 .edit-btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 20px; border-radius: 999px; font-size: 14px; border: 1px solid var(--line); background: var(--bg-card); color: var(--text-2); transition: all .15s; cursor: pointer; }
 .edit-btn:hover { color: var(--brand); border-color: var(--brand); }
 .detail-desc { font-size: 14px; line-height: 1.7; color: var(--text-2); margin-top: 16px; white-space: pre-wrap; }
@@ -809,6 +812,14 @@ body.drawer-open .drawer-backdrop { opacity: 1; pointer-events: auto; }
 .user-follow-btn.follow { background: #fff; color: var(--brand); }
 .user-follow-btn.followed { background: rgba(255,255,255,.3); color: #fff; }
 .user-follow-btn:active { transform: scale(.96); }
+/* 硬币（T41）：本人主页的余额 + 每日签到（数据源 GET /user/me） */
+.user-coin-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--bg-card); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 18px; box-shadow: var(--shadow-1); }
+.user-coin-num { font-size: 22px; font-weight: 800; color: var(--text-1); }
+.user-coin-label { font-size: 13px; color: var(--text-3); margin-left: 6px; }
+.coin-sign-btn { padding: 9px 26px; border-radius: 999px; border: none; background: var(--brand); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; transition: all .15s; }
+.coin-sign-btn:hover:not(:disabled) { background: var(--brand-hover); }
+.coin-sign-btn:active:not(:disabled) { transform: scale(.96); }
+.coin-sign-btn:disabled { background: var(--line); color: var(--text-3); cursor: not-allowed; }
 .user-menu { background: var(--bg-card); border-radius: var(--radius); overflow: hidden; margin-bottom: 18px; box-shadow: var(--shadow-1); }
 .user-menu-item { display: flex; align-items: center; justify-content: space-between; padding: 15px 18px; border-bottom: 1px solid var(--line-soft); cursor: pointer; font-size: 14px; transition: background .1s; }
 .user-menu-item:last-child { border-bottom: none; }
@@ -834,6 +845,13 @@ body.drawer-open .drawer-backdrop { opacity: 1; pointer-events: auto; }
 .modal .btn-row button { flex: 1; padding: 12px; border-radius: 8px; font-size: 15px; cursor: pointer; }
 .modal .btn-cancel { background: var(--bg); color: var(--text-2); }
 .modal .btn-confirm { background: var(--brand); color: #fff; }
+/* 投币弹层（T41）：我的余额 + 本次可投枚数（选项只按"还能投几枚"裁剪，余额不足由后端 400 兜底） */
+.coin-modal { max-width: 360px; }
+.coin-balance-row { text-align: center; font-size: 14px; color: var(--text-2); margin-bottom: 18px; }
+.coin-opt-row { display: flex; gap: 12px; margin-bottom: 16px; }
+.coin-opt { flex: 1; padding: 13px 0; border-radius: 10px; border: 1px solid var(--line); background: var(--bg-card); color: var(--text-1); font-size: 15px; font-weight: 600; cursor: pointer; transition: all .15s; }
+.coin-opt:hover:not(:disabled) { border-color: var(--brand); color: var(--brand); }
+.coin-opt:disabled { background: var(--bg); color: var(--text-4); cursor: not-allowed; }
 
 /* ==========================================================================
    投稿

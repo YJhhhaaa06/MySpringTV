@@ -3,7 +3,7 @@
 // 本人：显示菜单（改密/券包/退出）；他人：显示关注按钮。
 // ============================================================================
 
-import { request } from '../api.js';
+import { request, coinSignIn } from '../api.js';
 import { isLoggedIn, getUserId, clearAuth } from '../auth.js';
 import { createVideoCard, showToast, escapeHtml, initialChar, avatarColor } from '../utils.js';
 import { navigate } from '../router.js';
@@ -47,9 +47,12 @@ export function mount(container, params) {
     contentList: null,  // T11-B：创作网格 createChunkedList 实例（大 chunk + 本地小批）
     sheetList: null,    // T11-A：关注/粉丝 sheet 实例；★ T18 起也承载"他人公开夹内容"
     sheetRender: null,  // T18：当前 sheet 的内容渲染器（用户列表 / 公开夹卡片），由 openSheet 决定
+    coin: 0,            // T41：我的硬币余额（一位小数展示；仅本人主页，数据源 GET /user/me）
+    signedToday: false, // T41：今天（上海自然日）是否已签到 —— 签到按钮进页即置灰的依据
   };
   state.isSelf = state.currentUserId != null && state.currentUserId === profileUserId;
   render();
+  if (state.isSelf) loadSelfCoin();   // T41：硬币卡片只属于本人（余额与签到都是"我的"）
   loadContent();
 }
 
@@ -77,6 +80,7 @@ function render() {
         <div class="user-follow-wrap" id="followWrap"></div>
       </div>
       <div class="user-fav" id="userFav"></div>
+      <div class="user-coin" id="userCoin"></div>
       <div id="selfMenu"></div>
       <div class="home-content" id="contentGrid"></div>
       <div class="load-more" id="loadMore"></div>
@@ -127,6 +131,64 @@ function renderSelfMenu() {
   box.querySelector('#menuPwd').addEventListener('click', openModal);
   box.querySelector('#menuCoupon').addEventListener('click', () => navigate('/coupon'));
   box.querySelector('#menuLogout').addEventListener('click', () => { clearAuth(); navigate('/'); });
+}
+
+// ---------- 硬币（T41 / R-17；口径源 = architecture/domain/coin/coin.md §四 · §五.2 · §三） ----------
+/**
+ * 本人主页的硬币卡片（余额 + 每日签到）。数据源 `GET user/me`：
+ * `UserInfoVO.coin`（一位小数）与 `UserInfoVO.signedToday`（今天 = **上海自然日** 签过没）。
+ * ★ 按钮"进页就置灰"的依据只能是后端给的 `signedToday` —— 看余额判不出"今天签过没"，
+ * 而本域刻意**不新增**"签到状态"端点（coin 设计 §三）。
+ */
+async function loadSelfCoin() {
+  const box = state.container.querySelector('#userCoin');
+  if (!box) return;
+  try {
+    const me = await request('user/me');
+    state.coin = me && me.coin != null ? me.coin : 0;
+    state.signedToday = !!(me && me.signedToday);
+  } catch (e) {
+    return;   // 取不到就不渲染卡片，不打断主页其它内容（401/403 已由 api.js 统一处置）
+  }
+  renderSelfCoin();
+}
+
+function renderSelfCoin() {
+  const box = state.container.querySelector('#userCoin');
+  if (!box) return;
+  box.innerHTML = `
+    <div class="user-coin-card">
+      <div><span class="user-coin-num">${formatBalance(state.coin)}</span><span class="user-coin-label">硬币</span></div>
+      <button class="coin-sign-btn" id="signBtn">${state.signedToday ? '今日已签到' : '签到'}</button>
+    </div>`;
+  const btn = box.querySelector('#signBtn');
+  btn.disabled = state.signedToday;
+  btn.addEventListener('click', signIn);
+}
+
+/**
+ * 签到（幂等）：`credited === false` 是**合法结果**（今日已签 ⇒ 不加币、也不报错），
+ * 文案分家就靠它 —— 与 HTTP 状态码无关（coin 设计 §五.2）。
+ */
+async function signIn() {
+  const btn = state.container.querySelector('#signBtn');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await coinSignIn();
+    if (res && res.balance != null) state.coin = res.balance;
+    state.signedToday = true;
+    showToast(res && res.credited === false ? '今日已签到' : '签到成功');
+    renderSelfCoin();   // 重渲染 ⇒ 按钮进"今日已签到"并置灰，余额取回带的新值
+  } catch (e) {
+    if (btn) btn.disabled = false;
+    showToast(e.message || '签到失败');
+  }
+}
+
+/** 余额展示口径（coin 设计 §四）：一位小数、精确不舍入（页面内局部口径，不动 utils.js 的既有函数）。 */
+function formatBalance(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n.toFixed(1) : '';
 }
 
 // ---------- 创作网格（/profile，T11-B 接公共 chunkedList） ----------

@@ -144,7 +144,7 @@
 * **回写**：`InteractionStatusVO` +`coin`（`Integer`，手写 getter；键集 3→4）；`InteractionService#getStatus` 按 `type == 1` 经 `CoinService#getCoinAmount` 填、图文留 `null`，`batchGetStatus` **一行未动**、`InteractionDimension` **未加 `COIN`**；`ContentVO`/`ContentDetailVO` +`coinCount`（`Long`，`ContentCacheDTO` 一字符未改）；`ContentStatusFiller#fillCoinCountBatch`（**独立于互动态填充**，因公共计数与登录态无关）在 `/start` `/search` `/profile` 三处**匿名短路之外**调用，`FeedService` 自持一趟批量（不依赖 content 装配组件），详情单条 `getCoinCount`。`CoinReadTests` 7 例 + `FeedReadTests` 补 1 例，`ContentReadTests` 3 处 / `WatchLaterIsolationTests` 1 处键集断言改"恰好四维"。
 * **反向验证（已实测）**：把 `getStatus` 的 `coin` 赋值改成恒 `null` ⇒ **5 红**（详情视频 / 键集 / 缓存链路 / `ContentReadTests.详情_视频字段形状` / `InteractionStatusContractTests.单条登录零互动`），图文用例仍绿（它要的就是 `null`，恰好证明图文档位的是"按 type 分流"）。还原后 67 例全绿。
 
-### T41 前端接入（`api.js` / `detail.js` / `user.js`）（来源 `R-17` / 设计 §四）【待执行】
+### T41 前端接入（`api.js` / `detail.js` / `user.js`）（来源 `R-17` / 设计 §四）【已完成】
 
 > ⚠️ **先质疑（G14）**：
 > - **任务**：前提成立 —— 后端契约变了（2 个新端点 + 3 个新字段），**不同步 `api.js` 前端就调不通**（`INDEX.md` §一 边界① 是硬要求）。
@@ -155,7 +155,12 @@
 * **红线边界**：① 前端**不自算规则**（封顶由后端 409 兜底，前端只做展示态）；② **不引入构建步骤 / 新依赖**（本仓前端是**原生 JS**）；③ 不碰后端。
 * **强制探索**：① 复算 `utils.js` 有无现成的数字格式化，没有则**只在本页内**写一位小数格式化；② 取证现有互动按钮组的 DOM 位置与事件绑定方式，**照抄同款**（不自创新模式）。
 * **验收**：浏览器手工清单 —— ① 已投 0 ⇒ 可选 1/2、成功后按钮变「已投 1」；② 再投 1 ⇒ 「已用完」+ 禁用；③ 图文帖**无**投币按钮；④ 余额不足 ⇒ 弹「硬币不足」；⑤ 签到 ⇒ 余额 +1、按钮置灰；⑥ **刷新后**余额与已投数仍正确（证明读面生效）；⑦ 控制台**零报错**。
-* **回写**：（待执行）
+* **回写**：`api.js` +`coinAdd(contentId, count)` / `coinSignIn()` 两个具名入口 + `R-17` 端点登记注释（**明文记下与 T7「不新增封装层」的取舍差异**：投币只有两个写端点，`count` / `balance` 在两个调用点都要用，钉一次）；`detail.js` 投币按钮（**只对 `type == 1` 渲染**）+ 投币弹层（余额走 `user/me`、选项按"**本次还能投几枚**"裁剪、**余额不足不预判**）+ `renderStats` 加 `🪙 coinCount`；`user.js` 本人主页硬币卡片（余额一位小数 + 签到按钮按 `signedToday` **进页即置灰**）；`utils.js` `createVideoCard` 加卡片投币数（4 个列表面；**缺字段即不显示** —— 收藏夹 / 稍后再看走各自 VO）；`common.css` 补硬币样式。**后端零改动**、无构建步骤 / 新依赖。
+* **验收（浏览器实测，2026-10-19；`spring-boot:run` 直连 dev 库 `spring_tv` + `http://localhost:8080`；测试账号经 `POST /user/register` 建（id 232）并**人工把 `coin_deci` 置 20** 起测）**：① 投 1 枚 ⇒ 200 + 按钮「🪙 已投 1」+ 统计行 `🪙 1`；② 再投 1 枚 ⇒ 「🪙 已投 2」；**已投 2 再点 ⇒ toast「对本稿件投币枚数已用完」且弹层不打开**（`#coinOverlay` 仍 hidden、`className` 含 `coin-used`）；③ 图文（content 60）⇒ `#coinBtn` `display: none`（**无按钮**）；④ 余额 1.0 投 2 枚 ⇒ toast「硬币不足」+ 弹层**保持打开**；⑤ 签到 ⇒ toast「签到成功」+ 余额 `1.0 → 2.0` + 按钮「今日已签到」且 `disabled`；⑥ **刷新后**按钮「🪙 已投 2」、统计行 `🪙 2`、弹层余额 `1.0`（读面生效）；⑦ 卡片列表（作者页 content 92）`❤ 0 💬 0 🪙 2`（**T40 铺好的批量读被前端消费**）。
+* **独立 oracle（不读缓存、不读接口回显，直接查列）**：`content_coin` 仅 `(232, 92, amount = 2)` ⇒ `content.coin_count(92) == SUM(amount) == 2` ✓；失败路径（77 投 2 而余额 1.0）**零副作用** ⇒ 无行、`coin_count(77)` 仍为 0 ✓；`users 232.coin_deci == 20(种子) − 20(投 2 枚) + 10(签到 1 次) == 10`、`last_sign_date == 2026-10-19` ✓（把签到日改回前一天再点签到 ⇒ 余额 `10 → 20`，正落在守卫放行的"**+10 一次**"上；**同日重复**在 UI 上不可达 —— 按钮已 `disabled`，那条只由 T37 的并发用例守）。验证后**已把测试数据复原到基线**（删 `content_coin` 行、`coin_count` 归 0、投币人余额 / 签到日归零、**作者那 `+2` 十分位按增量回退**；测试账号本体留在 dev 库，同既有测试账号）。
+* **口径调整（G13）**：① **"已用完"态不用 `disabled` 属性** —— 属性会吞掉 click，而契约要"点了给提示" ⇒ 用 `coin-used` 类做**视觉**禁用 + click 里 `showToast`（后端仍兜 409）；② 弹层选项**只按"本次还能投几枚"裁剪**（`0` ⇒ 1/2 可选、`1` ⇒ 只能 1），**余额够不够不预判**（后端 400 兜底，守红线①）；③ 投币**不做乐观更新** —— 只在成功后就地改 `coinCount` / `interaction.coin` / 余额（409 有"已满"与"只剩 1 枚额度"两种成因，后者推不出 `amount`，失败时改本地态会把展示钉成假值）。
+* **验证边界（如实声明）**：① 本仓前端是原生 JS、**无自动化测试设施** ⇒ 判别力靠浏览器实测 + DB oracle（**不产生后端反向验证项**；全量回归归 T42）；② 页面 toast 只存活 2 秒、而快照式观测远慢于它 ⇒ 用页面内 `MutationObserver` 捞瞬态文案（**不装**它会把"没观测到"误读成"没弹"）；③ 控制台唯一报错是 detail 页 `<video>` 的 `net::ERR_ABORTED`（媒体请求取消）—— **纯加载不复现也不新增**（图文页 0 条、新标签页无交互加载即出现，且 `git diff` 不触及媒体元素）⇒ **非本任务引入**，未动。
+* **面范围裁决（用户 2026-10-19）**：`coin-需求` §四 要求"详情页与列表卡片上的投币数"都纳入，而 T41 目标只列了详情页 + 个人主页 ⇒ 用户裁决取"**详情 + 卡片列表**"（`utils.js` 的 `createVideoCard`，覆盖首页 / 搜索 / 个人主页 / 创作中心，**动态流的另一套渲染器不动**）。
 
 ### T42 收口：依赖边登记 + 文档收编 + 回归基线（来源 `R-17` / 设计 §九）【待执行】
 

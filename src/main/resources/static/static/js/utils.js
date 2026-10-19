@@ -1,7 +1,7 @@
 // ============================================================================
 // 通用工具：转义 / 时间 / 数字缩写 / toast / 卡片渲染
 // 「字段缺失优雅降级」统一收敛在 createVideoCard 一处：
-//   播放量 viewCount、弹幕数 danmakuCount、时长 duration、头像 avatarUrl 缺失则隐藏或占位。
+//   播放量 viewCount、弹幕数 danmakuCount、时长 duration、头像 avatarUrl、投币数 coinCount 缺失则隐藏或占位。
 // ============================================================================
 
 import { navigate } from './router.js';
@@ -204,7 +204,10 @@ export function createVideoCard(item, opts = {}) {
   });
   const stats = document.createElement('span');
   stats.className = 'meta-stats';
-  stats.textContent = `❤ ${item.likeCount || 0}   💬 ${item.commentCount || 0}`;
+  // T41（R-17）：投币数（公共计数）随列表各面回来 —— 由后端组装点批量填（不是本函数去查）；
+  // 收藏夹 / 稍后再看的条目走各自 VO、**没有**该字段 ⇒ 缺字段即不显示（本函数统一的缺失降级口径）。
+  stats.textContent = `❤ ${item.likeCount || 0}   💬 ${item.commentCount || 0}`
+    + (item.coinCount != null ? `   🪙 ${formatNumber(item.coinCount)}` : '');
   meta.appendChild(up);
   meta.appendChild(stats);
   body.appendChild(title);

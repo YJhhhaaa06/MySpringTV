@@ -43,6 +43,15 @@ import { showToast } from './utils.js';
 //     ★ 语义：`add` **只收视频**、重复 add ⇒ **移到最前**；池满 100 时加新内容 400、"已在池中"重复 add 仍成功；
 //       `move` 的 `folderId` **缺省 = 默认夹**。⚠️ **除 `list` 外任何地方都看不出"是否在稍后再看"**
 //       （没有 status 端点、不在 `interaction` 里）——前端**不得**给按钮做"已加入"持久态（UI = T19）。
+//   ★ R-17 / T41（投币，硬币专项）：**投币域两个写端点**（**全部需登录**，后端**类级**
+//     `@RequiresLogin`）—— `POST coin/add?contentId=&count=`（`count` 只能 1|2）、`POST coin/signIn`（无入参）；
+//     契约 / 拒因优先级见 `architecture/domain/coin/coin.md` §三 · §五.1 · §八。
+//     ★ 与 like / favorite 的**第二处不同**：投币**没有**"投币状态"读端点 —— "我投了几枚"
+//       随**详情内嵌**（`interaction.coin`：0/1/2；图文帖与列表各面恒 `null`）；
+//       余额与"今天签过没"复用 `GET user/me`（`UserInfoVO.coin` / `signedToday`），也不新增读端点。
+//     ★ 本文件底部给这两个写端点各一个具名入口（`coinAdd` / `coinSignIn`）：上面 T7 的
+//       "不新增封装层"是针对**收藏域 13 个端点**的登记取舍；投币只有两个写端点，且 `count` 参数
+//       与 `balance` 返回字段在两个调用点（详情弹层 / 个人主页签到）都要用 ⇒ 钉一次。
 // ----------------------------------------------------------------------------
 
 export async function request(path, options = {}) {
@@ -96,6 +105,22 @@ export async function request(path, options = {}) {
   }
 
   return await res.text();
+}
+
+/**
+ * 投币（R-17 / T41）：`count` 只能 `1` 或 `2`；返回 `{ balance }`（**投币后**的余额）。
+ *
+ * <p>前端不预判封顶与余额 —— 两条都由后端原子条件写兜底（已满 ⇒ 409「对本稿件投币枚数已用完」、
+ * 余额不足 ⇒ 400「硬币不足」，拒因次序见 `architecture/domain/coin/coin.md` §五.1），
+ * 这里只透传 reject（`request` 抛出的 `Error` 带 `.code` / `.status` 与后端 `msg`）。
+ */
+export function coinAdd(contentId, count) {
+  return request(`coin/add?contentId=${contentId}&count=${count}`, { method: 'POST' });
+}
+
+/** 每日签到（幂等）：返回 `{ balance, credited }`；`credited === false` 即"今日已签到"（不加币、也不报错）。 */
+export function coinSignIn() {
+  return request('coin/signIn', { method: 'POST' });
 }
 
 export const api = { request };
