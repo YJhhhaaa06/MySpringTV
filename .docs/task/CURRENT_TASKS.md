@@ -69,7 +69,7 @@
 
 **待执行**（`T36`–`T42`；来源均为 `R-17`，覆盖面 = `architecture/domain/coin/coin.md` §四 涉及面）：
 
-### T36 V5 迁移 + 结构契约 + 新域登记（来源 `R-17` / 设计 §二）【待执行】
+### T36 V5 迁移 + 结构契约 + 新域登记（来源 `R-17` / 设计 §二）【已完成】
 
 > ⚠️ **先质疑（G14）**：
 > - **任务**：前提成立 —— `users` 无 `coin_deci` / `last_sign_date`、`content` 无 `coin_count`、仓内**无** `content_coin`（V1 基线取证）；余额 / 单视频封顶 / 幂等记账**没有载体就无从谈起**。
@@ -80,7 +80,8 @@
 * **红线边界**：① **绝不回写 V1–V4**（已应用的迁移**逐字节冻结**，连注释都不能改 —— `数据与Schema演进.md` §2.4）；② 列类型照设计 §二**逐字**；③ `content_coin` **不加**状态 / 软删列（本期无该语义）。
 * **强制探索**：① 取证 `FavoriteSchemaTests` 的"**唯一键真插两行**"手法并**照抄**（不许换成查 `information_schema`）；② 复算 `InfrastructureConnectivityTests` 的**表计数与版本序**断言现值（该文档 §六 的描述疑似滞后于 V3/V4），随 V5 同步 +1；③ 确认加 `coin` 进 `DOMAINS` 后既有 5 条 ArchUnit 规则仍绿。
 * **验收**：① `CoinSchemaTests`：三列在位（表 / 列 / 类型 / 默认值）+ `uk_user_content` **真插两行被拒**；② `ArchitectureTests` 5 条全绿；③ V5 在**空库**（测试容器）与**活库**（已到 V4）两条路径都干净应用，版本序 `1→…→5`。
-* **回写**：（待执行）
+* **回写**：新建 `V5__coin.sql`（`users` 两列 / `content.coin_count` / `content_coin` 单行聚合表），`ArchitectureTests.DOMAINS` 加 `coin`，`InfrastructureConnectivityTests` 表计数 19→20、版本序补 `5`，新增 `CoinSchemaTests`（6 例）。空库路径（容器）与活库路径（`spring-boot:run` 直连 `spring_tv`）均 `now at version v5`，活库 information_schema 复核三列类型与设计 §二 逐字一致；`CoinSchemaTests` + `ArchitectureTests` + `InfrastructureConnectivityTests` 共 15 例全绿。
+* **口径纠偏（G13）**：设计原写「失败的投币尝试留 `amount = 0` 行」，但投币是**单事务**、409/400 抛异常即回滚 ⇒ `INSERT IGNORE` 一行都不会留，且与 T38 验收②「余额不足 ⇒ 无行」直接冲突。按**验收②（零副作用）**实现，`V5` 的列注释与设计 §二 / §十 #1 同步改为真实口径（#1 换成"`count=2` 但只剩 1 枚也答 409"这条真实代价）。
 
 ### T37 硬币供给端：签到 + 余额读出（来源 `R-17` / 设计 §三 · §四 · §五.2）【待执行】
 

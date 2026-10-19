@@ -55,22 +55,24 @@ class InfrastructureConnectivityTests extends AbstractIntegrationTest {
     }
 
     @Test
-    void Flyway_在空库上跑V1至V4建出全部18张业务表() throws Exception {
+    void Flyway_在空库上跑V1至V5建出全部19张业务表() throws Exception {
         try (var conn = dataSource.getConnection();
              var st = conn.createStatement();
              var rs = st.executeQuery(
                      "SELECT COUNT(*) FROM information_schema.tables "
                              + "WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE'")) {
             assertThat(rs.next()).isTrue();
-            // 18 张业务表（V1 的 15 张 + V2 的 favorite_folder / favorite_item + V4 的 watch_later）
+            // 19 张业务表（V1 的 15 张 + V2 的 favorite_folder / favorite_item + V4 的 watch_later
+            // + V5 的 content_coin）
             // + flyway_schema_history
-            assertThat(rs.getInt(1)).isEqualTo(19);
+            assertThat(rs.getInt(1)).isEqualTo(20);
         }
         // Flyway 元数据：空库路径按版本号顺序应用**全部**脚本（baseline-on-migrate 只对非空 schema 生效）。
-        // ⚠️ 断言全部版本而非只看首行：只看首行时，"新增的 V2/V3/V4 没被应用"是**察觉不到的**
+        // ⚠️ 断言全部版本而非只看首行：只看首行时，"新增的 V2/V3/V4/V5 没被应用"是**察觉不到的**
         //（首行永远是 V1）—— 那正是这条锚点最该拦住的情形。
         // V3 = favorite_count 存量回填（数据迁移，无结构变化 ⇒ 表计数不含它）；
-        // V4 = 收藏三期 T17 的 watch_later 建表（结构性 ⇒ 表计数 +1）。
+        // V4 = 收藏三期 T17 的 watch_later 建表（结构性 ⇒ 表计数 +1）；
+        // V5 = 投币专项 T36 的两条 ALTER + content_coin 建表（结构性 ⇒ 表计数 +1）。
         try (var conn = dataSource.getConnection();
              var st = conn.createStatement();
              var rs = st.executeQuery(
@@ -84,7 +86,7 @@ class InfrastructureConnectivityTests extends AbstractIntegrationTest {
                 successes.add(rs.getBoolean("success"));
             }
             assertThat(versions).as("脚本清单（每加一个 V<n> 都要在这里显式认账）")
-                    .containsExactly("1", "2", "3", "4");
+                    .containsExactly("1", "2", "3", "4", "5");
             assertThat(types).containsOnly("SQL");
             assertThat(successes).containsOnly(true);
         }

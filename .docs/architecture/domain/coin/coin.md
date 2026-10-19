@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS `content_coin` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `user_id` bigint NOT NULL COMMENT '投币用户',
   `content_id` bigint NOT NULL COMMENT '内容 id',
-  `amount` tinyint NOT NULL COMMENT '累计投币枚数（0~2；0 = 尝试过但未投成，见 §十）',
+  `amount` tinyint NOT NULL COMMENT '累计投币枚数（1~2）',
   `create_time` datetime DEFAULT CURRENT_TIMESTAMP,
   `update_time` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -234,7 +234,7 @@ UPDATE users SET coin_deci = coin_deci + 10, last_sign_date = :today
 
 | # | 代价 | 边界 / 推翻条件 |
 |---|---|---|
-| 1 | **失败的投币尝试会留一枚 `amount = 0` 的 `content_coin` 行** | 读路径按 `amount > 0` 装载、`interaction.coin` 仍答 `0` ⇒ **对外不可观察**；推翻 = 若将来要"投币尝试日志"这类语义，得给行状态加列 |
+| 1 | **`count = 2` 而剩余额度只有 1 时，也答 409「已用完」**（文案不够精确——还剩 1 枚） | 判据来自封顶的条件写 `amount + ? <= 2`（影响 0 行 ⇒ 409），它分不出"已满"与"不够这一次"；前端按 `0/1/2` 只给出合法选项（`1` ⇒ 只能再投 1），故**正常客户端不可达**。推翻 = 若要把这条也精确到文案，得先读 `amount` 再判（破坏"不先读后写"）或新增一条拒因码 |
 | 2 | **列表面显示 `coinCount` 要多一趟 `MGET`**（§6.1 的代价） | 是**常量往返**、不随条数增长；推翻 = 若列表不需要显示投币数，可退成"只详情显示" |
 | 3 | `coin_count` 无 − 路径 ⇒ 与 `like_count` 口径不同（后者有 T34 守卫） | 有意差异（不可取消）；推翻 = 若将来允许取消投币 ⇒ 须补守卫 |
 | 4 | 数值全为拍值（`coin-ttl` / 每日 1 枚 / 上限 2 / `1/10`） | **无真实流量** ⇒ 不可验；推翻 = 有真实行为分布或压测基线 ⇒ 重定价 |
