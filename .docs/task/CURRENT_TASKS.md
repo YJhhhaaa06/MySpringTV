@@ -98,7 +98,7 @@
 * **反向验证（已实测）**：删 `signIn` 的 `(last_sign_date is null or …)` 守卫 ⇒ `CoinSignInTests` **2 红**（并发用例 `coin_deci` 读到 20、两个响应都 `credited=true`；同日重复读到 20）；还原后 6 例全绿。
 * **口径调整（G13）**：`signIn` 的 DAO 签名带第三个参数 `deciPerCoin`（多一个参），目的是让 `10` 这个单位常量**只存在于 `CoinService.DECI_PER_COIN`**、XML 里不出现魔法数；`findCoinDeci` 刻意不用 `COALESCE`（余额 0 是真实值，不能与"查无此人"混同）。
 
-### T38 投币写路径：校验顺序 + 两台原子条件写（来源 `R-17` / 设计 §三 · §五.1 · §八）【待执行】
+### T38 投币写路径：校验顺序 + 两台原子条件写（来源 `R-17` / 设计 §三 · §五.1 · §八）【已完成】
 
 > ⚠️ **先质疑（G14）**：
 > - **任务**：前提成立 —— 一次投币同时动 `content_coin` / `content.coin_count` / **两个用户**的 `coin_deci`，**必须单事务**；封顶与余额**都不能**"先读后写"（并发会突破 2 / 扣成负数）。
@@ -109,7 +109,9 @@
 * **红线边界**：① **三处计数 / 余额必须同进同退**（单 `@Transactional`）；② 扣款**必须**条件 `UPDATE`（影响 0 行 ⇒ 400「硬币不足」），**不得**先读后写；③ 拒因优先级照设计 §五.1（**409 先于 400**）；④ **不得**出现任何删除 / 取消路径。
 * **强制探索**：① 复算"可投判定"（`coin_deci >= count × 10`）与设计 §四 的"整数部分"口径一致；② 取证 `isContentExist` 是否带 `is_deleted = 0`；③ 读 `RateLimitWeightTableTests` 断言，确认**漏配真的会红**。
 * **验收**：`CoinAddTests`（HTTP + DB 终态 + **独立 oracle**）：① 成功 ⇒ 200 + 余额 −`count×10` + `content.coin_count` +`count` + **作者 `coin_deci` +`count`**（三条**分别独立复算**）；② 余额不足 ⇒ 400 **且零副作用**（无行、计数不变、作者余额不变）；③ 已满 ⇒ 409 且 `amount` 停在 2；④ 图文帖 ⇒ 400；⑤ 自投 ⇒ 400；⑥ 内容不存在 ⇒ 404；⑦ `count=3` ⇒ 400；⑧ **并发**：两线程各投 1 ⇒ 恰一条成功、`amount` 恰为 2（**去掉条件 `WHERE` 必红**）；⑨ 未登录 ⇒ 401。
-* **回写**：（待执行）
+* **回写**：`ContentCoinDao`（`insertIgnoreZero` / 条件 `addAmount` / `findAmount` / `findAmountsByUser`）+ `ContentCoinMapper.xml`；`ContentDao` +`updateCoinCount`（无防负守卫，只增）与 `findAliveContentAuthorAndType`（一趟解 404 / 图文 / 自投）；`UserDao` +`deductCoinDeci`（`coin_deci >= ?` 是"够不够"的**唯一**判据）；`CoinService#add` 按设计 §五.1 七级顺序落地、`@Transactional`、**5 先于 6**；`CoinController` +`POST /coin/add`。`CoinAddTests` 11 例全绿（成功 1/2、余额不足零副作用、已满、已满+不足 409、图文、自投、404 含软删、count=3、并发、401）。
+* **反向验证（已实测）**：删 `addAmount` 的 `amount + #{delta} <= 2` ⇒ `CoinAddTests` **3 红**（已满用例 200、并发得到 `[200,200]`、已满+不足答 400）；还原后同一命令 **54 例全绿**。
+* **待 T42 认账**：`findAliveContentAuthorAndType` 是 `content ⇄ coin` 的**纯读例外**，按《模块边界与依赖》§六 纪律须登记（T42 的 §六 补行一并覆盖）。
 
 ### T39 coin 缓存层（两个 key）+ 内容删除级联（来源 `R-17` / 设计 §六）【待执行】
 

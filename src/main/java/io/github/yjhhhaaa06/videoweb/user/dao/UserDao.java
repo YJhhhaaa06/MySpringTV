@@ -188,16 +188,40 @@ public interface UserDao {
      * 硬币余额增减（**十分位整数**：{@code deltaDeci} 的单位是 0.1 枚）。
      *
      * <p>{@code update users set coin_deci = coin_deci + #{deltaDeci} where id = #{userId}}。
-     * 投币写路径（T38）用它给**作者**加收益（{@code + amount}，恰好等于 {@code amount} 个十分位）、
-     * 给投票者扣款；签到不走它（签到是一条带幂等判据的原子条件写，见 {@link #signIn}）。
+     * 投币写路径（T38）用它给**作者**加收益（{@code + amount}，恰好等于 {@code amount} 个十分位）；
+     * 投票者的扣款走 {@link #deductCoinDeci}（带 {@code >=} 守卫的条件写）；
+     * 签到不走它（签到是一条带幂等判据的原子条件写，见 {@link #signIn}）。
      *
-     * <p>⚠️ <b>本方法没有"余额够不够"的守卫</b>：扣款必须由调用方走
-     * {@code where coin_deci >= ?} 的条件写（设计 §五.1），不能用"先 {@link #findCoinDeci} 再减"。
+     * <p>⚠️ <b>本方法没有"余额够不够"的守卫</b>：扣款必须走
+     * {@link #deductCoinDeci}（{@code where coin_deci >= ?} 的条件写，设计 §五.1），
+     * 不能用"先 {@link #findCoinDeci} 再减"。
      * 本方法只表达"加减多少"，不承担并发正确性。
      *
      * @return 受影响行数（0 = 用户不存在）
      */
     int updateCoinDeci(@Param("userId") long userId, @Param("deltaDeci") int deltaDeci);
+
+    /**
+     * **条件扣款**：余额够才扣（投币写路径 T38 的"余额"那一台原子条件写）。
+     *
+     * <p>SQL: {@code update users set coin_deci = coin_deci - #{costDeci}
+     * where id = #{userId} and coin_deci >= #{costDeci}}。
+     *
+     * <p>★ <b>这是"余额够不够"的唯一判据</b>：返回 0 行 ⇒ 不足 ⇒ 400「硬币不足」。
+     * <b>禁止</b>写成"先 {@link #findCoinDeci} 再 {@link #updateCoinDeci}"——
+     * 那个读写窗口在并发下会让两个请求都读到足够的余额、都扣成功 ⇒ 扣成负数。
+     *
+     * <p>★ 它是本仓**唯一**一处带 {@code >=} 守卫的余额写。余额列是**有符号** {@code int}
+     * （不是 unsigned）：语义是"够不够"，靠守卫拦住，而不是靠类型溢出报错
+     * （若给 unsigned 会逼出 {@code CAST} 技巧，见设计 §十 #6）。
+     *
+     * <p>⚠️ 与 {@link #updateCoinDeci} 的分工：那个表达"加减多少"（作者收益 +N），
+     * 这个表达"够才减"（投票者扣款）。不要把作者侧也换成这个方法——作者的收益没有"够不够"问题。
+     *
+     * @param costDeci 本次要扣的十分位数（{@code count × DECI_PER_COIN}）
+     * @return 影响行数：1 = 扣款成功；0 = 余额不足（或用户不存在）
+     */
+    int deductCoinDeci(@Param("userId") long userId, @Param("costDeci") int costDeci);
 
     /**
      * 签到：**一条原子条件 UPDATE**，同时完成"加币 + 记日期 + 幂等判定"（设计 §五.2）。

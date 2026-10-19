@@ -55,7 +55,7 @@ class CoinSignInTests extends AbstractCoinIntegrationTest {
     @Test
     @DisplayName("首次签到：200 +「签到成功」+ credited=true + 余额 1.0（scale 恰为 1）+ DB 两列落地")
     void 首次签到到账一枚() {
-        User user = registerUser("13900003701", "coinsign_first");
+        TestUser user = registerUser("13900003701", "coinsign_first");
         assertThat(coinDeciOf(user.id())).as("新用户 0 币（需求 §二：注册不送币）").isZero();
         assertThat(lastSignDateOf(user.id())).as("新用户从未签到").isNull();
 
@@ -83,7 +83,7 @@ class CoinSignInTests extends AbstractCoinIntegrationTest {
     @Test
     @DisplayName("同日重复签到：200 +「今日已签到」+ credited=false + 两列都不变（幂等）")
     void 同日重复签到不加币也不改签到日() {
-        User user = registerUser("13900003702", "coinsign_repeat");
+        TestUser user = registerUser("13900003702", "coinsign_repeat");
         assertThat(signIn(user.token()).getStatusCode().value()).isEqualTo(200);
 
         int coinBefore = coinDeciOf(user.id());
@@ -113,7 +113,7 @@ class CoinSignInTests extends AbstractCoinIntegrationTest {
     @Test
     @DisplayName("昨天签过：今天再签 credited=true、余额 2.0、coin_deci 20、签到日推进到今天")
     void 昨天签过今天可以再签() {
-        User user = registerUser("13900003703", "coinsign_yesterday");
+        TestUser user = registerUser("13900003703", "coinsign_yesterday");
         setCoinDeci(user.id(), 10);
         setLastSignDate(user.id(), SiteTime.today().minusDays(1).toString());
 
@@ -135,7 +135,7 @@ class CoinSignInTests extends AbstractCoinIntegrationTest {
     @Test
     @DisplayName("★并发双击：两线程同点签到 ⇒ coin_deci 恰为 10、签到日只推进一次、credited 恰好一个 true")
     void 并发双击只到账一次且只推进一次签到日() throws Exception {
-        User user = registerUser("13900003704", "coinsign_concurrent");
+        TestUser user = registerUser("13900003704", "coinsign_concurrent");
 
         // 与 coupon/CouponConcurrencyTests 同款：全部线程先卡在 startGate，主线程放行后一起冲，
         // 制造对**同一行**的真实锁竞争（不是"提交后各跑各的"）。
@@ -192,7 +192,7 @@ class CoinSignInTests extends AbstractCoinIntegrationTest {
     @Test
     @DisplayName("/user/me：签到后 coin=1.0（scale 1）、signedToday=true；直改签到日为昨天 ⇒ signedToday=false 且余额不变")
     void 资料端点回带余额与今日已签标记() {
-        User user = registerUser("13900003705", "coinsign_profile");
+        TestUser user = registerUser("13900003705", "coinsign_profile");
         assertThat(signIn(user.token()).getStatusCode().value()).isEqualTo(200);
 
         ResponseEntity<String> me = get("/user/me", user.token());
@@ -237,13 +237,7 @@ class CoinSignInTests extends AbstractCoinIntegrationTest {
 
     // ==================== 夹具 ====================
 
-    private record User(long id, String token) {
-    }
-
-    private User registerUser(String phone, String username) {
-        String token = registerAndGetToken(phone, username, PASSWORD);
-        return new User(userIdOf(phone), token);
-    }
+    /** 注册 / {@code (id, token)} 夹具已下沉到 {@link AbstractCoinIntegrationTest}（T38 起两组用例共用）。 */
 
     /** 签到端点：{@code POST + form}、无入参（照 {@code /like/*} 的写路径形态）。 */
     private ResponseEntity<String> signIn(String token) {

@@ -7,12 +7,15 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 
 import java.sql.Date;
+import java.sql.PreparedStatement;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -29,7 +32,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <h2>清表与 Redis</h2>
  * 父类每个用例前 {@code DELETE FROM users}（自增 id 不重置）；本类再清
- * {@code content_coin} / {@code content}（签到暂时不碰它们，但 T38 会用到同一套夹具）。
+ * {@code content_coin} / {@code content_media} / {@code content}（签到不碰它们，
+ * T38 的投币写路径与"零副作用"断言要用同一套夹具）。
  * Redis 是**进程级单例容器**（见 {@code support/Containers}），键会跨测试类残留 ⇒ 必须清，
  * 否则"上一条用例的缓存命中下一条"这种耦合极难定位（同 {@code AbstractContentIntegrationTest}）。
  */
@@ -44,9 +48,10 @@ public abstract class AbstractCoinIntegrationTest extends AbstractHttpIntegratio
     @BeforeEach
     void resetState() {
         // 父类的 DELETE FROM users 先跑（JUnit 5 父类 @BeforeEach 在前）。
-        // content_coin 无外键，删除顺序不影响正确性；先把引用内容的行删掉再删内容，
-        // 保持"按依赖倒序"这一读起来不会出错的习惯。
+        // content_coin / content_media / content 都没有外键，删除顺序不影响正确性；
+        // 先删引用内容的两张子表再删内容，保持"按依赖倒序"这一读起来不会出错的习惯。
         jdbcTemplate.update("DELETE FROM content_coin");
+        jdbcTemplate.update("DELETE FROM content_media");
         jdbcTemplate.update("DELETE FROM content");
         clearRedis();
     }
@@ -85,6 +90,59 @@ public abstract class AbstractCoinIntegrationTest extends AbstractHttpIntegratio
         });
     }
 
+    // ==================== 造数据（JDBC 直插，T38） ====================
+
+    /**
+     * 造一条内容，返回自增 {@code content_id}。
+     *
+     * <p>只给 {@code user_id / type / title / description / category_id} 五列
+     * （抄 {@code AbstractContentIntegrationTest#insertContent}）：{@code coin_count} 等计数列
+     * 走表默认值。投币是**写路径**，不需要媒体行 —— 媒体只影响"内容可否构建 / 详情可见"，
+     * 而 coin 的门禁判据是 {@code content.type} 与 {@code is_deleted}（{@code CoinService#add} 第 2~4 级）。
+     *
+     * @param authorId 作者 id
+     * @param type     {@code 1} 视频 / {@code 2} 图文
+     */
+    protected long insertContent(long authorId, int type, String title) {
+        GeneratedKeyHolder keyHolder = new GeneratedKeyHolder();
+        jdbcTemplate.update(connection -> {
+            PreparedStatement ps = connection.prepareStatement(
+                    "INSERT INTO content (user_id, type, title, description, category_id) VALUES (?, ?, ?, ?, ?)",
+                    new String[]{"id"});
+            ps.setLong(1, authorId);
+            ps.setInt(2, type);
+            ps.setString(3, title);
+            ps.setString(4, title + " 的简介");
+            ps.setInt(5, type == 1 ? 1 : 2);
+            return ps;
+        }, keyHolder);
+        Number key = keyHolder.getKey();
+        assertThat(key).as("content 插入必须回填自增 id").isNotNull();
+        return key.longValue();
+    }
+
+    // ==================== 用户夹具（T38 从 CoinSignInTests 下沉） ====================
+
+    /**
+     * 测试用户（id + token）。
+     *
+     * <p>下沉到基类是因为签到与投币两组用例都要"注册一个用户并拿到 id/token"；
+     * 两份私有 record + 两份注册方法只会漂移（比如一边漏了 {@code userIdOf} 的断言）。
+     */
+    protected record TestUser(long id, String token) {
+    }
+
+    /**
+     * 注册一个用户并取回 {@code (id, token)}。
+     *
+     * <p>id 由手机号反查（不信任注册接口回显 id）：注册响应的契约只有 token，
+     * 用 {@code SELECT id FROM users WHERE phone = ?} 作独立 oracle（同父类 {@code userIdOf}）。
+     */
+    protected TestUser registerUser(String phone, String username) {
+        String token = registerAndGetToken(phone, username, PASSWORD);
+        return new TestUser(userIdOf(phone), token);
+    }
+
     // ==================== DB 侧 oracle（不信任接口回显） ====================
 
     /** {@code users.coin_deci}（十分位整数）。用户不存在即断言失败——oracle 读不到就没有意义。 */
@@ -117,9 +175,63 @@ public abstract class AbstractCoinIntegrationTest extends AbstractHttpIntegratio
         jdbcTemplate.update("UPDATE users SET last_sign_date = ? WHERE id = ?", date, userId);
     }
 
-    /** {@code content_coin} 的总行数（T38 起用；本条签到用例用来断言"零副作用"不落行）。 */
+    /** {@code content_coin} 的总行数（T38 起用；签到用例用来断言"零副作用"不落行）。 */
     protected int countCoinRows() {
         Integer n = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM content_coin", Integer.class);
         return n == null ? 0 : n;
+    }
+
+    // ==================== 投币 oracle（T38） ====================
+
+    /** {@code content.coin_count}（累计被投币数）。 */
+    protected int coinCountOf(long contentId) {
+        Integer n = jdbcTemplate.queryForObject(
+                "SELECT coin_count FROM content WHERE id = ?", Integer.class, contentId);
+        assertThat(n).as("oracle 必须能读到 contentId=%s 的 coin_count", contentId).isNotNull();
+        return n;
+    }
+
+    /**
+     * 我在该内容上投了几枚（{@code content_coin.amount}）。
+     *
+     * <p>无行 ⇒ {@code null} —— "没投过"与"投了 0 枚"必须分得开：后者在本域不存在
+     * （拒单即回滚，不落 0 行），所以 {@code null} 是唯一合法的"没投过"表示。
+     * 用 {@code queryForList} 而不是 {@code queryForObject}：后者无行会抛
+     * {@code EmptyResultDataAccessException}，把断言失败变成长堆栈。
+     */
+    protected Integer amountOf(long userId, long contentId) {
+        List<Integer> rows = jdbcTemplate.queryForList(
+                "SELECT amount FROM content_coin WHERE user_id = ? AND content_id = ?",
+                Integer.class, userId, contentId);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    /**
+     * 直造 {@code content_coin} 的前置态（绕过端点）。
+     *
+     * <p>先删后插而不是 {@code ON DUPLICATE KEY UPDATE}：语义最直白，也不依赖 MySQL 版本的
+     * {@code VALUES()} 弃用口径。⚠️ 只用于"已满 / 已投 1 枚"这类**前置状态**，
+     * 不得用它制造断言目标（写路径的终态必须由真实 HTTP 请求产生）。
+     */
+    protected void setAmount(long userId, long contentId, int amount) {
+        jdbcTemplate.update("DELETE FROM content_coin WHERE user_id = ? AND content_id = ?",
+                userId, contentId);
+        jdbcTemplate.update("INSERT INTO content_coin (user_id, content_id, amount) VALUES (?, ?, ?)",
+                userId, contentId, amount);
+    }
+
+    /** 直改 {@code content.coin_count}（配 {@link #setAmount} 造自洽的前置态）。 */
+    protected void setCoinCount(long contentId, int n) {
+        jdbcTemplate.update("UPDATE content SET coin_count = ? WHERE id = ?", n, contentId);
+    }
+
+    /**
+     * 作者余额（十分位）—— 语义化别名，读的就是 {@link #coinDeciOf} 那一列。
+     *
+     * <p>单独取名只为让断言读起来是"作者收到了多少"，而不是"某个用户的余额"；
+     * 实现**不复制 SQL**（否则两处口径能漂移）。
+     */
+    protected int authorCoinDeciOf(long authorId) {
+        return coinDeciOf(authorId);
     }
 }

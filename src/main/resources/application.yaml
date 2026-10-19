@@ -441,6 +441,7 @@ video:
         "[POST /follow/remove]": 3
         # —— 投币（T37 / T38；签到与投币同为"写路径 3"）——
         "[POST /coin/signIn]": 3
+        "[POST /coin/add]": 3
         # —— admin（人工操作、流量极小，但**无白名单** ⇒ 同样过闸计费）——
         "[POST /api/admin/comment/delete]": 3
         "[POST /api/admin/content/hide]": 3

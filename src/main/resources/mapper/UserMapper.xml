@@ -166,6 +166,16 @@
         where id = #{userId}
     </update>
 
+    <!-- 投币扣款（T38）：**带 >= 守卫的条件写** —— 这是"余额够不够"的唯一判据。
+         影响 0 行 ⇒ 余额不足 ⇒ 400「硬币不足」。
+         ★ 守卫不可省：去掉它，并发两次投币会把余额扣成负数（CoinAddTests 的余额/并发用例会红）。
+         ★ 禁止改成"先查余额再 UPDATE"：读写窗口在并发下必然漏判。
+         ★ 本语句是**唯一**一处带 >= 守卫的余额写；作者收益仍走上面的 updateCoinDeci。 -->
+    <update id="deductCoinDeci">
+        update users set coin_deci = coin_deci - #{costDeci}
+        where id = #{userId} and coin_deci &gt;= #{costDeci}
+    </update>
+
     <!-- 签到：一条原子条件 UPDATE（幂等 + 并发安全都靠它）。
          影响 1 行 = 本次到账；0 行 = 今日已签（或用户不存在）⇒ 200「今日已签到」。
          ★ 守卫括号**不可省**：`last_sign_date is null` 覆盖新用户，

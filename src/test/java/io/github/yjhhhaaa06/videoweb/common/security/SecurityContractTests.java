@@ -308,7 +308,10 @@ class SecurityContractTests extends AbstractIntegrationTest {
         // 类级注解的把关在 `类级注解覆盖全部端点` 那条通用用例里，
         // 本条钉的是路由真的落到需登录的控制器上（路由写错 / 控制器没被扫到，本条会红）。
         // ⚠️ HTTP 侧对 @RequiresLogin 是假绿（401 由 @CurrentUserId 参数解析器兜出），判别力在本类。
+        // ★ 两个端点都由**类级**注解覆盖：这里逐条断言的是"路由真的落到需登录的控制器上"，
+        //   而不是"有人逐端点抄了一遍注解"（类级覆盖由 `类级注解覆盖全部端点` 那条通用用例把关）。
         assertThat(requiresLogin("POST", "/coin/signIn")).isTrue();
+        assertThat(requiresLogin("POST", "/coin/add")).isTrue();
     }
 
     @Test

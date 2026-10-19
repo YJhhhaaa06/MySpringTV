@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.content.dao;
 
 import io.github.yjhhhaaa06.videoweb.content.model.AuthorContentId;
+import io.github.yjhhhaaa06.videoweb.content.model.ContentAuthorAndType;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentFavoriteCount;
 import io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO;
 import io.github.yjhhhaaa06.videoweb.content.model.entity.Content;
@@ -80,6 +81,49 @@ public interface ContentDao {
      * @return {@code 1} 视频 / {@code 2} 图文；内容不存在或已软删 ⇒ {@code null}
      */
     Integer findAliveContentType(@Param("contentId") long contentId);
+
+    /**
+     * 读**未软删**内容的（作者 id，类型）—— 投币写路径 T38 的门禁查询。
+     *
+     * <p>SQL: {@code SELECT user_id AS author_id, type FROM content WHERE id = ? AND is_deleted = 0}。
+     *
+     * <p>★ 一趟查询同时给出 **404 / 400（图文）/ 400（自投）三条拒因的输入**：
+     * 无行（含已软删）⇒ {@code null} ⇒ 404；{@code type != 1} ⇒ 图文不可投；
+     * {@code authorId == 投票者} ⇒ 自投。拆成"存在性 + 类型 + 作者"三次点查是三次往返，
+     * 而这三条判据本来就落在同一行上（同 {@link #findAliveContentType} 的合并思路）。
+     *
+     * <p>★ 这是 coin → content 的 **DAO 薄依赖**（同 {@link #findAliveContentType} 的形态：
+     * 同事务内一条窄查询、只读两列、不碰对方 service/model/cache）。其中**纯读**这一条属
+     * {@code 模块边界与依赖.md} §六 要登记的**读例外**（登记动作在 T42，不在本任务）——
+     * 这里先把"为什么可以这样读"的依据留在代码旁，避免后来者把它当成无声绕开判据。
+     *
+     * <p>⚠️ 返回类型是 record：**必须**用 {@code <constructor>} 映射（默认对象工厂走
+     * "无参构造 + setter"，对 record 会报 "no setter"）；无行 ⇒ {@code null}，故调用方
+     * 先判空再解引用，不要声明成原始类型。
+     *
+     * @return 作者 + 类型；内容不存在或已软删 ⇒ {@code null}
+     */
+    ContentAuthorAndType findAliveContentAuthorAndType(@Param("contentId") long contentId);
+
+    /**
+     * 投币数累加（累计被投币数）。
+     *
+     * <p>SQL: {@code update content set coin_count = coin_count + ? where id = ?}。
+     *
+     * <p>★ <b>没有防负守卫</b>（与 {@link #updateLikeCount} / {@link #updateCommentCount} 的
+     * {@code CAST(... AS SIGNED) + delta >= 0} 刻意不同）。这不是漏改，是**口径差异**：
+     * 投币**不可取消** ⇒ 本列只有"+"路径 ⇒ 不存在下溢，守卫没有要守的场景
+     * （{@code architecture/domain/coin/coin.md} §十 #3）。反过来照抄守卫会掩盖这个真实差异，
+     * 让人误以为本列也能减。
+     *
+     * <p>★ 必须与 {@code content_coin} 的关系行写在**同一事务**里（投币 Service 的
+     * {@code @Transactional}）：否则计数与明细会在提交窗口内不一致，
+     * 而不变量 {@code coin_count == SUM(amount)} 没有任何自愈路径。
+     *
+     * @param delta 本次投出的枚数（1 或 2）
+     * @return 受影响行数（内容行不存在时为 0；调用方已先做过 404 门禁，正常路径不会为 0）
+     */
+    int updateCoinCount(@Param("contentId") long contentId, @Param("delta") int delta);
 
     /**
      * 评论数增减。TV: {@code UPDATE content SET comment_count = comment_count + ? WHERE id = ?}
