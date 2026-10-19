@@ -152,5 +152,43 @@
             #{id}
         </foreach>
     </select>
+    <!-- ======================================================================
+         投币专项 T37（硬币供给端）补入的 4 条。
+         口径：architecture/domain/coin/coin.md §四 / §五.2。
+         ★ coin_deci 全程是**十分位整数**（值 = 币 × 10），SQL 里不出现任何 ×10 / ÷10。
+         ====================================================================== -->
+
+    <!-- 余额增减（十分位）。T38 用：作者 +amount（amount 枚 × 1/10 == amount 个十分位）、
+         投票者 −count × 10。⚠️ 本语句**没有**余额守卫：扣款必须另走
+         `where coin_deci >= ?` 的条件写（设计 §五.1），不得先读后写。 -->
+    <update id="updateCoinDeci">
+        update users set coin_deci = coin_deci + #{deltaDeci}
+        where id = #{userId}
+    </update>
+
+    <!-- 签到：一条原子条件 UPDATE（幂等 + 并发安全都靠它）。
+         影响 1 行 = 本次到账；0 行 = 今日已签（或用户不存在）⇒ 200「今日已签到」。
+         ★ 守卫括号**不可省**：`last_sign_date is null` 覆盖新用户，
+           `last_sign_date &lt; #{today}` 覆盖"昨天/更早签过"。改成先查后写 ⇒ 并发双击 +20。
+         ★ 加多少由 #{deciPerCoin} 传入（调用方传 CoinService.DECI_PER_COIN = 10），
+           本文件**只在这一处**出现"一枚硬币"的量，避免魔法数散落。 -->
+    <update id="signIn">
+        update users
+           set coin_deci = coin_deci + #{deciPerCoin},
+               last_sign_date = #{today}
+         where id = #{userId}
+           and (last_sign_date is null or last_sign_date &lt; #{today})
+    </update>
+
+    <!-- 余额（单列，十分位）。返回包装类型 Integer：无行 ⇒ null（不是 0 —— 0 是真实余额）。
+         与 getFollowCountById 的 COALESCE 口径**有意不同**，理由见 UserDao#findCoinDeci。 -->
+    <select id="findCoinDeci" resultType="java.lang.Integer">
+        select coin_deci from users where id = #{userId}
+    </select>
+
+    <!-- 最近签到日（单列，date）。无行 / 未签到 ⇒ null，两种 null 在签到判定上等价。 -->
+    <select id="findLastSignDate" resultType="java.time.LocalDate">
+        select last_sign_date from users where id = #{userId}
+    </select>
 
 </mapper>

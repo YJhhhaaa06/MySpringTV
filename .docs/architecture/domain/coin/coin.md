@@ -74,7 +74,8 @@ CREATE TABLE IF NOT EXISTS `content_coin` (
 - ★ **余额复用 `/user/me`**（`UserInfoVO` 加 `coin` 字段，一位小数）：不新增"余额查询"端点。
   写操作**响应体回带新余额** ⇒ 前端投币/签到后无需再拉一次 `/user/me`。
   ★ **`UserInfoVO` 同时加 `signedToday`**（= `last_sign_date == 上海今日`）—— 签到按钮要靠它才**进页就置灰**；
-  否则只能"点了才知道今天已签"（幂等回「今日已签到」），体验差一档，而它只是**同一次查询多带一列**。
+  否则只能"点了才知道今天已签"（幂等回「今日已签到」），体验差一档，而它只是**同一张表的两次单列点查**
+  （主键命中、成本可忽略；刻意不把两列塞进 `findByIdForProfile` 的列集，见 `UserDao#findCoinDeci` 注释）。
 - `balance` 用 `BigDecimal`（手工 scale = 1）序列化 —— `deci / 10` 恒为一位小数、精确无损；
   用 `double` 会在 `0.1` 这类值上引入二进制尾差。
 

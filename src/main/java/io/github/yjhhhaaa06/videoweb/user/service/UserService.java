@@ -9,6 +9,7 @@ import io.github.yjhhhaaa06.videoweb.common.exception.PasswordIncorrectException
 import io.github.yjhhhaaa06.videoweb.common.exception.UserNotFoundException;
 import io.github.yjhhhaaa06.videoweb.common.security.AdminChecker;
 import io.github.yjhhhaaa06.videoweb.common.security.JwtService;
+import io.github.yjhhhaaa06.videoweb.common.time.SiteTime;
 import io.github.yjhhhaaa06.videoweb.user.dao.UserDao;
 import io.github.yjhhhaaa06.videoweb.user.event.UserRenamedEvent;
 import io.github.yjhhhaaa06.videoweb.user.model.dto.ChangePasswordRequest;
@@ -22,6 +23,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.regex.Pattern;
 
 /**
@@ -155,14 +157,41 @@ public class UserService implements AdminChecker {
     // 资料与修改
     // ========================================================================
 
-    /** 当前用户信息（新增端点，见 UserInfoVO 说明）。 */
+    /**
+     * 当前用户信息（新增端点，见 UserInfoVO 说明）。
+     *
+     * <p><b>T37 加了硬币两个字段</b>（{@code coin} / {@code signedToday}）：
+     * <ul>
+     *   <li>{@code coin}：读 {@code users.coin_deci}（**十分位整数**）后在 VO 出口换算成一位小数。
+     *       ⚠️ 这里**刻意不调** {@code CoinService.toCoinAmount}——那会让 user 域新增一条
+     *       指向 coin.service 的依赖边，而设计里没有登记这条边（coin → user.dao 才是登记过的方向）。
+     *       换算写法（{@code BigDecimal.valueOf(deci).movePointLeft(1).setScale(1)}）
+     *       必须与 {@code CoinService#toCoinAmount} **逐字一致**，口径见
+     *       {@code architecture/domain/coin/coin.md} §四。</li>
+     *   <li>{@code signedToday}：{@code last_sign_date == SiteTime.today()}。签到按钮靠它
+     *       **进页就置灰**，否则只能"点了才知道已签"。日期口径必须走 {@code SiteTime}
+     *       （上海自然日），不能用 JVM 默认时区或 DB 时钟——否则跨时区部署时按钮会指错一天。</li>
+     * </ul>
+     *
+     * <p>多两次**单列窄查询**（而不是把两列塞进 {@code findByIdForProfile}）：那个方法返回的是
+     * {@link User} 实体，加列会改实体与既有的列集契约；而这里只关心两个标量，
+     * 窄查询让"资料端点不需要知道签到日"这件事保持在实现里，不扩散到 VO。
+     */
     @Transactional(readOnly = true)
     public UserInfoVO getProfile(long userId) {
         User user = userDao.findByIdForProfile(userId);
         if (user == null) {
             throw new UserNotFoundException();
         }
-        return new UserInfoVO(user.getId(), user.getUsername(), user.getPhone(), user.isAdmin());
+        Integer coinDeci = userDao.findCoinDeci(userId);
+        // 用户刚被查到（上面已挡 404）；null 只可能是"同一行在两次查询之间被删"的窗口，
+        // 按 0 处理，避免读接口因这种竞态抛 NPE / 500。
+        BigDecimal coin = BigDecimal.valueOf(coinDeci == null ? 0 : coinDeci)
+                .movePointLeft(1)
+                .setScale(1);
+        boolean signedToday = SiteTime.today().equals(userDao.findLastSignDate(userId));
+        return new UserInfoVO(user.getId(), user.getUsername(), user.getPhone(), user.isAdmin(),
+                coin, signedToday);
     }
 
     /**

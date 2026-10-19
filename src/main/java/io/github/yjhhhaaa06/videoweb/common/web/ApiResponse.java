@@ -27,6 +27,26 @@ public record ApiResponse<T>(int code, String msg, T data) {
         return new ApiResponse<>(200, "success", data);
     }
 
+    /**
+     * 带自定义 {@code msg} 且**同时带 data** 的成功响应。
+     *
+     * <p>投币签到（{@code POST /coin/signIn}）要在回带新余额的同时区分
+     * 「签到成功」与「今日已签到」（{@code architecture/domain/coin/coin.md} §三）——
+     * 幂等不是错误，故不能走 {@link #error}；而 {@link #success(Object)} 的 msg 恒为
+     * {@code "success"}。两参形态是这两条约束的唯一交点。
+     *
+     * <p>★ <b>不产生重载歧义</b>：既有的 {@code ApiResponse.success("删除成功")} 只有**一个**
+     * 实参，编译期只能落到 {@link #success(Object)}（{@code T = String}），
+     * 结果仍是 {@code msg="success", data="删除成功"}——与加重载之前逐字节一致。
+     * 只有写满两个实参时才会落到本方法。
+     *
+     * @param msg  给用户看的提示（本仓只用于签到；不要把它当"第二套错误文案"用）
+     * @param data 业务数据
+     */
+    public static <T> ApiResponse<T> success(String msg, T data) {
+        return new ApiResponse<>(200, msg, data);
+    }
+
     /** 无数据体的成功响应（如修改密码）。 */
     public static ApiResponse<Void> success() {
         return new ApiResponse<>(200, "success", null);

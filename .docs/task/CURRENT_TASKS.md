@@ -83,7 +83,7 @@
 * **回写**：新建 `V5__coin.sql`（`users` 两列 / `content.coin_count` / `content_coin` 单行聚合表），`ArchitectureTests.DOMAINS` 加 `coin`，`InfrastructureConnectivityTests` 表计数 19→20、版本序补 `5`，新增 `CoinSchemaTests`（6 例）。空库路径（容器）与活库路径（`spring-boot:run` 直连 `spring_tv`）均 `now at version v5`，活库 information_schema 复核三列类型与设计 §二 逐字一致；`CoinSchemaTests` + `ArchitectureTests` + `InfrastructureConnectivityTests` 共 15 例全绿。
 * **口径纠偏（G13）**：设计原写「失败的投币尝试留 `amount = 0` 行」，但投币是**单事务**、409/400 抛异常即回滚 ⇒ `INSERT IGNORE` 一行都不会留，且与 T38 验收②「余额不足 ⇒ 无行」直接冲突。按**验收②（零副作用）**实现，`V5` 的列注释与设计 §二 / §十 #1 同步改为真实口径（#1 换成"`count=2` 但只剩 1 枚也答 409"这条真实代价）。
 
-### T37 硬币供给端：签到 + 余额读出（来源 `R-17` / 设计 §三 · §四 · §五.2）【待执行】
+### T37 硬币供给端：签到 + 余额读出（来源 `R-17` / 设计 §三 · §四 · §五.2）【已完成】
 
 > ⚠️ **先质疑（G14）**：
 > - **任务**：前提成立 —— 没有"硬币从哪来"就没人能投币（供给端必须先于写路径）；签到必须**幂等**（双击不能重复到账）。
@@ -94,7 +94,9 @@
 * **红线边界**：① **`coin_deci` 全程"十分位整数"** —— 换算**只许发生在 VO 出口**（设计 §四）；② 签到**不得**发领域事件；③ **不新增**"余额查询"端点（复用 `/user/me`）；④ 文案冻结：「签到成功」/「今日已签到」。
 * **强制探索**：① 逐处改动 `UserInfoVO` 的构造调用点（`UserService.getProfile` + 测试）；② 复算"上海自然日"取值口径（`ZoneId.of("Asia/Shanghai")`）与库里 `datetime` 的既有时间语义一致；③ 把新端点纳入 `SecurityContractTests` 的断言面。
 * **验收**：`CoinSignInTests`（HTTP + DB 终态 + **独立 oracle**）：① 首次 ⇒ 200 + `credited=true` + 余额 +1；② 同日重复 ⇒ 200 + `credited=false` + 余额**不变**；③ **并发签到** ⇒ `coin_deci` 只 +10、`last_sign_date` 只推进一次（**去掉 `WHERE` 守卫必红**）；④ `/user/me` 的 `coin` 为一位小数、`signedToday` 与库中 `last_sign_date` 复算一致；⑤ 未登录 ⇒ 401（判别力由 `SecurityContractTests` 守）。
-* **回写**：（待执行）
+* **回写**：新建 `common/time/SiteTime`（上海自然日唯一源）、`coin/service/CoinService#signIn`（一条原子条件 UPDATE、无事务、无事件）、`coin/controller/CoinController`（**类级** `@RequiresLogin`）、`SignInVO`；`UserDao` +4（含 T38 要用的 `updateCoinDeci`）、`UserInfoVO` +`coin`（`BigDecimal` scale 1）+`signedToday`、`ApiResponse` +`success(msg, data)` 两参重载。限流权重补 `[POST /coin/signIn]: 3`、完整性用例端点基线 34→35、`SecurityContractTests` 补 coin 用例；`CoinSignInTests` 6 例全绿（并发双击用真实 HTTP + `CountDownLatch`，主会话复跑确认非偶发）。
+* **反向验证（已实测）**：删 `signIn` 的 `(last_sign_date is null or …)` 守卫 ⇒ `CoinSignInTests` **2 红**（并发用例 `coin_deci` 读到 20、两个响应都 `credited=true`；同日重复读到 20）；还原后 6 例全绿。
+* **口径调整（G13）**：`signIn` 的 DAO 签名带第三个参数 `deciPerCoin`（多一个参），目的是让 `10` 这个单位常量**只存在于 `CoinService.DECI_PER_COIN`**、XML 里不出现魔法数；`findCoinDeci` 刻意不用 `COALESCE`（余额 0 是真实值，不能与"查无此人"混同）。
 
 ### T38 投币写路径：校验顺序 + 两台原子条件写（来源 `R-17` / 设计 §三 · §五.1 · §八）【待执行】
 

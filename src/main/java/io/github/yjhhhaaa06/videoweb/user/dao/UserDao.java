@@ -4,6 +4,7 @@ import io.github.yjhhhaaa06.videoweb.user.model.entity.User;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -175,4 +176,82 @@ public interface UserDao {
      */
     List<Long> findUserIdsByMinFollowerCount(@Param("ids") List<Long> ids,
                                              @Param("minFollowerCount") int minFollowerCount);
+
+    // ========================================================================
+    // 以下 4 个方法由投币专项 T37（硬币供给端）补入：
+    // users 的 coin_deci / last_sign_date 两列由 coin 域维护，但方法**进所在表的 DAO**
+    // （先例 = 上面的 updateFollowCount / updateFollowerCount）。设计见
+    // architecture/domain/coin/coin.md §四（单位约定）与 §五.2（签到幂等）。
+    // ========================================================================
+
+    /**
+     * 硬币余额增减（**十分位整数**：{@code deltaDeci} 的单位是 0.1 枚）。
+     *
+     * <p>{@code update users set coin_deci = coin_deci + #{deltaDeci} where id = #{userId}}。
+     * 投币写路径（T38）用它给**作者**加收益（{@code + amount}，恰好等于 {@code amount} 个十分位）、
+     * 给投票者扣款；签到不走它（签到是一条带幂等判据的原子条件写，见 {@link #signIn}）。
+     *
+     * <p>⚠️ <b>本方法没有"余额够不够"的守卫</b>：扣款必须由调用方走
+     * {@code where coin_deci >= ?} 的条件写（设计 §五.1），不能用"先 {@link #findCoinDeci} 再减"。
+     * 本方法只表达"加减多少"，不承担并发正确性。
+     *
+     * @return 受影响行数（0 = 用户不存在）
+     */
+    int updateCoinDeci(@Param("userId") long userId, @Param("deltaDeci") int deltaDeci);
+
+    /**
+     * 签到：**一条原子条件 UPDATE**，同时完成"加币 + 记日期 + 幂等判定"（设计 §五.2）。
+     *
+     * <pre>
+     * update users set coin_deci = coin_deci + #{deciPerCoin}, last_sign_date = #{today}
+     *  where id = #{userId} and (last_sign_date is null or last_sign_date &lt; #{today})
+     * </pre>
+     *
+     * <p>★ <b>幂等与并发安全全部由这条 {@code WHERE} 守卫承担</b>：
+     * 同一天第二次调用（无论串行还是并发双击）都影响 0 行——不写库、不抛错。
+     * <b>绝不能</b>改成"先查 {@code last_sign_date} 再决定加不加"：那个读写窗口会让并发双击
+     * 各拿到一次 {@code null}（或同一个昨天）⇒ 两次到账。反向验证口径：
+     * 删掉守卫括号里的任一分支 ⇒ {@code CoinSignInTests} 的并发用例会读到 {@code coin_deci == 20}。
+     *
+     * <p>{@code deciPerCoin} 由调用方传常量（{@code CoinService.DECI_PER_COIN}），
+     * <b>不在 SQL 里写 {@code 10}</b>：单位约定只允许有一处声明（列名带 {@code deci} +
+     * 常量 + 只在 VO 出口换算，见设计 §四）。
+     *
+     * @param today       站内"今天"（{@code SiteTime.today()}，上海自然日）
+     * @param deciPerCoin 一枚硬币的十分位数（恒为 {@code 10}）
+     * @return <b>影响行数</b>：{@code 1} = 本次到账；{@code 0} = 今日已签到（或用户不存在）
+     */
+    int signIn(@Param("userId") long userId,
+               @Param("today") LocalDate today,
+               @Param("deciPerCoin") int deciPerCoin);
+
+    /**
+     * 硬币余额（单列窄查询，**十分位整数**）。
+     *
+     * <p>刻意返回包装类型 {@link Integer}：无行 ⇒ {@code null}。写成 {@code int} 会在
+     * MyBatis 返回 null 时拆箱 NPE，而"用户不存在"是**可能发生**的读结果
+     * （{@code UserService#getProfile} 在查到用户之后才调它；{@code CoinService#signIn}
+     * 没有存在性前置，靠调用侧把 null 兜成 0）。
+     *
+     * <p>写法选择：直接 {@code select coin_deci ...}，**不用** {@code COALESCE((子查询), 0)}
+     * （同文件的 {@code getFollowCountById} 用的是后者）。理由：那条的口径是"用户不存在按 0 处理"，
+     * 而余额的 0 是**真实值**——用 COALESCE 会把"查无此人"伪装成"余额为零"，把数据异常吞掉。
+     *
+     * <p>⚠️ 调用方读到 null 时先确认前提：{@code UserService#getProfile} 在
+     * {@code findByIdForProfile} 非 null 之后才调它（用户必然存在）。
+     */
+    Integer findCoinDeci(@Param("userId") long userId);
+
+    /**
+     * 最近签到日（单列窄查询，{@code date} 列 ⇒ {@link LocalDate}）。
+     *
+     * <p>无行 / 从未签到（列 {@code NULL}）⇒ {@code null}。两种 null 在本仓不可区分，
+     * 且都不影响语义：{@code null} 一律视为"今天还没签"（签到守卫
+     * {@code last_sign_date is null or last_sign_date < today} 同样把它们视为可签）。
+     *
+     * <p>用途：{@code /user/me} 的 {@code signedToday}（是否有值 == 今天）。
+     * 这里**只读一列**，不扩 {@code findByIdForProfile} 的列集——资料端点没必要为了一个布尔
+     * 把签到日暴露成 VO 字段。
+     */
+    LocalDate findLastSignDate(@Param("userId") long userId);
 }

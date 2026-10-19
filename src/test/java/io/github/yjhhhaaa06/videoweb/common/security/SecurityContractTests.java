@@ -302,6 +302,16 @@ class SecurityContractTests extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("投币 T37：coin 端点判为需登录（类级注解；本域没有匿名面）")
+    void coin端点需登录() {
+        // 本域两个端点（T37 的 signIn + T38 的 add）都只对当前登录用户有意义 ⇒ 类级 @RequiresLogin。
+        // 类级注解的把关在 `类级注解覆盖全部端点` 那条通用用例里，
+        // 本条钉的是路由真的落到需登录的控制器上（路由写错 / 控制器没被扫到，本条会红）。
+        // ⚠️ HTTP 侧对 @RequiresLogin 是假绿（401 由 @CurrentUserId 参数解析器兜出），判别力在本类。
+        assertThat(requiresLogin("POST", "/coin/signIn")).isTrue();
+    }
+
+    @Test
     @DisplayName("未映射的路径返回 false：真正的 404 由 DispatcherServlet 产生，本机制不越权处理路由")
     void 未映射路径不需登录() {
         assertThat(requiresLogin("GET", "/no/such/endpoint")).isFalse();
