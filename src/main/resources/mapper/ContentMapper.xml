@@ -25,8 +25,6 @@
         <result property="title" column="title"/>
         <result property="description" column="description"/>
         <result property="categoryId" column="category_id"/>
-        <result property="commentCount" column="comment_count"/>
-        <result property="likeCount" column="like_count"/>
         <result property="commentEnabled" column="comment_enabled"/>
         <result property="authorName" column="username"/>
         <result property="createTime" column="create_time"/>
@@ -78,6 +76,13 @@
          ⚠️ 返回 Integer（包装）：无行 ⇒ null ⇒ 缓存层不写缓存（避免把"内容不存在"钉成 0）。 -->
     <select id="findCoinCount" resultType="java.lang.Integer">
         select coin_count from content where id = #{contentId}
+    </select>
+
+    <!-- 评论总数单列窄查询（T43 计数缓存 miss 的回源）。
+         ★ 同样**刻意不加 is_deleted 过滤**（理由同 findCoinCount）：读的是列值。
+         ⚠️ 返回 Integer（包装）：无行 ⇒ null ⇒ 缓存层不写缓存。 -->
+    <select id="findCommentCount" resultType="java.lang.Integer">
+        select comment_count from content where id = #{contentId}
     </select>
 
     <!-- T39 批量回填：一趟 IN 取多条（ContentCoinCount 是 record ⇒ 必须 <constructor>；
@@ -180,8 +185,6 @@
            c.description,
            c.type,
            c.category_id,
-           c.comment_count,
-           c.like_count,
            c.comment_enabled,
            c.create_time,
            u.username,
@@ -200,8 +203,6 @@
            c.description,
            c.type,
            c.category_id,
-           c.comment_count,
-           c.like_count,
            c.comment_enabled,
            c.create_time,
            u.username,
@@ -222,8 +223,6 @@
            c.description,
            c.type,
            c.category_id,
-           c.comment_count,
-           c.like_count,
            c.comment_enabled,
            c.create_time,
            u.username,

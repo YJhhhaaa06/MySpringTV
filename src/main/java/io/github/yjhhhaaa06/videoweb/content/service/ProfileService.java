@@ -135,11 +135,7 @@ public class ProfileService {
         if (currentUserId != null && !contentList.isEmpty()) {
             contentStatusFiller.fillInteractionBatch(contentList, currentUserId, PROFILE_DIMENSIONS);
         }
-        // ⑥ 页内公共计数 coinCount（T40）：与登录态无关 ⇒ 放在上面 if **之外**（只判列表非空）。
-        //    匿名访问主页同样要显示投币数；一趟批量（不得逐条）。
-        if (!contentList.isEmpty()) {
-            contentStatusFiller.fillCoinCountBatch(contentList);
-        }
+        // T43：列表不再返回任何公共计数（计数只在详情平铺）⇒ 这里不再有 coinCount 批量。
 
         return new ProfileVO(profileUserId, user.getUsername(),
                 followerCount, followCount, isFollowed,

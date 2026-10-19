@@ -92,6 +92,12 @@ public class ContentCache {
     private final MediaProperties mediaProps;
     /** 单飞（B1）：并发索引缺失时只由一个线程重建（防惊群），与 {@link #inIndexRebuildCooldown} 互补。 */
     private final SingleFlight singleFlight;
+    /**
+     * 评论数独立 key（T43）。内容删除时**一并失效**——它是内容域自己的旁路缓存，
+     * 不失效会留下"内容已删、计数还在"的孤儿键（TTL 内可被 {@code /like/content/count}
+     * 之外的新读路径读到）。
+     */
+    private final ContentCountCache contentCountCache;
 
     /**
      * 索引懒重建单飞 key（进程内，非 Redis key；TV 同名字面量）。
@@ -110,7 +116,8 @@ public class ContentCache {
                         ContentRedisOps indexOps,
                         ContentCacheProperties props,
                         MediaProperties mediaProps,
-                        SingleFlight singleFlight) {
+                        SingleFlight singleFlight,
+                        ContentCountCache contentCountCache) {
         this.contentDao = contentDao;
         this.contentMediaDao = contentMediaDao;
         this.cacheAside = cacheAside;
@@ -118,6 +125,7 @@ public class ContentCache {
         this.props = props;
         this.mediaProps = mediaProps;
         this.singleFlight = singleFlight;
+        this.contentCountCache = contentCountCache;
     }
 
     // ========================================================================
@@ -210,28 +218,15 @@ public class ContentCache {
     /**
      * 失效内容 key，让读路径自愈回填 DB 最新值。
      *
-     * <p>TV 把它写成三个同名别名（{@code notifyLikeCountChanged} / {@code notifyCommentCountChanged} /
-     * {@code updateCommentEnabled}）——三者做的事**逐字相同**（都是 DEL 内容 key + 空标记）。
-     * S5 合并为一个方法，并保留下方三个旧名别名的**唯一理由**是让决策表 L-6/CM-3/G-3 里
-     * "补回位置"的记载能被逐条对照（读代码时能 grep 到）。
+     * <p>★ <b>T43 起调用面收窄</b>：只有"**慢变字段**变了"才走这里
+     * （编辑标题 / 描述 / 媒体、开关评论区、管理员下架）。点赞 / 评论**不再**动本 key ——
+     * 它们的计数已搬进独立 key（见 {@code ContentCountCache} 与 {@code ContentDetailVO}）。
+     * <p>TV 的三个旧名别名（{@code notifyLikeCountChanged} / {@code notifyCommentCountChanged} /
+     * {@code updateCommentEnabled}）已随 T43 删除：前两个对应的"计数内联"形态已不存在，
+     * 第三个没有调用方。决策表 L-6/CM-3/G-3 的记载在 git 历史里，不再用别名维持 grep 锚点。
      */
     public void invalidateContent(long contentId) {
         cacheAside.invalidate(CacheKeys.content(contentId));
-    }
-
-    /** TV 旧名别名：点赞数变化后失效内容 key。 */
-    public void notifyLikeCountChanged(long contentId) {
-        invalidateContent(contentId);
-    }
-
-    /** TV 旧名别名：评论增删后失效内容 key。 */
-    public void notifyCommentCountChanged(long contentId) {
-        invalidateContent(contentId);
-    }
-
-    /** TV 旧名别名：作者开关评论区后失效内容 key。 */
-    public void updateCommentEnabled(long contentId) {
-        invalidateContent(contentId);
     }
 
     /**
@@ -256,9 +251,12 @@ public class ContentCache {
         addToIndex(dto);
     }
 
-    /** 删除 / 下架后移除：失效内容 key（含空标记）+ 从**全部**索引 key 剔除该 id。 */
+    /** 删除 / 下架后移除：失效内容 key（含空标记）+ 评论数 key，并从**全部**索引 key 剔除该 id。 */
     public void removeContent(long contentId) {
         cacheAside.invalidate(CacheKeys.content(contentId));
+        // T43：评论数是独立 key（不随内容载荷），内容真的没了要一并清掉 —— 否则 TTL 内残留
+        // "内容已删、评论数还在"的孤儿键。点赞/投币/收藏的计数 key 由各自域订阅 REMOVE 事件处理。
+        contentCountCache.invalidateCommentCount(contentId);
         try {
             indexOps.removeIdFromAllIndexes(contentId);
         } catch (CacheUnavailableException e) {
@@ -323,8 +321,6 @@ public class ContentCache {
         target.setTitle(dto.getTitle());
         target.setDescription(dto.getDescription());
         target.setCategoryId(dto.getCategoryId());
-        target.setCommentCount(dto.getCommentCount());
-        target.setLikeCount(dto.getLikeCount());
         target.setCommentEnabled(dto.isCommentEnabled());
         target.setAuthorName(dto.getAuthorName());
         target.setCoverUrl(dto.getCoverUrl());

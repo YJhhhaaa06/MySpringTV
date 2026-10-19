@@ -86,8 +86,7 @@ public class StartController {
                 PageParams.parseIntOrNull(categoryId),
                 RECOMMEND_LIMIT);
         contentStatusFiller.fillInteractionBatch(recommend, userId, START_DIMENSIONS);
-        // 公共计数与登录态无关（匿名也要显示投币数）⇒ 独立一趟批量，放在互动态填充之后、短路之外。
-        contentStatusFiller.fillCoinCountBatch(recommend);
+        // T43：列表不再返回任何公共计数（计数只在详情平铺）⇒ 这里不再有第二趟批量。
         return ApiResponse.success(recommend);
     }
 }

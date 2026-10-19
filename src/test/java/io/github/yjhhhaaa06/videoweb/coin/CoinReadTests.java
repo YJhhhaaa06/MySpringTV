@@ -1,13 +1,9 @@
 package io.github.yjhhhaaa06.videoweb.coin;
 
-import io.github.yjhhhaaa06.videoweb.coin.service.CoinService;
 import io.github.yjhhhaaa06.videoweb.support.Envelope;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.http.ResponseEntity;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import tools.jackson.databind.JsonNode;
@@ -16,11 +12,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyCollection;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
 
 /**
  * 投币专项 T40 验收：**读面接入** —— 互动态第四维 {@code interaction.coin} +
@@ -37,7 +28,7 @@ import static org.mockito.Mockito.verify;
  *       {@code coinCount} 仍返回 —— 公共计数与登录态无关；</li>
  *   <li><b>列表</b>：{@code /start} / {@code /search/keywordSearch} / {@code /profile} 的
  *       {@code interaction.coin} **恒 {@code null}**（契约，见 {@code InteractionDimension} 没有
- *       {@code COIN} 常量），{@code coinCount} 与 DB 复算一致；</li>
+ *       {@code COIN} 常量）；★ T43 起列表**也不带任何公共计数**（{@code coinCount} 等键不存在）；</li>
  *   <li><b>键集</b>：详情与列表面的 {@code interaction} 都**恰好四维**
  *       {@code {isLiked, isFavorited, isFollowed, coin}}。</li>
  * </ul>
@@ -50,8 +41,10 @@ import static org.mockito.Mockito.verify;
  *       {@link #详情与列表的interaction恰好四维()}（视频详情的 coin 值断言）变红；</li>
  *   <li>把 {@code type == 1} 的分流写反 / 去掉（图文也查）⇒ 图文用例的
  *       {@code coin == null} 变红；</li>
- *   <li>三个组装点漏掉 {@code fillCoinCountBatch} ⇒ 对应列表用例的 {@code coinCount} 变红；</li>
- *   <li>公共计数放进互动态的匿名短路里 ⇒ 匿名列表用例（本类的匿名 {@code /start} 断言）变红；</li>
+ *   <li>详情不再平铺 {@code coinCount}（比如回到"只走列表批量"）⇒
+ *       {@link #详情视频_投币后coin与coinCount都与DB一致()} 变红；</li>
+ *   <li>把 {@code coinCount} 加回列表 VO ⇒ {@link #列表不返回任何公共计数()} 的
+ *       {@code has(...) == false} 变红；</li>
  *   <li>把批量改成逐条（或让缓存事件不生效）⇒ {@link #投币后立即读详情_缓存写后读回填链路通()}
  *       会读到陈旧的 0。</li>
  * </ul>
@@ -60,22 +53,6 @@ import static org.mockito.Mockito.verify;
  * 读面会把它当"媒体损坏"跳过 / 404 —— 故用 {@code insertVideoContent} / {@code insertPostContent}。
  */
 class CoinReadTests extends AbstractCoinIntegrationTest {
-
-    /**
-     * 用来钉"列表走**一趟批量**，不循环单条"（T40 红线③）。
-     *
-     * <p>值断言抓不到"把批量换成 for 循环"——两种实现返回的数字一样，差别只在往返次数。
-     * 故这里对公开 Service 做 spy：列表请求应恰好一趟 {@code batchGetCoinCount}、
-     * 单条读零次。
-     */
-    @MockitoSpyBean
-    private CoinService coinService;
-
-    /** reset 必须在被测请求之前（父类先清 DB / Redis，本方法再清桩）。 */
-    @BeforeEach
-    void resetCoinServiceSpy() {
-        Mockito.reset(coinService);
-    }
 
     // ========================================================================
     // 1. 详情（视频）：coin = 我投了几枚，coinCount = 公共计数
@@ -163,56 +140,57 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
     }
 
     // ========================================================================
-    // 4. 列表：coin 恒 null，coinCount 与 DB 一致（含匿名也要有 coinCount）
+    // 4. 列表：coin 恒 null；**列表不再返回任何公共计数**（T43）
     // ========================================================================
 
+    /**
+     * ★ T43（用户 2026-10-19 拍板）：四个公共计数**只在详情平铺**，列表一律不带。
+     *
+     * <p>断言的判别力：删掉 {@code ContentVO} 上的 {@code coinCount} 字段**不会**让调用方报错
+     * （JSON 少了键），只有"键必须不存在"的断言能抓住"有人又把它加回列表"。
+     * 用 {@code has()} 而不是 {@code asLong() == 0} —— 后者对**缺失节点**同样返回 0，
+     * 是典型假绿（{@code AGENTS.md} T42 复核①）。
+     */
     @Test
-    @DisplayName("列表：/start 与 /search 的 interaction.coin 恒 null；coinCount 与 DB 一致（匿名也有）")
-    void 列表coin恒null且coinCount与DB一致() {
+    @DisplayName("★列表（/start · /search · /profile）：不返回任何公共计数（coinCount 键不存在）")
+    void 列表不返回任何公共计数() {
         TestUser author = registerUser("13900004004", "coinread_list_author");
         TestUser voter = registerUser("13900004014", "coinread_list_voter");
         setCoinDeci(voter.id(), 10);
         long contentId = insertVideoContent(author.id(), "coinreadlist 读面列表内容");
 
         assertThat(postForm("/coin/add", coinForm(contentId, 1), voter.token()).getStatusCode().value())
-                .as("前置：先给内容投 1 枚，coinCount 才有非零判别力").isEqualTo(200);
-        int countInDb = coinCountOf(contentId);
-        assertThat(countInDb).as("前置：DB 计数为 1").isEqualTo(1);
+                .as("前置：先给内容投 1 枚，确保计数非零（否则'没有键'与'值是 0'分不清）")
+                .isEqualTo(200);
+        assertThat(coinCountOf(contentId)).as("前置：DB 计数为 1").isEqualTo(1);
 
-        // ---- /start（登录）：item 的 coin 恒 null、coinCount 有值 ----
+        // ---- /start（登录）：interaction.coin 仍恒 null；coinCount 键不存在 ----
         JsonNode startItem = itemOf(Envelope.data(get("/start", voter.token())), contentId);
         assertThat(startItem.path("interaction").isObject())
                 .as("登录 ⇒ interaction 仍是对象").isTrue();
         assertThat(startItem.path("interaction").path("coin").isNull())
                 .as("★ 列表不查投币维 ⇒ coin 恒 null（契约，不是漏填）").isTrue();
-        assertThat(startItem.path("coinCount").asLong())
-                .as("/start 的 coinCount 与 content.coin_count 一致").isEqualTo(countInDb);
+        assertThat(startItem.has("coinCount")).as("★ T43：列表不带 coinCount").isFalse();
+        assertThat(startItem.has("likeCount")).as("★ T43：列表不带 likeCount").isFalse();
+        assertThat(startItem.has("commentCount")).as("★ T43：列表不带 commentCount").isFalse();
+        assertThat(startItem.has("favoriteCount")).as("★ T43：列表不带 favoriteCount").isFalse();
 
-        // ---- /search/keywordSearch（登录）：同样恒 null ----
+        // ---- /search/keywordSearch（登录）：同上 ----
         JsonNode searchItem = itemOf(
                 Envelope.data(get("/search/keywordSearch?keyword=coinreadlist", voter.token())).path("list"),
                 contentId);
-        assertThat(searchItem.path("interaction").isObject()).isTrue();
         assertThat(searchItem.path("interaction").path("coin").isNull())
                 .as("★ /search 的 coin 也恒 null").isTrue();
-        assertThat(searchItem.path("coinCount").asLong())
-                .as("/search 的 coinCount 与 DB 一致").isEqualTo(countInDb);
-
-        // ---- /start（匿名）：interaction 整体 null，但**公共计数仍然在** ----
-        JsonNode anonItem = itemOf(Envelope.data(get("/start", null)), contentId);
-        assertThat(anonItem.path("interaction").isNull())
-                .as("匿名 ⇒ interaction 整体 null").isTrue();
-        assertThat(anonItem.path("coinCount").asLong())
-                .as("★ 匿名列表也必须显示 coinCount（它不看登录态）").isEqualTo(countInDb);
+        assertThat(searchItem.has("coinCount")).as("★ /search 不带 coinCount").isFalse();
     }
 
     // ========================================================================
-    // 5. /profile：coin 恒 null；coinCount 与 DB 一致
+    // 5. /profile：coin 恒 null；同样不带计数
     // ========================================================================
 
     @Test
-    @DisplayName("主页：条目 interaction.coin 恒 null；coinCount 与 content.coin_count 一致")
-    void 主页coin恒null且coinCount与DB一致() {
+    @DisplayName("主页：条目 interaction.coin 恒 null；不带任何公共计数")
+    void 主页coin恒null且不带计数() {
         TestUser author = registerUser("13900004005", "coinread_profile_author");
         TestUser voter = registerUser("13900004015", "coinread_profile_voter");
         setCoinDeci(voter.id(), 10);
@@ -220,7 +198,7 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
 
         assertThat(postForm("/coin/add", coinForm(contentId, 1), voter.token()).getStatusCode().value())
                 .as("前置：投币成功").isEqualTo(200);
-        int countInDb = coinCountOf(contentId);
+        assertThat(coinCountOf(contentId)).isEqualTo(1);
 
         JsonNode page = Envelope.data(
                 get("/profile?userId=" + author.id(), voter.token())).path("contentPage");
@@ -228,8 +206,7 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
         assertThat(item.path("interaction").isObject()).as("登录 ⇒ interaction 是对象").isTrue();
         assertThat(item.path("interaction").path("coin").isNull())
                 .as("★ 主页条目不带投币维 ⇒ coin 恒 null").isTrue();
-        assertThat(item.path("coinCount").asLong())
-                .as("主页的 coinCount 与 DB 一致").isEqualTo(countInDb);
+        assertThat(item.has("coinCount")).as("★ T43：主页条目不带 coinCount").isFalse();
     }
 
     // ========================================================================
@@ -296,28 +273,8 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
     }
 
     // ========================================================================
-    // 8. ★ 列表走批量：一趟 batchGetCoinCount、单条零次（T40 红线③）
+    // 8. 列表批量 —— ⛔ T43 已删除（列表不再返回任何计数，"一趟批量"这条红线随之消失）
     // ========================================================================
-
-    @Test
-    @DisplayName("★列表的投币数是一趟批量：batchGetCoinCount 恰一次、getCoinCount 零次（不得循环单条）")
-    void 列表投币数一趟批量不循环调单条() {
-        TestUser author = registerUser("13900004008", "coinread_batch_author");
-        TestUser viewer = registerUser("13900004018", "coinread_batch_viewer");
-        long contentId = insertVideoContent(author.id(), "读面批量内容");
-        setCoinCount(contentId, 2);
-
-        // /start 的 data 本身就是数组（不是 {list:…}），同本类第 4 条用例。
-        JsonNode list = Envelope.data(get("/start", viewer.token()));
-        assertThat(itemOf(list, contentId).path("coinCount").asLong())
-                .as("前置：列表里确有这条、且值是 2（否则调用次数断言没有意义）").isEqualTo(2);
-
-        // ★ 判别力：把 fillCoinCountBatch 改成 for + getCoinCount，这里 times(1) 会变 times(N)；
-        //   值断言抓不到这种退化（数字一样，只是往返 N 次）。
-        verify(coinService, times(1)).batchGetCoinCount(anyCollection());
-        verify(coinService, never()).getCoinCount(anyLong());
-        verify(coinService, never()).getCoinAmount(anyLong(), anyLong());
-    }
 
     // ========================================================================
     // 夹具

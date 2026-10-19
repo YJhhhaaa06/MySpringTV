@@ -216,10 +216,15 @@ public class CoinService {
     }
 
     /**
-     * 批量读多条内容的累计投币数（列表组装点用；T40 接入）。
+     * 批量读多条内容的累计投币数（T39 交付，T40 曾用于列表组装）。
      *
      * <p>薄委托 {@link CoinCache#batchGetCoinCount}：一趟 {@code MGET} + 一趟 DB 批量回填，
-     * **不做循环单条查询**（列表成本 ∝ 条数 的口径见 {@code ContentStatusFiller} 类注释）。
+     * **不做循环单条查询**。
+     *
+     * <p>⚠️ <b>T43 起当前无调用方</b>：列表面不再返回任何计数（只在详情平铺）。
+     * **有意保留**（连同 4 条缓存用例）——它是推翻条件①"列表重新需要计数"的**现成通道**，
+     * 届时按面调用即可，不必重写批量与回填。删它之前先读
+     * {@code architecture/tech/cache/缓存与数据一致性.md} §五.1。
      */
     public Map<Long, Long> batchGetCoinCount(Collection<Long> contentIds) {
         return coinCache.batchGetCoinCount(contentIds);

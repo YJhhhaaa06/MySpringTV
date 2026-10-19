@@ -16,22 +16,17 @@
 
 ## 周期头（每窗开读）
 
-* **方向**：★ **投币（硬币）专项**（2026-10-19 起）—— ✅ **本期已收口（T36–T42 全部交付）**。
-  设计已成篇（`architecture/domain/coin/coin.md` · `coin-需求.md`）；范围 = **设计 §四「涉及面」** 的逐项落地。
-* **活事实源 / 设计落点**：本专项 = **`architecture/domain/coin/`**（**活文档**：开工就建、执行中随代码改、
-  收口时是终态）；执行态只有本文件；**过程物**（设计讨论 / 方案比较）在收口时归档到
-  `archive/coin-<归档日>/`（只读追溯）—— 本期无独立过程稿（设计**开工即活文档**），故未建归档目录。
-* **下一个编号**：本期已收口 ⇒ **下一期方向待拍板**，任务编号从 **`T43`** 起（`T36`–`T42` 已终结，**编号不回收**）。
-* ★ **执行约定**：本专项按**逐任务开窗**推进（一任务一 commit，G1）；每个 `T#` 必须**自包含** ——
-  执行者可能**不带前文上下文**，故入口线索 / 红线边界 / 验收要能**独立读懂**，不许依赖"上一窗的对话"。
-* **本期交付一览**：**`T36`–`T42`（7 项）全部交付** —— 一行结论收编进
-  [coin.md](../architecture/domain/coin/coin.md) 附录「编号速查」，全文在 git。
-* **收尾 checklist**（本期已逐条打勾）：☑ 回归基线全绿（**全量 689 例** = `mvn clean verify`；
-  `run_tests.py --group resilience` 另跑 **41 例** 全绿）·
-  ☑ 完成态已清出（记入 git）· ☑ 编号已收编进**速查**（coin.md 附录）·
-  ☑ 问题已结转（`FURTHER_ISSUES.md`：`F-13` 核销、`F-18` 复核留痕、`F-25` 补投币站边）·
-  ☑ **引用三道校验**（`doc_links` / `doc_refs` / `doc_stats` 全绿）· ☑ 工作树干净。
-* **回归基线**：本期 = 全量 **689** 例（2026-10-19，T42 收尾；上一轮 620）+ resilience 组 **41** 例；
+* **方向**：★ **计数缓存专项**（2026-10-19 起，`T43`–`T47`）—— 把高频变化的四个计数从内容载荷里搬出去，
+  让 `content:{id}` 只被"慢变字段"失效。**用户 2026-10-19 拍板**：
+  **计数一律独立 key + 只在详情平铺 + 列表不带计数**（推翻 F-25 的"两种形态并存"）。
+* **活事实源 / 设计落点**：口径 = [缓存与数据一致性 §五.1](../architecture/tech/cache/缓存与数据一致性.md)
+  （**活文档**，随代码演进）；投币侧受影响的两条依赖边见 [coin.md](../architecture/domain/coin/coin.md) §七 / §九。
+  执行态只有本文件。
+* **下一个编号**：本期任务为 `T43`–`T47`；再往后从 **`T48`** 起（编号不回收）。
+* ★ **执行约定**：一任务一 commit（G1）；每个 `T#` **自包含** —— 入口线索 / 红线 / 验收能独立读懂。
+* **本期目标态**：`content:{id}` 的 JSON 里**没有** `likeCount` / `commentCount`；点赞、发评论**不失效**内容载荷；
+  详情平铺 `likeCount / commentCount / favoriteCount / coinCount`（各自独立 key）；列表**不返回**任何计数。
+* **回归基线**：入场 = 全量 **689** 例（2026-10-19，投币期收尾）+ resilience **41** 例；
   ⚠️ 本环境跑全量需 `DB_POOL_MAX_SIZE=4`（否则 Testcontainers MySQL 报 `Too many connections`）。
 
 ---
@@ -76,6 +71,52 @@
 ★ T42 收口时对 T36–T41 补做了**测试复核**（此前未走 review 流程）：修掉 7 处「全绿但抓不到错实现」的
 判别力缺口（累计语义 / 余额竞态 / 半枚 floor / 校验次序 / 缓存写失败与累计总量 / 批量不循环 /
 内容删除只失效），并纠正「回滚后 key 不存在」这类**与断言事实相反**的措辞（详见 git 的 `test(coin)` 提交）。
+
+### T43 缓存载荷去计数 + 详情平铺四计数（来源 F-25 / 2026-10-19 拍板）【已完成】
+
+> ⚠️ **先质疑（G14）**：列表去掉计数是**契约破坏**（前端卡片不再显示 ❤💬🪙）。
+> 判断：计数不参与任何列表决策、只为装饰付 3 趟批量 ⇒ 用户明确接受破坏，已知代价后选择做。
+
+* **入口线索**：`ContentCacheDTO` / `ContentMapper.xml` 的三个 `SELECT` + `resultMap` / `ContentVO` / `ContentDetailVO`
+* **目标**：`content:{id}` 不含 `likeCount` / `commentCount`；详情平铺四个计数；列表零计数
+* **红线边界**：`content:{id}` 的**其余键集**与 JSON 属性名不动；不改 schema；不动 `content.like_count` 等列
+* **回写**：三个 SELECT 与 resultMap 去掉两列；`ContentVO` 删 `coinCount`；`ContentDetailVO` 加四个 `long` 字段
+
+### T44 评论计数独立 key（`content:commentCount`）【已完成】
+
+> ⚠️ **先质疑（G14）**：为什么不放 comment 域？——`ArchitectureTests` 规则 4 禁止 `content → comment`
+> 的 service/model/cache，且反向会成装配环。已按"内容表自己的列"归 content。
+
+* **入口线索**：`ContentCountCache`（新）/ `CacheKeys#contentCommentCount` / `ContentDao#findCommentCount`
+* **目标**：评论数独立 key，miss 回源 `content.comment_count` 单列；评论增删后 DEL（不猜 delta）
+* **红线边界**：`0` 合法 ⇒ 无空标记；内容删除时一并失效；DB 失败上抛、Redis 失败降级
+* **回写**：新增缓存类 + DAO 窄查询；`CommentCacheChangedContentListener` 改只 DEL 该键；`removeContent` 一并清
+
+### T45 点赞连坐失效拆除 + 公共计数聚合【已完成】
+
+> ⚠️ **先质疑（G14）**：为什么计数走 interaction 而不是 content 直连？
+> ——`content → favorite.service` 与 `FavoriteService → ContentService` 会闭成直接装配环；
+> interaction 对 favorite 已是 `@Lazy`，复用它**不新增断环点**。已知代价：interaction 多一个"公共计数"契约。
+
+* **入口线索**：删 `content.event.LikeChangedContentListener` / `InteractionService#getPublicCounts`
+* **目标**：点赞不再失效内容载荷；详情四个计数一趟取齐
+* **红线边界**：不得给 content 新增 favorite/comment 依赖；不得再引入 `@Lazy`
+* **回写**：删除监听器；`ContentPublicCounts` record + 聚合方法；`ContentService` 去掉 `CoinService`、改注入 `ContentCountCache`
+
+### T46 列表装配点收敛 + 前端对齐【已完成】
+
+* **入口线索**：`ContentStatusFiller#fillCoinCountBatch`（删）/ `StartController` / `ProfileService` / `FeedService` / `utils.js` / `detail.js`
+* **目标**：列表不再为计数付任何批量；前端列表卡片去掉计数行、详情直接用内嵌 `favoriteCount`
+* **红线边界**：`/favorite/count`、`/like/content/count` 端点保留（外部契约）
+* **回写**：删除 `fillCoinCountBatch` 与三处调用；feed 去掉 coin 依赖；详情首屏不再单发 `/favorite/count`
+
+### T47 测试补强 + 反向验证 + 文档收口【已完成】
+
+* **入口线索**：`ContentCountTests`（新）/ `CoinReadTests`（列表用例改写）/ `缓存与数据一致性 §五.1`
+* **目标**：载荷无计数、点赞/评论不失效内容 key、四路来源不串线、列表无计数键；三道文档门禁 0 违规
+* **红线边界**：不许用 `path(x).asLong()==0` 断言"键不存在"（缺失节点也返回 0 ⇒ 假绿）
+* **回写**：见 git 的 `test(count)` / `docs(count)` 提交；`F-25` 核销、`coin.md` 反向修正、`CURRENT_TASKS` 重建
+
 
 ```
 ### T# <任务名>（来源 R-## / 设计 §x）【待执行】

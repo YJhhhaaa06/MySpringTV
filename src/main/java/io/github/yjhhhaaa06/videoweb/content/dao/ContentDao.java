@@ -165,6 +165,21 @@ public interface ContentDao {
     List<ContentCoinCount> findCoinCountsByIds(@Param("ids") Collection<Long> ids);
 
     /**
+     * 读某内容的**评论总数**（**单列窄查询**，T43 计数缓存 miss 的回源）。
+     *
+     * <p>SQL: {@code select comment_count from content where id = #{contentId}}。
+     *
+     * <p>★ <b>刻意不加 {@code is_deleted = 0}</b>：同 {@link #findCoinCount}——读的是**列值**，
+     * 不是"内容是否可见"；可见性判定在详情读路径（{@code findContent}）。
+     *
+     * <p>⚠️ 返回**包装类型** {@link Integer}：无行 ⇒ {@code null} ⇒ 缓存层不写缓存。
+     *
+     * <p>★ 这是 **content → content** 的自有查询（{@code ContentCountCache} 的回源点），
+     * 不涉及跨域：{@code content.comment_count} 是内容表自己的列，只是由评论域的事务负责 ±。
+     */
+    Integer findCommentCount(@Param("contentId") long contentId);
+
+    /**
      * 评论数增减。TV: {@code UPDATE content SET comment_count = comment_count + ? WHERE id = ?}
      *
      * <p><b>T34 补防负守卫</b>（TV 原 SQL 无守卫）。{@code content.comment_count} 是

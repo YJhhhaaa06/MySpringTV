@@ -68,6 +68,24 @@ public final class CacheKeys {
     }
 
     /**
+     * 内容**评论总数**：{@code content:commentCount:{id}}（String int）。
+     *
+     * <p>⚠️ 与 {@link #contentCommentRootCount(long)} **不是一个数**：后者是"主楼条数"
+     * （分页用，不含楼中楼回复），本键是 {@code content.comment_count} 列
+     * （主楼 + 回复的总数，评论增删时 ±）。
+     *
+     * <p>★ <b>为什么独立成键而不内联进 {@code content:{id}}</b>：评论数每次评论都变，
+     * 内联就意味着"发一条评论连坐失效整份内容缓存"（旧形态）。T43 起所有计数一律独立 key，
+     * 内容缓存只放慢变字段（标题 / 媒体 / 作者）。
+     *
+     * <p>★ <b>刻意无空标记</b>（口径同 {@link #contentLikeCount(long)}）：{@code 0} 是合法值，
+     * 必须与"key 不存在"靠 {@code GET} 返回 {@code null} / {@code "0"} 区分。
+     */
+    public static String contentCommentCount(long contentId) {
+        return "content:commentCount:" + contentId;
+    }
+
+    /**
      * 内容类型分区索引：{@code content:index:{type}:{categoryId}}（LIST）。
      *
      * <p>{@code -1} 表示通配维度（推荐接口 type/category 为空时的归一）。

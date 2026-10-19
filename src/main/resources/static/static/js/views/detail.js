@@ -29,7 +29,7 @@ export function mount(container, params) {
     related: [],
     parentId: null,
     isFavorited: false,      // 收藏按钮态（T7；T10 起初始值读详情内联 interaction.isFavorited，弹窗仍走 /favorite/status 取 folders）
-    favoriteCount: 0,        // 收藏数（T7：GET /favorite/count，匿名可读）
+    // 收藏数不再单独存：T43 起由详情响应内联到 state.content.favoriteCount（动作后仍用 /favorite/count 刷新）
     pickFolders: null,       // 收藏弹窗最近一次拉到的"我的夹"列表
     coinBalance: null,       // T41：我的硬币余额（投币弹层显示；写成功由响应体回带的 balance 就地覆盖）
   };
@@ -669,7 +669,7 @@ function renderStats() {
   const el = state.container && state.container.querySelector('#stats');
   if (!item || !el) return;
   el.textContent = `❤ ${formatNumber(item.likeCount || 0)} · 💬 ${formatNumber(item.commentCount || 0)}`
-    + ` · ⭐ ${formatNumber(state.favoriteCount || 0)} · 🪙 ${formatNumber(item.coinCount || 0)}`
+    + ` · ⭐ ${formatNumber(item.favoriteCount || 0)} · 🪙 ${formatNumber(item.coinCount || 0)}`
     + ` · ${formatTime(item.createTime)}`;
 }
 
@@ -682,22 +682,22 @@ function updateFavBtn() {
 }
 
 /**
- * 收藏按钮初始态 + 收藏数。
- * T10（R-10）：初始态读**详情内联**的 `interaction.isFavorited`（匿名/失效 token ⇒ null ⇒ 未点亮），
- * 不再为它单发 `favorite/status`（详情页请求 3 → 2）；收藏弹窗打开时仍走 status 取 `folders`。
- * 计数仍走公开端点；任一失败都不打断详情页。
+ * 收藏按钮初始态。
+ * T10（R-10）：初始态读**详情内联**的 `interaction.isFavorited`（匿名/失效 token ⇒ null ⇒ 未点亮）。
+ * T43：收藏数也由**详情响应内联**（`favoriteCount`），首次渲染不再单发 `favorite/count`
+ * —— 请求 3 → 1；只有收藏动作之后才用该端点刷新数字（用户去重 ⇒ 不能本地 ±1）。
  */
 function initFavorite() {
-  refreshFavoriteCount();
   state.isFavorited = interactionOf(state.content).isFavorited === true;
   updateFavBtn();
 }
 
 async function refreshFavoriteCount() {
   try {
-    state.favoriteCount = (await request(`favorite/count?contentId=${state.contentId}`)) || 0;
+    const count = (await request(`favorite/count?contentId=${state.contentId}`)) || 0;
+    if (state.content) state.content.favoriteCount = count;
   } catch (e) {
-    state.favoriteCount = 0;
+    // 刷新失败保持详情里的旧值，不打断页面
   }
   renderStats();
 }

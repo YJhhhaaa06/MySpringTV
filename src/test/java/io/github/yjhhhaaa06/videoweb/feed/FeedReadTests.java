@@ -235,25 +235,21 @@ class FeedReadTests extends AbstractFeedIntegrationTest {
     }
 
     @Test
-    @DisplayName("★T40：条目带公共计数 coinCount（与 content.coin_count 一致）；interaction.coin 恒 null")
-    void 条目公共计数_coinCount与DB一致且coin恒null() {
+    @DisplayName("★T43：条目不带公共计数（coinCount 键不存在）；interaction.coin 恒 null")
+    void 条目不带公共计数且coin恒null() {
         long viewerId = registerViewer();
         long authorId = registerAuthor();
         long c1 = insertVideoContent(authorId, "feed coinCount 内容");
         insertFollowRow(viewerId, authorId);
         insertFeedInboxRow(viewerId, c1);
         markSynced(viewerId);
-        // 独立 oracle 的前置：直接把公共计数钉到 2（本用例只钉 feed 的组装，不走投币写路径）
+        // 前置：把公共计数钉到非零 —— 否则"没有键"与"值是 0"分不清
         jdbcTemplate.update("UPDATE content SET coin_count = 2 WHERE id = ?", c1);
 
         JsonNode item = itemOf(Envelope.data(getFeed(tokenOf(PHONE_VIEWER))).path("list"), c1);
 
-        Integer countInDb = jdbcTemplate.queryForObject(
-                "SELECT coin_count FROM content WHERE id = ?", Integer.class, c1);
-        assertThat(countInDb).as("前置：DB 里的公共计数为 2").isEqualTo(2);
-        assertThat(item.path("coinCount").asLong())
-                .as("★ feed 的 coinCount 由 renderPage 一趟批量填充，与 content.coin_count 一致")
-                .isEqualTo(countInDb.longValue());
+        assertThat(item.has("coinCount"))
+                .as("★ T43：列表面不返回任何计数（T40 曾有一趟批量，已删除）").isFalse();
         assertThat(item.path("interaction").path("coin").isNull())
                 .as("★ 列表不查投币维 ⇒ coin 恒 null（契约，不是漏填）").isTrue();
     }

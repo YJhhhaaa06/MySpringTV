@@ -15,9 +15,9 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * 点赞成功后必须让**该评论所属主楼**的 replies field 失效，否则缓存里的旧点赞数会一直服务到
  * TTL 到期——对外表现为"评论点赞了但数字不变"。
  *
- * <p>它与内容侧的 {@code content.event.LikeChangedContentListener} 是同构的拆分，理由见
- * {@code like.event.LikeChangedListener} 的类注释：**由评论域订阅事件、失效自己的缓存**，
- * 而不是让点赞域伸手进来。
+ * <p>它是 S6-B2b 拆分后的**评论侧**：由评论域订阅事件、失效自己的缓存，
+ * 而不是让点赞域伸手进来（理由见 {@code like.event.LikeChangedListener} 的类注释）。
+ * ⚠️ T43 起内容侧**没有**同构的监听了 —— 点赞数已是独立 key，点赞不再失效内容载荷。
  *
  * <h2>为什么是"定向失效主楼的 replies field"而不是删评论 key</h2>
  * 评论缓存的键结构是"roots LIST（该内容的主楼 id 序）+ replies HASH（每个主楼的回复树）"。

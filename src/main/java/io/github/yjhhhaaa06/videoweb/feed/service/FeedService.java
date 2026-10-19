@@ -1,6 +1,5 @@
 package io.github.yjhhhaaa06.videoweb.feed.service;
 
-import io.github.yjhhhaaa06.videoweb.coin.service.CoinService;
 import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentVO;
 import io.github.yjhhhaaa06.videoweb.content.service.ContentService;
@@ -60,28 +59,17 @@ public class FeedService {
     private final InteractionService interactionService;
     private final FeedReadService feedReadService;
     private final FeedPullReader pullReader;
-    /**
-     * 公共计数 {@code coinCount} 的读取入口（T40）。
-     *
-     * <p>★ **只调它的 Service 公开方法**（{@code CoinService#batchGetCoinCount}），不碰
-     * {@code coin.cache}（ArchUnit 规则 2）；也**不依赖** {@code content} 的装配组件
-     * {@code ContentStatusFiller} —— 那会把 {@code feed → content} 的边再宽一层，
-     * 而 feed 只需要"id 列表 → 计数映射"这一条窄契约。
-     */
-    private final CoinService coinService;
 
     public FeedService(FollowService followService,
                        ContentService contentService,
                        InteractionService interactionService,
                        FeedReadService feedReadService,
-                       FeedPullReader pullReader,
-                       CoinService coinService) {
+                       FeedPullReader pullReader) {
         this.followService = followService;
         this.contentService = contentService;
         this.interactionService = interactionService;
         this.feedReadService = feedReadService;
         this.pullReader = pullReader;
-        this.coinService = coinService;
     }
 
     /**
@@ -139,11 +127,11 @@ public class FeedService {
     }
 
     /**
-     * 页内容装载（两路读共用）：**事务外**批量读内容 + 互动态 + 公共投币计数，按原序跳过 null。
+     * 页内容装载（两路读共用）：**事务外**批量读内容 + 互动态，按原序跳过 null。
      *
-     * <h2>★ T40：{@code coinCount} 自带一趟批量，不共用 {@code ContentStatusFiller}</h2>
-     * 那是 content 域的装配组件；feed 依赖它会加宽 {@code feed → content} 的边。
-     * 本域只经 {@code CoinService#batchGetCoinCount} 取"id → 计数"，保持窄契约。
+     * <h2>★ T43：列表不再带公共计数</h2>
+     * T40 曾在这里自持一趟 {@code CoinService#batchGetCoinCount}；T43 起四个计数只在详情
+     * 平铺返回（用户 2026-10-19 拍板）⇒ feed 列表页省掉这趟批量，本类也**不再依赖 coin 域**。
      *
      * <h2>★ T13（R-13）：互动态改走**互动域**，只带 {@code LIKE} 一维</h2>
      * T13 之前这里**直连** {@code LikeService.batchIsContentLiked}，而条目的关注态
@@ -172,12 +160,7 @@ public class FeedService {
             for (ContentVO vo : contentList) {
                 vo.setInteraction(statuses.get(vo.getId()));
             }
-            // ★ T40：公共计数 coinCount —— 一趟批量（MGET + 一趟 DB 回填），不逐条、不共用 filler。
-            //   与登录态无关（feed 页面本身必登录，但这条填充语义上仍是"公共计数"）。
-            Map<Long, Long> coinCounts = coinService.batchGetCoinCount(ids(contentList));
-            for (ContentVO vo : contentList) {
-                vo.setCoinCount(coinCounts.getOrDefault(vo.getId(), 0L));
-            }
+            // T43：列表不再返回任何公共计数（计数只在详情平铺）⇒ coinCount 的一趟批量已删除。
         }
         return new PageResult<>(contentList, total, page, pageSize);
     }
@@ -189,14 +172,5 @@ public class FeedService {
             targets.add(new InteractionTarget(vo.getId(), vo.getAuthorId(), vo.getType()));
         }
         return targets;
-    }
-
-    /** 页内 VO → 内容 id（公共计数的批量入参；`CoinService#batchGetCoinCount` 要求唯一即可去重）。 */
-    private static List<Long> ids(List<ContentVO> list) {
-        List<Long> ids = new ArrayList<>(list.size());
-        for (ContentVO vo : list) {
-            ids.add(vo.getId());
-        }
-        return ids;
     }
 }

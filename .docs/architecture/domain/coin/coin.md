@@ -164,13 +164,16 @@ UPDATE users SET coin_deci = coin_deci + 10, last_sign_date = :today
   ② `content:coinCount` 是**单调只增** ⇒ 用条件 `INCRBY amount`。
 - ★ **`ContentCacheDTO` 一字符不改**（那个"冻结键集"不动）—— 见下条。
 
-### 6.1 公共计数为什么不内联进内容缓存（对 **F-25** 的站边）
+### 6.1 公共计数为什么不内联进内容缓存（对 **F-25** 的站边 → **T43 已成为全局口径**）
 
-仓内"计数缓存"并存两种形态：`like` / `comment` 的计数**内联**进 `content:{id}` JSON
-（代价 = **每次点赞/评论连坐失效整份内容缓存**），`favorite`（T11）**只走独立 key**。
-本域选**独立 key**（先例 = favorite），理由是**不把"计数变化连坐失效整份 `content:{id}`"复制到新功能上**；
-代价 = 列表面多一趟 `MGET`（见 §十）。取证与两种形态的对照见
-[缓存与数据一致性 §五](../../tech/cache/缓存与数据一致性.md)；该取舍已登记 `task/FURTHER_ISSUES.md` 的 **F-25**。
+投币开工时（2026-10-18）仓内"计数缓存"并存两种形态：`like` / `comment` 的计数**内联**进
+`content:{id}` JSON（代价 = **每次点赞/评论连坐失效整份内容缓存**），`favorite`（T11）**只走独立 key**。
+本域选了**独立 key**（先例 = favorite），理由是**不把"计数变化连坐失效整份 `content:{id}`"复制到新功能上**。
+
+★ **2026-10-19（T43）用户拍板把这条站边升为全局规范**：`like` / `comment` 的计数也搬出内容载荷，
+四个计数一律"一个计数一个独立 key"、只在详情平铺返回。见
+[缓存与数据一致性 §五.1](../../tech/cache/缓存与数据一致性.md)；F-25 已核销（`task/FURTHER_ISSUES.md`）。
+本域**无需改代码**：`content:coinCount` 本来就是按这个口径做的，T43 只是让其他三个跟上来。
 
 ### 6.2 为什么不是 **F-21** 被否决的那种形态
 
@@ -187,9 +190,12 @@ UPDATE users SET coin_deci = coin_deci + 10, last_sign_date = :today
   —— 即 `interaction` 子对象"不适用该维度"的表示（与"本面不查"**共用 `null`**，不另造表示）。
 - 判定落在 `InteractionService#getStatus` 内**按 `type` 分流**（它已收 `type` 入参）；
   ★ **不给 `InteractionDimension` 加 `COIN` 常量** —— 没有任何列表面需要"我投了几枚"（YAGNI）。
-- **`coinCount`（公共计数）挂在 `ContentVO` / `ContentDetailVO` 的字段上**，
-  **不进 `ContentCacheDTO`**（缓存形状不动），由**组装点**批量读：
-  `ContentStatusFiller`（`/start` `/search` `/profile` 三面共用）+ `FeedService` + `ContentService`（详情单条）。
+- **`coinCount`（公共计数）只在 `ContentDetailVO` 上平铺**（T43 起，见
+  [缓存与数据一致性 §五.1](../../tech/cache/缓存与数据一致性.md)），**不进 `ContentCacheDTO`**；
+  由 `InteractionService#getPublicCounts`（like / favorite / coin 一趟聚合）填。
+- ⚠️ **T40 → T43 的一处反转**：T40 曾让 `coinCount` 随**列表**各面返回（`ContentStatusFiller` /
+  `FeedService` 各一趟 `MGET`）。T43 拍板"计数只在详情"，列表**不再带任何计数** ⇒
+  那两趟批量与 `feed → coin.service` 依赖一并删除。`ContentVO` 上**没有** `coinCount` 字段。
 - ⚠️ 由此 `InteractionStatusVO` 的键集 **3 → 4**（多一个 `coin`）；列表各面不选该维 ⇒ 列表里恒 `null`，
   前端静默忽略（沿用三态口径）。
 - ★ 与 like / favorite 的**第二处不同**：它们的"我的状态"走独立端点，投币走**详情内嵌**（§三）。
@@ -217,9 +223,11 @@ UPDATE users SET coin_deci = coin_deci + 10, last_sign_date = :today
 | coin → `content.dao.ContentDao` | `findAliveContentAuthorAndType`（一趟取 `authorId` + `type`）/ `updateCoinCount` / `findCoinCount` / `findCoinCountsByIds`（计数缓存回源） | 《模块边界与依赖》§三「**同事务改计数/级联 ⇒ 允许 DAO 薄依赖**」；其中**纯读的那几条窄查询**属该文 §六 要登记的读例外 |
 | coin → `user.dao.UserDao` | `updateCoinDeci` / `deductCoinDeci` / `signIn` / `findCoinDeci` / `findLastSignDate` | **计数列方法进所在表的 DAO**（follow 域 `updateFollowCount` 先例）；`users` 的两列由本域维护 |
 | coin → `coin.dao.ContentCoinDao` | `content_coin` 表（**按表命名**，镜像 `ContentLikeDao`） | 自有数据 |
-| content → `coin.service.CoinService` | 详情/列表填 `coinCount`（`getCoinCount` / `batchGetCoinCount`） | §三「**读状态 → 走对方 Service 公开方法**」 |
-| interaction → `coin.service.CoinService` | 详情互动态的第四维 `coin`（`getCoinAmount`，按 `type` 分流） | §七；**只调 Service**，不碰 `coin.cache`（ArchUnit 规则 2） |
-| feed → `coin.service.CoinService` | 列表 `coinCount` 的一趟批量（`batchGetCoinCount`） | §七；feed **不**依赖 `ContentStatusFiller`（那是 content 的装配组件，会把 `feed → content` 的边再宽一层） |
+| interaction → `coin.service.CoinService` | 详情互动态的第四维 `coin`（`getCoinAmount`，按 `type` 分流）+ **公共计数** `getCoinCount`（`getPublicCounts` 三件套之一，T43） | §七；**只调 Service**，不碰 `coin.cache`（ArchUnit 规则 2） |
+
+★ **T43 删掉的两条边**：`content → coin.service`（详情/列表填 `coinCount`）与
+`feed → coin.service`（列表批量）。前者改由互动域聚合（`content → interaction` 是既有边），
+后者随"列表不带计数"一起消失。内容删除的级联与此无关（一直是事件，见下）。
 
 ★ **内容删除的级联方向**：`coin.event.ContentRemovedCoinListener` **订阅** content 的
 `ContentCacheChangedEvent(REMOVE)` 并失效自己的 `content:coinCount` —— 内容域**不直调**
@@ -244,7 +252,7 @@ UPDATE users SET coin_deci = coin_deci + 10, last_sign_date = :today
 | # | 代价 | 边界 / 推翻条件 |
 |---|---|---|
 | 1 | **`count = 2` 而剩余额度只有 1 时，也答 409「已用完」**（文案不够精确——还剩 1 枚） | 判据来自封顶的条件写 `amount + ? <= 2`（影响 0 行 ⇒ 409），它分不出"已满"与"不够这一次"；前端按 `0/1/2` 只给出合法选项（`1` ⇒ 只能再投 1），故**正常客户端不可达**。推翻 = 若要把这条也精确到文案，得先读 `amount` 再判（破坏"不先读后写"）或新增一条拒因码 |
-| 2 | **列表面显示 `coinCount` 要多一趟 `MGET`**（§6.1 的代价） | 是**常量往返**、不随条数增长；推翻 = 若列表不需要显示投币数，可退成"只详情显示" |
+| 2 | **详情多一次缓存读**：`coinCount` 走独立 key（原为"列表批量"，T43 起列表不带计数） | 是**一条 key 的 GET**，与内容信息同页、可并发；推翻 = 若详情页 QPS 证明这次读成为瓶颈，先量命中率（它是 `content:coinCount` 单键，命中率应接近内容 key）再谈合并 |
 | 3 | `coin_count` 无 − 路径 ⇒ 与 `like_count` 口径不同（后者有 T34 守卫） | 有意差异（不可取消）；推翻 = 若将来允许取消投币 ⇒ 须补守卫 |
 | 4 | 数值全为拍值（`coin-ttl` / 每日 1 枚 / 上限 2 / `1/10`） | **无真实流量** ⇒ 不可验；推翻 = 有真实行为分布或压测基线 ⇒ 重定价 |
 | 5 | **签到 / 投币无通知作者机制**；**无硬币明细页**、**无 UP主获币面板** | 本期已裁剪（见 [coin-需求 §六](./coin-需求.md)）；推翻 = 需要这些叙事时另开 |
@@ -271,7 +279,8 @@ UPDATE users SET coin_deci = coin_deci + 10, last_sign_date = :today
 （`AFTER_COMMIT` 的存在证明，范式同 `LikeCacheTests.事务回滚后缓存未被污染`）。
 ⚠️ **不要写成"回滚 ⇒ key 不存在"**：冷 key 本来就不存在 ⇒ 那种断言在"事件没发"与"事件发了但回滚"
 两个世界都绿，**零判别力**（T42 复核时纠正的措辞；预热后断言"值没被动过"才是证明）。
-**列表的 `coinCount` 是一趟批量**（`batchGetCoinCount` 恰一次、单条读零次 —— T42 补的锚点）。
+**列表不带 `coinCount`**（T43）：`/start` / `/search` / `/profile` 的条目里**没有**该键
+（`CoinReadTests#列表不返回任何公共计数` 用 `has(...)==false` 钉住 —— 用 `asLong()==0` 会因缺失节点也返回 0 而假绿）。
 
 **反向验证清单**（改哪一行必红）在开工时逐条实测登记。
 ★ **T42 复核补测的 7 条（已实测，默认组口径）**：① 去掉 `deductCoinDeci` 的 `coin_deci >= ?` ⇒
@@ -307,6 +316,7 @@ UPDATE users SET coin_deci = coin_deci + 10, last_sign_date = :today
 | T40 | 读面：`interaction.coin`（视频 `0/1/2`、图文 `null`）+ `coinCount`（三面共用批量 + feed 自持一趟 + 详情单条）；`ContentCacheDTO` 未改 | §七 |
 | T41 | 前端接入：投币按钮 / 弹层 + 签到按钮 + 卡片投币数（原生 JS、无构建步骤；后端零改动） | [coin-需求](./coin-需求.md) §四 |
 | T42 | 期收口：依赖边登记（《模块边界与依赖》§六）+ 编号收编 + 全量回归 + **T36–T41 测试复核**（补判别力缺口：累计语义 / 余额竞态 / 半枚 floor / 校验次序 / 缓存写失败 / 批量不循环） | §九 / §十一 |
+| T43 | **计数缓存规范形态定稿**（F-25 收口）：like / comment 计数搬出 `content:{id}`、四个计数只在详情平铺、列表去计数；本域随之**移除** `content/feed → coin.service` 两条读边，改为 `interaction.getPublicCounts` 聚合 | [缓存与数据一致性 §五.1](../../tech/cache/缓存与数据一致性.md) · §七 |
 
 ---
 

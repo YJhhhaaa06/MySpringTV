@@ -3,6 +3,7 @@ package io.github.yjhhhaaa06.videoweb.interaction.service;
 import io.github.yjhhhaaa06.videoweb.coin.service.CoinService;
 import io.github.yjhhhaaa06.videoweb.favorite.service.FavoriteService;
 import io.github.yjhhhaaa06.videoweb.follow.service.FollowService;
+import io.github.yjhhhaaa06.videoweb.interaction.model.ContentPublicCounts;
 import io.github.yjhhhaaa06.videoweb.interaction.model.InteractionDimension;
 import io.github.yjhhhaaa06.videoweb.interaction.model.InteractionTarget;
 import io.github.yjhhhaaa06.videoweb.interaction.model.vo.InteractionStatusVO;
@@ -155,6 +156,39 @@ public class InteractionService {
         // 与前三态共用 null —— 客户端语义都是"不显示该维"，不另造表示（见 InteractionStatusVO 类注释）。
         status.setCoin(type == 1 ? coinService.getCoinAmount(userId, contentId) : null);
         return status;
+    }
+
+    /**
+     * 内容的**公共计数**（点赞 / 收藏 / 投币），请求无关、匿名可读（T43）。
+     *
+     * <h2>★ 为什么放在互动域（以及为什么这里只有三个数）</h2>
+     * 详情响应要平铺返回四个公共计数，其中三个的数据源正好是本域已聚合的三个域
+     * （like / favorite / coin）：{@code LikeService#getContentLikeCount}、
+     * {@code FavoriteService#getFavoriteCount}、{@code CoinService#getCoinCount}。
+     * <ul>
+     *   <li><b>不放 content 域</b>：{@code content → favorite.service} 会与
+     *       {@code FavoriteService → ContentService}（{@code loadContentVOs}）闭成**直接装配环**
+     *       （F-18 记的是它加 interaction 后的传递环，这里更近一层）；</li>
+     *   <li><b>本域是唯一现成的断点</b>：{@code favoriteService} 在本域已经是
+     *       {@code @Lazy} 注入（T10），走这里**不新增任何 @Lazy**；</li>
+     *   <li><b>评论数不在这里</b>：评论域的 service 依赖内容域，进来会闭成新的装配环
+     *       ⇒ 它由内容域自己的 {@code ContentCountCache} 提供（见 {@link ContentPublicCounts}）。</li>
+     * </ul>
+     *
+     * <p>⚠️ 与 {@link #getStatus} 的区别：那个在 {@code userId == null} 时短路返回 {@code null}；
+     * 本方法**不看登录态**（匿名详情也要显示数字），故**没有** userId 入参 —— 少一个参数
+     * 也少一种"误把它放进匿名短路里"的可能。
+     *
+     * <p>⚠️ 三次单条读（详情路径专用）。列表**不调**本方法：T43 起列表面不返回任何计数。
+     *
+     * @param contentId 内容 id
+     * @return 三个公共计数（内容不存在时各缓存层给出 0，详情路径在此之前已 404）
+     */
+    public ContentPublicCounts getPublicCounts(long contentId) {
+        return new ContentPublicCounts(
+                likeService.getContentLikeCount(contentId),
+                favoriteService.getFavoriteCount(contentId),
+                coinService.getCoinCount(contentId));
     }
 
     /**

@@ -1,7 +1,8 @@
 // ============================================================================
 // 通用工具：转义 / 时间 / 数字缩写 / toast / 卡片渲染
 // 「字段缺失优雅降级」统一收敛在 createVideoCard 一处：
-//   播放量 viewCount、弹幕数 danmakuCount、时长 duration、头像 avatarUrl、投币数 coinCount 缺失则隐藏或占位。
+//   播放量 viewCount、弹幕数 danmakuCount、时长 duration、头像 avatarUrl 缺失则隐藏或占位。
+//   ★ T43 起列表**不含**点赞 / 评论 / 投币 / 收藏计数（四个数只在详情返回），卡片不再渲染它们。
 // ============================================================================
 
 import { navigate } from './router.js';
@@ -202,14 +203,9 @@ export function createVideoCard(item, opts = {}) {
     e.stopPropagation();
     if (item.authorId != null) navigate('/user/' + item.authorId);
   });
-  const stats = document.createElement('span');
-  stats.className = 'meta-stats';
-  // T41（R-17）：投币数（公共计数）随列表各面回来 —— 由后端组装点批量填（不是本函数去查）；
-  // 收藏夹 / 稍后再看的条目走各自 VO、**没有**该字段 ⇒ 缺字段即不显示（本函数统一的缺失降级口径）。
-  stats.textContent = `❤ ${item.likeCount || 0}   💬 ${item.commentCount || 0}`
-    + (item.coinCount != null ? `   🪙 ${formatNumber(item.coinCount)}` : '');
+  // T43：列表**不再返回任何公共计数**（点赞 / 评论 / 收藏 / 投币只在详情平铺）
+  // ⇒ 卡片只保留 UP 主；不再渲染 ❤💬🪙 那行。
   meta.appendChild(up);
-  meta.appendChild(stats);
   body.appendChild(title);
   body.appendChild(meta);
 

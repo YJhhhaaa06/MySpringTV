@@ -6,6 +6,7 @@ import io.github.yjhhhaaa06.videoweb.common.cache.SingleFlight;
 import io.github.yjhhhaaa06.videoweb.common.config.ContentCacheProperties;
 import io.github.yjhhhaaa06.videoweb.common.config.MediaProperties;
 import io.github.yjhhhaaa06.videoweb.content.cache.ContentCache;
+import io.github.yjhhhaaa06.videoweb.content.cache.ContentCountCache;
 import io.github.yjhhhaaa06.videoweb.content.cache.ContentRedisOps;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentMediaDao;
@@ -58,7 +59,7 @@ class ContentIndexCooldownTests {
         indexOps = mock(ContentRedisOps.class);
         return new ContentCache(contentDao, contentMediaDao, cacheAside, indexOps,
                 new ContentCacheProperties(Duration.ofMinutes(30), cooldown), new MediaProperties(""),
-                new SingleFlight());
+                new SingleFlight(), mock(ContentCountCache.class));
     }
 
     /** 前置：索引 key 不存在（触发懒重建），且 DB 装载失败（模拟 DB 故障）。 */

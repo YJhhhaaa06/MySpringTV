@@ -14,18 +14,28 @@ import java.util.List;
  *       {@code findAllContent} 的结果类型（{@code resultMap} 显式映射）；</li>
  *   <li><b>Redis 值</b>：{@code content:{id}} 的 JSON 载荷（{@link io.github.yjhhhaaa06.videoweb.common.cache.JsonCodec}）；</li>
  *   <li><b>VO 的父类</b>：{@link io.github.yjhhhaaa06.videoweb.content.model.vo.ContentVO}
- *       / {@code ContentDetailVO} 在此基础上**只加一个** {@code interaction} 子对象
- *       （互动态，见 {@code InteractionStatusVO}；T13 起两个 VO 同形）。</li>
+ *       / {@code ContentDetailVO} 在此基础上加 {@code interaction} 子对象与**公共计数**
+ *       （互动态见 {@code InteractionStatusVO}）。</li>
  * </ol>
  *
  * <h2>★ 字段集是冻结契约（JSON 形状）</h2>
  * 对外 JSON 的键 = 本类属性名（由 Getter 名推导）：
- * {@code id / authorId / type / title / description / categoryId / commentCount / likeCount /
- * commentEnabled / authorName / coverUrl / videoUrl / imageUrls / createTime}。
+ * {@code id / authorId / type / title / description / categoryId / commentEnabled /
+ * authorName / coverUrl / videoUrl / imageUrls / createTime}。
  * 其中 {@code videoUrl} / {@code imageUrls} 只在 {@code ContentDetailVO} 上出现
  * （列表 VO 用 {@code @JsonIgnore} 屏蔽，见 {@code ContentVO}）。
  * 旧 pytest 对 {@code title} / {@code videoUrl} / {@code imageUrls} / {@code authorName} /
  * {@code commentEnabled} 有逐字断言，故**属性名不得改**。
+ *
+ * <h2>★ T43：{@code likeCount} / {@code commentCount} 已从本载荷移出（用户 2026-10-19 拍板）</h2>
+ * 它们是**高频变化**的计数：留在本载荷里，每次点赞 / 发评论都必须 {@code DEL content:{id}}，
+ * 让标题、媒体 URL、作者名这些**慢变**字段陪葬（热内容上内容缓存近乎永久失效）。
+ * 现在四个计数一律走独立 key（{@code content:likeCount} / {@code content:commentCount} /
+ * {@code content:favoriteCount} / {@code content:coinCount}），**只在详情响应里平铺返回**；
+ * 列表面不再带任何计数。口径见
+ * {@code architecture/tech/cache/缓存与数据一致性.md} §五。
+ * <p>⚠️ 于是本载荷只承载"**改一次要写库**"的字段：编辑内容 / 删改媒体 / 改名 / 删除。
+ * 若将来又想往这里塞计数，先读上面那条口径。
  *
  * <p>另两个只有缓存才有的字段（{@code coverUrl} / {@code videoUrl} / {@code imageUrls}）是
  * **媒体聚合产物**：DB 查询不返回它们，由 {@code ContentCache.buildContentMedia} 从
@@ -46,9 +56,6 @@ public class ContentCacheDTO {
     private String title;
     private String description;
     private int categoryId;
-
-    private int commentCount;
-    private int likeCount;
 
     /** 评论区开关：1=开 0=关（列 {@code comment_enabled}）。默认 true（TV 的字段初值）。 */
     private boolean commentEnabled = true;
