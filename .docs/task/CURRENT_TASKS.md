@@ -115,7 +115,10 @@
 * **入口线索**：`ContentCountTests`（新）/ `CoinReadTests`（列表用例改写）/ `缓存与数据一致性 §五.1`
 * **目标**：载荷无计数、点赞/评论不失效内容 key、四路来源不串线、列表无计数键；三道文档门禁 0 违规
 * **红线边界**：不许用 `path(x).asLong()==0` 断言"键不存在"（缺失节点也返回 0 ⇒ 假绿）
-* **回写**：见 git 的 `test(count)` / `docs(count)` 提交；`F-25` 核销、`coin.md` 反向修正、`CURRENT_TASKS` 重建
+* **回写**：单 commit `feat(content):T43 计数搬出内容缓存`（代码 + 测试 + 文档一并落地）；
+  `F-25` 已核销、`coin.md` 反向修正（列表不再带 `coinCount`）、`CURRENT_TASKS` 重建。
+  **回归**：全量 **692 例全绿**（689 + 新增 `ContentCountTests` 4 − 删除的列表批量用例 1）；
+  `ContentIndexCooldownTests` 构造参数随 `ContentCache` 新增依赖更新；三道文档门禁 0 违规。
 
 
 ```
