@@ -20,8 +20,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *
  * <h2>覆盖什么（期望值出自favorite.md §九 的 DDL 与口径，盖住实现照样写得出来）</h2>
  * <ul>
- *   <li><b>版本行</b>：{@code flyway_schema_history} 里 V1 / V2 / V3 / V4 **全部 applied 且 success**
- *       —— ⚠️ 只断"某一行存在"会漏掉"V4 没跑"的真相（I-02）；</li>
+ *   <li><b>版本行</b>：{@code flyway_schema_history} 里 V1 / V2 / V3 / V4 / V5 **全部 applied 且 success**
+ *       —— ⚠️ 只断"某一行存在"会漏掉"最新一版没跑"的真相（I-02）；</li>
  *   <li><b>列集</b>：{@code id / user_id / content_id / create_time}（favorite.md §九 的 DDL）；</li>
  *   <li>★ <b>唯一键 {@code uk_user_content (user_id, content_id)}</b>：T17「重复 add ⇒ 移到最前」的
  *       实现手段是 {@code ON DUPLICATE KEY UPDATE} —— 撞的就是它。丢了这个键，

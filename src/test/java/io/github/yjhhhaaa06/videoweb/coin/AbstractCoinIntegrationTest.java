@@ -2,6 +2,7 @@ package io.github.yjhhhaaa06.videoweb.coin;
 
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheMissSignal;
 import io.github.yjhhhaaa06.videoweb.support.AbstractHttpIntegrationTest;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -59,6 +60,16 @@ public abstract class AbstractCoinIntegrationTest extends AbstractHttpIntegratio
         //   而 consume 的唯一入口是 RateLimitFilter（HTTP 才有）。不在这里清一次，标记会随
         //   线程池复用到下一个测试类（实测：全量回归里 `CacheMissSignalTests#mark_consume_取走并清零`
         //   就是这么红的）。口径同"用 Redis 的测试必须清 Redis"——**用了信号的测试必须清信号**。
+        CacheMissSignal.clear();
+    }
+
+    /**
+     * 收尾再清一次信号：{@link #resetState} 只保证"进门干净"，最后一个用例仍可能把标记留给
+     * **下一个测试类**（线程池复用 ⇒ 同一个 ThreadLocal）。
+     * 两侧都清才是对称的（口径同"用 Redis 的测试必须清 Redis"）。
+     */
+    @AfterEach
+    void clearSignalAfterEach() {
         CacheMissSignal.clear();
     }
 
@@ -231,6 +242,28 @@ public abstract class AbstractCoinIntegrationTest extends AbstractHttpIntegratio
     }
 
     // ==================== 投币 oracle（T38） ====================
+
+    /**
+     * 某内容上**全部用户**投出的枚数之和（{@code SELECT COALESCE(SUM(amount), 0)}）。
+     *
+     * <p>不变量 {@code content.coin_count == SUM(content_coin.amount)} 的独立 oracle：
+     * 它不读 {@code coin_count} 列、也不读接口回显，而是从关系行**另算一遍**
+     * （用途：多投票者场景下验证"计数是累加，不是覆盖/单行值"）。
+     */
+    protected int sumAmountOf(long contentId) {
+        Integer n = jdbcTemplate.queryForObject(
+                "SELECT COALESCE(SUM(amount), 0) FROM content_coin WHERE content_id = ?",
+                Integer.class, contentId);
+        return n == null ? 0 : n;
+    }
+
+    /** 某用户投出的枚数之和（跨内容；并发扣款用例用它确认"只有一笔成功"）。 */
+    protected int sumAmountOfUser(long userId) {
+        Integer n = jdbcTemplate.queryForObject(
+                "SELECT COALESCE(SUM(amount), 0) FROM content_coin WHERE user_id = ?",
+                Integer.class, userId);
+        return n == null ? 0 : n;
+    }
 
     /** {@code content.coin_count}（累计被投币数）。 */
     protected int coinCountOf(long contentId) {

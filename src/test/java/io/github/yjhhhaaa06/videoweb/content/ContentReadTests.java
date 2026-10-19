@@ -124,8 +124,10 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         assertThat(interaction.path("isLiked").asBoolean()).isFalse();
         assertThat(interaction.path("isFavorited").asBoolean()).isFalse();
         assertThat(interaction.path("isFollowed").asBoolean()).isFalse();
-        assertThat(interaction.path("coin").isInt())
-                .as("详情（视频）恒有 coin 数量：未投过 ⇒ 0（不是 null）").isTrue();
+        assertThat(interaction.path("coin").asInt())
+                .as("详情（视频）恒有 coin 数量：未投过 ⇒ 0（不是 null）").isZero();
+        assertThat(data.path("coinCount").asLong())
+                .as("公共计数也在详情字段形状里：没人投过 ⇒ 0").isZero();
     }
 
     @Test

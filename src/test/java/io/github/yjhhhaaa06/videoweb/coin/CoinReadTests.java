@@ -1,9 +1,13 @@
 package io.github.yjhhhaaa06.videoweb.coin;
 
+import io.github.yjhhhaaa06.videoweb.coin.service.CoinService;
 import io.github.yjhhhaaa06.videoweb.support.Envelope;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import tools.jackson.databind.JsonNode;
@@ -12,6 +16,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 /**
  * 投币专项 T40 验收：**读面接入** —— 互动态第四维 {@code interaction.coin} +
@@ -51,6 +60,22 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 读面会把它当"媒体损坏"跳过 / 404 —— 故用 {@code insertVideoContent} / {@code insertPostContent}。
  */
 class CoinReadTests extends AbstractCoinIntegrationTest {
+
+    /**
+     * 用来钉"列表走**一趟批量**，不循环单条"（T40 红线③）。
+     *
+     * <p>值断言抓不到"把批量换成 for 循环"——两种实现返回的数字一样，差别只在往返次数。
+     * 故这里对公开 Service 做 spy：列表请求应恰好一趟 {@code batchGetCoinCount}、
+     * 单条读零次。
+     */
+    @MockitoSpyBean
+    private CoinService coinService;
+
+    /** reset 必须在被测请求之前（父类先清 DB / Redis，本方法再清桩）。 */
+    @BeforeEach
+    void resetCoinServiceSpy() {
+        Mockito.reset(coinService);
+    }
 
     // ========================================================================
     // 1. 详情（视频）：coin = 我投了几枚，coinCount = 公共计数
@@ -268,6 +293,30 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
         // 独立 oracle 再钉一次：缓存值不是凭空来的
         assertThat(amountOf(voter.id(), contentId)).isEqualTo(1);
         assertThat(coinCountOf(contentId)).isEqualTo(1);
+    }
+
+    // ========================================================================
+    // 8. ★ 列表走批量：一趟 batchGetCoinCount、单条零次（T40 红线③）
+    // ========================================================================
+
+    @Test
+    @DisplayName("★列表的投币数是一趟批量：batchGetCoinCount 恰一次、getCoinCount 零次（不得循环单条）")
+    void 列表投币数一趟批量不循环调单条() {
+        TestUser author = registerUser("13900004008", "coinread_batch_author");
+        TestUser viewer = registerUser("13900004018", "coinread_batch_viewer");
+        long contentId = insertVideoContent(author.id(), "读面批量内容");
+        setCoinCount(contentId, 2);
+
+        // /start 的 data 本身就是数组（不是 {list:…}），同本类第 4 条用例。
+        JsonNode list = Envelope.data(get("/start", viewer.token()));
+        assertThat(itemOf(list, contentId).path("coinCount").asLong())
+                .as("前置：列表里确有这条、且值是 2（否则调用次数断言没有意义）").isEqualTo(2);
+
+        // ★ 判别力：把 fillCoinCountBatch 改成 for + getCoinCount，这里 times(1) 会变 times(N)；
+        //   值断言抓不到这种退化（数字一样，只是往返 N 次）。
+        verify(coinService, times(1)).batchGetCoinCount(anyCollection());
+        verify(coinService, never()).getCoinCount(anyLong());
+        verify(coinService, never()).getCoinAmount(anyLong(), anyLong());
     }
 
     // ========================================================================

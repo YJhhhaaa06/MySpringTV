@@ -384,6 +384,8 @@ class InteractionStatusContractTests extends AbstractHttpIntegrationTest {
         assertThat(status.getIsLiked())
                 .as("★ 未选中 ⇒ null（不是 false —— 点赞数据明明在场，填 false 是撒谎）").isNull();
         assertThat(status.getIsFavorited()).as("未选中 ⇒ null（收藏数据也在场）").isNull();
+        assertThat(status.getCoin())
+                .as("第四维没有维度常量、批量契约恒不查 ⇒ 也是 null（与「未选中」同表示）").isNull();
 
         // ★ 判别力：去掉 dims.contains 守卫 ⇒ 这两条立即变红（不是"值对就行"）
         verify(likeService, never()).batchIsContentLiked(anyLong(), anyList());

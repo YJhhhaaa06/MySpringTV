@@ -302,14 +302,15 @@ class SecurityContractTests extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("投币 T37：coin 端点判为需登录（类级注解；本域没有匿名面）")
+    @DisplayName("投币 T37：coin 两条路由都判为需登录（钉路由；**不**证明类级注解在不在）")
     void coin端点需登录() {
         // 本域两个端点（T37 的 signIn + T38 的 add）都只对当前登录用户有意义 ⇒ 类级 @RequiresLogin。
-        // 类级注解的把关在 `类级注解覆盖全部端点` 那条通用用例里，
-        // 本条钉的是路由真的落到需登录的控制器上（路由写错 / 控制器没被扫到，本条会红）。
-        // ⚠️ HTTP 侧对 @RequiresLogin 是假绿（401 由 @CurrentUserId 参数解析器兜出），判别力在本类。
-        // ★ 两个端点都由**类级**注解覆盖：这里逐条断言的是"路由真的落到需登录的控制器上"，
-        //   而不是"有人逐端点抄了一遍注解"（类级覆盖由 `类级注解覆盖全部端点` 那条通用用例把关）。
+        // ★ 判别力边界（如实声明）：本仓是**默认拒绝**（loginRequired = adminRequired || 注解 || !@Public），
+        //   所以去掉类级注解后 requiresLogin 仍然是 true ⇒ 这条用例**测不到"注解在不在"**。
+        //   它真正钉的是"路由落到了一个 @Controller 处理器上"（路径写错 / 控制器没被扫到 ⇒ 未映射 ⇒ false）。
+        //   "类级覆盖"是读代码的约定，不是本类能断言的机制（与 `类级注解覆盖全部端点` 那条只列 /like/* 一致，
+        //   它同样没有覆盖 coin —— 别把那条当成 coin 的兜底）。
+        // ⚠️ HTTP 侧对 @RequiresLogin 也是假绿（401 由 @CurrentUserId 参数解析器兜出）。
         assertThat(requiresLogin("POST", "/coin/signIn")).isTrue();
         assertThat(requiresLogin("POST", "/coin/add")).isTrue();
     }

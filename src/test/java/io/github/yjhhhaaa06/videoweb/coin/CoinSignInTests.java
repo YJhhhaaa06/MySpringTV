@@ -1,6 +1,5 @@
 package io.github.yjhhhaaa06.videoweb.coin;
 
-import io.github.yjhhhaaa06.videoweb.common.time.SiteTime;
 import io.github.yjhhhaaa06.videoweb.support.Envelope;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -8,6 +7,7 @@ import org.springframework.http.ResponseEntity;
 import tools.jackson.databind.JsonNode;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -50,6 +50,17 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class CoinSignInTests extends AbstractCoinIntegrationTest {
 
+    /**
+     * 「上海自然日」的**独立 oracle**：本类刻意**不调用**实现里的 {@code SiteTime} 来产生期望值。
+     *
+     * <p>若与实现共用同一个方法，时区写错（例如把 {@code Asia/Shanghai} 改成 {@code UTC}）时
+     * 实现与断言会**一起漂移**、用例仍然全绿 —— 那就成了"抄实现"。
+     * 这里直接写时区字面量：口径来自 `architecture/domain/coin/coin-需求.md` §二（自然日按上海算）。
+     */
+    private static LocalDate shanghaiToday() {
+        return LocalDate.now(ZoneId.of("Asia/Shanghai"));
+    }
+
     // ==================== 1. 首次签到 ====================
 
     @Test
@@ -64,6 +75,10 @@ class CoinSignInTests extends AbstractCoinIntegrationTest {
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         assertThat(Envelope.msg(resp)).as("文案冻结：「签到成功」").isEqualTo("签到成功");
         JsonNode data = Envelope.data(resp);
+        assertThat(data.path("credited").isBoolean())
+                .as("★ 先断言字段在：asBoolean() 对缺失节点也返回 false ⇒ "
+                        + "只断 false 的话「字段被删」会假绿")
+                .isTrue();
         assertThat(data.path("credited").asBoolean()).as("本次真的到账").isTrue();
         assertThat(data.path("balance").decimalValue().scale())
                 .as("余额的一位小数是契约：10 分位必须序列化成 1.0；丢 setScale 会变成 1")
@@ -73,8 +88,9 @@ class CoinSignInTests extends AbstractCoinIntegrationTest {
         // 独立 oracle：不读接口回显，直查列终态
         assertThat(coinDeciOf(user.id())).as("签到 +1 枚 = +10 十分位").isEqualTo(10);
         assertThat(lastSignDateOf(user.id()))
-                .as("签到日 = 上海自然日（SiteTime.today），不是 JVM 默认时区的今天")
-                .isEqualTo(SiteTime.today());
+                .as("签到日 = 上海自然日（独立按 Asia/Shanghai 复算，不调实现里的 SiteTime），"
+                        + "不是 JVM 默认时区的今天")
+                .isEqualTo(shanghaiToday());
         assertThat(countCoinRows()).as("签到不产生投币记录行").isZero();
     }
 
@@ -97,6 +113,9 @@ class CoinSignInTests extends AbstractCoinIntegrationTest {
                 .isEqualTo(200);
         assertThat(Envelope.msg(second)).as("文案冻结：「今日已签到」").isEqualTo("今日已签到");
         JsonNode data = Envelope.data(second);
+        assertThat(data.path("credited").isBoolean())
+                .as("★ false 断言必须配「字段在」：缺失节点 asBoolean() 也是 false")
+                .isTrue();
         assertThat(data.path("credited").asBoolean())
                 .as("本次没到账 —— 与首次签到靠这个布尔区分，而不是靠状态码")
                 .isFalse();
@@ -115,19 +134,20 @@ class CoinSignInTests extends AbstractCoinIntegrationTest {
     void 昨天签过今天可以再签() {
         TestUser user = registerUser("13900003703", "coinsign_yesterday");
         setCoinDeci(user.id(), 10);
-        setLastSignDate(user.id(), SiteTime.today().minusDays(1).toString());
+        setLastSignDate(user.id(), shanghaiToday().minusDays(1).toString());
 
         ResponseEntity<String> resp = signIn(user.token());
 
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         assertThat(Envelope.msg(resp)).isEqualTo("签到成功");
         JsonNode data = Envelope.data(resp);
+        assertThat(data.path("credited").isBoolean()).as("credited 字段必须在").isTrue();
         assertThat(data.path("credited").asBoolean()).isTrue();
         assertThat(data.path("balance").decimalValue().scale()).isEqualTo(1);
         assertThat(data.path("balance").decimalValue()).isEqualByComparingTo("2.0");
 
         assertThat(coinDeciOf(user.id())).as("10 + 10 = 20 分位").isEqualTo(20);
-        assertThat(lastSignDateOf(user.id())).isEqualTo(SiteTime.today());
+        assertThat(lastSignDateOf(user.id())).isEqualTo(shanghaiToday());
     }
 
     // ==================== 4. ★ 并发双击 ====================
@@ -181,7 +201,7 @@ class CoinSignInTests extends AbstractCoinIntegrationTest {
             assertThat(coinDeciOf(user.id()))
                     .as("一条原子条件 UPDATE 只能命中一次：10，不是 20")
                     .isEqualTo(10);
-            assertThat(lastSignDateOf(user.id())).isEqualTo(SiteTime.today());
+            assertThat(lastSignDateOf(user.id())).isEqualTo(shanghaiToday());
         } finally {
             pool.shutdownNow();
         }
@@ -202,16 +222,20 @@ class CoinSignInTests extends AbstractCoinIntegrationTest {
                 .as("整数枚也必须是一位小数（1.0），前端不用自己补 .0")
                 .isEqualTo(1);
         assertThat(data.path("coin").decimalValue()).isEqualByComparingTo("1.0");
+        assertThat(data.path("signedToday").isBoolean())
+                .as("signedToday 字段必须在（缺失时 asBoolean() 也是 false）").isTrue();
         assertThat(data.path("signedToday").asBoolean())
                 .as("今天签过 ⇒ 签到按钮进页就置灰")
                 .isTrue();
 
         // 绕过端点把签到日改到昨天：signedToday 必须跟着列复算，余额列不受影响
-        LocalDate yesterday = SiteTime.today().minusDays(1);
+        LocalDate yesterday = shanghaiToday().minusDays(1);
         setLastSignDate(user.id(), yesterday.toString());
 
         ResponseEntity<String> again = get("/user/me", user.token());
         JsonNode againData = Envelope.data(again);
+        assertThat(againData.path("signedToday").isBoolean())
+                .as("★ false 断言必须配「字段在」：缺失节点 asBoolean() 也是 false").isTrue();
         assertThat(againData.path("signedToday").asBoolean())
                 .as("signedToday 是「last_sign_date == 上海今日」的直接复算，不是缓存的布尔")
                 .isFalse();

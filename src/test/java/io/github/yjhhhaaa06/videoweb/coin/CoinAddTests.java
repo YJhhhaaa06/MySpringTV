@@ -45,8 +45,16 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>把封顶条件写挪到扣款之后 ⇒ {@link #已满且余额不足时先答409()} 会答 400；</li>
  *   <li>扣款改成"先 {@code findCoinDeci} 再 {@code updateCoinDeci}" ⇒ 余额不足用例会写出负数/脏数据；</li>
  *   <li>去掉 Service 的 {@code @Transactional} ⇒ 余额不足用例会留下 {@code amount = 1} 的行
- *       （封顶写已落库）且 {@code coin_count} 被改。</li>
+ *       （⚠️ 不是"两个世界都写了"这种无鉴别力的场面：没有 Spring 事务时 MyBatis 的每次 mapper 调用
+ *       各自提交 ⇒ {@code insertIgnoreZero} 落 {@code amount=0} 行、{@code addAmount} 把它改成 1、
+ *       扣款 0 行抛异常，后面的 {@code updateCoinDeci(author)} / {@code updateCoinCount} **压根不执行**
+ *       ⇒ {@code coin_count} 仍为 0。用例红在"关系行"与"计数"两条断言上）。</li>
  * </ul>
+ *
+ * <p>★ {@link #已满再投被拒()} **不是**事务证明：封顶失败时前面没有成功写可回滚（{@code INSERT IGNORE}
+ * 命中已存在行是 no-op、条件累加影响 0 行）。它证明的是"409 拒单零副作用"；事务的鉴别力在
+ * {@link #余额不足时整笔回滚()}（封顶写已落库）与 {@code CoinCacheTests#写路径最后一步失败后…}
+ * （最后一步打桩，见 {@code AGENTS.md}「测试纪律」④）。
  *
  * <p>⚠️ 未登录用例对 {@code @RequiresLogin} 是**假绿**（401 由 {@code @CurrentUserId} 解析器兜出）——
  * 机制级判别力在 {@code common/security/SecurityContractTests}。
@@ -86,7 +94,37 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
         assertThat(countCoinRows()).as("单人单内容恰好一行（唯一键 uk_user_content）").isEqualTo(1);
     }
 
-    // ==================== 2. 成功（count = 2，一次投满） ====================
+    // ==================== 2. ★ 累计语义：两个投票者 + 作者已有收益 ====================
+
+    @Test
+    @DisplayName("★累计：作者已有 5 分位，两个投票者分别投 1 / 2 枚 ⇒ 作者 5+1+2=8、coin_count=3=SUM(amount)")
+    void 多次投币是累加而不是覆盖() {
+        TestUser author = registerUser("13900003822", "coinadd_accum_author");
+        TestUser voterA = registerUser("13900003823", "coinadd_accum_a");
+        TestUser voterB = registerUser("13900003824", "coinadd_accum_b");
+        setCoinDeci(author.id(), 5);          // 作者已有收益：改写成"覆盖"而非"累加"必红
+        setCoinDeci(voterA.id(), 20);
+        setCoinDeci(voterB.id(), 20);
+        long contentId = insertContent(author.id(), VIDEO, "投币视频-累计");
+
+        assertThat(addCoin(voterA.token(), contentId, 1).getStatusCode().value()).isEqualTo(200);
+        assertThat(addCoin(voterB.token(), contentId, 2).getStatusCode().value()).isEqualTo(200);
+
+        // 四条独立 oracle：作者余额 / 计数列 / 关系行之和 / 关系行条数
+        assertThat(authorCoinDeciOf(author.id()))
+                .as("★作者收益是 %s + 1 + 2 = 8 分位（写成 SET = delta 会得到 2）", 5)
+                .isEqualTo(8);
+        assertThat(coinCountOf(contentId))
+                .as("★计数列是累加（写成 SET = 本次 count 会得到 2）").isEqualTo(3);
+        assertThat(sumAmountOf(contentId))
+                .as("不变量：coin_count == SUM(content_coin.amount)（两条关系行 1 + 2）").isEqualTo(3);
+        assertThat(countCoinRows()).as("两个投票者 ⇒ 两行（唯一键按 (user,content) 而不是按内容）")
+                .isEqualTo(2);
+        assertThat(coinDeciOf(voterA.id())).as("投票者 A：20 − 1×10 = 10").isEqualTo(10);
+        assertThat(coinDeciOf(voterB.id())).as("投票者 B：20 − 2×10 = 0").isEqualTo(0);
+    }
+
+    // ==================== 3. 成功（count = 2，一次投满） ====================
 
     @Test
     @DisplayName("一次投两枚：余额 0.0、作者 +2、coin_count 2、amount 2")
@@ -112,7 +150,40 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
         assertThat(amountOf(voter.id(), contentId)).isEqualTo(2);
     }
 
-    // ==================== 3. ★ 余额不足 ⇒ 零副作用 ====================
+    // ==================== 4. ★ 半枚余额：floor 语义（1.5 只能投 1） ====================
+
+    @Test
+    @DisplayName("★余额 1.5 枚：投 2 ⇒ 400 硬币不足（0 副作用）；投 1 ⇒ 200、余额 0.5（scale 1）")
+    void 半枚余额只能投一枚() {
+        TestUser voter = registerUser("13900003825", "coinadd_half");
+        TestUser author = registerUser("13900003826", "coinadd_half_author");
+        setCoinDeci(voter.id(), 15);          // 1.5 枚 —— 口径：floor(15/10) = 1，投不了 2 枚
+        long contentId = insertContent(author.id(), VIDEO, "投币视频-半枚");
+
+        // ① 2 枚 ⇒ 400（判据是 coin_deci >= count × 10，不是"整数枚够不够"的近似）
+        ResponseEntity<String> tooMany = addCoin(voter.token(), contentId, 2);
+        assertThat(tooMany.getStatusCode().value())
+                .as("15 分位 < 2×10 ⇒ 硬币不足（把判据写成 count <= coin_deci/10 + 1 之类会放行）")
+                .isEqualTo(400);
+        assertThat(Envelope.msg(tooMany)).isEqualTo("硬币不足");
+        assertThat(countCoinRows()).as("被拒 ⇒ 不落行").isZero();
+        assertThat(coinCountOf(contentId)).isZero();
+        assertThat(coinDeciOf(voter.id())).as("被拒 ⇒ 一分不扣").isEqualTo(15);
+
+        // ② 1 枚 ⇒ 200，剩 5 分位 = 0.5 枚（一位小数，不是 0 或 1）
+        ResponseEntity<String> one = addCoin(voter.token(), contentId, 1);
+        assertThat(one.getStatusCode().value()).isEqualTo(200);
+        assertThat(Envelope.data(one).path("balance").decimalValue())
+                .as("15 − 10 = 5 分位 = 0.5 枚（整数除法会得到 0）")
+                .isEqualByComparingTo("0.5");
+        assertThat(Envelope.data(one).path("balance").decimalValue().scale())
+                .as("半枚也必须是一位小数").isEqualTo(1);
+        assertThat(coinDeciOf(voter.id())).isEqualTo(5);
+        assertThat(authorCoinDeciOf(author.id())).as("作者收益与余额是否有半枚无关：1 枚 ⇒ +1 分位")
+                .isEqualTo(1);
+    }
+
+    // ==================== 5. ★ 余额不足 ⇒ 零副作用 ====================
 
     @Test
     @DisplayName("余额不足：400「硬币不足」+ 零副作用（无行、计数不动、两边余额不动）")
@@ -129,7 +200,8 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
         assertThat(Envelope.msg(resp)).as("文案冻结：「硬币不足」").isEqualTo("硬币不足");
 
         // ★ 零副作用 = 封顶写（INSERT IGNORE + 条件累加）已发生，但被事务一起撤回。
-        //   去掉 @Transactional ⇒ 这里会看到 amount = 1 的行、coin_count = 1。
+        //   去掉 @Transactional ⇒ 这里会看到 amount = 1 的行（coin_count 仍为 0 —— 计数写在扣款之后，
+        //   压根没执行；见类注释的反向验证口径）。
         assertThat(countCoinRows()).as("被拒的投币不落 amount = 0/1 行").isZero();
         assertThat(amountOf(voter.id(), contentId)).as("关系行不存在").isNull();
         assertThat(coinCountOf(contentId)).as("累计被投币数不动").isZero();
@@ -137,7 +209,7 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
         assertThat(coinDeciOf(voter.id())).as("投票者没被扣款").isZero();
     }
 
-    // ==================== 4. 已满 ⇒ 409 ====================
+    // ==================== 6. 已满 ⇒ 409 ====================
 
     @Test
     @DisplayName("已投满：409「对本稿件投币枚数已用完」+ amount/计数停在 2 + 不扣款")
@@ -163,7 +235,7 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
         assertThat(authorCoinDeciOf(author.id())).as("作者收益不变").isZero();
     }
 
-    // ==================== 5. ★ 「已满 + 余额不足」⇒ 409（钉 5 先于 6） ====================
+    // ==================== 7. ★ 「已满 + 余额不足」⇒ 409（钉 5 先于 6） ====================
 
     @Test
     @DisplayName("★已满且余额不足：答 409（不是 400）——钉住封顶判定先于余额判定")
@@ -187,7 +259,66 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
         assertThat(coinDeciOf(voter.id())).isZero();
     }
 
-    // ==================== 6. 图文帖 ⇒ 400 ====================
+    // ==================== 8. ★ 校验次序：1 > 2 / 3 / 4 > 5 ====================
+
+    @Test
+    @DisplayName("★枚数非法先于存在性与类型：count=3 打不存在的内容 / 图文帖都答「数量只能是 1 或 2」")
+    void 枚数非法先于存在性与类型() {
+        TestUser voter = registerUser("13900003827", "coinadd_order1");
+        TestUser author = registerUser("13900003828", "coinadd_order1_author");
+        setCoinDeci(voter.id(), 20);
+
+        // ① count 校验（第 1 级）先于存在性（第 2 级）：内容不存在也应是「数量」文案
+        ResponseEntity<String> missing = addCoin(voter.token(), 987654323L, 3);
+        assertThat(missing.getStatusCode().value()).isEqualTo(400);
+        assertThat(Envelope.msg(missing))
+                .as("★顺序 1>2：把存在性检查提前会答 404").isEqualTo("投币数量只能是 1 或 2");
+
+        // ② count 校验（第 1 级）先于类型（第 3 级）：图文帖也应是「数量」文案
+        long postId = insertContent(author.id(), IMAGE, "图文-次序一");
+        ResponseEntity<String> post = addCoin(voter.token(), postId, 3);
+        assertThat(post.getStatusCode().value()).isEqualTo(400);
+        assertThat(Envelope.msg(post))
+                .as("★顺序 1>3：把类型检查提前会答「该内容不支持投币」").isEqualTo("投币数量只能是 1 或 2");
+        assertThat(countCoinRows()).isZero();
+    }
+
+    @Test
+    @DisplayName("★类型先于归属：作者给自己投图文帖 ⇒ 「该内容不支持投币」（不是「不能给自己投币」）")
+    void 类型先于归属() {
+        TestUser author = registerUser("13900003829", "coinadd_order2");
+        setCoinDeci(author.id(), 20);
+        long postId = insertContent(author.id(), IMAGE, "图文-次序二");
+
+        ResponseEntity<String> resp = addCoin(author.token(), postId, 1);
+
+        assertThat(resp.getStatusCode().value()).isEqualTo(400);
+        assertThat(Envelope.msg(resp))
+                .as("★顺序 3>4：把自投检查提前会答「不能给自己投币」").isEqualTo("该内容不支持投币");
+        assertThat(countCoinRows()).isZero();
+        assertThat(coinDeciOf(author.id())).isEqualTo(20);
+    }
+
+    @Test
+    @DisplayName("★归属先于封顶：作者已投满 2 枚再自投 ⇒ 「不能给自己投币」（不是 409）")
+    void 归属先于封顶() {
+        TestUser author = registerUser("13900003830", "coinadd_order3");
+        setCoinDeci(author.id(), 20);
+        long contentId = insertContent(author.id(), VIDEO, "视频-次序三");
+        setAmount(author.id(), contentId, 2);
+        setCoinCount(contentId, 2);
+
+        ResponseEntity<String> resp = addCoin(author.token(), contentId, 1);
+
+        assertThat(resp.getStatusCode().value())
+                .as("★顺序 4>5：把封顶检查提前会答 409").isEqualTo(400);
+        assertThat(Envelope.msg(resp)).isEqualTo("不能给自己投币");
+        assertThat(amountOf(author.id(), contentId)).isEqualTo(2);
+        assertThat(coinCountOf(contentId)).isEqualTo(2);
+        assertThat(coinDeciOf(author.id())).isEqualTo(20);
+    }
+
+    // ==================== 9. 图文帖 ⇒ 400 ====================
 
     @Test
     @DisplayName("图文帖：400「该内容不支持投币」+ 零副作用")
@@ -207,7 +338,7 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
         assertThat(authorCoinDeciOf(author.id())).isZero();
     }
 
-    // ==================== 7. 自投 ⇒ 400 ====================
+    // ==================== 10. 自投 ⇒ 400 ====================
 
     @Test
     @DisplayName("自投：400「不能给自己投币」+ 零副作用")
@@ -225,7 +356,7 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
         assertThat(coinDeciOf(author.id())).isEqualTo(20);
     }
 
-    // ==================== 8. 内容不存在（含软删）⇒ 404 ====================
+    // ==================== 11. 内容不存在（含软删）⇒ 404 ====================
 
     @Test
     @DisplayName("内容不存在 / 已软删：404「内容不存在」+ 零副作用")
@@ -252,7 +383,7 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
         assertThat(coinDeciOf(voter.id())).isEqualTo(20);
     }
 
-    // ==================== 9. 参数形态 ⇒ 400 ====================
+    // ==================== 12. 参数形态 ⇒ 400 ====================
 
     @Test
     @DisplayName("count = 3：400「投币数量只能是 1 或 2」+ 零副作用")
@@ -272,7 +403,7 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
         assertThat(coinCountOf(contentId)).isZero();
     }
 
-    // ==================== 10. ★ 并发各投 1 枚 ====================
+    // ==================== 13. ★ 并发各投 1 枚 ====================
 
     @Test
     @DisplayName("★并发各投 1 枚：恰一条 200、一条 409；amount 恰为 2、余额恰扣 10、作者恰 +1")
@@ -329,7 +460,66 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
         }
     }
 
-    // ==================== 11. 未登录 ====================
+    // ==================== 14. ★ 并发扣款：余额只有 1 枚，两条请求各投 1 枚 ====================
+
+    @Test
+    @DisplayName("★并发扣款：余额 1.0、两请求各投 1 枚到不同内容 ⇒ 恰一 200 一 400、余额恰为 0（不为负）")
+    void 并发扣款不把余额扣成负数() throws Exception {
+        TestUser voter = registerUser("13900003831", "coinadd_race");
+        TestUser author = registerUser("13900003832", "coinadd_race_author");
+        setCoinDeci(voter.id(), 10);          // 恰好 1 枚 —— 两个请求只能活一个
+        long first = insertContent(author.id(), VIDEO, "并发扣款-一");
+        long second = insertContent(author.id(), VIDEO, "并发扣款-二");
+
+        int threads = 2;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        CountDownLatch startGate = new CountDownLatch(1);
+        CountDownLatch finished = new CountDownLatch(threads);
+        List<Future<ResponseEntity<String>>> futures = new ArrayList<>(threads);
+        try {
+            long[] targets = {first, second};
+            for (int i = 0; i < threads; i++) {
+                long target = targets[i];
+                futures.add(pool.submit(() -> {
+                    startGate.await();
+                    try {
+                        return addCoin(voter.token(), target, 1);
+                    } finally {
+                        finished.countDown();
+                    }
+                }));
+            }
+            startGate.countDown();
+            assertThat(finished.await(30, TimeUnit.SECONDS))
+                    .as("并发请求在 30 秒内未全部结束——疑似行锁等待（InnoDB 默认 50s）").isTrue();
+
+            List<ResponseEntity<String>> responses = new ArrayList<>(threads);
+            for (Future<ResponseEntity<String>> future : futures) {
+                responses.add(future.get());
+            }
+
+            // ★ 判别力：扣款改成"先查余额再无条件 UPDATE"（或去掉 coin_deci >= ? 守卫）⇒ 两条都 200、
+            //   余额变 -10；只用串行"余额 0 投 1"的用例抓不到这个窗口。
+            assertThat(responses).extracting(r -> r.getStatusCode().value())
+                    .as("余额只够一笔 ⇒ 恰好一条 200、一条 400（不是两条 200，也不是 500）")
+                    .containsExactlyInAnyOrder(200, 400);
+            assertThat(responses.stream().filter(r -> r.getStatusCode().value() == 400)
+                    .map(r -> Envelope.msg(r)).findFirst().orElse(null))
+                    .as("失败那条的拒因是「硬币不足」").isEqualTo("硬币不足");
+
+            // 独立 oracle：只有一笔落库、余额不为负
+            assertThat(coinDeciOf(voter.id())).as("★余额恰为 0（不为负）").isZero();
+            assertThat(sumAmountOfUser(voter.id())).as("只有一笔投币落行").isEqualTo(1);
+            assertThat(countCoinRows()).as("失败请求的 content_coin 行随事务回滚").isEqualTo(1);
+            assertThat(authorCoinDeciOf(author.id())).as("作者只收一笔：+1 分位").isEqualTo(1);
+            assertThat(coinCountOf(first) + coinCountOf(second))
+                    .as("两条内容的 coin_count 合计 = 1（失败那条的计数未 +1）").isEqualTo(1);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    // ==================== 15. 未登录 ====================
 
     @Test
     @DisplayName("未登录投币：401（本条对 @RequiresLogin 是假绿，判别力在 SecurityContractTests）")

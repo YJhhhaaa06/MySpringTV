@@ -119,7 +119,11 @@ class ContentCacheTests extends AbstractContentIntegrationTest {
 
         assertThat(get("/search/IdSearch?contentId=" + contentId, token).getStatusCode().value())
                 .isEqualTo(200);
-        assertThat(cachedContentJson(contentId)).contains("预热原标题");
+        assertThat(cachedContentJson(contentId))
+                .as("★ T40 红线：coinCount 刻意**不进** ContentCacheDTO（冻结的缓存形状不动）"
+                        + " —— 把它加进 DTO，这条立刻变红")
+                .contains("预热原标题")
+                .doesNotContain("coinCount");
 
         assertThat(postQuery("/content/update",
                 query("contentId", String.valueOf(contentId), "title", "提交后的标题"), token)

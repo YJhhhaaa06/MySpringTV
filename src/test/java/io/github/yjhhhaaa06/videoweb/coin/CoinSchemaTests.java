@@ -54,9 +54,12 @@ class CoinSchemaTests extends AbstractIntegrationTest {
 
     @BeforeEach
     void 清空本域相关表() {
-        // 只清自己用到的表：本类造的内容/用户都带唯一前缀，不清 users（避免与别的类抢）。
+        // 只清自己用到的表（不全表删 users，避免与别的类抢）：内容两张表 + 本类前缀的用户。
         jdbcTemplate.update("DELETE FROM content_coin");
         jdbcTemplate.update("DELETE FROM content");
+        // ★ 本类自己插入的 users 也要清：username 是唯一键，固定前缀（coinschema_*）在同一容器里
+        //   重跑本类会撞唯一键（父类不做 DELETE FROM users，只有 HTTP 切片基类才清）。
+        jdbcTemplate.update("DELETE FROM users WHERE username LIKE 'coinschema%'");
     }
 
     // ==================== 1. 列类型（设计 §二 逐字） ====================
@@ -144,6 +147,25 @@ class CoinSchemaTests extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("content_coin 的列集与 amount 类型：tinyint NOT NULL，且**没有**状态/软删列")
+    void 投币记录表的列集就位() {
+        Map<String, Map<String, Object>> cols = 全部列("content_coin");
+
+        // 列集**恰好**六列：多一列（例如 status / is_deleted）就要显式认账 ——
+        // 本域刻意没有"取消投币"语义，行就是"投过 amount 枚"这个事实。
+        assertThat(cols).containsOnlyKeys(
+                "id", "user_id", "content_id", "amount", "create_time", "update_time");
+        assertThat(cols.get("amount").get("type"))
+                .as("amount 只存 1~2 ⇒ tinyint 足够；改成 varchar 会让封顶比较退化成字符串比较")
+                .isEqualTo("tinyint");
+        assertThat(cols.get("amount").get("nullable"))
+                .as("amount 不得可空：NULL 会被 SUM 静默忽略，破坏 coin_count == SUM(amount)")
+                .isEqualTo("NO");
+        assertThat(cols.get("user_id").get("nullable")).isEqualTo("NO");
+        assertThat(cols.get("content_id").get("nullable")).isEqualTo("NO");
+    }
+
+    @Test
     @DisplayName("投币记录的索引就位：uk_user_content（用户维度聚合）+ idx_content_id（内容维度复算）")
     void 投币记录的索引就位() {
         Map<String, String> keys = 全部索引("content_coin");
@@ -162,6 +184,19 @@ class CoinSchemaTests extends AbstractIntegrationTest {
                 "SELECT column_type, is_nullable, column_default FROM information_schema.columns "
                         + "WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?",
                 table, column);
+    }
+
+    /** 表上的**全部列**：{@code {列名(小写) → {type, nullable}}}（列集也是结构契约的一部分）。 */
+    private Map<String, Map<String, Object>> 全部列(String table) {
+        Map<String, Map<String, Object>> byName = new LinkedHashMap<>();
+        for (Map<String, Object> row : jdbcTemplate.queryForList(
+                "SELECT column_name AS name, column_type AS type, is_nullable AS nullable "
+                        + "FROM information_schema.columns "
+                        + "WHERE table_schema = DATABASE() AND table_name = ? "
+                        + "ORDER BY ordinal_position", table)) {
+            byName.put(String.valueOf(row.get("name")).toLowerCase(), row);
+        }
+        return byName;
     }
 
     /** 表上的**全部**索引：{@code {索引名 → 逗号分隔的列序列}}（含 PRIMARY 与唯一键）。 */

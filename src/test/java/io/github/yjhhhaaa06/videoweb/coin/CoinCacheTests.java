@@ -49,8 +49,8 @@ import static org.mockito.Mockito.verify;
  *
  * <h2>★ 核心手法：预热 → 制造提交 / 回滚，两条用例唯一差别是事务结局</h2>
  * <ul>
- *   <li>{@link #事务回滚后两个key都不存在()}：预热两个 key ⇒ 在外层事务里投币（事件在事务内
- *       发布）⇒ {@code setRollbackOnly} ⇒ 断言缓存**保持原值**。这是 {@code AFTER_COMMIT}
+ *   <li>{@link #事务回滚后两个key保持预热值()}：预热两个 key ⇒ 在外层事务里投币（事件在事务内
+ *       发布）⇒ {@code setRollbackOnly} ⇒ 断言缓存**保持预热原值**。这是 {@code AFTER_COMMIT}
  *       的**真正存在证明**——事件已经发布、事务却回滚，若监听器不是提交后执行（如普通
  *       {@code @EventListener}），这里会看到 key 被更新。</li>
  *   <li>{@link #提交成功后两个key被条件写更新()}：同样预热，事务提交 ⇒ 断言两个 key 被更新
@@ -60,9 +60,10 @@ import static org.mockito.Mockito.verify;
  * <h2>其余不变式</h2>
  * <ul>
  *   <li>{@link #冷key投币不创建半套缓存()} —— 条件写的判别力；</li>
- *   <li>{@link #写路径最后一步失败后两个key都不存在()} —— 事务回滚 + 缓存不落；</li>
+ *   <li>{@link #写路径最后一步失败后事务回滚且缓存未被污染()} —— 事务回滚 + 缓存不落；</li>
  *   <li>{@link #空集写空标记且下次读不回源()} / {@link #投币必须清掉空标记()} —— 空标记；</li>
  *   <li>{@link #miss时全量回填()} / {@link #批量计数一趟回源并回填()} —— 回填与批量纪律；</li>
+ *   <li>{@link #回填非空集时清掉空标记()} —— 回填脚本里 {@code DEL KEYS[2]} 的判别力；</li>
  *   <li>{@link #内容删除只失效计数不删行()} —— 与 like 的 {@code deleteByContentId} 有意不同；</li>
  *   <li>{@link #Redis不可用时降级DB且不抛()} / {@link #DB失败不被降级吞掉()} —— 两种失败的区分。</li>
  * </ul>
@@ -72,7 +73,7 @@ import static org.mockito.Mockito.verify;
  *   <li>去掉两个 Lua 的 {@code if EXISTS} 守卫（无条件 {@code HSET} / {@code INCRBY}）
  *       ⇒ {@link #冷key投币不创建半套缓存()} 必红；</li>
  *   <li>把 {@code CoinChangedListener} 的 {@code AFTER_COMMIT} 改成普通 {@code @EventListener}
- *       （等价于"服务体内直接调"）⇒ {@link #事务回滚后两个key都不存在()} 必红。</li>
+ *       （等价于"服务体内直接调"）⇒ {@link #事务回滚后两个key保持预热值()} 必红。</li>
  * </ol>
  */
 class CoinCacheTests extends AbstractCoinIntegrationTest {
@@ -139,43 +140,52 @@ class CoinCacheTests extends AbstractCoinIntegrationTest {
     }
 
     @Test
-    @DisplayName("已加载 ⇒ 条件写命中：HASH 写新总量、计数 key +delta，别的 field 不受影响")
-    void 已加载时条件写命中() {
+    @DisplayName("★已加载 ⇒ 写**新总量**：已投 1 枚再投 1 枚 ⇒ HASH=2（写成 delta 会得 1）、计数 INCRBY=2")
+    void 已加载时条件写命中且写的是累计总量() {
         TestUser author = registerUser("13910003902", "coincache_author_2");
         TestUser voter = registerUser("13910003912", "coincache_voter_2");
         setCoinDeci(voter.id(), 40);
         long other = insertVideoContent(author.id());
         long target = insertVideoContent(author.id());
-        // 前置：该用户对**另一条**内容已有 1 枚（DB 直插），读一次完成全量回填
+        // 前置：该用户对**另一条**内容已有 1 枚、对目标已有 1 枚（DB 直插）
         setAmount(voter.id(), other, 1);
         setCoinCount(other, 1);
-        assertThat(coinService.getCoinAmount(voter.id(), target)).isZero();
+        setAmount(voter.id(), target, 1);
+        setCoinCount(target, 1);
+        // 读一次完成全量回填：HASH 里两条都是 1、目标计数 key 是 "1"
+        assertThat(coinService.getCoinAmount(voter.id(), target)).isEqualTo(1);
         assertThat(hashValue(voter.id(), other)).as("前置：HASH 已加载且含另一条").isEqualTo("1");
-        // 前置：把目标的计数 key 也加载出来（否则条件 INCRBY 不会写）
-        assertThat(coinService.getCoinCount(target)).isZero();
-        assertThat(countValue(target)).isEqualTo("0");
+        assertThat(hashValue(voter.id(), target)).as("前置：目标是 1 枚").isEqualTo("1");
+        assertThat(coinService.getCoinCount(target)).isEqualTo(1);
+        assertThat(countValue(target)).isEqualTo("1");
 
         coinService.add(voter.id(), target, 1);
 
+        // ★ 判别力：HSET 写 delta（1）而不是 newAmount（2）⇒ 这里会读到 "1"；
+        //   计数若写成 SET delta 而不是 INCRBY ⇒ 这里也会是 "1"。
         assertThat(hashValue(voter.id(), target))
-                .as("HASH 已加载 ⇒ HSET 写**新总量** = 1").isEqualTo("1");
+                .as("HASH 已加载 ⇒ HSET 写**新总量** = 1 + 1 = 2").isEqualTo("2");
         assertThat(hashValue(voter.id(), other))
                 .as("只写目标 field，别的 field 不得被覆盖/删除").isEqualTo("1");
         assertThat(countValue(target))
-                .as("计数 key 已加载 ⇒ INCRBY delta = 1").isEqualTo("1");
+                .as("计数 key 已加载 ⇒ INCRBY delta ⇒ 1 + 1 = 2").isEqualTo("2");
+        assertThat(amountOf(voter.id(), target)).as("DB 关系行也累加到 2").isEqualTo(2);
+        assertThat(coinCountOf(target)).as("DB 计数列随之为 2").isEqualTo(2);
     }
 
     // ==================== ★ 事务时序：AFTER_COMMIT 的存在证明 ====================
 
     @Test
-    @DisplayName("★事务回滚后两个 key 都不存在（AFTER_COMMIT 的存在证明：事件已发布、事务回滚 ⇒ 缓存不落）")
-    void 事务回滚后两个key都不存在() {
+    @DisplayName("★事务回滚后两个 key 保持**预热原值**（AFTER_COMMIT 的存在证明：事件已发布、事务回滚 ⇒ 缓存没被动过）")
+    void 事务回滚后两个key保持预热值() {
         TestUser author = registerUser("13910003904", "coincache_author_4");
         TestUser voter = registerUser("13910003914", "coincache_voter_4");
         setCoinDeci(voter.id(), 20);
         long contentId = insertVideoContent(author.id());
 
         // 预热：两个 key 都存在 ⇒ "缓存有没有被更新"才有可观察的痕迹
+        // ★ 刻意**不**断言"回滚后两个 key 不存在"：冷 key 本来就不存在 ⇒ 那种断言在
+        //   "事件没发"与"事件发了但回滚"两个世界都绿，是零判别力的。要观测的是"值没变"。
         String emptyKey = EMPTY_PREFIX + USER_COIN_AMOUNT_KEY + voter.id();
         redis.opsForValue().set(CONTENT_COIN_COUNT_KEY + contentId, "0", Duration.ofMinutes(15));
         redis.opsForHash().put(USER_COIN_AMOUNT_KEY + voter.id(), "999999999", "1");
@@ -233,12 +243,18 @@ class CoinCacheTests extends AbstractCoinIntegrationTest {
     }
 
     @Test
-    @DisplayName("写路径最后一步失败 ⇒ 整笔回滚且两个 key 都不存在（事务内缓存写的前提）")
-    void 写路径最后一步失败后两个key都不存在() {
+    @DisplayName("写路径最后一步失败 ⇒ 整笔回滚、缓存保持预热值（事务内缓存写的前提）")
+    void 写路径最后一步失败后事务回滚且缓存未被污染() {
         TestUser author = registerUser("13910003903", "coincache_author_3");
         TestUser voter = registerUser("13910003913", "coincache_voter_3");
         setCoinDeci(voter.id(), 20);
         long contentId = insertVideoContent(author.id());
+
+        // ★ 必须预热：不预热时"两个 key 不存在"是恒真的（条件写只在 key 已存在时才写）⇒
+        //   那种断言在"事件没发"与"事件发了但事务回滚"两个世界都绿，零判别力。
+        redis.opsForValue().set(CONTENT_COIN_COUNT_KEY + contentId, "0", Duration.ofMinutes(15));
+        redis.opsForHash().put(USER_COIN_AMOUNT_KEY + voter.id(), "999999999", "1");
+        redis.expire(USER_COIN_AMOUNT_KEY + voter.id(), Duration.ofMinutes(15));
 
         // updateCoinCount 是 add 的**最后一步写**：打桩它失败 ⇒ "已有成功写之后"才回滚，
         // 对"有事务 vs 无事务"有鉴别力（首步失败两个世界都"什么都没写"）。
@@ -251,10 +267,13 @@ class CoinCacheTests extends AbstractCoinIntegrationTest {
         assertThat(amountOf(voter.id(), contentId)).as("关系行已回滚").isNull();
         assertThat(coinCountOf(contentId)).isZero();
         assertThat(coinDeciOf(voter.id())).as("扣款已回滚").isEqualTo(20);
-        assertThat(hasKey(USER_COIN_AMOUNT_KEY + voter.id()))
-                .as("失败路径不得留下 HASH（事件在最后一步写之后才发布）").isFalse();
-        assertThat(hasKey(CONTENT_COIN_COUNT_KEY + contentId))
-                .as("失败路径不得留下计数 key").isFalse();
+        assertThat(authorCoinDeciOf(author.id())).as("★作者收益也已回滚（四笔写都要验）").isZero();
+        assertThat(hashValue(voter.id(), contentId))
+                .as("失败路径不得写入目标 field（事件在最后一步写之后才发布）").isNull();
+        assertThat(hashValue(voter.id(), 999999999L))
+                .as("★ HASH 保持预热原值（无事务时这条会看到哨兵被清/被重写）").isEqualTo("1");
+        assertThat(countValue(contentId))
+                .as("★ 计数 key 保持预热值 0（监听器根本没执行）").isEqualTo("0");
     }
 
     // ==================== 三态读 / 空标记 / 回填 ====================
@@ -295,11 +314,33 @@ class CoinCacheTests extends AbstractCoinIntegrationTest {
                 .containsEntry(String.valueOf(first), "1")
                 .containsEntry(String.valueOf(second), "2")
                 .hasSize(2);
-        assertThat(ttlSecondsOf(hashKey)).as("回填必须带 TTL").isPositive();
+        assertThat(ttlSecondsOf(hashKey))
+                .as("回填 TTL 是数据 key 的 coin-ttl（15m），必须**显著长于空标记的 60s**"
+                        + "（写成 60s / 1s 也算错，故不能只断言 isPositive）")
+                .isGreaterThan(60L);
 
         // 再读一条**没投过**的内容：命中 HASH（field 缺失 ⇒ 0），不再回源
         assertThat(coinService.getCoinAmount(voter.id(), 888888L)).isZero();
         verify(contentCoinDao, times(1)).findAmountsByUser(voter.id());
+    }
+
+    @Test
+    @DisplayName("★回填非空集必须清掉空标记（Lua 里的 DEL KEYS[2]）：否则 60s 假否定会挡住真数据")
+    void 回填非空集时清掉空标记() {
+        // 这是**命令层**用例（口径同 LikeCacheTests#非空回填清掉空标记）：空标记与数据 key 并存
+        // 的唯一现实来源是并发（回填与空标记写入交错），走读路径构造不出来 ⇒ 直接驱动回填脚本。
+        long userId = 555001L;
+        String hashKey = USER_COIN_AMOUNT_KEY + userId;
+        String emptyKey = EMPTY_PREFIX + hashKey;
+        redis.opsForValue().set(emptyKey, "1", Duration.ofSeconds(60));
+        assertThat(hasKey(emptyKey)).as("前置：空标记已立起").isTrue();
+
+        coinRedisOps.backfillCoinAmountHash(hashKey, emptyKey, Map.of(42L, 2), Duration.ofMinutes(15));
+
+        assertThat(redis.opsForHash().entries(hashKey)).as("回填写入数据").containsEntry("42", "2");
+        assertThat(hasKey(emptyKey))
+                .as("★ 若不 DEL 空标记：读路径先看它 ⇒ 刚回填的 2 会被 60s 假否定成 0")
+                .isFalse();
     }
 
     @Test
@@ -390,7 +431,7 @@ class CoinCacheTests extends AbstractCoinIntegrationTest {
     // ==================== ★ 两种失败的区分 ====================
 
     @Test
-    @DisplayName("★Redis 不可用：三个读方法降级 DB 且不抛；投币业务照常成功（缓存挂掉不 500）")
+    @DisplayName("★Redis 不可用：三个读方法降级 DB；条件写失败不抛、投币照常提交且相关 key 被失效")
     void Redis不可用时降级DB且不抛() {
         TestUser author = registerUser("13910003910", "coincache_author_10");
         TestUser voter = registerUser("13910003920", "coincache_voter_10");
@@ -409,24 +450,55 @@ class CoinCacheTests extends AbstractCoinIntegrationTest {
         assertThat(coinService.getCoinCount(contentId)).isEqualTo(1);
         assertThat(coinService.batchGetCoinCount(List.of(contentId))).containsEntry(contentId, 1L);
 
-        // 写：缓存条件写不受这些读桩影响，业务提交必须成功、DB 真相正确
+        // ★ 写路径也必须验：读桩不覆盖 onCoinChanged 里的两台条件写。
+        //   先把三个 key 预热出来，"写失败 ⇒ 尽力失效让读自愈"才有可观察痕迹。
+        String hashKey = USER_COIN_AMOUNT_KEY + voter.id();
+        String emptyKey = EMPTY_PREFIX + hashKey;
+        String countKey = CONTENT_COIN_COUNT_KEY + contentId;
+        redis.opsForHash().put(hashKey, "999999999", "1");
+        redis.opsForValue().set(emptyKey, "1", Duration.ofSeconds(60));
+        redis.opsForValue().set(countKey, "0", Duration.ofMinutes(15));
+        doThrow(new CacheUnavailableException("模拟 Redis 故障"))
+                .when(coinRedisOps).applyCoinAmountConditionalWrite(
+                        anyString(), anyString(), anyLong(), anyInt());
+        doThrow(new CacheUnavailableException("模拟 Redis 故障"))
+                .when(coinRedisOps).applyCoinCountConditionalIncr(anyString(), anyInt());
+
         setCoinDeci(voter.id(), 20);
+        // ★ 不抛就是契约（缓存故障不能让已提交的业务 500）
         coinService.add(voter.id(), contentId, 1);
+
         assertThat(amountOf(voter.id(), contentId)).as("业务写入不受缓存故障影响").isEqualTo(2);
         assertThat(coinCountOf(contentId)).isEqualTo(2);
         assertThat(coinDeciOf(voter.id())).isEqualTo(10);
+        assertThat(hasKey(hashKey)).as("条件写失败 ⇒ 尽力失效 HASH，让下次读 miss 自愈").isFalse();
+        assertThat(hasKey(emptyKey))
+                .as("★ 空标记也必须失效（残留它 ⇒ 刚提交的币被 60s 假否定）").isFalse();
+        assertThat(hasKey(countKey)).as("计数 key 也失效（避免陈旧 0 存活到 TTL）").isFalse();
     }
 
     @Test
-    @DisplayName("★DB 失败不被降级吞掉：Redis 正常、key 缺失走 miss ⇒ DB 异常必须上抛")
+    @DisplayName("★DB 失败不被降级吞掉：三个读入口的 DB 异常都必须上抛（不得吞成 0）")
     void DB失败不被降级吞掉() {
         TestUser voter = registerUser("13910003921", "coincache_voter_11");
         doThrow(new DataAccessException("模拟 DB 故障") {
         }).when(contentCoinDao).findAmountsByUser(anyLong());
 
         assertThatThrownBy(() -> coinService.getCoinAmount(voter.id(), 777777L))
-                .as("DB 故障必须冒泡（→ 500），不得被降级成 0")
+                .as("getCoinAmount 的回源故障必须冒泡（→ 500），不得被降级成 0")
                 .isInstanceOf(DataAccessException.class);
+
+        // ★ 另外两条读入口各自 catch 的也是 CacheUnavailableException（不是 Exception）——
+        //   只测 getCoinAmount 时，把 getCoinCount / 批量的 catch 放宽成 Exception 不会红。
+        doThrow(new DataAccessException("模拟 DB 故障") {
+        }).when(contentDao).findCoinCount(anyLong());
+        assertThatThrownBy(() -> coinService.getCoinCount(888888L))
+                .as("getCoinCount 的 DB 故障必须上抛").isInstanceOf(DataAccessException.class);
+
+        doThrow(new DataAccessException("模拟 DB 故障") {
+        }).when(contentDao).findCoinCountsByIds(anyCollection());
+        assertThatThrownBy(() -> coinService.batchGetCoinCount(List.of(999999L)))
+                .as("批量回源的 DB 故障必须上抛").isInstanceOf(DataAccessException.class);
     }
 
     // ==================== helpers ====================

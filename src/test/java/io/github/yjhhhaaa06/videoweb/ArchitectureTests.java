@@ -193,7 +193,7 @@ class ArchitectureTests {
      *
      * <p>范围边界（三条，按现实划线）：
      * <ol>
-     *   <li>from = 其余**全部 10 个域**（不止 content）：S9 的不变式是
+     *   <li>from = 其余**全部 11 个域**（不止 content）：S9 的不变式是
      *       "feed → {content, follow, like} 单向 ⇒ 全链路无包环"（feed.md §八结论）——
      *       只禁 content 会漏掉别的倒灌边（如 comment → feed 会经
      *       feed → {@code content.dao} → {@code comment.dao} 传出**传递三环**）。
