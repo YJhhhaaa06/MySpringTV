@@ -40,17 +40,19 @@ class WatchLaterSchemaTests extends AbstractIntegrationTest {
     private JdbcTemplate jdbcTemplate;
 
     @Test
-    @DisplayName("★全部迁移版本都被应用（V1~V4 且 success）—— 不止 V4，防 I-02 的'只断首行'假绿")
+    @DisplayName("★全部迁移版本都被应用（V1~V5 且 success）—— 不止最新一版，防 I-02 的'只断首行'假绿")
     void 全部迁移版本都被应用() {
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
                 "SELECT version, success FROM flyway_schema_history WHERE success = 1 ORDER BY installed_rank");
         List<String> appliedVersions = rows.stream().map(r -> String.valueOf(r.get("version"))).toList();
         assertThat(appliedVersions)
-                .as("★ V1 / V2 / V3 **已应用且必须先于 V4 应用** —— 只看'有没有 V4'会漏掉'中间版本没跑'")
+                .as("★ V1 / V2 / V3 **已应用且必须先于 V4 / V5 应用** —— 只看'有没有最新版'会漏掉'中间版本没跑'")
                 .startsWith("1", "2", "3")
                 .contains("4");
         assertThat(appliedVersions.get(0)).as("首版本必须是 V1（baseline）").isEqualTo("1");
-        assertThat(appliedVersions).as("V4 必须是最后一个已应用版本（本期无 V5）").endsWith("4");
+        // ★ "末版本认账"锚点：每加一版迁移都要显式改这一行（T36 的 V5 = 投币专项）。
+        //   它不是"跟着实现改断言"，而是把"新增的版本有没有真的被应用"变成一次人工确认。
+        assertThat(appliedVersions).as("V5 必须是最后一个已应用版本（V5 = 投币专项 T36）").endsWith("5");
     }
 
     @Test

@@ -82,6 +82,7 @@
 * **验收**：① `CoinSchemaTests`：三列在位（表 / 列 / 类型 / 默认值）+ `uk_user_content` **真插两行被拒**；② `ArchitectureTests` 5 条全绿；③ V5 在**空库**（测试容器）与**活库**（已到 V4）两条路径都干净应用，版本序 `1→…→5`。
 * **回写**：新建 `V5__coin.sql`（`users` 两列 / `content.coin_count` / `content_coin` 单行聚合表），`ArchitectureTests.DOMAINS` 加 `coin`，`InfrastructureConnectivityTests` 表计数 19→20、版本序补 `5`，新增 `CoinSchemaTests`（6 例）。空库路径（容器）与活库路径（`spring-boot:run` 直连 `spring_tv`）均 `now at version v5`，活库 information_schema 复核三列类型与设计 §二 逐字一致；`CoinSchemaTests` + `ArchitectureTests` + `InfrastructureConnectivityTests` 共 15 例全绿。
 * **口径纠偏（G13）**：设计原写「失败的投币尝试留 `amount = 0` 行」，但投币是**单事务**、409/400 抛异常即回滚 ⇒ `INSERT IGNORE` 一行都不会留，且与 T38 验收②「余额不足 ⇒ 无行」直接冲突。按**验收②（零副作用）**实现，`V5` 的列注释与设计 §二 / §十 #1 同步改为真实口径（#1 换成"`count=2` 但只剩 1 枚也答 409"这条真实代价）。
+* **补漏（全量回归抓到）**：T36 的强制探索只点了 `InfrastructureConnectivityTests` 的版本锚点，**漏了 `WatchLaterSchemaTests#全部迁移版本都被应用`** 的"末版本 = 4"断言 ⇒ 已随 V5 改为 5（该行本就是"每加一版都要人工认账"的锚点）。
 
 ### T37 硬币供给端：签到 + 余额读出（来源 `R-17` / 设计 §三 · §四 · §五.2）【已完成】
 
@@ -127,6 +128,7 @@
 * **回写**：`CacheKeys` +2（`user:coinAmount` HASH / `content:coinCount` String，后者**无空标记**因 `0` 合法）；`CoinCacheProperties`（`video.cache.coin-ttl`，非正启动拒）；`CoinRedisOps`（两台条件写 Lua / 原子回填 / 空标记）；`CoinCache`（三态读 + 单飞 + 降级 + 批量 `MGET`+`IN` + 提交后条件写）；`CoinChangedEvent`（`userId/contentId/newAmount/delta`，**刻意不带 authorId**）+ `CoinChangedListener(AFTER_COMMIT)`；`ContentRemovedCoinListener` 订阅内容删除事件（**不是** content 侧直调，照 `ContentRemovedLikeListener`）；`ContentDao` +2 单列/批量窄查询；`CoinService` 发事件 + 4 个薄委托。`CoinCacheTests` 12 例全绿（主会话复跑确认）。
 * **反向验证（已实测）**：① 去掉两台 Lua 的 `if EXISTS` 守卫 ⇒ 「冷 key 不写半套」**1 红**；② 把 `CoinChangedListener` 改成普通 `@EventListener`（等价于事务内直接调）⇒ 「事务回滚后两个 key 都不存在」**1 红**（事务未提交时 field 已是 `"1"`）；还原后 34 例全绿。
 * **口径调整（G13）**：`batchGetCoinCount` 的 DB 里**不存在的 id 不写缓存**（内容不存在是 404 路径，写 0 会在 TTL 内钉成假值）；`getCoinAmount/getCoinCount` 接单飞，**批量路径不接**（同 `LikeCache` 的批量纪律）；写失败时除 `log.warn` 外**尽力失效** hash/空标记/count（"写失败 ⇒ 失效让读自愈"，尤其要清可能残留的空标记）。
+* **补漏（全量回归抓到）**：本域用例大量**直接调** Service/Cache（不经 HTTP）⇒ 缓存回源 `mark` 了 `CacheMissSignal`，而 `consume` 的唯一入口是 `RateLimitFilter`（HTTP 才有）⇒ 标记随线程池复用泄漏到 `CacheMissSignalTests`。已在 `AbstractCoinIntegrationTest#resetState` 加 `CacheMissSignal.clear()`（口径同"用 Redis 的测试必须清 Redis"），并给该纯单测补 `@BeforeEach` 对称清理。
 
 ### T40 读面接入：互动态 `coin` + 公共计数 `coinCount`（来源 `R-17` / 设计 §三 · §七）【已完成】
 

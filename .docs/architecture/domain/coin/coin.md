@@ -214,13 +214,21 @@ UPDATE users SET coin_deci = coin_deci + 10, last_sign_date = :today
 
 | 边 | 形态 | 依据 |
 |---|---|---|
-| coin → `content.dao.ContentDao` | `isContentExist` / 一条窄查询（取 `authorId` + `type`）/ `updateCoinCount` | 《模块边界与依赖》§三「**同事务改计数/级联 ⇒ 允许 DAO 薄依赖**」；其中**纯读那条窄查询**属该文 §六 要登记的读例外 |
-| coin → `user.dao.UserDao` | `updateCoinDeci` / `signIn` / `findCoinDeci` / `findLastSignDate` | **计数列方法进所在表的 DAO**（follow 域 `updateFollowCount` 先例）；`users` 的两列由本域维护 |
+| coin → `content.dao.ContentDao` | `findAliveContentAuthorAndType`（一趟取 `authorId` + `type`）/ `updateCoinCount` / `findCoinCount` / `findCoinCountsByIds`（计数缓存回源） | 《模块边界与依赖》§三「**同事务改计数/级联 ⇒ 允许 DAO 薄依赖**」；其中**纯读的那几条窄查询**属该文 §六 要登记的读例外 |
+| coin → `user.dao.UserDao` | `updateCoinDeci` / `deductCoinDeci` / `signIn` / `findCoinDeci` / `findLastSignDate` | **计数列方法进所在表的 DAO**（follow 域 `updateFollowCount` 先例）；`users` 的两列由本域维护 |
 | coin → `coin.dao.ContentCoinDao` | `content_coin` 表（**按表命名**，镜像 `ContentLikeDao`） | 自有数据 |
-| content → `coin.service.CoinService` | 详情/列表填 `coinCount`；内容删除时 `deleteContentCoinCount` | §三「**读状态 → 走对方 Service 公开方法**」 |
+| content → `coin.service.CoinService` | 详情/列表填 `coinCount`（`getCoinCount` / `batchGetCoinCount`） | §三「**读状态 → 走对方 Service 公开方法**」 |
+| interaction → `coin.service.CoinService` | 详情互动态的第四维 `coin`（`getCoinAmount`，按 `type` 分流） | §七；**只调 Service**，不碰 `coin.cache`（ArchUnit 规则 2） |
+| feed → `coin.service.CoinService` | 列表 `coinCount` 的一趟批量（`batchGetCoinCount`） | §七；feed **不**依赖 `ContentStatusFiller`（那是 content 的装配组件，会把 `feed → content` 的边再宽一层） |
 
-★ **开工时须同步登记**：《模块边界与依赖》**§六**要补 `content ⇄ coin` 那一行 ——
-该文自身纪律是"纯读例外**登记在此即认账**"，不登记就是"无声绕开判据"。
+★ **内容删除的级联方向**：`coin.event.ContentRemovedCoinListener` **订阅** content 的
+`ContentCacheChangedEvent(REMOVE)` 并失效自己的 `content:coinCount` —— 内容域**不直调**
+`CoinService`（S6-B2c 的既有形态，同 `ContentRemovedLikeListener`）。因此上表里没有
+`content → coin` 的"删除"那条边。
+
+★ **开工时须同步登记**：《模块边界与依赖》**§六**要补 `content ⇄ coin` 那一行（含上面两条
+读例外：`findAliveContentAuthorAndType` / 计数回源窄查询） —— 该文自身纪律是
+"纯读例外**登记在此即认账**"，不登记就是"无声绕开判据"。
 
 ### 9.1 F-18 复核结论（**升级条件未触发**）
 

@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.coin;
 
+import io.github.yjhhhaaa06.videoweb.common.cache.CacheMissSignal;
 import io.github.yjhhhaaa06.videoweb.support.AbstractHttpIntegrationTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -54,6 +55,11 @@ public abstract class AbstractCoinIntegrationTest extends AbstractHttpIntegratio
         jdbcTemplate.update("DELETE FROM content_media");
         jdbcTemplate.update("DELETE FROM content");
         clearRedis();
+        // ★ 本域用例大量**直接调** Service / Cache（不经 HTTP）⇒ 缓存回源会 mark 限流信号②，
+        //   而 consume 的唯一入口是 RateLimitFilter（HTTP 才有）。不在这里清一次，标记会随
+        //   线程池复用到下一个测试类（实测：全量回归里 `CacheMissSignalTests#mark_consume_取走并清零`
+        //   就是这么红的）。口径同"用 Redis 的测试必须清 Redis"——**用了信号的测试必须清信号**。
+        CacheMissSignal.clear();
     }
 
     // ==================== Redis ====================
