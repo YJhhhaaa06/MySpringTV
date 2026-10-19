@@ -113,7 +113,7 @@
 * **反向验证（已实测）**：删 `addAmount` 的 `amount + #{delta} <= 2` ⇒ `CoinAddTests` **3 红**（已满用例 200、并发得到 `[200,200]`、已满+不足答 400）；还原后同一命令 **54 例全绿**。
 * **待 T42 认账**：`findAliveContentAuthorAndType` 是 `content ⇄ coin` 的**纯读例外**，按《模块边界与依赖》§六 纪律须登记（T42 的 §六 补行一并覆盖）。
 
-### T39 coin 缓存层（两个 key）+ 内容删除级联（来源 `R-17` / 设计 §六）【待执行】
+### T39 coin 缓存层（两个 key）+ 内容删除级联（来源 `R-17` / 设计 §六）【已完成】
 
 > ⚠️ **先质疑（G14）**：
 > - **任务**：前提成立 —— 详情页每读一次"我投了几枚"若直查 DB = **每请求一次点查**；本仓对"我 X 了吗"的既有口径**就是每用户维度缓存**（`user:likeSet` / `user:favoriteSet`）。
@@ -124,7 +124,9 @@
 * **红线边界**：① **只碰 coin 域自己的两个 key** —— **不得**去碰 `content:{id}`（`LikeChangedListener` 瘦身后的纪律）；② 写一律**提交后**；③ 冷 key **不写半套**；④ Redis 失败 ⇒ **降级、不抛、不 500**；⑤ ★ **内容删除只失效 `coinCount` 缓存、不物理删 `content_coin` 行**（不可取消 + 不变量 `coin_count == SUM(amount)` 要求行留存 —— **与 like 的 `deleteByContentId` 有意不同**，须写进类注释）。
 * **强制探索**：① 复算 `LikeCache` 的三态判定顺序（**先空标记、后数据 key**）与"写失败 ⇒ 失效让读自愈"手法；② 定 `CoinChangedEvent` 的字段集（`userId` / `contentId` / **新总量** / `delta` / `authorId`）—— 本域要**精确回放**，不能照抄 `INCR` 形态；③ 定位内容删除分支的现有调用行。
 * **验收**：`CoinCacheTests`：① 条件写（已加载 ⇒ 命中；**冷 key ⇒ 一个字节都不写**）；② **事务回滚 ⇒ 两个 key 根本不存在**（`AFTER_COMMIT` 的存在证明 —— 让事务在**已有成功写之后**失败，范式同 `LikeCacheTests.事务回滚后缓存未被污染`）；③ 空集 ⇒ 写空标记、下次读**不回源**；④ miss ⇒ 全量回填且**清空标记**；⑤ `resilience` 组：Redis 不可达 ⇒ 降级直查 DB、不 500。★ 反向验证：去掉条件 `EXISTS` 守卫 ⇒ **必红**。
-* **回写**：（待执行）
+* **回写**：`CacheKeys` +2（`user:coinAmount` HASH / `content:coinCount` String，后者**无空标记**因 `0` 合法）；`CoinCacheProperties`（`video.cache.coin-ttl`，非正启动拒）；`CoinRedisOps`（两台条件写 Lua / 原子回填 / 空标记）；`CoinCache`（三态读 + 单飞 + 降级 + 批量 `MGET`+`IN` + 提交后条件写）；`CoinChangedEvent`（`userId/contentId/newAmount/delta`，**刻意不带 authorId**）+ `CoinChangedListener(AFTER_COMMIT)`；`ContentRemovedCoinListener` 订阅内容删除事件（**不是** content 侧直调，照 `ContentRemovedLikeListener`）；`ContentDao` +2 单列/批量窄查询；`CoinService` 发事件 + 4 个薄委托。`CoinCacheTests` 12 例全绿（主会话复跑确认）。
+* **反向验证（已实测）**：① 去掉两台 Lua 的 `if EXISTS` 守卫 ⇒ 「冷 key 不写半套」**1 红**；② 把 `CoinChangedListener` 改成普通 `@EventListener`（等价于事务内直接调）⇒ 「事务回滚后两个 key 都不存在」**1 红**（事务未提交时 field 已是 `"1"`）；还原后 34 例全绿。
+* **口径调整（G13）**：`batchGetCoinCount` 的 DB 里**不存在的 id 不写缓存**（内容不存在是 404 路径，写 0 会在 TTL 内钉成假值）；`getCoinAmount/getCoinCount` 接单飞，**批量路径不接**（同 `LikeCache` 的批量纪律）；写失败时除 `log.warn` 外**尽力失效** hash/空标记/count（"写失败 ⇒ 失效让读自愈"，尤其要清可能残留的空标记）。
 
 ### T40 读面接入：互动态 `coin` + 公共计数 `coinCount`（来源 `R-17` / 设计 §三 · §七）【待执行】
 

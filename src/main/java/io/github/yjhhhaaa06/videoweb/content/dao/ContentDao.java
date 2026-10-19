@@ -2,6 +2,7 @@ package io.github.yjhhhaaa06.videoweb.content.dao;
 
 import io.github.yjhhhaaa06.videoweb.content.model.AuthorContentId;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentAuthorAndType;
+import io.github.yjhhhaaa06.videoweb.content.model.ContentCoinCount;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentFavoriteCount;
 import io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO;
 import io.github.yjhhhaaa06.videoweb.content.model.entity.Content;
@@ -124,6 +125,44 @@ public interface ContentDao {
      * @return 受影响行数（内容行不存在时为 0；调用方已先做过 404 门禁，正常路径不会为 0）
      */
     int updateCoinCount(@Param("contentId") long contentId, @Param("delta") int delta);
+
+    /**
+     * 读某内容的累计投币数（**单列窄查询**，T39 缓存 miss 的回源）。
+     *
+     * <p>SQL: {@code select coin_count from content where id = #{contentId}}。
+     *
+     * <p>★ <b>刻意不加 {@code is_deleted = 0}</b>：这读的是**列值**，不是"内容是否可见"。
+     * 缓存（{@code content:coinCount:{id}}）要复现的是"这一列现在是多少"，与详情页能否看到
+     * 这条内容无关；加了过滤会让已软删内容的回源在"无行"与"0"之间摇摆，还会把
+     * "内容不存在"混进"计数缺失"。可见性判定是详情读路径的事（{@code findContent} 带过滤）。
+     *
+     * <p>⚠️ 返回**包装类型** {@link Integer}：无行（内容确实不存在）⇒ {@code null}。
+     * 缓存层据此**不写缓存**（内容不存在是 404 路径，把 {@code 0} 钉进 TTL 内就是假值）。
+     * 声明成 {@code int} 会在无行时 NPE（同 {@link #getContentStatus} 的实测口径）。
+     *
+     * <p>★ 这是 coin → content 的又一条**DAO 纯读**（{@code CoinCache} 的计数回源点）：
+     * 与 {@link #findFavoriteCountById} 同类 —— 主键点查、只读一列、不碰对方 service/model/cache。
+     * 按 {@code 模块边界与依赖.md} §六 的纪律属**显式登记例外**（登记动作在 T42）。
+     *
+     * @return 累计投币数；内容行不存在 ⇒ {@code null}
+     */
+    Integer findCoinCount(@Param("contentId") long contentId);
+
+    /**
+     * 批量读多个内容的累计投币数（T39 批量回填，**一趟** {@code IN} 查询）。
+     *
+     * <p>SQL: {@code select id as content_id, coin_count from content where id in (...)}。
+     * 同样**不带 {@code is_deleted} 过滤**（理由见 {@link #findCoinCount}）。
+     *
+     * <p>无匹配行**不出现在结果里**（调用方按"DB 里没有 ⇒ 计数 0"补齐）；
+     * 空入参由调用方拦截（MyBatis 的 {@code IN ()} 是语法错）。
+     *
+     * <p>⚠️ 返回 record ⇒ 必须用 {@code <constructor>} 映射（{@code ContentMapper.xml}）。
+     *
+     * @param ids 内容 id 集合（非空）
+     * @return 扁平行列表（顺序不保证，调用方按 id 归位）
+     */
+    List<ContentCoinCount> findCoinCountsByIds(@Param("ids") Collection<Long> ids);
 
     /**
      * 评论数增减。TV: {@code UPDATE content SET comment_count = comment_count + ? WHERE id = ?}

@@ -173,6 +173,37 @@ public final class CacheKeys {
         return "content:favoriteCount:" + contentId;
     }
 
+    // ==================== 投币（CoinCache，投币专项 T39） ====================
+
+    /**
+     * 我投过币的内容及**枚数**：{@code user:coinAmount:{userId}}（**HASH**，field = contentId，value = amount）。
+     *
+     * <p>★ <b>为什么是 HASH 而不是 Set</b>：值不是布尔而是 {@code 0/1/2}（一条内容最多投 2 枚），
+     * Set 只能表达"投过 / 没投过"，承载不了"几枚"。这也是本域与 like（{@code user:likeSet}）
+     * 缓存载体**必然不同**的原因，不是"顺手换个结构"。
+     *
+     * <p>成员 key 仍取**用户维度**（同 like / favorite 的装载反转）：装载量 = 该用户投过币的内容数，
+     * 与内容热度解耦；硬币稀缺 ⇒ 单用户哈希比 {@code user:likeSet} 更小。
+     */
+    public static String userCoinAmount(long userId) {
+        return "user:coinAmount:" + userId;
+    }
+
+    /**
+     * 某内容累计被投币数：{@code content:coinCount:{id}}（String int）。
+     *
+     * <p>★ <b>刻意无空标记</b>（口径同 {@link #contentLikeCount(long)} /
+     * {@link #contentFavoriteCount(long)}）：{@code 0} 是**合法值**（没人投过币的内容真实存在），
+     * 必须与"key 不存在"靠 {@code GET} 返回 {@code null} / {@code "0"} 区分；
+     * 给它写空标记会把"0 人投币"与"未知"混淆。
+     *
+     * <p>独立 key 而非内联进 {@code content:{id}}：对 F-25 的站边（先例 = favorite T11），
+     * 不把"计数变化连坐失效整份内容缓存"复制到新域。
+     */
+    public static String contentCoinCount(long contentId) {
+        return "content:coinCount:" + contentId;
+    }
+
     // ==================== 关注（FollowCache） ====================
 
     /**

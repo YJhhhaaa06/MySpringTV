@@ -1,6 +1,8 @@
 package io.github.yjhhhaaa06.videoweb.coin.service;
 
+import io.github.yjhhhaaa06.videoweb.coin.cache.CoinCache;
 import io.github.yjhhhaaa06.videoweb.coin.dao.ContentCoinDao;
+import io.github.yjhhhaaa06.videoweb.coin.event.CoinChangedEvent;
 import io.github.yjhhhaaa06.videoweb.coin.model.vo.CoinBalanceVO;
 import io.github.yjhhhaaa06.videoweb.coin.model.vo.SignInVO;
 import io.github.yjhhhaaa06.videoweb.common.exception.ConflictException;
@@ -10,10 +12,13 @@ import io.github.yjhhhaaa06.videoweb.common.time.SiteTime;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentAuthorAndType;
 import io.github.yjhhhaaa06.videoweb.user.dao.UserDao;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.Collection;
+import java.util.Map;
 
 /**
  * 投币域业务：签到（T37，供给端）+ 投币（T38，写路径）。
@@ -41,8 +46,13 @@ import java.math.BigDecimal;
  *       <b>两个用户</b>的 {@code users.coin_deci}（扣款 / 收益）——四者必须同进同退，
  *       否则余额与计数会在失败窗口里漂移，且没有自愈路径。</li>
  * </ul>
- * 两者都**不发领域事件**：签到没有任何缓存要失效（{@code /user/me} 直读 DB）；
- * 投币的缓存写属 T39（{@code CoinChangedListener}），本任务不提前加。
+ * 签到**不发领域事件**（{@code /user/me} 直读 DB，没有任何缓存要失效）；
+ * 投币的缓存在 T39 接入 —— 事务内**所有写之后**发 {@link CoinChangedEvent}，由
+ * {@code CoinChangedListener} 在 {@code AFTER_COMMIT} 条件写两个 key。
+ *
+ * <h2>读路径（T39 缓存已就位，T40 才接读面）</h2>
+ * 三个读方法 + 一个失效入口都是 {@link CoinCache} 的**薄委托**：缓存是 coin 域的私有实现，
+ * 跨域（T40 的 interaction / content 组装点）只走本 Service 的公开方法。
  */
 @Service
 public class CoinService {
@@ -58,11 +68,16 @@ public class CoinService {
     private final UserDao userDao;
     private final ContentDao contentDao;
     private final ContentCoinDao contentCoinDao;
+    private final CoinCache coinCache;
+    private final ApplicationEventPublisher events;
 
-    public CoinService(UserDao userDao, ContentDao contentDao, ContentCoinDao contentCoinDao) {
+    public CoinService(UserDao userDao, ContentDao contentDao, ContentCoinDao contentCoinDao,
+                       CoinCache coinCache, ApplicationEventPublisher events) {
         this.userDao = userDao;
         this.contentDao = contentDao;
         this.contentCoinDao = contentCoinDao;
+        this.coinCache = coinCache;
+        this.events = events;
     }
 
     /**
@@ -163,7 +178,63 @@ public class CoinService {
         Integer balanceDeci = userDao.findCoinDeci(userId);
         // 投票者必然存在（token 指向它 + 上一步扣款命中）；null 只可能是"读余额前被删"的窗口，
         // 按 0 处理比拆箱 NPE / 500 更符合"读回执不该因竞态崩"的口径（同 signIn）。
-        return new CoinBalanceVO(toCoinAmount(balanceDeci == null ? 0 : balanceDeci));
+        int balance = balanceDeci == null ? 0 : balanceDeci;
+
+        // ⑧ T39：缓存事件必须在**事务内**、且**所有写之后**发布。
+        //    - 必须在事务内：监听器是 @TransactionalEventListener(AFTER_COMMIT)，
+        //      事务外/提交后发布会被静默丢弃（fallbackExecution 默认 false）；
+        //    - 必须在所有写之后：newAmount 要反映本次投币后的**累计枚数**（精确回放用）。
+        //    newAmount 必然非 null（同事务内 insertIgnoreZero 保证了行存在、addAmount 已命中）。
+        Integer newAmount = contentCoinDao.findAmount(userId, contentId);
+        events.publishEvent(new CoinChangedEvent(userId, contentId, newAmount, count));
+
+        return new CoinBalanceVO(toCoinAmount(balance));
+    }
+
+    // ========================================================================
+    // 读：缓存是私有实现，跨域只走 Service（T40 的组装点从这里取）
+    // ========================================================================
+
+    /**
+     * 我在该内容上投了几枚（{@code 0/1/2}，供详情互动态；T40 接入）。
+     *
+     * <p>薄委托 {@link CoinCache#getCoinAmount}：三态读 / 空标记 / 单飞 / Redis 降级都在缓存层，
+     * 本方法不再重复任何判定。
+     */
+    public int getCoinAmount(long userId, long contentId) {
+        return coinCache.getCoinAmount(userId, contentId);
+    }
+
+    /**
+     * 某内容的累计投币数（公共计数，供详情 / 列表；T40 接入）。
+     *
+     * <p>薄委托 {@link CoinCache#getCoinCount}。★ 缓存是 coin 域的**私有实现**——
+     * 跨域不得直接注入 {@code CoinCache}（ArchUnit 规则 2），必须经本方法。
+     */
+    public long getCoinCount(long contentId) {
+        return coinCache.getCoinCount(contentId);
+    }
+
+    /**
+     * 批量读多条内容的累计投币数（列表组装点用；T40 接入）。
+     *
+     * <p>薄委托 {@link CoinCache#batchGetCoinCount}：一趟 {@code MGET} + 一趟 DB 批量回填，
+     * **不做循环单条查询**（列表成本 ∝ 条数 的口径见 {@code ContentStatusFiller} 类注释）。
+     */
+    public Map<Long, Long> batchGetCoinCount(Collection<Long> contentIds) {
+        return coinCache.batchGetCoinCount(contentIds);
+    }
+
+    /**
+     * 内容被删/下架：失效其投币计数缓存（由 {@code coin.event.ContentRemovedCoinListener}
+     * 在内容删除事务**提交后**调用）。
+     *
+     * <p>★ 只失效缓存、**不物理删 {@code content_coin} 行**：投币不可取消 + 不变量
+     * {@code coin_count == SUM(amount)} 要求行留存（与 like 的 {@code deleteContentLike}/
+     * {@code deleteByContentId} 有意不同，理由见 {@link CoinCache} 类注释）。
+     */
+    public void deleteContentCoinCount(long contentId) {
+        coinCache.invalidateCoinCount(contentId);
     }
 
     /**
