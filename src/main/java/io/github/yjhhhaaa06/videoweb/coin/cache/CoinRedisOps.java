@@ -20,7 +20,7 @@ import java.util.Set;
  * {@code getString} / {@code setString} / {@code delete} / pipeline / Lua 执行都在
  * {@link RedisOps}；本类只留**投币域**的命令（HASH 读写、两台条件写、原子回填、空标记）。
  *
- * <h2>★ 两台条件写的形态**不同且都必须精确**（设计 §六）</h2>
+ * <h2>★ 两台条件写的形态**不同且都必须精确**（设计 §五）</h2>
  * <table>
  *   <caption>写什么、为什么</caption>
  *   <tr><th>key</th><th>脚本</th><th>为什么这样写</th></tr>
@@ -55,7 +55,7 @@ public class CoinRedisOps extends RedisOps {
      * <p>★ 写的是**新总量**（{@code newAmount} = 该用户对该内容投完之后的累计枚数），
      * **不是** {@code HINCRBY}：事件里的总量是事务内读到的真相，直接覆盖即"精确回放"，
      * 重复投递同一事件也不会漂移（幂等）；而 {@code HINCRBY} 在重复投递时会多算一次
-     * （设计 §六 ①）。
+     * （设计 §五 ①）。
      *
      * <p>★ {@code if EXISTS} 守卫是**冷 key 不建半套**的落点：key 未加载时只清空标记、
      * 不创建 HASH —— 否则读路径会命中一个"只含刚投这一条"的残缺集合，把"他投过哪些"

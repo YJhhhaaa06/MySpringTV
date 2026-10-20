@@ -25,7 +25,7 @@ import java.util.Map;
  *
  * <h2>★ 单位约定：三处一起钉，别只钉一处</h2>
  * {@code users.coin_deci} 存的是**币的十分位**——{@code 15} 表示 1.5 枚，不是 15 枚。
- * 这条约定不靠记忆，靠三个同时存在的约束（{@code architecture/domain/coin/coin.md} §四）：
+ * 这条约定不靠记忆，靠三个同时存在的约束（{@code architecture/domain/coin/coin.md} §三）：
  * <ol>
  *   <li><b>列名带 {@code deci}</b>：DAO / SQL 两侧都不用无单位的名（{@code coin} / {@code balance}）；</li>
  *   <li><b>常量 {@link #DECI_PER_COIN}</b>：一枚硬币 = 10 个十分位。签到加多少由它传进 SQL
@@ -102,7 +102,7 @@ public class CoinService {
     /**
      * 给内容投币（single transaction）。
      *
-     * <h2>★ 校验顺序就是契约（设计 §五.1 / §八），别调换</h2>
+     * <h2>★ 校验顺序就是契约（设计 §四.1 / §七），别调换</h2>
      * <ol>
      *   <li>{@code count ∉ {1,2}} ⇒ 400「投币数量只能是 1 或 2」；</li>
      *   <li>内容不存在 / 已软删 ⇒ 404「内容不存在」（**一趟窄查询**同时取作者与类型）；</li>
@@ -132,7 +132,7 @@ public class CoinService {
      *
      * <h2>收益换算为什么是 {@code +count}</h2>
      * 作者按 {@code 1/10} 收币：{@code count} 枚 × {@code 1/10} 枚 = {@code count} 个十分位
-     * ⇒ 直接 {@code updateCoinDeci(authorId, count)}，**不乘 10**（设计 §四）。
+     * ⇒ 直接 {@code updateCoinDeci(authorId, count)}，**不乘 10**（设计 §三）。
      *
      * @param userId    投票者（当前登录用户）
      * @param contentId 内容 id
@@ -146,7 +146,7 @@ public class CoinService {
             throw new ParamException("投币数量只能是 1 或 2");
         }
 
-        // ② 存在性 + ③ 类型 + ④ 归属：一趟窄查询取回两列，顺序按设计 §五.1。
+        // ② 存在性 + ③ 类型 + ④ 归属：一趟窄查询取回两列，顺序按设计 §四.1。
         ContentAuthorAndType content = contentDao.findAliveContentAuthorAndType(contentId);
         if (content == null) {
             throw new NotFoundException("内容不存在");
@@ -265,7 +265,7 @@ public class CoinService {
      * {@code 10 → 1} 也统一成 {@code 1.0}（响应体的"一位小数"是契约，不能时有时无）。
      *
      * <p>⚠️ <b>与 {@code UserService#getProfile} 里的换算必须逐字一致</b>（那里刻意不调本方法，
-     * 以避免新增 {@code user → coin} 依赖边）——口径见 {@code architecture/domain/coin/coin.md} §四。
+     * 以避免新增 {@code user → coin} 依赖边）——口径见 {@code architecture/domain/coin/coin.md} §三。
      * 改这里就同步改那里，反之亦然。
      */
     public static BigDecimal toCoinAmount(int deci) {

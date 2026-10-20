@@ -167,7 +167,7 @@ public class UserService implements AdminChecker {
      *       指向 coin.service 的依赖边，而设计里没有登记这条边（coin → user.dao 才是登记过的方向）。
      *       换算写法（{@code BigDecimal.valueOf(deci).movePointLeft(1).setScale(1)}）
      *       必须与 {@code CoinService#toCoinAmount} **逐字一致**，口径见
-     *       {@code architecture/domain/coin/coin.md} §四。</li>
+     *       {@code architecture/domain/coin/coin.md} §三。</li>
      *   <li>{@code signedToday}：{@code last_sign_date == SiteTime.today()}。签到按钮靠它
      *       **进页就置灰**，否则只能"点了才知道已签"。日期口径必须走 {@code SiteTime}
      *       （上海自然日），不能用 JVM 默认时区或 DB 时钟——否则跨时区部署时按钮会指错一天。</li>

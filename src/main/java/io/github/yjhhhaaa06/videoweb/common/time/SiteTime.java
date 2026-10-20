@@ -4,7 +4,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 
 /**
- * 站内**自然日**的唯一来源（投币签到口径，见 {@code architecture/domain/coin/coin.md} §四 / §五.2）。
+ * 站内**自然日**的唯一来源（投币签到口径，见 {@code architecture/domain/coin/coin.md} §三 / §四.2）。
  *
  * <h2>为什么必须有一个专门的口径源</h2>
  * 签到是"每日一次"，幂等判据落在 {@code users.last_sign_date} 这一列上——**它问的是"哪一天"，

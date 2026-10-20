@@ -5,7 +5,7 @@ import io.github.yjhhhaaa06.videoweb.interaction.model.InteractionDimension;
 /**
  * 当前用户对一条内容的**互动态**（R-10，详细设计见 {@code favorite.md} §六；
  * 三态口径由 R-13 于 2026-10-13 追加；投币维由 T40 追加，见
- * {@code architecture/domain/coin/coin.md} §七）。
+ * {@code architecture/domain/coin/coin.md} §六）。
  *
  * <p>四个字段都是"**与请求者有关**"的状态（请求无关的内容属性 / 公共计数 —— 如
  * likeCount / coinCount / commentCount / createTime —— **刻意不搬进本对象**）：
@@ -35,7 +35,7 @@ import io.github.yjhhhaaa06.videoweb.interaction.model.InteractionDimension;
  * <p>★ 它与另外三维**刻意不同形**，两处理由：
  * <ol>
  *   <li><b>端点位置不同</b>：like / favorite 的"我的状态"有独立 status 端点；
- *       投币**没有**独立状态端点，"我投了几枚"只在**详情内嵌**（{@code coin.md} §三 / §七）。</li>
+ *       投币**没有**独立状态端点，"我投了几枚"只在**详情内嵌**（{@code coin.md} §二 / §六）。</li>
  *   <li><b>载荷类型不同</b>：前三维答"有没有"（布尔），{@code coin} 答"有几枚"（数量）。
  *       因此 {@code 0} 与 {@code null} 必须分得开：{@code 0} = 视频且没投过，{@code null} = 不适用 / 不查。</li>
  * </ol>

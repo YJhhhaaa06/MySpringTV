@@ -37,7 +37,7 @@ import org.springframework.web.bind.annotation.RestController;
  *   <li>签到：{@code msg} 承载幂等语义——首次「签到成功」（{@code credited=true}），
  *       今日重复「今日已签到」（{@code credited=false}），余额均回带；</li>
  *   <li>投币：成功恒为「投币成功」+ 新余额；拒绝走 400/404/409（文案见
- *       {@code architecture/domain/coin/coin.md} §八）。</li>
+ *       {@code architecture/domain/coin/coin.md} §七）。</li>
  * </ul>
  * 两个端点都回带新余额 ⇒ 前端签到 / 投币后无需再拉一次 {@code /user/me}。
  */

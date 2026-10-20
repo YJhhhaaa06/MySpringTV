@@ -21,7 +21,7 @@ import java.util.Set;
 /**
  * 互动域：把"**当前用户对内容的互动态**"（点过赞吗 / 收藏了吗 / 关注作者了吗 / 投了几枚）
  * 聚合成一处（R-10，详细设计见 {@code favorite.md} §六；第四维投币见
- * {@code architecture/domain/coin/coin.md} §七）。
+ * {@code architecture/domain/coin/coin.md} §六）。
  *
  * <h2>它解决什么（依赖方向，不是边数）</h2>
  * 内容详情 / 列表要展示这些"与我有关"的状态，它们分别属于 like / favorite / follow / coin 四个域。

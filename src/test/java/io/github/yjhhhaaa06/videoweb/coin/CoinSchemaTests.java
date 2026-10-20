@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * 投币专项 T36 的**结构契约**验收：V5 建出的列 / 表 / 唯一键，是不是设计 §二 的那一版。
+ * 投币专项 T36 的**结构契约**验收：V5 建出的列 / 表 / 唯一键，是不是设计 §一 的那一版。
  *
  * <h2>为什么这类断言值得写（它防的是什么）</h2>
  * 行为面由 T37–T40 的用例覆盖；本类只钉**schema 级**三件事，它们的共同点是
@@ -25,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *
  * <ol>
  *   <li><b>列类型</b>：{@code users.coin_deci} 必须是**有符号** {@code int}
- *       （扣款靠条件守卫拦负数，不是靠 unsigned + CAST 技巧，见设计 §十 #6）；
+ *       （扣款靠条件守卫拦负数，不是靠 unsigned + CAST 技巧，见设计 §九 #4）；
  *       {@code content.coin_count} 是 {@code int unsigned} 且**只增不减**
  *       ⇒ 刻意**没有** like_count 那套防负守卫（口径差异，不是漏改）。</li>
  *   <li><b>唯一键</b>：{@code uk_user_content} 是"同一人同一内容只聚一行"的唯一实现手段；
@@ -62,14 +62,14 @@ class CoinSchemaTests extends AbstractIntegrationTest {
         jdbcTemplate.update("DELETE FROM users WHERE username LIKE 'coinschema%'");
     }
 
-    // ==================== 1. 列类型（设计 §二 逐字） ====================
+    // ==================== 1. 列类型（设计 §一 逐字） ====================
 
     @Test
     @DisplayName("users 的余额列是有符号十分位整数：int（不是 unsigned）、NOT NULL、默认 0")
     void users的余额列是有符号十分位整数() {
         Map<String, Object> col = 列信息("users", "coin_deci");
         assertThat(col.get("column_type"))
-                .as("有符号 int：扣款靠条件守卫拦负数，给 unsigned 会让 CAST 技巧渗进来（设计 §十 #6）")
+                .as("有符号 int：扣款靠条件守卫拦负数，给 unsigned 会让 CAST 技巧渗进来（设计 §九 #4）")
                 .isEqualTo("int");
         assertThat(col.get("is_nullable")).as("余额不该有 NULL 态").isEqualTo("NO");
         assertThat(col.get("column_default")).as("存量用户的起点 = 0").isEqualTo("0");

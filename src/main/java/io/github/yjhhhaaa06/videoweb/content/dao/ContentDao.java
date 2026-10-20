@@ -115,7 +115,7 @@ public interface ContentDao {
      * <p>★ <b>没有防负守卫</b>（与 {@link #updateLikeCount} / {@link #updateCommentCount} 的
      * {@code CAST(... AS SIGNED) + delta >= 0} 刻意不同）。这不是漏改，是**口径差异**：
      * 投币**不可取消** ⇒ 本列只有"+"路径 ⇒ 不存在下溢，守卫没有要守的场景
-     * （{@code architecture/domain/coin/coin.md} §十 #3）。反过来照抄守卫会掩盖这个真实差异，
+     * （{@code architecture/domain/coin/coin.md} §九 #2）。反过来照抄守卫会掩盖这个真实差异，
      * 让人误以为本列也能减。
      *
      * <p>★ 必须与 {@code content_coin} 的关系行写在**同一事务**里（投币 Service 的

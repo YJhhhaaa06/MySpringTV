@@ -27,7 +27,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 四处都是**独立 oracle**（直查 DB），不读接口回显——`data.balance` 只是被测实现的回声，
  * 用它断言等于让错误实现自己证明自己（{@code AGENTS.md}「测试纪律」②）。
  *
- * <p>期望值的推导链（设计 §四 / §五.1）：
+ * <p>期望值的推导链（设计 §三 / §四.1）：
  * <ul>
  *   <li>投 {@code count} 枚 ⇒ 投票者 {@code −count×10} 分位、作者 {@code +count} 分位
  *       （{@code count} 枚 × 1/10 枚 = {@code count} 个十分位）、{@code coin_count +count}、

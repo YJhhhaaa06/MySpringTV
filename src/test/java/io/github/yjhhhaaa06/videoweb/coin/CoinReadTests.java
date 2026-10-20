@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 投币专项 T40 验收：**读面接入** —— 互动态第四维 {@code interaction.coin} +
- * 公共计数 {@code coinCount}（设计 {@code architecture/domain/coin/coin.md} §七）。
+ * 公共计数 {@code coinCount}（设计 {@code architecture/domain/coin/coin.md} §六）。
  *
  * <h2>每条断言的期望值来自业务口径（不是照抄实现）</h2>
  * <ul>

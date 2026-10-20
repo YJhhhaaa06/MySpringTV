@@ -21,7 +21,7 @@ import java.util.List;
  *
  * <p>⚠️ 被拒的投币尝试**不落行**：写路径整体在一个事务里，封顶 / 余额不足都是抛异常回滚
  * ⇒ {@link #insertIgnoreZero} 刚插的 `amount = 0` 行会一起消失
- * （`architecture/domain/coin/coin.md` §五.1 与 `coin/` 的验收②）。
+ * （`architecture/domain/coin/coin.md` §四.1 与 `coin/` 的验收②）。
  */
 @Mapper
 public interface ContentCoinDao {
@@ -55,7 +55,7 @@ public interface ContentCoinDao {
      * 反向验证：<b>去掉 {@code amount + ? <= 2} 这一句，并发各投 1 枚会突破封顶 2</b>
      * （{@code CoinAddTests} 的并发用例必红）。
      *
-     * <p>⚠️ 已知代价（设计 §十 #1）：条件写分不出"已经投满 2"与"只剩 1 枚却想一次投 2"，
+     * <p>⚠️ 已知代价（设计 §九 #1）：条件写分不出"已经投满 2"与"只剩 1 枚却想一次投 2"，
      * 两者都答 409。前端按 `0/1/2` 只给出合法选项，正常客户端不可达。
      *
      * @param delta 本次投出的枚数（1 或 2，由 Service 先校验）
@@ -83,7 +83,7 @@ public interface ContentCoinDao {
      * 即便将来出现 0 行，也不会被当成"投过"回填进 HASH。
      *
      * <p>硬币稀缺 ⇒ 单用户投过的内容数远小于 {@code user:likeSet}，全量装载是可接受的
-     * （设计 §六）。
+     * （设计 §五）。
      *
      * @return 扁平行列表；一枚都没投过 ⇒ 空列表（不是 null）
      */

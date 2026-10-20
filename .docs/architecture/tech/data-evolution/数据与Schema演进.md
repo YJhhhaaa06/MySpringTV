@@ -280,7 +280,7 @@ V5 再增 **1 张**（投币 T36 `content_coin`）+ **3 列**（`users.coin_deci
 > `comment.like_count`（**有符号**）用原生 `col + delta >= 0` 即可。语义 = **block**：守卫拦住 ⇒
 > 影响 0 行、不抛错、不回滚 ⇒ 取消赞 / 取关照常成功（计数停在 0）。
 > ★ **例外且有意**：`content.coin_count` 因"投币不可取消 ⇒ **只增无减**"而**不需要守卫** ——
-> 见 [coin.md](../../domain/coin/coin.md) §二。
+> 见 [coin.md](../../domain/coin/coin.md) §一。
 
 ---
 

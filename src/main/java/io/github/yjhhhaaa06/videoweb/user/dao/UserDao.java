@@ -181,7 +181,7 @@ public interface UserDao {
     // 以下 4 个方法由投币专项 T37（硬币供给端）补入：
     // users 的 coin_deci / last_sign_date 两列由 coin 域维护，但方法**进所在表的 DAO**
     // （先例 = 上面的 updateFollowCount / updateFollowerCount）。设计见
-    // architecture/domain/coin/coin.md §四（单位约定）与 §五.2（签到幂等）。
+    // architecture/domain/coin/coin.md §三（单位约定）与 §四.2（签到幂等）。
     // ========================================================================
 
     /**
@@ -193,7 +193,7 @@ public interface UserDao {
      * 签到不走它（签到是一条带幂等判据的原子条件写，见 {@link #signIn}）。
      *
      * <p>⚠️ <b>本方法没有"余额够不够"的守卫</b>：扣款必须走
-     * {@link #deductCoinDeci}（{@code where coin_deci >= ?} 的条件写，设计 §五.1），
+     * {@link #deductCoinDeci}（{@code where coin_deci >= ?} 的条件写，设计 §四.1），
      * 不能用"先 {@link #findCoinDeci} 再减"。
      * 本方法只表达"加减多少"，不承担并发正确性。
      *
@@ -213,7 +213,7 @@ public interface UserDao {
      *
      * <p>★ 它是本仓**唯一**一处带 {@code >=} 守卫的余额写。余额列是**有符号** {@code int}
      * （不是 unsigned）：语义是"够不够"，靠守卫拦住，而不是靠类型溢出报错
-     * （若给 unsigned 会逼出 {@code CAST} 技巧，见设计 §十 #6）。
+     * （若给 unsigned 会逼出 {@code CAST} 技巧，见设计 §九 #4）。
      *
      * <p>⚠️ 与 {@link #updateCoinDeci} 的分工：那个表达"加减多少"（作者收益 +N），
      * 这个表达"够才减"（投票者扣款）。不要把作者侧也换成这个方法——作者的收益没有"够不够"问题。
@@ -224,7 +224,7 @@ public interface UserDao {
     int deductCoinDeci(@Param("userId") long userId, @Param("costDeci") int costDeci);
 
     /**
-     * 签到：**一条原子条件 UPDATE**，同时完成"加币 + 记日期 + 幂等判定"（设计 §五.2）。
+     * 签到：**一条原子条件 UPDATE**，同时完成"加币 + 记日期 + 幂等判定"（设计 §四.2）。
      *
      * <pre>
      * update users set coin_deci = coin_deci + #{deciPerCoin}, last_sign_date = #{today}
@@ -239,7 +239,7 @@ public interface UserDao {
      *
      * <p>{@code deciPerCoin} 由调用方传常量（{@code CoinService.DECI_PER_COIN}），
      * <b>不在 SQL 里写 {@code 10}</b>：单位约定只允许有一处声明（列名带 {@code deci} +
-     * 常量 + 只在 VO 出口换算，见设计 §四）。
+     * 常量 + 只在 VO 出口换算，见设计 §三）。
      *
      * @param today       站内"今天"（{@code SiteTime.today()}，上海自然日）
      * @param deciPerCoin 一枚硬币的十分位数（恒为 {@code 10}）

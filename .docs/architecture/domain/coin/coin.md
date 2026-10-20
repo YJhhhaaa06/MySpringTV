@@ -4,32 +4,14 @@
 > 本篇只讲本域的**数据模型 / 端点契约 / 口径 / 边界**；**用户可见规则**另篇（[coin-需求](./coin-需求.md)）。
 > **不展开**横切机制（缓存三态 / 事务 / 鉴权 / 限流 / 事件），去向见文末 [§边界与去向](#边界与去向机制外链)。
 >
-> ⚠️ 本仓**没有真实流量**（`AGENTS.md`「项目定位与优化口径」）⇒ 所有数值（TTL / 每日币数 / 上限）
-> 都是**拍的**，靠"来源 + 推翻条件"登记，**不靠数值可信**。
->
 > 📌 **落点纪律（2026-10-19 确认）**：本域**开工就建**本篇与 [coin-需求](./coin-需求.md) —— 它们是
 > **活的事实源**（**执行中随代码改**、收口时即终态）；**执行态**在 `task/CURRENT_TASKS.md` 的 `T#` 回写里；
-> **过程物**（设计讨论 / 方案比较 / 否决记录）在**收口时**才归档到 `archive/coin-<归档日>/`（只读追溯）。
+>**过程物**（设计讨论 / 方案比较 / 否决记录）在**收口时**才归档到 `archive/coin-<归档日>/`（只读追溯）。
 > ★ **代码注释只许引用本篇路径**，**不得引用 `task/` 登记台**（登记台每期重建 ⇒ 引用即悬空）。
 
 ---
 
-## 一、域定位：为什么是新域
-
-`like` 是**二元态**（赞 / 取消），`favorite` 是**归属**（收进哪个夹）。投币是**有成本的计数 + 余额流转**，
-三件事把它与既有域分开：
-
-1. **写路径要动"钱"**：一次投币同时改 `content_coin`（关系）、`content.coin_count`（计数）、
-   `users.coin_deci`（**两个用户**的余额 —— 投的人减、作者加），且必须同进同退；
-2. **不可取消** ⇒ `content.coin_count` 是全仓**唯一没有"−"路径的计数列** ⇒
-   **不需要防负守卫**（对照 `content.like_count` 的守卫，见 [coin-需求 §五](./coin-需求.md) 与本篇 §十）；
-3. **"我投了几枚"是一个数量**（`0/1/2`），不是布尔 ⇒ 缓存载体与 VO 形态都与 like 不同（§七）。
-
-**刻意不做的两块**：不建"通知作者"的机制（本仓无通知体系）、不做硬币明细流水页与 UP主获币面板（见 §十）。
-
----
-
-## 二、数据模型（Flyway **V5**）
+## 一、数据模型（Flyway **V5**）
 
 ```sql
 ALTER TABLE `users`
@@ -53,14 +35,14 @@ CREATE TABLE IF NOT EXISTS `content_coin` (
 ```
 
 **不做逐次追加的流水行**：单视频封顶 2，追加行要靠 `SUM` + 锁才能守住上限（并发下有竞态），
-而"明细页"本期已定不做 ⇒ 无收益。单行 `amount` 让封顶可以走**原子条件写**（§五）。
+而"明细页"本期已定不做 ⇒ 无收益。单行 `amount` 让封顶可以走**原子条件写**（§四）。
 
 ⚠️ `coin_count` 是 `unsigned` 但**只增不减** ⇒ 不需要 T34 那套 `CAST(... AS SIGNED)` 守卫。
 **这是口径差异、不是漏改**（对照 `content.like_count` 有 − 路径）。
 
 ---
 
-## 三、端点契约
+## 二、端点契约
 
 写 = `POST` + `x-www-form-urlencoded`、读 = `GET` + query —— 沿袭 `/like/*`、`/favorite/*` 的既有风格。
 
@@ -69,7 +51,7 @@ CREATE TABLE IF NOT EXISTS `content_coin` (
 | `POST /coin/add` | `@RequiresLogin` | `contentId`、`count`（`1` 或 `2`） | `{ "balance": 1.5 }` | 「投币成功」 |
 | `POST /coin/signIn` | `@RequiresLogin` | — | `{ "balance": 1.5, "credited": true }` | 「签到成功」/「今日已签到」 |
 
-- ★ **不新增"投币状态"读端点**：`0/1/2` 随**详情**内嵌（§七）。这是与 like / favorite **有意的不同**
+- ★ **不新增"投币状态"读端点**：`0/1/2` 随**详情**内嵌（§六）。这是与 like / favorite **有意的不同**
   —— 它们各有 `status` 端点，投币刻意没有（一个数量字段就够三种分支，且省一趟往返）。
 - ★ **余额复用 `/user/me`**（`UserInfoVO` 加 `coin` 字段，一位小数）：不新增"余额查询"端点。
   写操作**响应体回带新余额** ⇒ 前端投币/签到后无需再拉一次 `/user/me`。
@@ -81,7 +63,7 @@ CREATE TABLE IF NOT EXISTS `content_coin` (
 
 ---
 
-## 四、硬币经济（**单位约定**）
+## 三、硬币经济（**单位约定**）
 
 | 量 | 口径 |
 |---|---|
@@ -98,9 +80,9 @@ CREATE TABLE IF NOT EXISTS `content_coin` (
 
 ---
 
-## 五、写路径：校验顺序与并发原子性
+## 四、写路径：校验顺序与并发原子性
 
-### 5.1 投币（单事务）
+### 4.1 投币（单事务）
 
 校验顺序按本仓既有分界线「**参数形态 → 存在性 → 类型/归属 → 资源状态**」：
 
@@ -135,7 +117,7 @@ UPDATE users SET coin_deci = coin_deci - ?
 **事务**：投币是 `@Transactional`（关系行 + 两条计数列 + **两个用户**的余额必须同进同退）；
 末尾发 `CoinChangedEvent`，由 `CoinChangedListener` 在 `@TransactionalEventListener(AFTER_COMMIT)` 写缓存。
 
-### 5.2 签到（幂等，一条原子语句，**不加事务**）
+### 4.2 签到（幂等，一条原子语句，**不加事务**）
 
 ```sql
 UPDATE users SET coin_deci = coin_deci + 10, last_sign_date = :today
@@ -148,7 +130,7 @@ UPDATE users SET coin_deci = coin_deci + 10, last_sign_date = :today
 
 ---
 
-## 六、缓存形态
+## 五、缓存形态
 
 | key | 结构 | 内容 | TTL | 失效触发方 |
 |---|---|---|---|---|
@@ -164,7 +146,7 @@ UPDATE users SET coin_deci = coin_deci + 10, last_sign_date = :today
   ② `content:coinCount` 是**单调只增** ⇒ 用条件 `INCRBY amount`。
 - ★ **`ContentCacheDTO` 一字符不改**（那个"冻结键集"不动）—— 见下条。
 
-### 6.1 公共计数为什么不内联进内容缓存（对 **F-25** 的站边 → **T43 已成为全局口径**）
+### 5.1 公共计数为什么不内联进内容缓存（对 **F-25** 的站边 → **T43 已成为全局口径**）
 
 投币开工时（2026-10-18）仓内"计数缓存"并存两种形态：`like` / `comment` 的计数**内联**进
 `content:{id}` JSON（代价 = **每次点赞/评论连坐失效整份内容缓存**），`favorite`（T11）**只走独立 key**。
@@ -175,16 +157,9 @@ UPDATE users SET coin_deci = coin_deci + 10, last_sign_date = :today
 [缓存与数据一致性 §五.1](../../tech/cache/缓存与数据一致性.md)；F-25 已核销（`task/FURTHER_ISSUES.md`）。
 本域**无需改代码**：`content:coinCount` 本来就是按这个口径做的，T43 只是让其他三个跟上来。
 
-### 6.2 为什么不是 **F-21** 被否决的那种形态
-
-**F-21 否决的是**"布隆过滤器 + 滑动窗口 + 新增冗余表 + `(user,content)` 维度 key"的**组合三件套**；
-而"**每用户维度完整集合 / 完整哈希**"是本仓**在生产中跑着**的形态
-（`user:likeSet` / `user:favoriteSet` / `user:following` / `feed:inbox`），投币照搬即可。**两者不是一回事。**
-（同款误判我 2026-10-18 犯过一次、当日更正 —— 这条区分留在此处，免得下次再混。）
-
 ---
 
-## 七、互动态与公共计数（**与 like / favorite 刻意不同形**）
+## 六、互动态与公共计数（**与 like / favorite 刻意不同形**）
 
 - **详情**：`interaction.coin` = 我投了几枚（`0/1/2`）；**图文帖该维 = `null`**
   —— 即 `interaction` 子对象"不适用该维度"的表示（与"本面不查"**共用 `null`**，不另造表示）。
@@ -198,11 +173,11 @@ UPDATE users SET coin_deci = coin_deci + 10, last_sign_date = :today
   那两趟批量与 `feed → coin.service` 依赖一并删除。`ContentVO` 上**没有** `coinCount` 字段。
 - ⚠️ 由此 `InteractionStatusVO` 的键集 **3 → 4**（多一个 `coin`）；列表各面不选该维 ⇒ 列表里恒 `null`，
   前端静默忽略（沿用三态口径）。
-- ★ 与 like / favorite 的**第二处不同**：它们的"我的状态"走独立端点，投币走**详情内嵌**（§三）。
+- ★ 与 like / favorite 的**第二处不同**：它们的"我的状态"走独立端点，投币走**详情内嵌**（§二）。
 
 ---
 
-## 八、错误码
+## 七、错误码
 
 | 码 | 触发 | 文案 |
 |---|---|---|
@@ -216,14 +191,14 @@ UPDATE users SET coin_deci = coin_deci + 10, last_sign_date = :today
 
 ---
 
-## 九、依赖边与登记
+## 八、依赖边与登记
 
 | 边 | 形态 | 依据 |
 |---|---|---|
 | coin → `content.dao.ContentDao` | `findAliveContentAuthorAndType`（一趟取 `authorId` + `type`）/ `updateCoinCount` / `findCoinCount` / `findCoinCountsByIds`（计数缓存回源） | 《模块边界与依赖》§三「**同事务改计数/级联 ⇒ 允许 DAO 薄依赖**」；其中**纯读的那几条窄查询**属该文 §六 要登记的读例外 |
 | coin → `user.dao.UserDao` | `updateCoinDeci` / `deductCoinDeci` / `signIn` / `findCoinDeci` / `findLastSignDate` | **计数列方法进所在表的 DAO**（follow 域 `updateFollowCount` 先例）；`users` 的两列由本域维护 |
 | coin → `coin.dao.ContentCoinDao` | `content_coin` 表（**按表命名**，镜像 `ContentLikeDao`） | 自有数据 |
-| interaction → `coin.service.CoinService` | 详情互动态的第四维 `coin`（`getCoinAmount`，按 `type` 分流）+ **公共计数** `getCoinCount`（`getPublicCounts` 三件套之一，T43） | §七；**只调 Service**，不碰 `coin.cache`（ArchUnit 规则 2） |
+| interaction → `coin.service.CoinService` | 详情互动态的第四维 `coin`（`getCoinAmount`，按 `type` 分流）+ **公共计数** `getCoinCount`（`getPublicCounts` 三件套之一，T43） | §六；**只调 Service**，不碰 `coin.cache`（ArchUnit 规则 2） |
 
 ★ **T43 删掉的两条边**：`content → coin.service`（详情/列表填 `coinCount`）与
 `feed → coin.service`（列表批量）。前者改由互动域聚合（`content → interaction` 是既有边），
@@ -238,7 +213,7 @@ UPDATE users SET coin_deci = coin_deci + 10, last_sign_date = :today
 读例外：`findAliveContentAuthorAndType` / 计数回源窄查询） —— 该文自身纪律是
 "纯读例外**登记在此即认账**"，不登记就是"无声绕开判据"。✅ **T42 已登记**（2026-10-19）。
 
-### 9.1 F-18 复核结论（**升级条件未触发**）
+### 8.1 F-18 复核结论（**升级条件未触发**）
 
 投币让 `interaction` 域聚合到**第 4 个域**，字面上够到了 F-18 写的升级条件。**复核后判未触发**：
 `coin` 域**不依赖 content 的任何 Service / Bean**（只有 `ContentDao` 薄依赖，与 favorite 同形）
@@ -247,21 +222,19 @@ UPDATE users SET coin_deci = coin_deci + 10, last_sign_date = :today
 
 ---
 
-## 十、已知代价
+## 九、已知代价
 
 | # | 代价 | 边界 / 推翻条件 |
 |---|---|---|
 | 1 | **`count = 2` 而剩余额度只有 1 时，也答 409「已用完」**（文案不够精确——还剩 1 枚） | 判据来自封顶的条件写 `amount + ? <= 2`（影响 0 行 ⇒ 409），它分不出"已满"与"不够这一次"；前端按 `0/1/2` 只给出合法选项（`1` ⇒ 只能再投 1），故**正常客户端不可达**。推翻 = 若要把这条也精确到文案，得先读 `amount` 再判（破坏"不先读后写"）或新增一条拒因码 |
-| 2 | **详情多一次缓存读**：`coinCount` 走独立 key（原为"列表批量"，T43 起列表不带计数） | 是**一条 key 的 GET**，与内容信息同页、可并发；推翻 = 若详情页 QPS 证明这次读成为瓶颈，先量命中率（它是 `content:coinCount` 单键，命中率应接近内容 key）再谈合并 |
-| 3 | `coin_count` 无 − 路径 ⇒ 与 `like_count` 口径不同（后者有 T34 守卫） | 有意差异（不可取消）；推翻 = 若将来允许取消投币 ⇒ 须补守卫 |
-| 4 | 数值全为拍值（`coin-ttl` / 每日 1 枚 / 上限 2 / `1/10`） | **无真实流量** ⇒ 不可验；推翻 = 有真实行为分布或压测基线 ⇒ 重定价 |
-| 5 | **签到 / 投币无通知作者机制**；**无硬币明细页**、**无 UP主获币面板** | 本期已裁剪（见 [coin-需求 §六](./coin-需求.md)）；推翻 = 需要这些叙事时另开 |
-| 6 | 余额列 `int` 而非 `unsigned` | 语义需要"扣到负数前拦住"，靠条件守卫；给 `unsigned` 会让 `CAST` 技巧渗进来 |
-| 7 | **并发首次投币的理论死锁窗口**：`insertIgnoreZero` 在已存在行上取共享锁，紧随的条件 `UPDATE` 要升级排他锁 ⇒ 两个事务同时做这两步时存在 InnoDB `1213` 死锁、其中一个答 500 的可能（`INSERT ... ON DUPLICATE KEY UPDATE` 是同族的经典死锁形态）。**未实测复现**（T38/T42 的并发用例多次运行全绿，窗口在两条语句之间的微秒级） | 本仓无真实流量；改为 ODKU 或加重试都要额外语义/代码。推翻 = 真实并发下出现 1213 ⇒ 届时改 `INSERT … ON DUPLICATE KEY UPDATE amount = amount`（把共享锁提前成排他锁）或对 1213 做一次重试 |
+| 2 | `coin_count` 无 − 路径 ⇒ 与 `like_count` 口径不同（后者有 T34 守卫） | 有意差异（不可取消）；推翻 = 若将来允许取消投币 ⇒ 须补守卫 |
+| 3 | **签到 / 投币无通知作者机制**；**无硬币明细页**、**无 UP主获币面板** | 本期已裁剪（见 [coin-需求 §六](./coin-需求.md)）；推翻 = 需要这些叙事时另开 |
+| 4 | 余额列 `int` 而非 `unsigned` | 语义需要"扣到负数前拦住"，靠条件守卫；给 `unsigned` 会让 `CAST` 技巧渗进来 |
+| 5 | **并发首次投币的理论死锁窗口**：`insertIgnoreZero` 在已存在行上取共享锁，紧随的条件 `UPDATE` 要升级排他锁 ⇒ 两个事务同时做这两步时存在 InnoDB `1213` 死锁、其中一个答 500 的可能（`INSERT ... ON DUPLICATE KEY UPDATE` 是同族的经典死锁形态）。**未实测复现**（T38/T42 的并发用例多次运行全绿，窗口在两条语句之间的微秒级） | 本仓无真实流量；改为 ODKU 或加重试都要额外语义/代码。推翻 = 真实并发下出现 1213 ⇒ 届时改 `INSERT … ON DUPLICATE KEY UPDATE amount = amount`（把共享锁提前成排他锁）或对 1213 做一次重试 |
 
 ---
 
-## 十一、测试口径（钉住什么）
+## 十、测试口径（钉住什么）
 
 **契约（HTTP 层）**：余额不足 ⇒ 400 **且无任何副作用**（无投币行、计数不变、零扣款）；
 封顶 ⇒ 409 且 `amount` 停在 2；图文 400；自投 400；404；`count = 3` ⇒ 400；
@@ -303,20 +276,20 @@ UPDATE users SET coin_deci = coin_deci + 10, last_sign_date = :today
 | 编号 | 一句话 | 详见 |
 |---|---|---|
 | F-13 | 投币议题（视频可投 / 帖子不可投；"涉币的余额 / 交易 / 幂等"）—— **已采纳**（2026-10-19）⇒ 本域 | 本篇 · [coin-需求](./coin-需求.md) |
-| R-17 | 投币（硬币）域拍板：**签到得币**（每日 1 枚、手动）+ **视频投币**（单视频封顶 2、UP主得 1/10、不可取消、不能自投）；**硬币来源对齐偏离 B站**（本仓无"在线"定义） | 本篇 §四 / §五 |
+| R-17 | 投币（硬币）域拍板：**签到得币**（每日 1 枚、手动）+ **视频投币**（单视频封顶 2、UP主得 1/10、不可取消、不能自投）；**硬币来源对齐偏离 B站**（本仓无"在线"定义） | 本篇 §三 / §四 |
 
 **任务 `T#`（本期 T36–T42，已收口）**
 
 | 编号 | 一句话结论 | 详见 |
 |---|---|---|
-| T36 | V5 迁移（`content_coin` + `users` 两列 + `content.coin_count`）+ `CoinSchemaTests` 结构契约 + `coin` 进 `ArchitectureTests.DOMAINS` | §二 |
-| T37 | 签到供给端：**一条原子条件 `UPDATE`**（幂等 / 并发安全），不加事务、不发事件；`/user/me` 回带 `coin`（一位小数）与 `signedToday` | §三 / §四 / §五.2 |
-| T38 | 投币写路径：七级校验顺序（**5 先于 6**）+ **两台原子条件写**（封顶 / 扣款），单事务、拒单零副作用 | §五.1 |
-| T39 | 缓存两 key：`user:coinAmount`（HASH，写**新总量**）+ `content:coinCount`（条件 `INCRBY`）；条件写 / 空标记 / 单飞 / 降级；内容删除**只失效不删行** | §六 |
-| T40 | 读面：`interaction.coin`（视频 `0/1/2`、图文 `null`）+ `coinCount`（三面共用批量 + feed 自持一趟 + 详情单条）；`ContentCacheDTO` 未改 | §七 |
+| T36 | V5 迁移（`content_coin` + `users` 两列 + `content.coin_count`）+ `CoinSchemaTests` 结构契约 + `coin` 进 `ArchitectureTests.DOMAINS` | §一 |
+| T37 | 签到供给端：**一条原子条件 `UPDATE`**（幂等 / 并发安全），不加事务、不发事件；`/user/me` 回带 `coin`（一位小数）与 `signedToday` | §二 / §三 / §四.2 |
+| T38 | 投币写路径：七级校验顺序（**5 先于 6**）+ **两台原子条件写**（封顶 / 扣款），单事务、拒单零副作用 | §四.1 |
+| T39 | 缓存两 key：`user:coinAmount`（HASH，写**新总量**）+ `content:coinCount`（条件 `INCRBY`）；条件写 / 空标记 / 单飞 / 降级；内容删除**只失效不删行** | §五 |
+| T40 | 读面：`interaction.coin`（视频 `0/1/2`、图文 `null`）+ `coinCount`（三面共用批量 + feed 自持一趟 + 详情单条）；`ContentCacheDTO` 未改 | §六 |
 | T41 | 前端接入：投币按钮 / 弹层 + 签到按钮 + 卡片投币数（原生 JS、无构建步骤；后端零改动） | [coin-需求](./coin-需求.md) §四 |
-| T42 | 期收口：依赖边登记（《模块边界与依赖》§六）+ 编号收编 + 全量回归 + **T36–T41 测试复核**（补判别力缺口：累计语义 / 余额竞态 / 半枚 floor / 校验次序 / 缓存写失败 / 批量不循环） | §九 / §十一 |
-| T43 | **计数缓存规范形态定稿**（F-25 收口）：like / comment 计数搬出 `content:{id}`、四个计数只在详情平铺、列表去计数；本域随之**移除** `content/feed → coin.service` 两条读边，改为 `interaction.getPublicCounts` 聚合 | [缓存与数据一致性 §五.1](../../tech/cache/缓存与数据一致性.md) · §七 |
+| T42 | 期收口：依赖边登记（《模块边界与依赖》§六）+ 编号收编 + 全量回归 + **T36–T41 测试复核**（补判别力缺口：累计语义 / 余额竞态 / 半枚 floor / 校验次序 / 缓存写失败 / 批量不循环） | §八 / §十 |
+| T43 | **计数缓存规范形态定稿**（F-25 收口）：like / comment 计数搬出 `content:{id}`、四个计数只在详情平铺、列表去计数；本域随之**移除** `content/feed → coin.service` 两条读边，改为 `interaction.getPublicCounts` 聚合 | [缓存与数据一致性 §五.1](../../tech/cache/缓存与数据一致性.md) · §六 |
 
 ---
 

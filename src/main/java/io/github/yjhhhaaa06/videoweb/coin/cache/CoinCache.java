@@ -22,7 +22,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 投币缓存（投币专项 T39 / {@code architecture/domain/coin/coin.md} §六）——
+ * 投币缓存（投币专项 T39 / {@code architecture/domain/coin/coin.md} §五）——
  * 决策⑤「显式封装层」，**不用** {@code @Cacheable}。骨架与 {@code like.cache.LikeCache} /
  * {@code favorite.cache.FavoriteCache} 同构（任务书要求"别自创"）。
  *
@@ -45,7 +45,7 @@ import java.util.Set;
  * <h2>★ 内容删除：只失效缓存，**不物理删 {@code content_coin} 行**（与 like 有意不同）</h2>
  * like 的内容删除会删关系行（{@code ContentLikeDao.deleteByContentId}）；投币**不能**这么做：
  * <ul>
- *   <li>投币**不可取消**（`architecture/domain/coin/coin.md` §一 / §二），行是已发生的硬币流转凭据；</li>
+ *   <li>投币**不可取消**（`architecture/domain/coin/coin.md` §一），行是已发生的硬币流转凭据；</li>
  *   <li>不变量 {@code content.coin_count == SUM(content_coin.amount)} 要求行留存 ——
  *       删行会让"计数列"失去可复算的真相源（本仓的缓存/计数都靠独立 oracle 复算，删掉就复算不了）；</li>
  *   <li>内容 id 自增不复用 ⇒ 留下的行不会指向"另一条内容"。</li>
@@ -125,7 +125,7 @@ public class CoinCache {
      * <p>① {@code user:coinAmount} —— {@code HSET} **新总量**（事件带出的
      * {@code newAmount}）：投币是"单行聚合"（唯一键 {@code uk_user_content}），一次投 1 或 2
      * 后该用户对该内容的累计枚数是确定的；写总量 ⇒ **精确回放**、幂等，重复投递同一事件
-     * 不会多算（设计 §六 ①）。
+     * 不会多算（设计 §五 ①）。
      * <p>② {@code content:coinCount} —— 条件 {@code INCRBY delta}：投币不可取消 ⇒
      * 本计数单调只增，增量写是精确的。
      *
