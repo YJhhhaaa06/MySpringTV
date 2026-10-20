@@ -44,21 +44,22 @@ import static org.mockito.Mockito.verifyNoInteractions;
  *
  * <h2>覆盖什么（期望值全部出自业务口径，盖住实现照样写得出来）</h2>
  * <ul>
- *   <li><b>单条三维</b>：已赞 / 已藏 / 已关注作者 ⇒ 各自 true；同作者的另一条内容
+ *   <li><b>单条的前三维</b>：已赞 / 已藏 / 已关注作者 ⇒ 各自 true；同作者的另一条内容
  *       ⇒ 只有 {@code isFollowed=true}（★ 关注判的是**作者**不是内容）；</li>
  *   <li>★ <b>域边界排除评论点赞</b>：只赞了某内容的**评论** ⇒ 该内容的 {@code isLiked} 必须 false
  *       （like 域同时含内容赞与评论赞，互动域只用**内容赞**契约）；</li>
  *   <li>★ <b>匿名（userId == null）</b>：返回 {@code null}（**不是**三个 false）且
  *       **不查任何互动域**（spy 零交互）—— "没登录"与"登录但没互动"必须可区分；</li>
- *   <li>★ <b>批量不重不漏</b>：给 N 个（含重复）id 返回 N 条唯一映射；三维在一次批量里各自正确；</li>
- *   <li>★ <b>批量原样透传批量语义</b>：三维各**恰好一趟**批量调用、单条方法**零次**
+ *   <li>★ <b>批量不重不漏</b>：给 N 个（含重复）id 返回 N 条唯一映射；前三维在一次批量里各自正确
+ *       （T40 的 {@code coin} 恒 {@code null}，其读面契约见 {@code coin/CoinReadTests}）；</li>
+ *   <li>★ <b>批量原样透传批量语义</b>：前三维各**恰好一趟**批量调用、单条方法**零次**
  *       （逐条会让 100 条列表变 200+ 次往返 —— {@code ContentStatusFiller} 的既有纪律）；</li>
  *   <li><b>作者未知（authorId &lt;= 0）</b>：该条目不进关注查询、按 false 作答
  *       （与既有列表填充口径一致）；全部作者未知 ⇒ 关注维度整趟不发查询。</li>
  * </ul>
  *
  * <h2>★ 期望值怎么来的（规避"迎合型伪测试"）</h2>
- * "三维归属"出自 R-10（{@code favorite.md} §六：isLiked / isFavorited / isFollowed）；
+ * "前三维归属"出自 R-10（{@code favorite.md} §六：isLiked / isFavorited / isFollowed）；
  * "匿名 ⇒ null 且不查"出自同节（"不是三个 false"是它相对平铺的表达力增益）；
  * "批量不得循环调单条"出自 **T9 红线**（{@code favorite.md 附录「编号速查」} T9）与 {@code ContentStatusFiller}
  * 类注释的性能性质；"评论赞不算内容赞"出自 T9 红线"域边界排除评论点赞"；
@@ -71,7 +72,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
  *   <li>去掉两条方法的 {@code userId == null} 短路 ⇒ 两条"匿名"用例变红（NPE / 有交互）；</li>
  *   <li>把 {@code batchGetStatus} 改成循环调 {@code getStatus}（或循环调三个单条方法）
  *       ⇒ {@code 批量一趟透传不循环调单条} 变红（单条方法被调 N 次）；</li>
- *   <li>把关注维度的作者换成内容 id（或漏传 authorId）⇒ {@code 单条三维各自正确}
+ *   <li>把关注维度的作者换成内容 id（或漏传 authorId）⇒ {@code 单条赞藏关注各自正确}
  *       的"同作者另一条"断言变红。</li>
  * </ul>
  *
@@ -85,8 +86,10 @@ class InteractionStatusContractTests extends AbstractHttpIntegrationTest {
     private static final String PASSWORD = "abc123456";
 
     /**
-     * 既有用例（T9 立的）一律按"**全量三维**"调用 —— 它们钉的是"三维归属 / 不重不漏 / 批量透传"，
-     * 与 T13 的维度选择正交；维度选择的专属用例见本类末尾那一组（{@link #只选关注维则另外两维不查}）。
+     * 既有用例（T9 立的）一律按"**枚举全集（赞 / 藏 / 关注三维）**"调用 —— 它们钉的是
+     * "前三维归属 / 不重不漏 / 批量透传"，与 T13 的维度选择正交；第四维 {@code coin} 不在枚举里、
+     * 批量契约恒不查，其读面契约见 {@code coin/CoinReadTests}。维度选择的专属用例见本类末尾那一组
+     * （{@link #只选关注维则另外两维不查}）。
      */
     private static final Set<InteractionDimension> ALL_DIMENSIONS =
             EnumSet.allOf(InteractionDimension.class);
@@ -129,8 +132,8 @@ class InteractionStatusContractTests extends AbstractHttpIntegrationTest {
     // ========================================================================
 
     @Test
-    @DisplayName("★单条：三维各自正确（同作者另一条只亮关注）、评论赞不算内容赞、按用户隔离")
-    void 单条三维各自正确且按用户隔离() {
+    @DisplayName("★单条：赞/藏/关注三维各自正确（同作者另一条只亮关注）、评论赞不算内容赞、按用户隔离")
+    void 单条赞藏关注各自正确且按用户隔离() {
         TestUser viewer = register("13900009001", "t9-viewer");
         TestUser author = register("13900009002", "t9-author");
         TestUser other = register("13900009003", "t9-other");
@@ -180,8 +183,8 @@ class InteractionStatusContractTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("★单条：登录但零互动 ⇒ 三维全 false 且**非 null**（与匿名可区分）")
-    void 单条登录零互动返回非null且三维false() {
+    @DisplayName("★单条：登录但零互动 ⇒ 赞/藏/关注全 false 且**非 null**（与匿名可区分）")
+    void 单条登录零互动返回非null且前三项false() {
         TestUser spectator = register("13900009017", "t9-spectator");
         TestUser author = register("13900009018", "t9-spectator-author");
         long content = insertContent(author.id(), 1);
@@ -194,6 +197,9 @@ class InteractionStatusContractTests extends AbstractHttpIntegrationTest {
         assertThat(status.getIsLiked()).isFalse();
         assertThat(status.getIsFavorited()).isFalse();
         assertThat(status.getIsFollowed()).isFalse();
+        assertThat(status.getCoin())
+                .as("★ 第四维：视频详情恒有数量 —— 没投过 ⇒ 0（不是 null；null 只用于图文/列表）")
+                .isZero();
     }
 
     @Test
@@ -221,8 +227,8 @@ class InteractionStatusContractTests extends AbstractHttpIntegrationTest {
     // ========================================================================
 
     @Test
-    @DisplayName("★批量：给 N 个 id 返回 N 条唯一映射（不重不漏），三维各自正确、干扰行不串")
-    void 批量不重不漏且三维各自正确() {
+    @DisplayName("★批量：给 N 个 id 返回 N 条唯一映射（不重不漏），赞/藏/关注各自正确、干扰行不串")
+    void 批量不重不漏且赞藏关注各自正确() {
         TestUser viewer = register("13900009006", "t9-batch");
         TestUser other = register("13900009007", "t9-batch-other");
         TestUser author = register("13900009008", "t9-batch-author");
@@ -269,7 +275,7 @@ class InteractionStatusContractTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("★批量契约原样透传批量语义：三维各一趟批量、单条方法零次（不得循环调单条）")
+    @DisplayName("★批量契约原样透传批量语义：赞/藏/关注各一趟批量、单条方法零次（不得循环调单条）")
     void 批量一趟透传不循环调单条() {
         TestUser viewer = register("13900009010", "t9-pass");
         TestUser author = register("13900009011", "t9-pass-author");
@@ -287,7 +293,7 @@ class InteractionStatusContractTests extends AbstractHttpIntegrationTest {
                 new InteractionTarget(c3, otherAuthor.id(), 1),
                 new InteractionTarget(c1, author.id(), 1)), ALL_DIMENSIONS);        // 重复 id
 
-        // ★ 三维各**恰好一趟**批量：内容 id 去重后 3 个、作者去重后 2 个（入参 4 条含重复）
+        // ★ 赞/藏/关注各**恰好一趟**批量：内容 id 去重后 3 个、作者去重后 2 个（入参 4 条含重复）
         //   ——逐条调用会让这里的 times(1) 变 times(N)、never() 变 N 次（判别力就在这两个断言）。
         //   入参断言用 argThat + 集合相等（不看顺序）：判别力（一趟 + 去重）不减，且不把测试
         //   绑死在实现选的去重容器（LinkedHashMap 的首次出现序）上。
@@ -378,6 +384,8 @@ class InteractionStatusContractTests extends AbstractHttpIntegrationTest {
         assertThat(status.getIsLiked())
                 .as("★ 未选中 ⇒ null（不是 false —— 点赞数据明明在场，填 false 是撒谎）").isNull();
         assertThat(status.getIsFavorited()).as("未选中 ⇒ null（收藏数据也在场）").isNull();
+        assertThat(status.getCoin())
+                .as("第四维没有维度常量、批量契约恒不查 ⇒ 也是 null（与「未选中」同表示）").isNull();
 
         // ★ 判别力：去掉 dims.contains 守卫 ⇒ 这两条立即变红（不是"值对就行"）
         verify(likeService, never()).batchIsContentLiked(anyLong(), anyList());
@@ -388,7 +396,7 @@ class InteractionStatusContractTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("★0 维：三域一趟都不查，但仍返回「对象在、三维全 null」（与匿名的 null 可区分）")
+    @DisplayName("★0 维：三域一趟都不查，但仍返回「对象在、四维全 null」（与匿名的 null 可区分）")
     void 零维_不查任何域但对象仍在() {
         TestUser viewer = register("13900009022", "t13-zero-dim");
         TestUser author = register("13900009023", "t13-zero-dim-author");
@@ -406,6 +414,7 @@ class InteractionStatusContractTests extends AbstractHttpIntegrationTest {
         assertThat(status.getIsLiked()).isNull();
         assertThat(status.getIsFavorited()).isNull();
         assertThat(status.getIsFollowed()).isNull();
+        assertThat(status.getCoin()).as("批量契约恒不查投币维（0 维也不例外）").isNull();
         verifyNoInteractions(likeService, favoriteService, followService);
     }
 
@@ -421,9 +430,10 @@ class InteractionStatusContractTests extends AbstractHttpIntegrationTest {
                 List.of(new InteractionTarget(content, author.id(), 1)), null);
 
         InteractionStatusVO status = result.get(content);
-        assertThat(status.getIsLiked()).as("兜底为全量 ⇒ 三维恒有真值，不是 null").isFalse();
+        assertThat(status.getIsLiked()).as("兜底为全量 ⇒ 赞/藏/关注恒有真值，不是 null").isFalse();
         assertThat(status.getIsFavorited()).isFalse();
         assertThat(status.getIsFollowed()).isTrue();
+        assertThat(status.getCoin()).as("第四维不在枚举里 ⇒ 批量契约恒不查，保持 null").isNull();
         verify(likeService, times(1)).batchIsContentLiked(eq(viewer.id()), anyList());
         verify(favoriteService, times(1)).batchIsFavorited(eq(viewer.id()), anyList());
         verify(followService, times(1)).batchIsFollowing(eq(viewer.id()), anyList());

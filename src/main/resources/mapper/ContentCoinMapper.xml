@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  投币记录（content_coin）Mapper。
+
+  namespace 必须与 ContentCoinDao 全限定名一致。
+  本表是"单行聚合、不可取消"：一行 = 一个人对一条内容的累计枚数（1~2），没有删除语句。
+
+  ★ 两台原子条件写中的"封顶"那一台在这里（insertIgnoreZero + addAmount）；
+    "余额"那一台在 UserMapper.xml 的 deductCoinDeci。两者都不能改成"先读后写"。
+-->
+<mapper namespace="io.github.yjhhhaaa06.videoweb.coin.dao.ContentCoinDao">
+
+    <!-- 只保证行存在，**不承担封顶**（封顶在下面 addAmount 的 WHERE 上）。
+         INSERT IGNORE 对已存在行 = 0 行、不报错；判据是唯一键 uk_user_content。
+         ⚠️ 若把它改成普通 INSERT，重复投币会撞唯一键抛 DuplicateKeyException ⇒ 500/409 错位。 -->
+    <insert id="insertIgnoreZero">
+        insert ignore into content_coin (user_id, content_id, amount)
+        values (#{userId}, #{contentId}, 0)
+    </insert>
+
+    <!-- 条件累加：加完仍 ≤ 2 才写（`&lt;=` 是 XML 转义，SQL 里就是 `<=`）。
+         ★ 必须返回影响行数：0 行 ⇒ 封顶 ⇒ 409。
+         ★ 去掉 `and amount + #{delta} &lt;= 2`，并发各投 1 枚就会突破 2（CoinAddTests 并发用例必红）。
+         ⚠️ 不先 SELECT amount：读写窗口在并发下会让两个请求都读到旧值。 -->
+    <update id="addAmount">
+        update content_coin set amount = amount + #{delta}
+        where user_id = #{userId} and content_id = #{contentId} and amount + #{delta} &lt;= 2
+    </update>
+
+    <!-- 单列窄查询。返回包装类型 Integer：无行 ⇒ null（不是 0 —— 0 不是本表会落的值）。 -->
+    <select id="findAmount" resultType="java.lang.Integer">
+        select amount from content_coin where user_id = #{userId} and content_id = #{contentId}
+    </select>
+
+    <!-- T39 全量回填用：amount > 0 才是"投过币"的口径。
+         ⚠️ ContentCoinAmount 是 record（不可变）⇒ **必须用 <constructor> 映射**：
+            MyBatis 默认对象工厂走"无参构造 + setter"，对 record 会报
+            "There is no setter for property named 'contentId'"（实测，同 AuthorContentId）。
+            且 javaType 必须是包装类型 —— 构造器按 Class 匹配，原始类型不等。 -->
+    <resultMap id="contentCoinAmountMap"
+               type="io.github.yjhhhaaa06.videoweb.coin.model.ContentCoinAmount">
+        <constructor>
+            <arg column="content_id" javaType="java.lang.Long"/>
+            <arg column="amount" javaType="java.lang.Integer"/>
+        </constructor>
+    </resultMap>
+
+    <select id="findAmountsByUser" resultMap="contentCoinAmountMap">
+        select content_id, amount from content_coin where user_id = #{userId} and amount > 0
+    </select>
+
+</mapper>

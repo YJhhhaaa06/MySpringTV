@@ -10,7 +10,6 @@ package io.github.yjhhhaaa06.videoweb.like.event;
  * transactionTemplate.execute(conn -&gt; { ...写库... });
  * // 缓存更新放在事务提交后      ← 靠这行注释维系
  * cache.likeContent(userId, contentId);
- * contentCache.notifyLikeCountChanged(contentId);
  * </pre>
  *
  * 这有两个脆弱点：写错位置（挪进 lambda）就是"事务回滚但缓存已改"；

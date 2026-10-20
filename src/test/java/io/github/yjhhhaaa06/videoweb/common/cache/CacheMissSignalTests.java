@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.common.cache;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -23,6 +24,15 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@code ratelimit.CacheMissSignalWiringTests}；把 {@code mark()} 改成空实现 ⇒ 那边必红。
  */
 class CacheMissSignalTests {
+
+    @BeforeEach
+    void 清掉上一个用例可能残留的标记() {
+        // ★ 防"线程复用串味"的另一半：本类断言的是"未标记时 consume 必须是 false"，
+        //   若前一个测试类在**同一线程**上 mark 过却没走限流闸门（HTTP 才有 consume），
+        //   残留的 TRUE 会让本类第一条断言凭空变红（实测：全量回归里被投币域的直接调用用例抓到）。
+        //   @AfterEach 只能保证"本类不留给别人"，@BeforeEach 才能保证"别人不留给本类"。
+        CacheMissSignal.clear();
+    }
 
     @AfterEach
     void 清理本线程标记() {

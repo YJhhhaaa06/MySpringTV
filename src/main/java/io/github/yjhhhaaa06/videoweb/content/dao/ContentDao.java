@@ -1,6 +1,9 @@
 package io.github.yjhhhaaa06.videoweb.content.dao;
 
 import io.github.yjhhhaaa06.videoweb.content.model.AuthorContentId;
+import io.github.yjhhhaaa06.videoweb.content.model.ContentAuthorAndType;
+import io.github.yjhhhaaa06.videoweb.content.model.ContentCoinCount;
+import io.github.yjhhhaaa06.videoweb.content.model.ContentCountColumns;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentFavoriteCount;
 import io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO;
 import io.github.yjhhhaaa06.videoweb.content.model.entity.Content;
@@ -82,6 +85,151 @@ public interface ContentDao {
     Integer findAliveContentType(@Param("contentId") long contentId);
 
     /**
+     * 读**未软删**内容的（作者 id，类型）—— 投币写路径 T38 的门禁查询。
+     *
+     * <p>SQL: {@code SELECT user_id AS author_id, type FROM content WHERE id = ? AND is_deleted = 0}。
+     *
+     * <p>★ 一趟查询同时给出 **404 / 400（图文）/ 400（自投）三条拒因的输入**：
+     * 无行（含已软删）⇒ {@code null} ⇒ 404；{@code type != 1} ⇒ 图文不可投；
+     * {@code authorId == 投票者} ⇒ 自投。拆成"存在性 + 类型 + 作者"三次点查是三次往返，
+     * 而这三条判据本来就落在同一行上（同 {@link #findAliveContentType} 的合并思路）。
+     *
+     * <p>★ 这是 coin → content 的 **DAO 薄依赖**（同 {@link #findAliveContentType} 的形态：
+     * 同事务内一条窄查询、只读两列、不碰对方 service/model/cache）。其中**纯读**这一条属
+     * {@code 模块边界与依赖.md} §六 要登记的**读例外**（登记动作在 T42，不在本任务）——
+     * 这里先把"为什么可以这样读"的依据留在代码旁，避免后来者把它当成无声绕开判据。
+     *
+     * <p>⚠️ 返回类型是 record：**必须**用 {@code <constructor>} 映射（默认对象工厂走
+     * "无参构造 + setter"，对 record 会报 "no setter"）；无行 ⇒ {@code null}，故调用方
+     * 先判空再解引用，不要声明成原始类型。
+     *
+     * @return 作者 + 类型；内容不存在或已软删 ⇒ {@code null}
+     */
+    ContentAuthorAndType findAliveContentAuthorAndType(@Param("contentId") long contentId);
+
+    /**
+     * 投币数累加（累计被投币数）。
+     *
+     * <p>SQL: {@code update content set coin_count = coin_count + ? where id = ?}。
+     *
+     * <p>★ <b>没有防负守卫</b>（与 {@link #updateLikeCount} / {@link #updateCommentCount} 的
+     * {@code CAST(... AS SIGNED) + delta >= 0} 刻意不同）。这不是漏改，是**口径差异**：
+     * 投币**不可取消** ⇒ 本列只有"+"路径 ⇒ 不存在下溢，守卫没有要守的场景
+     * （{@code architecture/domain/coin/coin.md} §九 #2）。反过来照抄守卫会掩盖这个真实差异，
+     * 让人误以为本列也能减。
+     *
+     * <p>★ 必须与 {@code content_coin} 的关系行写在**同一事务**里（投币 Service 的
+     * {@code @Transactional}）：否则计数与明细会在提交窗口内不一致，
+     * 而不变量 {@code coin_count == SUM(amount)} 没有任何自愈路径。
+     *
+     * @param delta 本次投出的枚数（1 或 2）
+     * @return 受影响行数（内容行不存在时为 0；调用方已先做过 404 门禁，正常路径不会为 0）
+     */
+    int updateCoinCount(@Param("contentId") long contentId, @Param("delta") int delta);
+
+    /**
+     * 读某内容的累计投币数（**单列窄查询**，T39 缓存 miss 的回源）。
+     *
+     * <p>SQL: {@code select coin_count from content where id = #{contentId}}。
+     *
+     * <p>★ <b>刻意不加 {@code is_deleted = 0}</b>：这读的是**列值**，不是"内容是否可见"。
+     * 缓存（{@code content:coinCount:{id}}）要复现的是"这一列现在是多少"，与详情页能否看到
+     * 这条内容无关；加了过滤会让已软删内容的回源在"无行"与"0"之间摇摆，还会把
+     * "内容不存在"混进"计数缺失"。可见性判定是详情读路径的事（{@code findContent} 带过滤）。
+     *
+     * <p>⚠️ 返回**包装类型** {@link Integer}：无行（内容确实不存在）⇒ {@code null}。
+     * 缓存层据此**不写缓存**（内容不存在是 404 路径，把 {@code 0} 钉进 TTL 内就是假值）。
+     * 声明成 {@code int} 会在无行时 NPE（同 {@link #getContentStatus} 的实测口径）。
+     *
+     * <p>★ 这是 coin → content 的又一条**DAO 纯读**（{@code CoinCache} 的计数回源点）：
+     * 与 {@link #findFavoriteCountById} 同类 —— 主键点查、只读一列、不碰对方 service/model/cache。
+     * 按 {@code 模块边界与依赖.md} §六 的纪律属**显式登记例外**（登记动作在 T42）。
+     *
+     * @return 累计投币数；内容行不存在 ⇒ {@code null}
+     */
+    Integer findCoinCount(@Param("contentId") long contentId);
+
+    /**
+     * 批量读多个内容的累计投币数（T39 批量回填，**一趟** {@code IN} 查询）。
+     *
+     * <p>SQL: {@code select id as content_id, coin_count from content where id in (...)}。
+     * 同样**不带 {@code is_deleted} 过滤**（理由见 {@link #findCoinCount}）。
+     *
+     * <p>无匹配行**不出现在结果里**（调用方按"DB 里没有 ⇒ 计数 0"补齐）；
+     * 空入参由调用方拦截（MyBatis 的 {@code IN ()} 是语法错）。
+     *
+     * <p>⚠️ 返回 record ⇒ 必须用 {@code <constructor>} 映射（{@code ContentMapper.xml}）。
+     *
+     * @param ids 内容 id 集合（非空）
+     * @return 扁平行列表（顺序不保证，调用方按 id 归位）
+     */
+    List<ContentCoinCount> findCoinCountsByIds(@Param("ids") Collection<Long> ids);
+
+    /**
+     * 读某内容的**评论总数**（**单列窄查询**，T43 计数缓存 miss 的回源）。
+     *
+     * <p>SQL: {@code select comment_count from content where id = #{contentId}}。
+     *
+     * <p>★ <b>刻意不加 {@code is_deleted = 0}</b>：同 {@link #findCoinCount}——读的是**列值**，
+     * 不是"内容是否可见"；可见性判定在详情读路径（{@code findContent}）。
+     *
+     * <p>⚠️ 返回**包装类型** {@link Integer}：无行 ⇒ {@code null} ⇒ 缓存层不写缓存。
+     *
+     * <p>★ 这是 **content → content** 的自有查询（{@code ContentCountCache} 的回源点），
+     * 不涉及跨域：{@code content.comment_count} 是内容表自己的列，只是由评论域的事务负责 ±。
+     */
+    Integer findCommentCount(@Param("contentId") long contentId);
+
+    /**
+     * **一趟读齐四个公共计数列**（T44-2 详情计数聚合读的回源）。
+     *
+     * <p>SQL: {@code select like_count, comment_count, favorite_count, coin_count from content where id = ?}。
+     *
+     * <p>★ 为什么一趟取齐（T44-2 的核心收益）：详情响应要平铺四个计数，此前各自独立回源
+     * （冷内容全 miss = 5 条 SQL）；四列同在本行上 ⇒ 一趟主键点查取齐，miss 键再按
+     * "有选择回填"分别写回各自的独立键（只回填 miss 的，命中键不动——否则会把别域
+     * "未失效的键"用本次快照覆盖，重开已消除的旧值复活窗口）。
+     *
+     * <p>★ <b>刻意不加 {@code is_deleted = 0}</b>：同 {@link #findCoinCount}——读的是**列值**。
+     * 聚合读层的调用时点保证"载荷已命中"（内容存在且媒体完好）⇒ 本查询必然有行；
+     * 无行返回 {@code null} 的分支保留为防御（聚合层按"全 0 不回填"处理）。
+     *
+     * <p>⚠️ 返回 record ⇒ 必须用 {@code <constructor>} 映射（{@code ContentMapper.xml}），
+     * javaType 用包装类型。
+     *
+     * @return 四计数列；内容行不存在 ⇒ {@code null}（防御分支，正常调用时序下不可达）
+     */
+    ContentCountColumns findCountColumns(@Param("contentId") long contentId);
+
+    /**
+     * 读某内容的**点赞总数**（**单列窄查询**，T44-1 计数缓存 miss 的回源切换点）。
+     *
+     * <p>SQL: {@code select like_count from content where id = #{contentId}}。
+     *
+     * <p>★ <b>T44-1 回源口径切换</b>：此前（S3 起的既有实现）{@code LikeCache} 的计数回源走
+     * {@code COUNT(*) FROM content_like}（行数实时聚合）；本方法把它切到
+     * {@code content.like_count} 列——该列自 V1 起就存在，且点赞写路径一直在事务内
+     * ±1 维护（{@link #updateLikeCount}，T34 防负守卫），只是**读路径从未消费过它**。
+     * 切换动机：详情计数聚合读层（T44-2）的"全量查"要一趟从 {@code content} 行取齐四计数，
+     * like 若仍走实时聚合，就成了该查询里唯一随热度变贵的成员（favorite 在 T12 已做过同款切换）。
+     *
+     * <p>★ <b>刻意不加 {@code is_deleted = 0}</b>：同 {@link #findCoinCount}——读的是**列值**，
+     * 不是"内容是否可见"。配套不变式：作者删除内容时 {@code deleteContent} 在**同一事务**里
+     * 物理删点赞行并把本列归零（{@link #resetLikeCount}）⇒ {@code like_count == COUNT(*) content_like}
+     * 对**所有行**（含软删行）成立，{@code /like/content/count} 对已删内容仍返回 0（契约不变）。
+     *
+     * <p>⚠️ 返回**包装类型** {@link Integer}：无行 ⇒ {@code null} ⇒ 缓存层不写缓存
+     * （对齐 {@link #findCoinCount} / {@link #findCommentCount} 的口径）。
+     *
+     * <p>★ 这是 like → content 的**DAO 纯读**（{@code LikeCache} 的计数回源点）：
+     * 与 {@link #findFavoriteCountById} 同类 —— 主键点查、只读一列、不碰对方 service/model/cache，
+     * 按 {@code 模块边界与依赖.md} §六 的纪律属**显式登记例外**（登记动作在 T44-1）。
+     *
+     * @return 点赞总数；内容行不存在 ⇒ {@code null}
+     */
+    Integer findLikeCountById(@Param("contentId") long contentId);
+
+    /**
      * 评论数增减。TV: {@code UPDATE content SET comment_count = comment_count + ? WHERE id = ?}
      *
      * <p><b>T34 补防负守卫</b>（TV 原 SQL 无守卫）。{@code content.comment_count} 是
@@ -134,6 +282,25 @@ public interface ContentDao {
      * @return 受影响行数（守卫拦住时为 0）
      */
     int updateLikeCount(@Param("contentId") long contentId, @Param("delta") int delta);
+
+    /**
+     * 作者删除内容时把 {@code content.like_count} **归零**（T44-1）。
+     *
+     * <p>SQL: {@code UPDATE content SET like_count = 0 WHERE id = #{contentId}}。
+     *
+     * <p>★ 为什么必须存在：{@code deleteContent} 在同一事务里**物理删** {@code content_like} 行，
+     * 但 softDelete 不动本列——若不归零，{@code like_count == COUNT(*) content_like} 这条不变量
+     * 对软删行即告破裂：回源读列（T44-1 起）会把"5"读给一条已删除的内容，而切换前
+     * {@code COUNT(*)} 的口径天然返回 0 ⇒ {@code /like/content/count} 的可观察行为会**回退**。
+     * 归零后不变量对**所有行**成立（favorite/coin 的列无此问题：删除时行本就不删）。
+     *
+     * <p>写**绝对值**而非 ±delta：删除时并不知道现值，且置 0 恒安全（不存在 unsigned 下溢）；
+     * 与行删除**同事务**（调用方 {@code ContentService#deleteContent} 的 {@code @Transactional}），
+     * 行删列留的中间态对外不可见。
+     *
+     * @return 受影响行数
+     */
+    int resetLikeCount(@Param("contentId") long contentId);
 
     /**
      * 收藏数**批量重算**（T12，收藏二期-3）：一趟 CASE-WHEN 把一批

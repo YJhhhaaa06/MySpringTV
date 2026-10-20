@@ -48,9 +48,10 @@ import static org.mockito.Mockito.verify;
  * 已在 T10 删除——这是 R-10 有意的 breaking 面，见 {@code favorite.md} §六）；
  * **匿名 ⇒ {@code "interaction": null}**（不是 {@code {}}、不是三个 {@code false}）。
  * <p>★ **T13（R-13）起列表同形**：{@code /start} / {@code /search/keywordSearch} 也把互动态
- * 收进 {@code interaction}（顶层两键删除），且**三维三态** —— {@code null} = 本面不查该维：
+ * 收进 {@code interaction}（顶层两键删除），且**四维** —— 前三维值三态（{@code null} = 本面不查该维），
+ * 第四维 {@code coin} 在详情是 {@code 0/1/2}、在列表**恒 {@code null}**：
  * {@code /start} 只带 {@code {关注}}、{@code /search/keywordSearch} 带 **0 维**（对象仍在、
- * 三维全 {@code null}）。详见 {@code ContentVO} 类注释的常量表。
+ * 四维全 {@code null}）。详见 {@code ContentVO} 类注释的常量表。
  * ⚠️ 0 维的"对象仍在"是刻意的：{@code interaction: null} 是**匿名**的语义，两者必须可区分。
  */
 class ContentReadTests extends AbstractContentIntegrationTest {
@@ -118,11 +119,15 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         assertThat(data.has("isFollowed")).as("顶层 isFollowed 已删除").isFalse();
         JsonNode interaction = data.path("interaction");
         assertThat(interaction.isObject()).as("带 token（登录）⇒ interaction 是对象").isTrue();
-        assertThat(keysOf(interaction)).as("子对象键集契约：恰好三维").containsExactlyInAnyOrder(
-                "isLiked", "isFavorited", "isFollowed");
+        assertThat(keysOf(interaction)).as("子对象键集契约：恰好四维（T40 加入 coin）")
+                .containsExactlyInAnyOrder("isLiked", "isFavorited", "isFollowed", "coin");
         assertThat(interaction.path("isLiked").asBoolean()).isFalse();
         assertThat(interaction.path("isFavorited").asBoolean()).isFalse();
         assertThat(interaction.path("isFollowed").asBoolean()).isFalse();
+        assertThat(interaction.path("coin").asInt())
+                .as("详情（视频）恒有 coin 数量：未投过 ⇒ 0（不是 null）").isZero();
+        assertThat(data.path("coinCount").asLong())
+                .as("公共计数也在详情字段形状里：没人投过 ⇒ 0").isZero();
     }
 
     @Test
@@ -169,7 +174,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
     }
 
     @Test
-    @DisplayName("详情：已登录且已赞 / 已收藏 / 已关注作者 → interaction 三维各自 true；零互动对照用户全 false")
+    @DisplayName("详情：已登录且已赞 / 已收藏 / 已关注作者 → 赞藏关注三维各自 true；零互动对照用户全 false")
     void 详情_个性化状态() {
         String token = registerAndGetToken(OTHER_PHONE, OTHER);
         registerAndGetToken(AUTHOR_PHONE, AUTHOR);
@@ -191,7 +196,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
                 .as("★ 内联收藏态（R-10 收益点：详情页不必再为它单发 /favorite/status）").isTrue();
         assertThat(interaction.path("isFollowed").asBoolean()).isTrue();
 
-        // 反向对照：换一个没点过赞 / 没收藏 / 没关注的用户 ⇒ 三维都是 false，且子对象**在场**
+        // 反向对照：换一个没点过赞 / 没收藏 / 没关注的用户 ⇒ 赞藏关注三维都是 false，且子对象**在场**
         // （排除"恒为 true"与"匿名态混入"两种假绿——这正是"这个断言还可能由谁产生"的自问）
         String otherToken = registerAndGetToken("13900001003", "content-third");
         JsonNode other = Envelope.data(get("/search/IdSearch?contentId=" + contentId, otherToken))
@@ -366,13 +371,15 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         assertThat(startItem.has("isLiked")).as("顶层 isLiked 已删除（T13）").isFalse();
         assertThat(startItem.has("isFollowed")).as("顶层 isFollowed 已删除（T13）").isFalse();
         JsonNode startInteraction = startItem.path("interaction");
-        assertThat(keysOf(startInteraction)).as("子对象键集恒三维（不靠缺键表达'不查'）")
-                .containsExactlyInAnyOrder("isLiked", "isFavorited", "isFollowed");
+        assertThat(keysOf(startInteraction)).as("子对象键集恒四维（不靠缺键表达'不查'）")
+                .containsExactlyInAnyOrder("isLiked", "isFavorited", "isFollowed", "coin");
         assertThat(startInteraction.path("isFollowed").asBoolean())
                 .as("/start 带关注维 ⇒ 已关注作者为真").isTrue();
         assertThat(startInteraction.path("isLiked").isNull())
                 .as("★ /start 不带赞维 ⇒ null（**不是 false**——false 会是撒谎）").isTrue();
         assertThat(startInteraction.path("isFavorited").isNull()).as("/start 不带收藏维").isTrue();
+        assertThat(startInteraction.path("coin").isNull())
+                .as("★ 列表不查投币维 ⇒ coin 恒 null（契约，不是漏填）").isTrue();
 
         // ---- /search/keywordSearch：0 维 ----
         JsonNode searchItem = itemOf(
@@ -380,12 +387,14 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         JsonNode searchInteraction = searchItem.path("interaction");
         assertThat(searchInteraction.isObject())
                 .as("★ 0 维：**对象仍在**（若为 null 就与匿名不可区分了）").isTrue();
-        assertThat(keysOf(searchInteraction)).containsExactlyInAnyOrder(
-                "isLiked", "isFavorited", "isFollowed");
+        assertThat(keysOf(searchInteraction)).as("0 维仍是恰好四维（coin 键也在，值为 null）")
+                .containsExactlyInAnyOrder("isLiked", "isFavorited", "isFollowed", "coin");
         assertThat(searchInteraction.path("isLiked").isNull()).as("0 维 ⇒ 赞维 null").isTrue();
         assertThat(searchInteraction.path("isFavorited").isNull()).as("0 维 ⇒ 藏维 null").isTrue();
         assertThat(searchInteraction.path("isFollowed").isNull())
                 .as("★ 0 维 ⇒ 关注维 null —— 不再是 TV/旧实现那个恒 false 的谎言").isTrue();
+        assertThat(searchInteraction.path("coin").isNull())
+                .as("列表不查投币维 ⇒ coin 恒 null").isTrue();
 
         // ---- 匿名 ⇒ 整对象为 null（与 0 维可区分）----
         JsonNode anonStart = itemOf(Envelope.data(get("/start", null)), contentId);
@@ -445,7 +454,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         Mockito.reset(interactionService, likeService, favoriteService, followService);
         assertThat(idsOf(Envelope.data(get("/search/keywordSearch?keyword=pdtb", token)).path("list")))
                 .as("本用例需非空列表才有判别力").contains(contentId);
-        // ★ 0 维必须**仍调**互动域一趟（要拿"对象在、三维全 null"），但底层三域一趟都不发
+        // ★ 0 维必须**仍调**互动域一趟（要拿"对象在、四维全 null"），但底层三域一趟都不发
         verify(interactionService, times(1)).batchGetStatus(eq(viewerId), anyList(), anySet());
         verify(likeService, never()).batchIsContentLiked(anyLong(), anyList());
         verify(favoriteService, never()).batchIsFavorited(anyLong(), anyList());

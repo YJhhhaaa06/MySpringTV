@@ -243,6 +243,13 @@ video:
     # 短 TTL 让"万一漏了一处失效"的最坏影响面更小。
     # ⚠️ 同上：Duration 属性**必须带单位后缀**，写裸数字 15 会被解析成 PT0.015S（15 毫秒）。
     favorite-ttl: ${FAVORITE_CACHE_TTL:15m}
+    # 投币缓存（投币专项 T39）。★ 取值对齐 like / favorite 的 15m：三者形态同类 ——
+    # "我的状态"类用户维度成员集（user:coinAmount:{id} HASH）+ 内容维度独立计数
+    # （content:coinCount:{id}），写路径都在提交后条件写、读路径都热在详情页。
+    # 刻意比 follow / content 的 30m 短：投币的"提交后立刻可见"要求更硬（刚投的币要马上出现在
+    # 详情互动态里），短 TTL 让"万一漏了一次写"的最坏影响面更小。
+    # ⚠️ 同上：Duration 属性**必须带单位后缀**，写裸数字 15 会被解析成 PT0.015S（15 毫秒）。
+    coin-ttl: ${COIN_CACHE_TTL:15m}
 
   # 媒体资源 URL 前缀（S5 切片）。替代 TV 的 RequestContext.getContextPath()
   # （Servlet context path 的 ThreadLocal，本项目内嵌容器下恒为空串）。
@@ -439,6 +446,9 @@ video:
         "[POST /watchlater/move]": 3
         "[POST /follow/add]": 3
         "[POST /follow/remove]": 3
+        # —— 投币（T37 / T38；签到与投币同为"写路径 3"）——
+        "[POST /coin/signIn]": 3
+        "[POST /coin/add]": 3
         # —— admin（人工操作、流量极小，但**无白名单** ⇒ 同样过闸计费）——
         "[POST /api/admin/comment/delete]": 3
         "[POST /api/admin/content/hide]": 3

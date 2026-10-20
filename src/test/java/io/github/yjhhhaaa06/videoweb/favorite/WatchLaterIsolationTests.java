@@ -120,8 +120,11 @@ class WatchLaterIsolationTests extends AbstractHttpIntegrationTest {
         assertThat(interaction.path("isWatchLater").isMissingNode())
                 .as("★ 详情互动态不得含 isWatchLater（加一个键就破了'除清单外看不到'）").isTrue();
         assertThat(interaction.propertyNames())
-                .as("互动态键集仍是 T13 的三维（不多不少）")
-                .containsExactlyInAnyOrder("isLiked", "isFavorited", "isFollowed");
+                .as("互动态键集是四维（T40 起加入 coin；不多不少）")
+                .containsExactlyInAnyOrder("isLiked", "isFavorited", "isFollowed", "coin");
+        assertThat(interaction.path("coin").asInt())
+                .as("详情（视频）的 coin 是数量：本用例没人投过 ⇒ 0（不是 null —— null 只用于图文/列表）")
+                .isZero();
     }
 
     // ========================================================================

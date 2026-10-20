@@ -52,14 +52,15 @@ class ArchitectureTests {
      * 业务模块名（与包名一致）。
      * {@code upload} 由 S7 新增、{@code admin} 由 S8 新增、{@code feed} 由 S9 新增，
      * {@code favorite} 由独立开发期的**收藏一期 T1** 新增（迁移收口后的第一个新域）、
-     * {@code interaction} 由**收藏二期 T9** 新增（R-10 的互动域），
+     * {@code interaction} 由**收藏二期 T9** 新增（R-10 的互动域）、
+     * {@code coin} 由**投币专项 T36** 新增（R-17），
      * 一并纳入边界约束（否则新域会成为**没有任何规则约束的空洞**）。
      *
      * <p>⚠️ 域集合是**这五条规则的唯一作用域**：加域漏登记 ⇒ 规则 1/2/3/5 对它是**永远绿的假绿**
      * （"ArchUnit 规则通过"不是有效验收，"{@code DOMAINS} 含它"才是）。
      */
     private static final String[] DOMAINS = {"user", "content", "comment", "like", "follow", "coupon",
-            "upload", "admin", "feed", "favorite", "interaction"};
+            "upload", "admin", "feed", "favorite", "interaction", "coin"};
 
     private static final String BASE = "io.github.yjhhhaaa06.videoweb";
 
@@ -192,7 +193,7 @@ class ArchitectureTests {
      *
      * <p>范围边界（三条，按现实划线）：
      * <ol>
-     *   <li>from = 其余**全部 10 个域**（不止 content）：S9 的不变式是
+     *   <li>from = 其余**全部 11 个域**（不止 content）：S9 的不变式是
      *       "feed → {content, follow, like} 单向 ⇒ 全链路无包环"（feed.md §八结论）——
      *       只禁 content 会漏掉别的倒灌边（如 comment → feed 会经
      *       feed → {@code content.dao} → {@code comment.dao} 传出**传递三环**）。

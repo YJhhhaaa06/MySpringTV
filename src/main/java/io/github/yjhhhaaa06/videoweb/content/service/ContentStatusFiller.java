@@ -42,7 +42,13 @@ import java.util.Set;
  * （见 {@link InteractionDimension}）。本类只负责透传。
  *
  * <p>匿名（{@code userId == null}）短路：互动域返回 {@code null}，VO 的 {@code interaction}
- * 保持 {@code null}（= "没有登录态"，不是三个 {@code false}）。
+ * 保持 {@code null}（= "没有登录态"，不是四个 {@code false}）。
+ *
+ * <h2>★ T43：本类只剩"互动态"一件事</h2>
+ * 原有的 {@code fillCoinCountBatch}（列表公共计数）随"列表面不返回任何计数"一起删除
+ * （用户 2026-10-19 拍板）—— 计数只在详情平铺返回，见 {@code ContentDetailVO}。
+ * 于是这里**不再有**"公共计数不看登录态"的第二条填充规则，也就不会再出现
+ * "把它误放进匿名短路里"这类错误。
  */
 @Component
 public class ContentStatusFiller {
@@ -61,10 +67,10 @@ public class ContentStatusFiller {
      * 本类不做分支。
      *
      * <p>⚠️ {@code dimensions} 为**空集**（{@code /search/keywordSearch} 的取值）时
-     * 本方法**仍要调用**互动域 —— 它一趟都不查、但会返回"对象在、三维全 {@code null}"的对象。
+     * 本方法**仍要调用**互动域 —— 它一趟都不查、但会返回"对象在、四维全 {@code null}"的对象。
      * ★ **直接跳过调用会得到 {@code interaction: null} ⇒ 与"匿名"不可区分**（这是错的）。
      *
-     * @param dimensions 要填的维度（编译期常量；空集 ⇒ 只产出一个"三维全 null"的对象）
+     * @param dimensions 要填的维度（编译期常量；空集 ⇒ 只产出一个"四维全 null"的对象）
      */
     public void fillInteractionBatch(List<ContentVO> list, Long userId,
                                      Set<InteractionDimension> dimensions) {
@@ -84,6 +90,19 @@ public class ContentStatusFiller {
             vo.setInteraction(statuses.get(vo.getId()));
         }
     }
+
+    /**
+     * 列表页批量回填**公共计数** —— ⛔ <b>T43 已删除</b>。
+     *
+     * <p>原实现（T40）为 {@code /start} / {@code /search} / {@code /profile} 一趟
+     * {@code MGET} 填 {@code coinCount}。T43 起列表面**不返回任何计数**
+     * （用户 2026-10-19 拍板），四个数只在详情平铺（{@code ContentDetailVO}）——
+     * 于是列表页省掉这趟批量，也省掉"漏填某个组装点"这一整类缺陷。
+     *
+     * <p>若将来又要给列表加计数：**不要**恢复本方法，先读
+     * {@code architecture/tech/cache/缓存与数据一致性.md} §五 的口径
+     * （列表带计数 = 每个面都多一趟批量，收益只有展示）。
+     */
 
     /** 页内 VO → 互动域目标（content 侧知识：id 与作者来自 VO，类型原样传入）。 */
     private static List<InteractionTarget> targets(List<ContentVO> list) {

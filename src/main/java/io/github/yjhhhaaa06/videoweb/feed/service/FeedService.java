@@ -49,7 +49,8 @@ public class FeedService {
      * ★ 动态流带哪几维互动态（R-13 的**编译期常量**）—— 只带 {@code LIKE}。
      *
      * <p>与 TV 逐字一致（feed 装载**只**做过点赞态）；关注态在动态流里没有展示位。
-     * ⚠️ 这是**常量**不是契约：{@code interaction} 键集仍恒三维（未选中的两维是 {@code null}）。
+     * ⚠️ 这是**常量**不是契约：{@code interaction} 键集仍恒四维（未选中的两维是 {@code null}，
+     * {@code coin} 作为第四维本面**恒 {@code null}**）。
      */
     private static final Set<InteractionDimension> FEED_DIMENSIONS = Set.of(InteractionDimension.LIKE);
 
@@ -128,6 +129,10 @@ public class FeedService {
     /**
      * 页内容装载（两路读共用）：**事务外**批量读内容 + 互动态，按原序跳过 null。
      *
+     * <h2>★ T43：列表不再带公共计数</h2>
+     * T40 曾在这里自持一趟 {@code CoinService#batchGetCoinCount}；T43 起四个计数只在详情
+     * 平铺返回（用户 2026-10-19 拍板）⇒ feed 列表页省掉这趟批量，本类也**不再依赖 coin 域**。
+     *
      * <h2>★ T13（R-13）：互动态改走**互动域**，只带 {@code LIKE} 一维</h2>
      * T13 之前这里**直连** {@code LikeService.batchIsContentLiked}，而条目的关注态
      * （当时是 {@code ContentVO} 的顶层 {@code isFollowed}，T13 已删）只能留着 Java 默认的
@@ -155,6 +160,7 @@ public class FeedService {
             for (ContentVO vo : contentList) {
                 vo.setInteraction(statuses.get(vo.getId()));
             }
+            // T43：列表不再返回任何公共计数（计数只在详情平铺）⇒ coinCount 的一趟批量已删除。
         }
         return new PageResult<>(contentList, total, page, pageSize);
     }

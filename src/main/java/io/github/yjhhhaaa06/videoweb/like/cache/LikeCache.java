@@ -5,6 +5,7 @@ import io.github.yjhhhaaa06.videoweb.common.cache.CacheMissSignal;
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheUnavailableException;
 import io.github.yjhhhaaa06.videoweb.common.cache.SingleFlight;
 import io.github.yjhhhaaa06.videoweb.common.config.LikeCacheProperties;
+import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
 import io.github.yjhhhaaa06.videoweb.like.dao.CommentLikeDao;
 import io.github.yjhhhaaa06.videoweb.like.dao.ContentLikeDao;
 import lombok.extern.slf4j.Slf4j;
@@ -113,6 +114,8 @@ public class LikeCache {
     private final LikeRedisOps ops;
     private final ContentLikeDao contentLikeDao;
     private final CommentLikeDao commentLikeDao;
+    /** 内容点赞数的回源点（T44-1 起读 {@code content.like_count} 列；like → content 的 DAO 纯读，登记例外）。 */
+    private final ContentDao contentDao;
     private final LikeCacheProperties props;
     /** 单飞（B1）：同 key 并发 miss 只回源一次。 */
     private final SingleFlight singleFlight;
@@ -120,11 +123,13 @@ public class LikeCache {
     public LikeCache(LikeRedisOps ops,
                      ContentLikeDao contentLikeDao,
                      CommentLikeDao commentLikeDao,
+                     ContentDao contentDao,
                      LikeCacheProperties props,
                      SingleFlight singleFlight) {
         this.ops = ops;
         this.contentLikeDao = contentLikeDao;
         this.commentLikeDao = commentLikeDao;
+        this.contentDao = contentDao;
         this.props = props;
         this.singleFlight = singleFlight;
     }
@@ -205,8 +210,21 @@ public class LikeCache {
                 () -> contentLikeDao.isLiked(userId, contentId));
     }
 
+    /**
+     * 内容点赞数（{@code /like/content/count} 端点与详情聚合的回源通道）。
+     *
+     * <p>★ <b>T44-1 回源口径切换</b>：从 {@code COUNT(*) FROM content_like} 切到
+     * {@code content.like_count} 列（{@link ContentDao#findLikeCountById}）——列由点赞写路径
+     * 在事务内 ±1 维护、删除内容时归零，不变量 {@code like_count == COUNT(*)} 对所有行成立
+     * （列漂移由 {@code LikeCountMaintenanceTests} 的独立 oracle 钉住）。
+     * 切换动机：详情计数聚合读（T44-2）的"全量查"要一趟从 content 行取齐四计数，
+     * 实时聚合是其中唯一随热度变贵的成员（对齐 favorite 在 T12 的同款切换）。
+     * 与 {@code ContentLikeDao.countByContentId}（已删）的差异：**列查询无行返回 {@code null}**
+     * ⇒ {@code null} 按"内容不存在"处理：返回 0、**不回填**（对齐 {@code CoinCache} 的口径，
+     * 防止把"不存在"钉成假 0——旧行数口径恒有值、无此分支）。
+     */
     public int getContentLikeCount(long contentId) {
-        return likeCount(contentLikeCountKey(contentId), () -> contentLikeDao.countByContentId(contentId));
+        return likeCount(contentLikeCountKey(contentId), () -> contentDao.findLikeCountById(contentId));
     }
 
     public Map<Long, Boolean> batchIsContentLiked(long userId, List<Long> contentIds) {
@@ -298,8 +316,12 @@ public class LikeCache {
     }
 
     /**
-     * 三态读计数（cache-aside）。{@code 0} 是合法值，必须与"key 不存在"区分——靠
+     * 计数三态读（cache-aside）。{@code 0} 是合法值，必须与"key 不存在"区分——靠
      * {@code GET} 返回 {@code null}（而非 {@code "0"}）识别 miss。
+     * ★ T44-1 起 loader 允许返回 {@code null} = 内容/评论行不存在：
+     * {@code null} 按 0 作答且**不回填**（对齐 {@code CoinCache}/{@code ContentCountCache}：
+     * "不存在"不能被钉成 TTL 内的假 0）；非 null 才回填。
+     * 评论赞侧的 loader（{@code COUNT(*)}）恒非 {@code null}，语义不变。
      */
     private int likeCount(String countKey, java.util.function.Supplier<Integer> dbLoader) {
         try {
@@ -311,7 +333,8 @@ public class LikeCache {
         } catch (CacheUnavailableException e) {
             log.warn("点赞数缓存读失败，降级 DB: key={}", countKey, e);
             CacheMissSignal.mark();                            // T26 信号②：降级 = 没走成缓存
-            return dbLoader.get();
+            Integer degraded = dbLoader.get();
+            return degraded == null ? 0 : degraded;
         } catch (NumberFormatException e) {
             // 脏值（非数字）当作 miss，并清掉它，避免每次读都解析失败
             log.warn("点赞数缓存值非法，按 miss 处理并清除: key={}", countKey);
@@ -320,7 +343,10 @@ public class LikeCache {
         // miss：DB 是真理源，顺带回填；单飞（B1）让同 key 并发只回源一次
         CacheMissSignal.mark();                                // T26 信号②：miss 回源（含脏值按 miss 处理）
         return singleFlight.get(countKey, () -> {
-            int count = dbLoader.get();
+            Integer count = dbLoader.get();
+            if (count == null) {
+                return 0;                                      // 行不存在 ⇒ 0 且不回填（T44-1）
+            }
             backfillCountQuietly(countKey, count);
             return count;
         });
@@ -410,5 +436,16 @@ public class LikeCache {
         } catch (CacheUnavailableException e) {
             log.warn("点赞计数回填失败（不影响本次读结果，下次读重试）: key={}", countKey);
         }
+    }
+
+    /**
+     * 内容点赞数的**回填契约**（T44-2）：详情计数聚合读（content 域）在 miss 时经
+     * {@code InteractionService} 转发调到这里——值来自聚合层一趟 {@code findCountColumns}
+     * 刚查出的列快照，本方法只负责"用它写自己的键"（域内口径：likeTtl、覆盖写）。
+     * ★ 值必须来自"该键的真理源"（content 行的列），聚合层不得传别处算出的值；
+     * 命中键**不调**本方法（有选择回填——否则会用本次快照覆盖未失效的键）。
+     */
+    public void backfillContentCount(long contentId, int count) {
+        backfillCountQuietly(contentLikeCountKey(contentId), count);
     }
 }

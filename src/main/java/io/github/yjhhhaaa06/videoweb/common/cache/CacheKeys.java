@@ -68,6 +68,24 @@ public final class CacheKeys {
     }
 
     /**
+     * 内容**评论总数**：{@code content:commentCount:{id}}（String int）。
+     *
+     * <p>⚠️ 与 {@link #contentCommentRootCount(long)} **不是一个数**：后者是"主楼条数"
+     * （分页用，不含楼中楼回复），本键是 {@code content.comment_count} 列
+     * （主楼 + 回复的总数，评论增删时 ±）。
+     *
+     * <p>★ <b>为什么独立成键而不内联进 {@code content:{id}}</b>：评论数每次评论都变，
+     * 内联就意味着"发一条评论连坐失效整份内容缓存"（旧形态）。T43 起所有计数一律独立 key，
+     * 内容缓存只放慢变字段（标题 / 媒体 / 作者）。
+     *
+     * <p>★ <b>刻意无空标记</b>（口径同 {@link #contentLikeCount(long)}）：{@code 0} 是合法值，
+     * 必须与"key 不存在"靠 {@code GET} 返回 {@code null} / {@code "0"} 区分。
+     */
+    public static String contentCommentCount(long contentId) {
+        return "content:commentCount:" + contentId;
+    }
+
+    /**
      * 内容类型分区索引：{@code content:index:{type}:{categoryId}}（LIST）。
      *
      * <p>{@code -1} 表示通配维度（推荐接口 type/category 为空时的归一）。
@@ -171,6 +189,37 @@ public final class CacheKeys {
      */
     public static String contentFavoriteCount(long contentId) {
         return "content:favoriteCount:" + contentId;
+    }
+
+    // ==================== 投币（CoinCache，投币专项 T39） ====================
+
+    /**
+     * 我投过币的内容及**枚数**：{@code user:coinAmount:{userId}}（**HASH**，field = contentId，value = amount）。
+     *
+     * <p>★ <b>为什么是 HASH 而不是 Set</b>：值不是布尔而是 {@code 0/1/2}（一条内容最多投 2 枚），
+     * Set 只能表达"投过 / 没投过"，承载不了"几枚"。这也是本域与 like（{@code user:likeSet}）
+     * 缓存载体**必然不同**的原因，不是"顺手换个结构"。
+     *
+     * <p>成员 key 仍取**用户维度**（同 like / favorite 的装载反转）：装载量 = 该用户投过币的内容数，
+     * 与内容热度解耦；硬币稀缺 ⇒ 单用户哈希比 {@code user:likeSet} 更小。
+     */
+    public static String userCoinAmount(long userId) {
+        return "user:coinAmount:" + userId;
+    }
+
+    /**
+     * 某内容累计被投币数：{@code content:coinCount:{id}}（String int）。
+     *
+     * <p>★ <b>刻意无空标记</b>（口径同 {@link #contentLikeCount(long)} /
+     * {@link #contentFavoriteCount(long)}）：{@code 0} 是**合法值**（没人投过币的内容真实存在），
+     * 必须与"key 不存在"靠 {@code GET} 返回 {@code null} / {@code "0"} 区分；
+     * 给它写空标记会把"0 人投币"与"未知"混淆。
+     *
+     * <p>独立 key 而非内联进 {@code content:{id}}：对 F-25 的站边（先例 = favorite T11），
+     * 不把"计数变化连坐失效整份内容缓存"复制到新域。
+     */
+    public static String contentCoinCount(long contentId) {
+        return "content:coinCount:" + contentId;
     }
 
     // ==================== 关注（FollowCache） ====================

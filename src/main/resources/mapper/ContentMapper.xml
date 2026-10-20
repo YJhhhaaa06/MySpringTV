@@ -25,8 +25,6 @@
         <result property="title" column="title"/>
         <result property="description" column="description"/>
         <result property="categoryId" column="category_id"/>
-        <result property="commentCount" column="comment_count"/>
-        <result property="likeCount" column="like_count"/>
         <result property="commentEnabled" column="comment_enabled"/>
         <result property="authorName" column="username"/>
         <result property="createTime" column="create_time"/>
@@ -46,6 +44,93 @@
          ⚠️ 口径 = content.type（1 视频 / 2 图文；媒体表的 3 封面与这里无关）。 -->
     <select id="findAliveContentType" resultType="java.lang.Integer">
         SELECT type FROM content WHERE id = #{contentId} AND is_deleted = 0
+    </select>
+
+    <!-- 投币 T38：一趟取回（作者 id，类型）—— 404 / 400（图文）/ 400（自投）三条判据的输入。
+         ★ 与 findAliveContentType 同一形态，只是多选一列 user_id（主键点查，列随行取到）。
+         ⚠️ ContentAuthorAndType 是 record ⇒ **必须用 <constructor>**（默认对象工厂走 setter ⇒
+            "no setter for property"）；javaType 必须是包装类型 Long / Integer（实测口径同 AuthorContentId）。 -->
+    <resultMap id="contentAuthorAndTypeMap"
+               type="io.github.yjhhhaaa06.videoweb.content.model.ContentAuthorAndType">
+        <constructor>
+            <arg column="author_id" javaType="java.lang.Long"/>
+            <arg column="type" javaType="java.lang.Integer"/>
+        </constructor>
+    </resultMap>
+
+    <select id="findAliveContentAuthorAndType" resultMap="contentAuthorAndTypeMap">
+        SELECT user_id AS author_id, type FROM content WHERE id = #{contentId} AND is_deleted = 0
+    </select>
+
+    <!-- 投币数累加（T38）。★ **刻意没有防负守卫**：投币不可取消 ⇒ coin_count 只增，
+         不存在下溢场景（与 comment_count / like_count 的 CAST 守卫是**口径差异、不是漏改**，
+         见 architecture/domain/coin/coin.md §十 #3）。
+         必须与 content_coin 的关系行同事务（投币 Service 的 @Transactional）。 -->
+    <update id="updateCoinCount">
+        UPDATE content SET coin_count = coin_count + #{delta} WHERE id = #{contentId}
+    </update>
+
+    <!-- 投币计数单列窄查询（T39 缓存 miss 的回源）。
+         ★ **刻意不加 is_deleted 过滤**：读的是列值（缓存要复现"这一列现在是多少"），
+           不是"内容是否可见"；可见性判定在详情读路径（findContent）。
+         ⚠️ 返回 Integer（包装）：无行 ⇒ null ⇒ 缓存层不写缓存（避免把"内容不存在"钉成 0）。 -->
+    <select id="findCoinCount" resultType="java.lang.Integer">
+        select coin_count from content where id = #{contentId}
+    </select>
+
+    <!-- 评论总数单列窄查询（T43 计数缓存 miss 的回源）。
+         ★ 同样**刻意不加 is_deleted 过滤**（理由同 findCoinCount）：读的是列值。
+         ⚠️ 返回 Integer（包装）：无行 ⇒ null ⇒ 缓存层不写缓存。 -->
+    <select id="findCommentCount" resultType="java.lang.Integer">
+        select comment_count from content where id = #{contentId}
+    </select>
+
+    <!-- 点赞总数单列窄查询（T44-1：LikeCache 计数回源从 COUNT(*) content_like 切到本列）。
+         ★ 列自 V1 起存在、由点赞写路径事务内 ±1 维护（updateLikeCount），只是此前读路径从未消费。
+         同样**刻意不加 is_deleted 过滤**（理由同 findCoinCount）：读的是列值；
+         配套不变式 = 作者删除内容时 deleteContent 同事务把本列归零（见 resetLikeCount）
+         ⇒ like_count == COUNT(*) content_like 对所有行成立。
+         ⚠️ 返回 Integer（包装）：无行 ⇒ null ⇒ 缓存层不写缓存。 -->
+    <select id="findLikeCountById" resultType="java.lang.Integer">
+        select like_count from content where id = #{contentId}
+    </select>
+
+    <!-- 一趟读齐四公共计数列（T44-2 详情计数聚合读的回源）。
+         ★ 四列同在本行 ⇒ 一趟主键点查（冷内容全 miss 从 5 条 SQL 收敛为 1 条）。
+         同样**刻意不加 is_deleted 过滤**（理由同 findCoinCount）：读的是列值；
+         调用时序保证载荷已命中 ⇒ 必有行，无行 null 是防御分支。
+         ⚠️ ContentCountColumns 是 record ⇒ 必须 <constructor>，javaType 包装类型。 -->
+    <resultMap id="contentCountColumnsMap"
+               type="io.github.yjhhhaaa06.videoweb.content.model.ContentCountColumns">
+        <constructor>
+            <arg column="like_count" javaType="java.lang.Long"/>
+            <arg column="comment_count" javaType="java.lang.Long"/>
+            <arg column="favorite_count" javaType="java.lang.Long"/>
+            <arg column="coin_count" javaType="java.lang.Long"/>
+        </constructor>
+    </resultMap>
+
+    <select id="findCountColumns" resultMap="contentCountColumnsMap">
+        select like_count, comment_count, favorite_count, coin_count
+        from content where id = #{contentId}
+    </select>
+
+    <!-- T39 批量回填：一趟 IN 取多条（ContentCoinCount 是 record ⇒ 必须 <constructor>；
+         javaType 必须是包装类型 Long / Integer，构造器按 Class 匹配）。
+         同样不带走 is_deleted 过滤（理由同 findCoinCount）。 -->
+    <resultMap id="contentCoinCountMap"
+               type="io.github.yjhhhaaa06.videoweb.content.model.ContentCoinCount">
+        <constructor>
+            <arg column="content_id" javaType="java.lang.Long"/>
+            <arg column="coin_count" javaType="java.lang.Integer"/>
+        </constructor>
+    </resultMap>
+
+    <select id="findCoinCountsByIds" resultMap="contentCoinCountMap">
+        select id as content_id, coin_count from content where id in
+        <foreach item="id" collection="ids" open="(" separator="," close=")">
+            #{id}
+        </foreach>
     </select>
 
     <!-- TV: UPDATE content SET comment_count = comment_count + ? WHERE id = ?
@@ -74,6 +159,14 @@
     <update id="updateLikeCount">
         UPDATE content SET like_count = like_count + #{delta}
         WHERE id = #{contentId} AND CAST(like_count AS SIGNED) + #{delta} &gt;= 0
+    </update>
+
+    <!-- 作者删除内容时把 like_count 归零（T44-1）：物理删 content_like 行的同一事务里调用。
+         ★ 写绝对值 0 而非 ±delta：删除时不知道现值，置 0 恒安全（无 unsigned 下溢）；
+         不归零则 like_count == COUNT(*) 不变量对软删行破裂（T44-1 起回源读列，
+         /like/content/count 对已删内容会回退成旧值而非 0）。 -->
+    <update id="resetLikeCount">
+        UPDATE content SET like_count = 0 WHERE id = #{contentId}
     </update>
 
     <!-- 收藏数批量重算（T12，与 like_count 增量式**刻意不同**）：一趟 CASE-WHEN 写回一批行的
@@ -130,8 +223,6 @@
            c.description,
            c.type,
            c.category_id,
-           c.comment_count,
-           c.like_count,
            c.comment_enabled,
            c.create_time,
            u.username,
@@ -150,8 +241,6 @@
            c.description,
            c.type,
            c.category_id,
-           c.comment_count,
-           c.like_count,
            c.comment_enabled,
            c.create_time,
            u.username,
@@ -172,8 +261,6 @@
            c.description,
            c.type,
            c.category_id,
-           c.comment_count,
-           c.like_count,
            c.comment_enabled,
            c.create_time,
            u.username,

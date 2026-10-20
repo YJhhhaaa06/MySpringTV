@@ -235,6 +235,26 @@ class FeedReadTests extends AbstractFeedIntegrationTest {
     }
 
     @Test
+    @DisplayName("★T43：条目不带公共计数（coinCount 键不存在）；interaction.coin 恒 null")
+    void 条目不带公共计数且coin恒null() {
+        long viewerId = registerViewer();
+        long authorId = registerAuthor();
+        long c1 = insertVideoContent(authorId, "feed coinCount 内容");
+        insertFollowRow(viewerId, authorId);
+        insertFeedInboxRow(viewerId, c1);
+        markSynced(viewerId);
+        // 前置：把公共计数钉到非零 —— 否则"没有键"与"值是 0"分不清
+        jdbcTemplate.update("UPDATE content SET coin_count = 2 WHERE id = ?", c1);
+
+        JsonNode item = itemOf(Envelope.data(getFeed(tokenOf(PHONE_VIEWER))).path("list"), c1);
+
+        assertThat(item.has("coinCount"))
+                .as("★ T43：列表面不返回任何计数（T40 曾有一趟批量，已删除）").isFalse();
+        assertThat(item.path("interaction").path("coin").isNull())
+                .as("★ 列表不查投币维 ⇒ coin 恒 null（契约，不是漏填）").isTrue();
+    }
+
+    @Test
     @DisplayName("★T13：feed 改走互动域后仍是一趟批量（赞 1 趟、藏/关注 0 趟）")
     void 条目互动态_一趟批量不退化() {
         long viewerId = registerViewer();

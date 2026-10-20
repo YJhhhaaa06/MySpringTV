@@ -41,13 +41,18 @@ import org.springframework.transaction.event.TransactionalEventListener;
  *
  * <p>现在改为**各方订阅同一个事件、各自失效自己的缓存**：
  * <ul>
- *   <li>{@code content.event.LikeChangedContentListener} —— 失效内容 key（{@code content.like_count} 变了）</li>
  *   <li>{@code comment.event.LikeChangedCommentListener} —— 失效评论树 field（{@code comment.like_count} 变了）</li>
  * </ul>
- * 依赖方向由"like → 别人的缓存"变成"content/comment → like 的事件"，
- * 而 {@code content→like}、{@code comment→like} 本就存在（它们要查点赞态），**没有新增环**。
+ * 依赖方向由"like → 别人的缓存"变成"comment → like 的事件"，
+ * 而 {@code comment→like} 本就存在（它要查点赞态），**没有新增环**。
  *
- * <p>⚠️ <b>时序不变性</b>：三个监听器都标 {@code AFTER_COMMIT}，在**同一次**提交后被同步调用。
+ * <h2>★ T43：内容侧**没有**对应的监听器了（点赞不再失效内容缓存）</h2>
+ * 原先还有 {@code content.event.LikeChangedContentListener} 失效 {@code content:{id}}，
+ * 因为点赞数当时内联在内容 JSON 里。T43 把四个计数全部搬进独立 key 后，
+ * 这个数由 {@code content:likeCount:{id}} 自己维护（本类的条件 {@code INCR/DECR}）——
+ * 内容载荷与点赞数**彻底解耦**，那条监听器随之删除（用户 2026-10-19 拍板）。
+ *
+ * <p>⚠️ <b>时序不变性</b>：现存两个监听器都标 {@code AFTER_COMMIT}，在**同一次**提交后被同步调用。
  * 发起点赞的那个域不再决定别人的失效顺序——这是有意的：它们本就互不依赖。
  */
 @Slf4j

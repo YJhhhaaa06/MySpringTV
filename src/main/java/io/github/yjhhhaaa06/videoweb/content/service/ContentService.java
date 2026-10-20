@@ -6,6 +6,7 @@ import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
 import io.github.yjhhhaaa06.videoweb.content.cache.ContentCache;
+import io.github.yjhhhaaa06.videoweb.content.cache.ContentCountAggregate;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentMediaDao;
 import io.github.yjhhhaaa06.videoweb.content.event.ContentCacheChangedEvent;
@@ -13,6 +14,7 @@ import io.github.yjhhhaaa06.videoweb.content.event.ContentMilestoneEvent;
 import io.github.yjhhhaaa06.videoweb.content.event.ContentPublishedEvent;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentType;
 import io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO;
+import io.github.yjhhhaaa06.videoweb.content.model.ContentCountColumns;
 import io.github.yjhhhaaa06.videoweb.content.model.entity.Content;
 import io.github.yjhhhaaa06.videoweb.content.model.entity.ContentMedia;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.AdminContentVO;
@@ -80,6 +82,7 @@ public class ContentService {
     private final CommentDao commentDao;
     private final ContentLikeDao contentLikeDao;
     private final ContentCache contentCache;
+    private final ContentCountAggregate countAggregate;
     private final InteractionService interactionService;
     private final ContentStatusFiller contentStatusFiller;
     private final ApplicationEventPublisher events;
@@ -90,7 +93,7 @@ public class ContentService {
      * <p>对标 B站：搜索结果卡片只给"封面 + 标题 + UP 主 + 播放量"，**不显示**赞 / 藏 / 关注态
      * ⇒ 三维**一趟都不查**（每请求省 3 趟批量）。
      * ⚠️ 0 维**不等于"不填"**：仍会调 {@link ContentStatusFiller} ⇒ 互动域返回一个
-     * "对象在、三维全 {@code null}"的 {@code interaction}。
+     * "对象在、四维全 {@code null}"的 {@code interaction}。
      * ★ 若改成"跳过填充"，登录用户拿到的就是 {@code interaction: null} ⇒ 与**匿名**不可区分
      * （匿名是"没有这个对象"，0 维是"对象在但没有一个维度被查"，两者必须可区分）。
      */
@@ -101,6 +104,7 @@ public class ContentService {
                           CommentDao commentDao,
                           ContentLikeDao contentLikeDao,
                           ContentCache contentCache,
+                          ContentCountAggregate countAggregate,
                           InteractionService interactionService,
                           ContentStatusFiller contentStatusFiller,
                           ApplicationEventPublisher events) {
@@ -109,6 +113,7 @@ public class ContentService {
         this.commentDao = commentDao;
         this.contentLikeDao = contentLikeDao;
         this.contentCache = contentCache;
+        this.countAggregate = countAggregate;
         this.interactionService = interactionService;
         this.contentStatusFiller = contentStatusFiller;
         this.events = events;
@@ -152,10 +157,11 @@ public class ContentService {
             }
             result.add(contentCache.toContentVO(dto));
         }
-        // ⚠️ 0 维也**必须**调（KEYWORD_SEARCH_DIMENSIONS 的注释）：拿到"对象在、三维全 null"
+        // ⚠️ 0 维也**必须**调（KEYWORD_SEARCH_DIMENSIONS 的注释）：拿到"对象在、四维全 null"
         if (userId != null && !result.isEmpty()) {
             contentStatusFiller.fillInteractionBatch(result, userId, KEYWORD_SEARCH_DIMENSIONS);
         }
+        // T43：列表不再返回任何公共计数（只在详情平铺）⇒ 这里不再有 coinCount 批量。
         return new PageResult<>(result, total, page, pageSize);
     }
 
@@ -199,12 +205,14 @@ public class ContentService {
      *
      * <p>T10（R-10，{@code favorite.md} §六）：互动态（赞 / 藏 / 关注作者）整体
      * 走互动域，收进响应的 {@code interaction} 子对象；**匿名 ⇒ 子对象为 {@code null}**
-     * （互动域对 {@code userId == null} 短路、"不查任何维度"——不是三个 {@code false}）。
+     * （互动域对 {@code userId == null} 短路、"不查任何维度"——不是四个 {@code false}）。
      * 顶层 {@code isLiked} / {@code isFollowed} 已从 {@code ContentDetailVO} 删除
      * （breaking，用户 2026-10-11 接受；**T13 起列表 {@code ContentVO} 同样删除**、改内嵌
      * {@code interaction} —— 两个 VO 从此同形，见 {@code ContentVO} 类注释）。
-     * <p>⚠️ 本方法走 {@code getStatus}（**单条、恒三维**）—— R-13 刻意不给单条契约加维度入参，
-     * 详情面因此 **JSON 逐字不变**（T13 的 breaking 只落在 4 个列表面）。
+     * <p>⚠️ 本方法走 {@code getStatus}（**单条、恒四维**）—— R-13 刻意不给单条契约加维度入参，
+     * 详情面因此 **JSON 逐字不变**（T13 的 breaking 只落在 4 个列表面）；T40 起详情多出
+     * {@code interaction.coin} 与顶层 {@code coinCount} 两个字段（同一个恒四维的子对象，
+     * 只是多一维 + 一个公共计数）。
      *
      * @return {@code null} = 内容不存在 / 已软删 / 媒体损坏（Controller 据此 404）
      */
@@ -214,8 +222,19 @@ public class ContentService {
             return null;
         }
         ContentDetailVO vo = contentCache.toDetailVO(dto);
-        // 单条三维走互动域单条契约；匿名（userId == null）由它短路返回 null ⇒ "interaction": null
+        // 单条四维走互动域单条契约；匿名（userId == null）由它短路返回 null ⇒ "interaction": null。
+        // coin 维在互动域内按 type 分流：视频 ⇒ 0/1/2；图文 ⇒ null（"该维不适用"）。
         vo.setInteraction(interactionService.getStatus(userId, contentId, vo.getAuthorId(), vo.getType()));
+        // T44-2：四个公共计数由聚合层一趟提供——MGET 四键（1 趟 pipeline）→ miss 单飞回源
+        // 一条四列点查 → 只对 miss 的键回填（命中键不碰）。详情 Redis 读共 2 趟、冷内容 DB 1 条。
+        // 形态与代价见 ContentCountAggregate 类注释与 缓存与数据一致性.md §五.2。
+        // ★ 与 T43 形态的差异：四键读不再各走各的回源（原 getPublicCounts 三次单条 + 评论数一条，
+        //   冷内容 4 条 SQL），互动域的读聚合被本聚合层取代（其回填转发保留在互动域）。
+        ContentCountColumns counts = countAggregate.readCounts(contentId);
+        vo.setLikeCount(counts.likeCount());
+        vo.setFavoriteCount(counts.favoriteCount());
+        vo.setCoinCount(counts.coinCount());
+        vo.setCommentCount(counts.commentCount());
         return vo;
     }
 
@@ -389,6 +408,10 @@ public class ContentService {
      * </pre>
      * ③④⑤⑥ 不同进同退会留下**不可自愈的不一致**（内容已删而点赞记录/媒体行仍在，或反之）
      * ——没有任何补偿机制能修复它。故撤销事务是错的。
+     * ★ T44-1 追加 ⑤'：{@code contentDao.resetLikeCount} 把 {@code content.like_count} **归零**——
+     * 行物理删了、列还留着旧值的话，{@code like_count == COUNT(*) content_like} 不变量对软删行
+     * 即告破裂（T44-1 起计数回源**读列**，{@code /like/content/count} 对已删内容会回退成旧值
+     * 而非既有的 0）。favorite/coin 的列无此问题：删除时它们的明细行本就不删。
      *
      * <h2>★ 三个提交后副作用（一个自有事件 + 两个订阅方）</h2>
      * <ol>
@@ -426,6 +449,7 @@ public class ContentService {
         contentDao.softDeleteContent(contentId);
         commentDao.softDeleteByContentId(contentId);
         contentLikeDao.deleteByContentId(contentId);
+        contentDao.resetLikeCount(contentId);
         contentMediaDao.deleteByContentId(contentId);
 
         events.publishEvent(ContentCacheChangedEvent.remove(contentId));
@@ -603,18 +627,19 @@ public class ContentService {
      * ② {@code updateContentDeletedState(2)}。校验与写必须同进同退——否则并发下
      * "校验通过但状态已被别人改掉"会静默写入错误状态。
      *
-     * <h2>★ 提交后：三条失效由**既有订阅方**承接（A10 闭合，零新代码）</h2>
+     * <h2>★ 提交后：四条失效由**既有订阅方**承接（A10 闭合 + T39 投币，零新代码）</h2>
      * TV 下架后依次调三行：{@code contentCache.removeContent} +
      * {@code commentCache.invalidateComments} + {@code likeService.deleteContentLike}。
-     * S6-B2 起这三件事已改由「内容域发事件、评论域与点赞域各自订阅」承担：
+     * S6-B2 起这三件事已改由「内容域发事件、评论域与点赞域各自订阅」承担（T39 起投币域同样订阅）：
      * <pre>
      *   events.publishEvent(remove(contentId))        // 本行
      *     ├─ ContentCacheChangedListener      → removeContent（DEL 内容 key + 从**全部**索引剔除）
      *     ├─ ContentRemovedCommentListener    → invalidateComments（评论两键组整组失效）
-     *     └─ ContentRemovedLikeListener       → deleteContentLike（点赞计数 key 失效）
+     *     ├─ ContentRemovedLikeListener       → deleteContentLike（点赞计数 key 失效）
+     *     └─ ContentRemovedCoinListener       → deleteContentCoinCount（投币计数 key 失效，**不删行**）
      * </pre>
-     * 三者都在本事务**提交后**执行（AFTER_COMMIT）；事务回滚 ⇒ 一条都不执行。
-     * 这既与 TV 的三行**逐条等价**，又让内容域不必知道评论域/点赞域有缓存。
+     * 四者都在本事务**提交后**执行（AFTER_COMMIT）；事务回滚 ⇒ 一条都不执行。
+     * 这既与 TV 的三行**逐条等价**，又让内容域不必知道评论域/点赞域/投币域有缓存。
      *
      * <p>下架只改 {@code is_deleted}，**不动**评论/点赞/媒体记录与物理文件——"隐藏≠删除"，
      * 恢复后数据完好（旧 pytest {@code test_hide_content.py} 对此有逐字断言）。

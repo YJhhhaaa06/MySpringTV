@@ -118,7 +118,7 @@ class ProfileReadTests extends AbstractContentIntegrationTest {
     }
 
     @Test
-    @DisplayName("★T13：匿名访问主页 ⇒ 内容条目的 interaction 为 null（不是三维 false）")
+    @DisplayName("★T13：匿名访问主页 ⇒ 内容条目的 interaction 为 null（不是四维 false）")
     void 匿名访问_内容条目无互动态() {
         registerAndGetToken(AUTHOR_PHONE, AUTHOR);
         long authorId = userIdOf(AUTHOR_PHONE);
@@ -129,7 +129,7 @@ class ProfileReadTests extends AbstractContentIntegrationTest {
                 .path("contentPage").path("list"), contentId);
 
         assertThat(item.path("interaction").isNull())
-                .as("匿名 ⇒ interaction 为 null（与 0 维的「对象在、三维全 null」可区分）").isTrue();
+                .as("匿名 ⇒ interaction 为 null（与 0 维的「对象在、四维全 null」可区分）").isTrue();
         // 匿名 ⇒ 互动域一趟都不该发（"没有我的状态"）
         verify(interactionService, never()).batchGetStatus(any(), anyList(), anySet());
         verify(interactionService, never()).getStatus(any(), anyLong(), anyLong(), anyInt());

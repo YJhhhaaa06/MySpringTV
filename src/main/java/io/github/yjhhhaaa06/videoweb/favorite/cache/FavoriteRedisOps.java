@@ -157,7 +157,7 @@ public class FavoriteRedisOps extends RedisOps {
         for (Long member : members) {
             args.add(String.valueOf(member));
         }
-        eval(BACKFILL_SET_SCRIPT, List.of(setKey, emptySetKey), args.toArray(new String[0]));
+        eval(BACKFILL_SET_SCRIPT, List.of(setKey, emptySetKey), args.toArray(new Object[0]));
     }
 
     /**

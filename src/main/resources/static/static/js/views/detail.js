@@ -2,7 +2,7 @@
 // 详情 #/video/:id —— 左播放器 + 标题/UP主/简介 + 评论区 + 右侧相关推荐(用 /start 兜底)
 // ============================================================================
 
-import { request } from '../api.js';
+import { request, coinAdd } from '../api.js';
 import { isLoggedIn, getUserId } from '../auth.js';
 import { showToast, formatTime, formatNumber, emptyBox, initialChar, avatarColor } from '../utils.js';
 import { navigate } from '../router.js';
@@ -29,8 +29,9 @@ export function mount(container, params) {
     related: [],
     parentId: null,
     isFavorited: false,      // 收藏按钮态（T7；T10 起初始值读详情内联 interaction.isFavorited，弹窗仍走 /favorite/status 取 folders）
-    favoriteCount: 0,        // 收藏数（T7：GET /favorite/count，匿名可读）
+    // 收藏数不再单独存：T43 起由详情响应内联到 state.content.favoriteCount（动作后仍用 /favorite/count 刷新）
     pickFolders: null,       // 收藏弹窗最近一次拉到的"我的夹"列表
+    coinBalance: null,       // T41：我的硬币余额（投币弹层显示；写成功由响应体回带的 balance 就地覆盖）
   };
   if (!state.contentId) {
     container.innerHTML = emptyBox('缺少内容 ID');
@@ -60,6 +61,7 @@ function render() {
         </div>
         <div class="detail-actions">
           <button class="like-btn" id="likeBtn">❤ 点赞 <span id="likeCount">0</span></button>
+          <button class="like-btn" id="coinBtn" style="display:none">🪙 投币</button>
           <button class="like-btn" id="favBtn">⭐ 收藏</button>
           <button class="like-btn" id="wlBtn">🕐 稍后再看</button>
           <button class="edit-btn" id="editBtn" style="display:none">✏ 编辑</button>
@@ -95,6 +97,20 @@ function render() {
           <button class="btn-confirm" id="favDone">完成</button>
         </div>
       </div>
+    </div>
+
+    <div class="modal-overlay hidden" id="coinOverlay">
+      <div class="modal coin-modal">
+        <div class="modal-title">投币</div>
+        <div class="coin-balance-row">我的硬币：<span id="coinBalanceTxt">-</span></div>
+        <div class="coin-opt-row">
+          <button class="coin-opt" id="coinOpt1">投 1 枚</button>
+          <button class="coin-opt" id="coinOpt2">投 2 枚</button>
+        </div>
+        <div class="btn-row">
+          <button class="btn-cancel" id="coinCancel">取消</button>
+        </div>
+      </div>
     </div>`;
 
   const input = state.container.querySelector('#commentInput');
@@ -112,6 +128,14 @@ function render() {
   state.container.querySelector('#favNewName').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') createFolderFromPicker();
   });
+
+  // 投币弹层（T41）：两个枚数选项 + 取消；点遮罩也关闭（同收藏弹窗）
+  state.container.querySelector('#coinCancel').addEventListener('click', closeCoinModal);
+  state.container.querySelector('#coinOverlay').addEventListener('click', (e) => {
+    if (e.target.id === 'coinOverlay') closeCoinModal();
+  });
+  state.container.querySelector('#coinOpt1').addEventListener('click', () => doCoinAdd(1));
+  state.container.querySelector('#coinOpt2').addEventListener('click', () => doCoinAdd(2));
 }
 
 async function init() {
@@ -207,6 +231,9 @@ function renderContent() {
   c.querySelector('#likeCount').textContent = item.likeCount || 0;
   likeBtn.addEventListener('click', toggleContentLike);
 
+  // 投币（T41 / R-17）：按钮只对**视频**渲染（图文帖不含投币这一维）；展示态 + onclick 收敛在 updateCoinBtn
+  updateCoinBtn();
+
   // 收藏（T7 / T10）：按钮初始态读详情内联 interaction.isFavorited；公开计数仍走 /favorite/count
   // （onclick 赋值，避免重复渲染叠加监听）
   updateFavBtn();
@@ -271,6 +298,100 @@ function updateFollowBtn() {
 function updateLikeBtn() {
   const btn = state.container.querySelector('#likeBtn');
   btn.classList.toggle('liked', interactionOf(state.content).isLiked === true);
+}
+
+// ---------- 投币（T41 / R-17；口径源 = architecture/domain/coin/coin.md §四 · §五.1 · §七） ----------
+/**
+ * 投币按钮展示态：`interaction.coin` = 我投了几枚（`0/1/2`；匿名 ⇒ 无该子对象 ⇒ 按未投处理）。
+ * ★ 已投满 `2` ⇒ 文案进"已用完"、视觉进禁用态，但**不用 `disabled` 属性** ——
+ * 属性会让 click 根本不触发，而契约要求"点了给「对本稿件投币枚数已用完」提示"。
+ * 故用类做视觉禁用 + click 里提示（后端仍会兜 409，前端不预判）。
+ */
+function updateCoinBtn() {
+  const btn = state.container.querySelector('#coinBtn');
+  if (!btn) return;
+  const item = state.content;
+  if (!item || item.type !== 1) {   // 图文帖 / 无内容：不渲染（并清掉上一次挂的 onclick）
+    btn.style.display = 'none';
+    btn.onclick = null;
+    return;
+  }
+  btn.style.display = '';
+  const n = interactionOf(item).coin;      // 0 / 1 / 2；匿名时 undefined
+  const used = n === 2;
+  btn.className = 'like-btn' + (used ? ' coin-used' : (n ? ' liked' : ''));
+  btn.textContent = (n === 1 || n === 2) ? `🪙 已投 ${n}` : '🪙 投币';
+  btn.onclick = used ? () => showToast('对本稿件投币枚数已用完') : openCoinModal;
+}
+
+/**
+ * 投币弹层：显示我的余额 + 可选枚数。选项只按"**本次还能投几枚**"裁剪
+ * （`0` ⇒ 1 / 2 都可选；`1` ⇒ 只能再投 1）；**余额够不够不预判** —— 后端 400「硬币不足」兜底。
+ */
+async function openCoinModal() {
+  if (!requireLogin()) return;
+  const n = interactionOf(state.content).coin || 0;
+  state.container.querySelector('#coinOpt1').disabled = false;
+  state.container.querySelector('#coinOpt2').disabled = n >= 1;
+  state.container.querySelector('#coinOverlay').classList.remove('hidden');
+  await showCoinBalance();
+}
+
+function closeCoinModal() {
+  const overlay = state.container.querySelector('#coinOverlay');
+  if (overlay) overlay.classList.add('hidden');
+}
+
+/** 弹层的余额：`GET user/me` 取一次即缓存；投币成功由响应体回带的 `balance` 就地覆盖。 */
+async function showCoinBalance() {
+  const el = state.container.querySelector('#coinBalanceTxt');
+  if (!el) return;
+  if (state.coinBalance == null) {
+    try {
+      const me = await request('user/me');
+      state.coinBalance = me && me.coin != null ? me.coin : 0;
+    } catch (e) {
+      el.textContent = '--';
+      return;
+    }
+  }
+  el.textContent = formatBalance(state.coinBalance);
+}
+
+/**
+ * 投币：★ **不做乐观更新** —— 只在成功后就地更新三个展示量（公共计数 `coinCount`、
+ * 互动态 `interaction.coin`、余额），失败一律照后端 `msg` 提示、本地态不动。
+ * 理由：409 既有"已投满 2"也有"只剩 1 枚额度"两种成因（coin 设计 §十 #1 已知代价），
+ * 后者推不出 `amount` ⇒ 失败时改本地态会把展示钉成假值。
+ */
+async function doCoinAdd(count) {
+  const opt = state.container.querySelector(count === 1 ? '#coinOpt1' : '#coinOpt2');
+  if (opt) opt.disabled = true;
+  try {
+    const res = await coinAdd(state.contentId, count);
+    const item = state.content;
+    item.coinCount = (item.coinCount || 0) + count;
+    interactionOf(item).coin = (interactionOf(item).coin || 0) + count;
+    if (res && res.balance != null) state.coinBalance = res.balance;
+    closeCoinModal();
+    updateCoinBtn();
+    renderStats();
+    showToast('投币成功');
+  } catch (e) {
+    showToast(e.message || '投币失败');   // 「硬币不足」/「对本稿件投币枚数已用完」/「该内容不支持投币」…
+  } finally {
+    if (opt) opt.disabled = false;
+  }
+}
+
+/**
+ * 余额展示口径（coin 设计 §四）：一位小数、精确不舍入。
+ * 后端 `BigDecimal(scale=1)` 序列化成 JSON 数字后 `1.0` 会被 JS 收成 `1` ⇒ 显示前补回一位小数
+ * （页面内的局部口径，**不动** `utils.js` 的既有格式化函数 —— 那两个是数字缩写 / 时长）。
+ */
+function formatBalance(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n.toFixed(1) : '';
 }
 
 function renderRelated() {
@@ -542,13 +663,14 @@ async function deleteComment(comment) {
 }
 
 // ---------- 收藏（T7） ----------
-/** 详情页统计行（点赞 / 评论 / 收藏数）—— 三处写同一行，收敛到此以免各写一份漂移。 */
+/** 详情页统计行（点赞 / 评论 / 收藏 / **投币**数）—— 写同一行，收敛到此以免各写一份漂移。 */
 function renderStats() {
   const item = state.content;
   const el = state.container && state.container.querySelector('#stats');
   if (!item || !el) return;
   el.textContent = `❤ ${formatNumber(item.likeCount || 0)} · 💬 ${formatNumber(item.commentCount || 0)}`
-    + ` · ⭐ ${formatNumber(state.favoriteCount || 0)} · ${formatTime(item.createTime)}`;
+    + ` · ⭐ ${formatNumber(item.favoriteCount || 0)} · 🪙 ${formatNumber(item.coinCount || 0)}`
+    + ` · ${formatTime(item.createTime)}`;
 }
 
 function updateFavBtn() {
@@ -560,22 +682,22 @@ function updateFavBtn() {
 }
 
 /**
- * 收藏按钮初始态 + 收藏数。
- * T10（R-10）：初始态读**详情内联**的 `interaction.isFavorited`（匿名/失效 token ⇒ null ⇒ 未点亮），
- * 不再为它单发 `favorite/status`（详情页请求 3 → 2）；收藏弹窗打开时仍走 status 取 `folders`。
- * 计数仍走公开端点；任一失败都不打断详情页。
+ * 收藏按钮初始态。
+ * T10（R-10）：初始态读**详情内联**的 `interaction.isFavorited`（匿名/失效 token ⇒ null ⇒ 未点亮）。
+ * T43：收藏数也由**详情响应内联**（`favoriteCount`），首次渲染不再单发 `favorite/count`
+ * —— 请求 3 → 1；只有收藏动作之后才用该端点刷新数字（用户去重 ⇒ 不能本地 ±1）。
  */
 function initFavorite() {
-  refreshFavoriteCount();
   state.isFavorited = interactionOf(state.content).isFavorited === true;
   updateFavBtn();
 }
 
 async function refreshFavoriteCount() {
   try {
-    state.favoriteCount = (await request(`favorite/count?contentId=${state.contentId}`)) || 0;
+    const count = (await request(`favorite/count?contentId=${state.contentId}`)) || 0;
+    if (state.content) state.content.favoriteCount = count;
   } catch (e) {
-    state.favoriteCount = 0;
+    // 刷新失败保持详情里的旧值，不打断页面
   }
   renderStats();
 }

@@ -16,15 +16,27 @@
 
 ## 周期头（每窗开读）
 
-* **方向**：★ **ISSUES 处置专项**（第 6 张清单）—— 范围 = `CURRENT_NEEDS.md` §四 的**推荐合并批 A / B / C**；
-  ★ **本期为例外形态：只标注推荐合并项、不填任务四要素**，任务开窗时再探索、决定处置方式。
-* **活事实源 / 设计落点**：横切机制 `architecture/tech/`、业务域 `architecture/domain/`；
-  各专项设计稿随收口归档到 `archive/<域>-<归档日>/`（只读追溯）。
-* **下一期**：方向与范围由 `CURRENT_NEEDS.md` §三 / §四 拍板后登记。
-* **本期交付一览**：待登记（任务从 **`T30`** 起；已终结编号的**一行结论**在**活速查**，全文在 git）。
-* **收尾 checklist**（本期逐条打勾）：□ 回归基线全绿 · □ 完成态已清出（记入 git）· □ 编号已收编进**速查** ·
-  □ 问题已结转（`FURTHER_ISSUES.md`）· □ **引用三道校验**（`doc_links` / `doc_refs` / `doc_stats`）· □ 工作树干净
-* **回归基线**：本期开窗时复跑确认（上一轮 = **575** 例全绿 + `resilience` **41** 例全绿，2026-10-17）。
+* **方向**：★ **详情读聚合专项**（2026-10-20，`T44-1`–`T44-3`）——
+  like 计数回源切 `content.like_count` 列（T44-1）+ 详情四计数聚合读层
+  （一趟 MGET + miss 单飞一条列查 + 有选择回填，T44-2）。
+  **用户 2026-10-20 拍板**（三轮讨论：先查库盘点 → 合并读 / 全量回填的取舍 → 定形
+  "2 趟 Redis + contentId 单飞 + 全量查一次 + 只回填 miss 键"）。
+* **活事实源 / 设计落点**：口径 = [缓存与数据一致性 §5.1](../architecture/tech/cache/缓存与数据一致性.md)
+  （键拆分，T43 定稿）+ **§5.2**（聚合读形态与已知代价，T44-2 新增）；
+  边界登记见 [模块边界与依赖 §六](../architecture/tech/module-boundary/模块边界与依赖.md)
+  （like 读列例外 + MGET 键布局通道 + 回填转发边）。
+* ★ **编号裁定（用户 2026-10-20）**：上一期头曾把"计数缓存专项"的五个子任务占位为
+  `T43`–`T47`，**实际均为 T43 的子任务**（代码 / 文档里的 `T43` 引用是其中定稿项的锚点，
+  **不回收、不全面改名**）。本期起用 **`T44`**，子任务写 `T44-1/T44-2/T44-3`；
+  **下一期从 `T45` 起**。
+* ★ **执行约定**：一任务一 commit（G1）；本期执行者自拆为 3 个子任务、各 1 commit，
+  每 commit 可编译且自带验收测试 + 反向验证。
+* **本期目标态**：like 回源读列 + 删除归零；详情 Redis 读 2 趟、冷内容 DB 3 条
+  （列查 1 + 载荷 2）；命中键绝不被聚合层覆盖。
+* **回归基线**：默认组 **659 例** + resilience **41 例**（全绿，2026-10-20 本期收口）。
+  ⚠️ **口径澄清**：上一期写的"全量 692 例"是**含 resilience** 的总数（692 = 默认 651 + 41）；
+  `tools/run_tests.py` 默认排除 resilience ⇒ 两口径分开记。⚠️ 本环境跑全量需
+  `DB_POOL_MAX_SIZE=4`（否则 Testcontainers MySQL 报 `Too many connections`）。
 
 ---
 
@@ -37,8 +49,8 @@
 | G3 | **疑问分级**：可自答的 → 任务回写留一句；须裁决的 → **停下问用户**，不擅自拍板、不硬扛、不超范围 |
 | G4 | 一任务 = 四要素 + 三句以内回写；探索过程 / 失败尝试 / 中间稿一律走 git，不进本文件 |
 | G5 | **声明式机制必须配契约测试**：断言通过 ≠ 机制生效；写「证明某机制」的用例前先自问「去掉那行实现会红吗」（详见仓库根 `AGENTS.md`「测试纪律」节） |
-| G6 | 改 schema 走 Flyway **最高版本 +1**（**V1 冻结、V2 / V3 / V4 已应用** ⇒ **下一次新建 V5**）；⚠️ **已应用的迁移文件逐字节冻结**（**连注释都不能改**，见 `architecture/tech/data-evolution/数据与Schema演进.md` §2.4）；测试用 DB 时钟造时间窗、关键计数走独立 oracle 查列 |
-| G8 | ★ **跨期约定（升格保留）**：测试必须只断言可观察行为（HTTP 状态 + body + DB 终态）—— 换实现时测试**不许改**；改了就说明测试在抄实现（纪律①） |
+| G6 | 改 schema 走 Flyway **最高版本 +1**（⚠️ **已应用的迁移文件逐字节冻结**——**连注释都不能改**，见 `architecture/tech/data-evolution/数据与Schema演进.md` §2.4）；★ 本期无 schema 变更（`like_count` 列 V1 已有，见 T44-1 回写） |
+| G8 | ★ **跨期约定（升格保留）**：测试必须只断言可观察行为（HTTP 状态 + body + DB 终态）—— 换实现时测试**不许改**；改了就说明测试在抄实现（纪律①）。⚠️ **回源口径契约变更除外**（如 T12 / T44-1 的"回源真理源切换"）：oracle 必须跟随真理源，此时改测试属**契约跟随**而非迎合，须在用例注释里写明口径变更依据 |
 | G13 | ★ **跨期约定（升格保留）**：清单只给方向与红线，不写死实现步骤 —— 有些问题**只有执行期才看得见**。执行中发现清单前提不成立 / 与既有实现冲突 / 有更好的拆法 ⇒ **自行决断或停下登记 `CURRENT_ISSUES.md` I-##** |
 | G14 | ★ **每个任务都显式标注「可质疑」（2026-10-11 用户要求）**：**任务可被质疑**（前提不成立 / 需求已被既有实现覆盖 / 执行时机不对）；**设计也可被质疑**。⚠️ 但本项目是学习项目、**无真实流量**（见 `AGENTS.md`「项目定位与优化口径」）⇒ **质疑成立 ≠ 停做**：**先把代价写进回写**；若仍做，注明"**已知代价后选择做**"。**只有质疑指向真实缺陷才必须停下回报** |
 
@@ -56,75 +68,70 @@
 > ⚠️ **读法（G14 校准）**：块里列的是**已知代价 / 反对理由**，**不是"请自行否决"** ——
 > 出现"停下回报"字样时按 G14 理解：**先记代价、再决定**；**只有指向真实缺陷才必须停**。
 
-> ★ **本期为例外形态（ISSUES 处置专项）**：**不填任务四要素** —— 只在 `CURRENT_NEEDS.md` §四
-> 标注「**推荐合并处理的几项**」；**任务开窗时再探索、决定处置方式**，届时才按下面模板落 `T#`。
+**（`T43` 及其子任务——曾占位为 `T43`–`T47`——已全部收口并清出）**
+计数规范形态（独立 key + 只在详情平铺 + 列表零计数）的活事实源 =
+[缓存与数据一致性 §5.1](../architecture/tech/cache/缓存与数据一致性.md)；
+`T44`–`T47` 为占位编号（实为 T43 的子任务），**不再引用**。全文在 git。
 
-**已完成**：
+### T44-1 like 回源切 `like_count` 列 + 作者删除时归零【已完成】
 
-### T34 计数防负守卫（unsigned-safe 形式；来源 `F-04` / 批 A）【已完成】
+> ⚠️ **先质疑（G14）**：① **侦查推翻前提**——开工前以为 like 是"唯一没有冗余列的计数"、
+> 需要 V6 迁移；实际 `content.like_count` V1 已有 + 点赞写路径事务内 ±1 维护（T34 守卫），
+> **缺的只是读路径消费 + 删除归零** ⇒ 专项缩水、无 schema 变更（G6 无涉）。
+> ② 已知代价：like 计数的真理源从"行数"变为"列"，依赖写路径正确维护
+> （不变量 oracle 钉住 + `devclean/recount.py` 对账工具兜底，F-07 同族）。
 
-> ⚠️ **先质疑（G14）**：
-> - **任务**：前提成立 —— 4 处 unsigned 计数列（`content.comment_count` / `content.like_count` /
->   `users.follow_count` / `users.follower_count`）的 `±delta` 语句无守卫；存量"计数为 0 但明细有行"时
->   点取消赞 / 取关会因 UNSIGNED 下溢报 1690 → 500（已实测复现）。T32 已把数据侧对账归零，本任务收**守卫面**。
-> - **设计**：⚠️ 守卫**不能**照抄 `comment.updateReplyCount` 的 `col + delta >= 0` —— 该形式在 **unsigned**
->   列上**自身也下溢** 1690（实测确认）。采用 `CAST(col AS SIGNED) + delta >= 0`。`comment.like_count`
->   （有符号、不 500）按用户 2026-10-18 拍板**一并加**守卫，求 6 处计数更新口径统一。
+* **入口线索**：`ContentDao#findLikeCountById` / `resetLikeCount` / `LikeCache#getContentLikeCount` /
+  `LikeCountMaintenanceTests`
+* **目标**：like 计数缓存 miss 回源从 `COUNT(*) content_like` 切 `like_count` 列（对齐 T12 的
+  favorite 先例）；`deleteContent` 同事务归零（不变量对软删行成立，`/like/content/count`
+  对已删内容仍返 0）
+* **红线边界**：外部契约不变（端点行为逐字）；评论赞侧不切（范围纪律）；列查询刻意不带
+  `is_deleted`（口径同 `findCoinCount`：读列值非可见性）
+* **回写**：单 commit `feat(like):T44-1`（8 文件）。测试 `LikeCountMaintenanceTests` 3 例
+  （不变量双 oracle / 删除归零 + 端点契约回归 / **列漂移判别**：列=99 行=1 ⇒ 端点返 99，
+  回源改回 COUNT 必红；含对照内容防"恒 99"假绿）。反向验证 2 处全红后还原。
+  `ContentCountTests` 第 4 用例 like oracle 随口径改列（G8 契约跟随，注释已写依据）。
+  ★ 执行期修正一处用例错误：软删行仍存在 ⇒ "无行不回填"分支不可达，键被回填 "0" 是**正确**
+  行为（列值 0 = 真相，与旧行数口径一致），断言改为钉 "0"。
 
-* **入口线索**：`mapper/ContentMapper.xml` 的 `updateCommentCount` / `updateLikeCount`；
-  `mapper/UserMapper.xml` 的 `updateFollowCount` / `updateFollowerCount`；`mapper/CommentMapper.xml` 的
-  `updateLikeCount`；DAO Javadoc（`ContentDao` / `UserDao` / `CommentDao`）+ `LikeService` 类头。
-* **目标**：给 5 处 `±delta` 计数更新加防负守卫（unsigned 侧 CAST、signed 侧原生），
-  使"计数为 0 时再 −1"**不 500 / 不 −1**；自拆三 commit（**按文件互斥切分**，每 commit 可编译且绿）：
-  **T34a** = `comment.like_count`（含 `LikeService` 类头文档）；**T34b** = `content` 两列（含 3 条守卫用例）；
-  **T34c** = `users` 两列（`follow_count` / `follower_count`，含取关用例）。
-* **红线边界**：① 不改 schema / 不改列类型（V1 冻结）；② 守卫是 **block**（影响 0 行、不抛错、不回滚）——
-  不改成抛错 / clamp；③ `comment.updateReplyCount` 既有守卫不动。
-* **强制探索**：验证 unsigned 列上"朴素守卫"是否也下溢（实测结论 = 是 ⇒ 必须 CAST）。
-* **验收**：5 处守卫各配一条"**去掉守卫必红**"的用例（种出"计数 0 + 明细有行"，走真实入口，
-  断言 200 + DB 终态），+ 既有"正常 −1→0"用例作对照；回归全绿；`doc_refs` / `doc_links` 0 违规。
-* **回写**：① 5 处 `±delta` 计数更新全部加防负守卫（unsigned 用 `CAST(... AS SIGNED)`、signed 用原生比较），
-  **不改 schema**；4 条"去掉守卫必红"用例（守卫临时改 `1 = 1` ⇒ 4 条全红，恢复 ⇒ 绿，反向验证通过）。
-  ② 守卫为 **block** 语义（影响 0 行、不抛错、不回滚）⇒ "计数为 0 + 明细有行"时取消赞/取关照常 200
-  （明细行照删、计数停 0），**不存在"永远无法取消"** ⇒ 不新增 `F-##`。③ 回归全绿（全量 **620** 例；
-  ⚠️ 本环境跑全量需 `DB_POOL_MAX_SIZE=4`，否则 Testcontainers MySQL 报 `Too many connections` ⇒ 8 例上下文加载失败，
-  **与 T34 无关**，隔离复跑该 3 类全绿）。
+### T44-2 详情计数聚合读层【已完成】
 
-### T35 ArchUnit 规则 5：任何域不得依赖 feed（S9 消环补钉；来源 `F-03`）【已完成】
+> ⚠️ **先质疑（G14）**：合并读 / 全量回填 / 有选择回填三轮取舍的最终形态——
+> **已知代价后选择做**：① 聚合路径不做命中续期（四键 TTL 跨域，一趟 pipeline 带不了四种
+> EXPIRE）⇒ 热键每 TTL 周期重回源 1 条点查；② 单飞不跨载荷/计数合并（不复刻 `CacheAside`
+> 三态，载荷并入挂 F-26）；③ content.cache 读他域键名 + 经互动域转发回填 = 两条边界税，
+> 已在《模块边界与依赖》§六 登记；④ follower 重复 SET 幂等无害。收益端见 §5.2。
 
-> ⚠️ **先质疑（G14）**：
-> - **任务**：前提成立——规则 5 落地前实测全仓（main + test）没有任何 DOMAINS 域 import feed
->   （唯一的测试侧 importer 在非 DOMAINS 的 `ratelimit` 包），S9 消掉的环今天确实**只靠约定**守住
->   （遗留台账 C1 2026-10-03 自记"见 SOP 待补项"），与本仓"结构不靠约定靠测试"的立仓原则直接相悖。
-> - **设计**：⚠️ 已知代价——补规则属**加固**非缺陷修复（F-03 原判断正确）；范围比登记原文
->   （content→feed）宽一档（from = 其余 10 域全禁），代价是"若将来出现合法的 `X→feed`
->   需求需改规则"——但 feed.md §八 的不变式本就是"全链路无包环"，宽档才是忠实编码，
->   且今天零 importer ⇒ 零误伤。**已知代价后选择做**。
-> - ★ **同窗调查、判不修的另一条**：`F-18`（@Lazy 断环 → 抽窄装载组件）**维持留池**——
->   无缺陷（删注解 = 启动期响亮失败）；抽组件只消 bean 装配边、消不掉 §六 有意保留的
->   favorite→content 包级边（ContentDao 薄依赖）；却要动 T6-5 装载契约 + 15+ 处注释锚点。
->   升级条件（互动域再聚合新域）未触发。
+* **入口线索**：`ContentCountAggregate`（新）/ `ContentCountColumns`（新 record）/
+  `ContentDao#findCountColumns` / `InteractionService#backfill{Like,Favorite,Coin}Count` /
+  `ContentDetailCountAggregateTests`
+* **目标**：详情四计数一趟 pipeline MGET（Redis 读 5→2 趟）；miss 单飞（`detail:counts:{id}`）
+  回源一条四列点查（冷内容 DB 5→3 条）；**只回填 miss 的键**（命中键不碰——防快照覆盖
+  未失效键重开旧值复活窗口）
+* **红线边界**：content 不直写他域键（回填经互动域转发）；404 短路在聚合之前；
+  降级直查 DB 不回填；DB 异常上抛 500
+* **回写**：单 commit `feat(content):T44-2`（16 文件）。删 `getPublicCounts` 与
+  `ContentPublicCounts`（唯一调用方被取代）；`CoinService#getCoinCount` /
+  `ContentCountCache#getCommentCount` 有意保留（单键通道，先例同款）。
+  测试 5 例：有选择回填（**反向验证：注入"回填全部"红**）/ 单飞合一（**反向验证：注入
+  "去单飞"红**；atMost(3) 而非 times(1)——线程调度无法保证全重叠，理由在用例内）/
+  脏值自愈 / 404 不回填（favorite 键按既存口径残留，如实钉）/ Redis 降级。
+  ★ 实测坑：record 组件**必须包装 Long**（MyBatis `<constructor>` 按 javaType 反射，
+  原生 canonical 构造器不匹配 ⇒ NoSuchMethodException ⇒ 详情 500，已写进 record Javadoc）。
 
-* **入口线索**：`ArchitectureTests`（4 条规则）；feed.md §八"依赖方向与消环"；遗留台账 C1 末段。
-* **目标**：把 S9 消掉的 `content⇄feed` 环从"靠约定"变成"会失败的测试"——规则 5：
-  `noClasses().that().resideInAPackage(..videoweb.<X>..)`（X ∈ 其余 10 域）
-  `.should().dependOnClassesThat().resideInAPackage(..videoweb.feed..)`。
-* **红线边界**：① 不碰任何生产代码；② 沿用 from ∈ `DOMAINS` 的写法（`ratelimit` 等非 DOMAINS
-  测试包不在扫描面，与既有 4 条规则同款）；③ 规则 javadoc 必须带"推翻条件"（feed 将来发布
-  领域事件且他域需消费 ⇒ 先开 event 落点豁口再修）。
-* **强制探索**：① 反向验证判别力（注入 ⇒ 红 / 还原 ⇒ 绿，见回写）；② 核对 feed 今天不发布
-  领域事件（`feed.event` 只有订阅方）⇒ 规则暂无豁口需求；③ 核对测试侧唯一 feed importer
-  的包归属（`ratelimit`，非 DOMAINS ⇒ 不误伤）。
-* **验收**：`ArchitectureTests` 5 条全绿；反向验证红/绿两态均实测；本任务自拆两 commit
-  （**T35-1** = 规则 + 反向验证，**T35-2** = 文档与台账本登记）；`doc_refs` / `doc_links` 0 违规。
-* **回写**：① 规则 5 已落（`ArchitectureTests.任何域都不得依赖feed`），类头 javadoc 四条→五条；
-  反向验证实测：`ContentService` 注入 `feed.mq.FeedTopology` 字段 ⇒ `Failures: 1`（违规指向
-  `任何域都不得依赖feed` / `FeedTopology`），还原 ⇒ `tests=5 failures=0` 全绿，探针已还原
-  （工作树仅剩测试文件改动）。② 文档收口：《模块边界与依赖》§五（规则表 + 治病条目）与
-  §七（清单第 8 条）、feed.md §八（钉子注脚）、`FURTHER_ISSUES.md` F-03 → 已交付。
-  ③ 未碰生产代码 ⇒ 不跑全量回归（`ArchitectureTests` 为纯 ArchUnit 扫描，无 Spring 上下文）。
+### T44-3 文档收口 + 全量回归 + 登记台【已完成】
 
-**待开窗登记**（编号从 **`T30`** 起）：批 **A** 存量数据债 / 批 **B** 并发窗口复核 / 批 **C** 结构加固 —— 覆盖编号见 `CURRENT_NEEDS.md` §四。
+* **入口线索**：缓存文档 §5.2（新）/ 边界文档 §六（like 读例外 + 两条通道登记）/
+  `FURTHER_ISSUES` F-26（载荷读并入聚合层，留池）
+* **目标**：三道文档门禁 0 违规；全量回归全绿（默认组 + resilience 分口径记）
+* **红线边界**：不新开归档目录（本期无设计稿，形态进活文档 §5.2）；review #2 的两处
+  注释修正并入本 commit
+* **回写**：doc_refs / doc_links 0 违规，doc_stats 超限项均为归档件（不受控）；
+  回归默认组 **659 例** + resilience **41 例** 全绿（= T43 基线 692 含 resilience − 41 + 新增 8，
+  口径自洽）。两轮 subagent review（T44-1 / T44-2）结论主会话均已复核并落实
+  （T44-1 修 1 处编号残留 + 2 处注释；T44-2 零必须修项，2 处注释并入本 commit）。
+
 
 ```
 ### T# <任务名>（来源 R-## / 设计 §x）【待执行】
@@ -151,4 +158,6 @@
 
 | 来源 | 事项 | 去向（决定人 + 日期） |
 |------|------|---------------------|
-| 待登记 | | |
+| T44 设计讨论 | **F-26**：载荷读并入聚合层（单飞跨载荷/计数合一，冷内容 3→2 条 SQL） | **留池**（FURTHER_ISSUES F-26，2026-10-20；推翻条件 = 实测详情载荷 miss 热点；理由 = 复刻 CacheAside 三态的漂移风险 > 常数 SQL） |
+| T44 设计讨论 | 聚合路径计数键**不做命中续期**（四键 TTL 跨域） | **登记为已知代价**（缓存文档 §5.2，2026-10-20；热键每 TTL 周期重回源 1 条点查）；推翻 = 出现 TTL 到期回源的实测压力 ⇒ 届时补一趟跨域 EXPIRE pipeline 或统一 TTL |
+| T44-1 执行发现 | favorite 键在内容删除时**不失效**（favorite 域不订阅 REMOVE，明细行不删、列不重算，键残留 TTL 自愈） | **如实钉进测试**（`ContentDetailCountAggregateTests#删除后404不回填计数键`，2026-10-20）——既存口径非本期引入；推翻 = 出现"已删内容的收藏数被外显"的读路径 ⇒ 届时给 favorite 域补 REMOVE 订阅 |
