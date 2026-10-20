@@ -85,6 +85,16 @@
         select comment_count from content where id = #{contentId}
     </select>
 
+    <!-- 点赞总数单列窄查询（T44-1：LikeCache 计数回源从 COUNT(*) content_like 切到本列）。
+         ★ 列自 V1 起存在、由点赞写路径事务内 ±1 维护（updateLikeCount），只是此前读路径从未消费。
+         同样**刻意不加 is_deleted 过滤**（理由同 findCoinCount）：读的是列值；
+         配套不变式 = 作者删除内容时 deleteContent 同事务把本列归零（见 resetLikeCount）
+         ⇒ like_count == COUNT(*) content_like 对所有行成立。
+         ⚠️ 返回 Integer（包装）：无行 ⇒ null ⇒ 缓存层不写缓存。 -->
+    <select id="findLikeCountById" resultType="java.lang.Integer">
+        select like_count from content where id = #{contentId}
+    </select>
+
     <!-- T39 批量回填：一趟 IN 取多条（ContentCoinCount 是 record ⇒ 必须 <constructor>；
          javaType 必须是包装类型 Long / Integer，构造器按 Class 匹配）。
          同样不带走 is_deleted 过滤（理由同 findCoinCount）。 -->
@@ -129,6 +139,14 @@
     <update id="updateLikeCount">
         UPDATE content SET like_count = like_count + #{delta}
         WHERE id = #{contentId} AND CAST(like_count AS SIGNED) + #{delta} &gt;= 0
+    </update>
+
+    <!-- 作者删除内容时把 like_count 归零（T44-1）：物理删 content_like 行的同一事务里调用。
+         ★ 写绝对值 0 而非 ±delta：删除时不知道现值，置 0 恒安全（无 unsigned 下溢）；
+         不归零则 like_count == COUNT(*) 不变量对软删行破裂（T44-1 起回源读列，
+         /like/content/count 对已删内容会回退成旧值而非 0）。 -->
+    <update id="resetLikeCount">
+        UPDATE content SET like_count = 0 WHERE id = #{contentId}
     </update>
 
     <!-- 收藏数批量重算（T12，与 like_count 增量式**刻意不同**）：一趟 CASE-WHEN 写回一批行的

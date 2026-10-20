@@ -52,9 +52,6 @@ public interface ContentLikeDao {
      */
     Set<Long> findLikedContentIdsByUser(@Param("userId") long userId);
 
-    /** 内容点赞总数（计数/成员分离：只 COUNT，不加载成员）。TV: {@code countByContentId}。 */
-    int countByContentId(@Param("contentId") long contentId);
-
     /**
      * 删除某内容的**全部**点赞记录（内容被删时的级联，S5 补搬）。
      *

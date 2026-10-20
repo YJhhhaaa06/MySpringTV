@@ -407,6 +407,10 @@ public class ContentService {
      * </pre>
      * ③④⑤⑥ 不同进同退会留下**不可自愈的不一致**（内容已删而点赞记录/媒体行仍在，或反之）
      * ——没有任何补偿机制能修复它。故撤销事务是错的。
+     * ★ T44-1 追加 ⑤'：{@code contentDao.resetLikeCount} 把 {@code content.like_count} **归零**——
+     * 行物理删了、列还留着旧值的话，{@code like_count == COUNT(*) content_like} 不变量对软删行
+     * 即告破裂（T44-1 起计数回源**读列**，{@code /like/content/count} 对已删内容会回退成旧值
+     * 而非既有的 0）。favorite/coin 的列无此问题：删除时它们的明细行本就不删。
      *
      * <h2>★ 三个提交后副作用（一个自有事件 + 两个订阅方）</h2>
      * <ol>
@@ -444,6 +448,7 @@ public class ContentService {
         contentDao.softDeleteContent(contentId);
         commentDao.softDeleteByContentId(contentId);
         contentLikeDao.deleteByContentId(contentId);
+        contentDao.resetLikeCount(contentId);
         contentMediaDao.deleteByContentId(contentId);
 
         events.publishEvent(ContentCacheChangedEvent.remove(contentId));

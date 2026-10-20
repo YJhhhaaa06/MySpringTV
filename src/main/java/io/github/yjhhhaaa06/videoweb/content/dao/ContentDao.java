@@ -180,6 +180,34 @@ public interface ContentDao {
     Integer findCommentCount(@Param("contentId") long contentId);
 
     /**
+     * 读某内容的**点赞总数**（**单列窄查询**，T44-1 计数缓存 miss 的回源切换点）。
+     *
+     * <p>SQL: {@code select like_count from content where id = #{contentId}}。
+     *
+     * <p>★ <b>T44-1 回源口径切换</b>：此前（S3 起的既有实现）{@code LikeCache} 的计数回源走
+     * {@code COUNT(*) FROM content_like}（行数实时聚合）；本方法把它切到
+     * {@code content.like_count} 列——该列自 V1 起就存在，且点赞写路径一直在事务内
+     * ±1 维护（{@link #updateLikeCount}，T34 防负守卫），只是**读路径从未消费过它**。
+     * 切换动机：详情计数聚合读层（T44-2）的"全量查"要一趟从 {@code content} 行取齐四计数，
+     * like 若仍走实时聚合，就成了该查询里唯一随热度变贵的成员（favorite 在 T12 已做过同款切换）。
+     *
+     * <p>★ <b>刻意不加 {@code is_deleted = 0}</b>：同 {@link #findCoinCount}——读的是**列值**，
+     * 不是"内容是否可见"。配套不变式：作者删除内容时 {@code deleteContent} 在**同一事务**里
+     * 物理删点赞行并把本列归零（{@link #resetLikeCount}）⇒ {@code like_count == COUNT(*) content_like}
+     * 对**所有行**（含软删行）成立，{@code /like/content/count} 对已删内容仍返回 0（契约不变）。
+     *
+     * <p>⚠️ 返回**包装类型** {@link Integer}：无行 ⇒ {@code null} ⇒ 缓存层不写缓存
+     * （对齐 {@link #findCoinCount} / {@link #findCommentCount} 的口径）。
+     *
+     * <p>★ 这是 like → content 的**DAO 纯读**（{@code LikeCache} 的计数回源点）：
+     * 与 {@link #findFavoriteCountById} 同类 —— 主键点查、只读一列、不碰对方 service/model/cache，
+     * 按 {@code 模块边界与依赖.md} §六 的纪律属**显式登记例外**（登记动作在 T44-1）。
+     *
+     * @return 点赞总数；内容行不存在 ⇒ {@code null}
+     */
+    Integer findLikeCountById(@Param("contentId") long contentId);
+
+    /**
      * 评论数增减。TV: {@code UPDATE content SET comment_count = comment_count + ? WHERE id = ?}
      *
      * <p><b>T34 补防负守卫</b>（TV 原 SQL 无守卫）。{@code content.comment_count} 是
@@ -232,6 +260,25 @@ public interface ContentDao {
      * @return 受影响行数（守卫拦住时为 0）
      */
     int updateLikeCount(@Param("contentId") long contentId, @Param("delta") int delta);
+
+    /**
+     * 作者删除内容时把 {@code content.like_count} **归零**（T44-1）。
+     *
+     * <p>SQL: {@code UPDATE content SET like_count = 0 WHERE id = #{contentId}}。
+     *
+     * <p>★ 为什么必须存在：{@code deleteContent} 在同一事务里**物理删** {@code content_like} 行，
+     * 但 softDelete 不动本列——若不归零，{@code like_count == COUNT(*) content_like} 这条不变量
+     * 对软删行即告破裂：回源读列（T44-1 起）会把"5"读给一条已删除的内容，而切换前
+     * {@code COUNT(*)} 的口径天然返回 0 ⇒ {@code /like/content/count} 的可观察行为会**回退**。
+     * 归零后不变量对**所有行**成立（favorite/coin 的列无此问题：删除时行本就不删）。
+     *
+     * <p>写**绝对值**而非 ±delta：删除时并不知道现值，且置 0 恒安全（不存在 unsigned 下溢）；
+     * 与行删除**同事务**（调用方 {@code ContentService#deleteContent} 的 {@code @Transactional}），
+     * 行删列留的中间态对外不可见。
+     *
+     * @return 受影响行数
+     */
+    int resetLikeCount(@Param("contentId") long contentId);
 
     /**
      * 收藏数**批量重算**（T12，收藏二期-3）：一趟 CASE-WHEN 把一批

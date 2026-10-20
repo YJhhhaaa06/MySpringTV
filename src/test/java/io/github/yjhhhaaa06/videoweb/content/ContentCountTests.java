@@ -21,8 +21,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li><b>不再连坐失效</b>：点赞 / 发评论之后，{@code content:{id}} **仍在缓存里**。
  *       判别力：恢复 {@code contentCache.invalidateContent(...)} ⇒ 两条"key 仍在"断言红；</li>
  *   <li><b>值仍然正确</b>：不失效不代表答案错 —— 详情里的四个计数分别来自四个独立来源
- *       （like 行数 / comment_count 列 / favorite_count 列 / coin_count 列），
- *       用**互不相同的取值**交叉验证"没接错线"。</li>
+ *       （like_count 列 / comment_count 列 / favorite_count 列 / coin_count 列），
+ *       用**互不相同的取值**交叉验证"没接错线"。★ T44-1 起 likeCount 的回源口径从
+ *       {@code content_like} 行数切到 {@code content.like_count} 列（对齐 T12 的 favorite 先例），
+ *       本类的 like oracle 随之改为列口径（夹具也从"插行"改为"写列"——插行不维护列，
+ *       在新口径下不再是有效造数）。</li>
  * </ol>
  *
  * <h2>为什么"值正确"必须单独钉</h2>
@@ -98,7 +101,7 @@ class ContentCountTests extends AbstractContentIntegrationTest {
         // 值仍要正确：计数 key 冷 ⇒ miss 回源 COUNT(*)，不依赖内容载荷
         JsonNode after = Envelope.data(get("/search/IdSearch?contentId=" + contentId, authorToken));
         assertThat(after.path("likeCount").asLong())
-                .as("★ 详情 likeCount = content_like 行数（独立 oracle）")
+                .as("★ 详情 likeCount = content.like_count 列（T44-1 起回源口径；写路径维护列 ⇒ 与行数相等）")
                 .isEqualTo(countLikeRows(contentId))
                 .isEqualTo(1L);
         assertThat(isContentKeyWarm(contentId)).as("再读之后内容 key 仍在").isTrue();
@@ -154,14 +157,15 @@ class ContentCountTests extends AbstractContentIntegrationTest {
         long contentId = insertVideoContent(authorId, "四路来源测试");
 
         // 四个**互不相同**的值，任何"接错线"都会被抓到：
-        insertContentLike(9001L, contentId);                       // like   = 1（行数 oracle）
+        // ★ T44-1：likeCount 回源口径 = content.like_count 列（不再读行数），夹具随之写列
+        jdbcTemplate.update("UPDATE content SET like_count = 1 WHERE id = ?", contentId);
         jdbcTemplate.update("UPDATE content SET comment_count = 3 WHERE id = ?", contentId);
         jdbcTemplate.update("UPDATE content SET favorite_count = 7 WHERE id = ?", contentId);
         jdbcTemplate.update("UPDATE content SET coin_count = 2 WHERE id = ?", contentId);
 
         JsonNode data = Envelope.data(get("/search/IdSearch?contentId=" + contentId, token));
 
-        assertThat(data.path("likeCount").asLong()).as("likeCount ← content_like 行数").isEqualTo(1L);
+        assertThat(data.path("likeCount").asLong()).as("likeCount ← content.like_count（T44-1 起读列）").isEqualTo(1L);
         assertThat(data.path("commentCount").asLong()).as("commentCount ← content.comment_count").isEqualTo(3L);
         assertThat(data.path("favoriteCount").asLong()).as("favoriteCount ← content.favorite_count").isEqualTo(7L);
         assertThat(data.path("coinCount").asLong()).as("coinCount ← content.coin_count").isEqualTo(2L);
