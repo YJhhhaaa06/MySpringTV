@@ -3,6 +3,7 @@ package io.github.yjhhhaaa06.videoweb.content.dao;
 import io.github.yjhhhaaa06.videoweb.content.model.AuthorContentId;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentAuthorAndType;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentCoinCount;
+import io.github.yjhhhaaa06.videoweb.content.model.ContentCountColumns;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentFavoriteCount;
 import io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO;
 import io.github.yjhhhaaa06.videoweb.content.model.entity.Content;
@@ -178,6 +179,27 @@ public interface ContentDao {
      * 不涉及跨域：{@code content.comment_count} 是内容表自己的列，只是由评论域的事务负责 ±。
      */
     Integer findCommentCount(@Param("contentId") long contentId);
+
+    /**
+     * **一趟读齐四个公共计数列**（T44-2 详情计数聚合读的回源）。
+     *
+     * <p>SQL: {@code select like_count, comment_count, favorite_count, coin_count from content where id = ?}。
+     *
+     * <p>★ 为什么一趟取齐（T44-2 的核心收益）：详情响应要平铺四个计数，此前各自独立回源
+     * （冷内容全 miss = 5 条 SQL）；四列同在本行上 ⇒ 一趟主键点查取齐，miss 键再按
+     * "有选择回填"分别写回各自的独立键（只回填 miss 的，命中键不动——否则会把别域
+     * "未失效的键"用本次快照覆盖，重开已消除的旧值复活窗口）。
+     *
+     * <p>★ <b>刻意不加 {@code is_deleted = 0}</b>：同 {@link #findCoinCount}——读的是**列值**。
+     * 聚合读层的调用时点保证"载荷已命中"（内容存在且媒体完好）⇒ 本查询必然有行；
+     * 无行返回 {@code null} 的分支保留为防御（聚合层按"全 0 不回填"处理）。
+     *
+     * <p>⚠️ 返回 record ⇒ 必须用 {@code <constructor>} 映射（{@code ContentMapper.xml}），
+     * javaType 用包装类型。
+     *
+     * @return 四计数列；内容行不存在 ⇒ {@code null}（防御分支，正常调用时序下不可达）
+     */
+    ContentCountColumns findCountColumns(@Param("contentId") long contentId);
 
     /**
      * 读某内容的**点赞总数**（**单列窄查询**，T44-1 计数缓存 miss 的回源切换点）。

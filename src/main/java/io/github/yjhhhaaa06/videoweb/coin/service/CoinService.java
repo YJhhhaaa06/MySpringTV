@@ -206,13 +206,27 @@ public class CoinService {
     }
 
     /**
-     * 某内容的累计投币数（公共计数，供详情 / 列表；T40 接入）。
+     * 某内容的累计投币数（公共计数；T40 接入）。
      *
      * <p>薄委托 {@link CoinCache#getCoinCount}。★ 缓存是 coin 域的**私有实现**——
      * 跨域不得直接注入 {@code CoinCache}（ArchUnit 规则 2），必须经本方法。
+     *
+     * <p>⚠️ <b>T44-2 起详情详情路径改走聚合层</b>（{@code ContentCountAggregate} 一趟 MGET +
+     * miss 单飞），本方法的直接调用方已清零；**有意保留**（连同 {@code CoinCache#getCoinCount}）
+     * ——它是"单键读"的现成通道（对齐 {@code batchGetCoinCount} 的保留先例），删除前先读
+     * {@code 缓存与数据一致性.md §五.2}。
      */
     public long getCoinCount(long contentId) {
         return coinCache.getCoinCount(contentId);
+    }
+
+    /**
+     * 累计投币数的**回填转发**（T44-2）：详情计数聚合读（content 域）经 {@code InteractionService}
+     * 调到这里，值来自 {@code content.coin_count} 列快照。coin 对 content 无回指边
+     * （T40 判断），转发只为统一聚合通道。
+     */
+    public void backfillCoinCount(long contentId, long count) {
+        coinCache.backfillCoinCount(contentId, count);
     }
 
     /**

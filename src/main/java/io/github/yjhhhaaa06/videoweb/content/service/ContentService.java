@@ -6,7 +6,7 @@ import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
 import io.github.yjhhhaaa06.videoweb.content.cache.ContentCache;
-import io.github.yjhhhaaa06.videoweb.content.cache.ContentCountCache;
+import io.github.yjhhhaaa06.videoweb.content.cache.ContentCountAggregate;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentMediaDao;
 import io.github.yjhhhaaa06.videoweb.content.event.ContentCacheChangedEvent;
@@ -14,13 +14,13 @@ import io.github.yjhhhaaa06.videoweb.content.event.ContentMilestoneEvent;
 import io.github.yjhhhaaa06.videoweb.content.event.ContentPublishedEvent;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentType;
 import io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO;
+import io.github.yjhhhaaa06.videoweb.content.model.ContentCountColumns;
 import io.github.yjhhhaaa06.videoweb.content.model.entity.Content;
 import io.github.yjhhhaaa06.videoweb.content.model.entity.ContentMedia;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.AdminContentVO;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentDetailVO;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentVO;
 import io.github.yjhhhaaa06.videoweb.comment.dao.CommentDao;
-import io.github.yjhhhaaa06.videoweb.interaction.model.ContentPublicCounts;
 import io.github.yjhhhaaa06.videoweb.interaction.model.InteractionDimension;
 import io.github.yjhhhaaa06.videoweb.interaction.service.InteractionService;
 import io.github.yjhhhaaa06.videoweb.like.dao.ContentLikeDao;
@@ -82,7 +82,7 @@ public class ContentService {
     private final CommentDao commentDao;
     private final ContentLikeDao contentLikeDao;
     private final ContentCache contentCache;
-    private final ContentCountCache contentCountCache;
+    private final ContentCountAggregate countAggregate;
     private final InteractionService interactionService;
     private final ContentStatusFiller contentStatusFiller;
     private final ApplicationEventPublisher events;
@@ -104,7 +104,7 @@ public class ContentService {
                           CommentDao commentDao,
                           ContentLikeDao contentLikeDao,
                           ContentCache contentCache,
-                          ContentCountCache contentCountCache,
+                          ContentCountAggregate countAggregate,
                           InteractionService interactionService,
                           ContentStatusFiller contentStatusFiller,
                           ApplicationEventPublisher events) {
@@ -113,7 +113,7 @@ public class ContentService {
         this.commentDao = commentDao;
         this.contentLikeDao = contentLikeDao;
         this.contentCache = contentCache;
-        this.contentCountCache = contentCountCache;
+        this.countAggregate = countAggregate;
         this.interactionService = interactionService;
         this.contentStatusFiller = contentStatusFiller;
         this.events = events;
@@ -225,15 +225,16 @@ public class ContentService {
         // 单条四维走互动域单条契约；匿名（userId == null）由它短路返回 null ⇒ "interaction": null。
         // coin 维在互动域内按 type 分流：视频 ⇒ 0/1/2；图文 ⇒ null（"该维不适用"）。
         vo.setInteraction(interactionService.getStatus(userId, contentId, vo.getAuthorId(), vo.getType()));
-        // T43：四个公共计数平铺返回，各自一个独立缓存 key（详情专有 —— 列表不带计数）。
-        // 三个来源（like / favorite / coin）走互动域一趟聚合：content → favorite.service 会成装配环，
-        // 而本域对 favorite 的唯一通路是"互动域（那里 favorite 已是 @Lazy）"。评论数走本域自己的
-        // ContentCountCache —— content 不得依赖 comment（ArchitectureTests 规则 4）。
-        ContentPublicCounts counts = interactionService.getPublicCounts(contentId);
+        // T44-2：四个公共计数由聚合层一趟提供——MGET 四键（1 趟 pipeline）→ miss 单飞回源
+        // 一条四列点查 → 只对 miss 的键回填（命中键不碰）。详情 Redis 读共 2 趟、冷内容 DB 1 条。
+        // 形态与代价见 ContentCountAggregate 类注释与 缓存与数据一致性.md §五.2。
+        // ★ 与 T43 形态的差异：四键读不再各走各的回源（原 getPublicCounts 三次单条 + 评论数一条，
+        //   冷内容 4 条 SQL），互动域的读聚合被本聚合层取代（其回填转发保留在互动域）。
+        ContentCountColumns counts = countAggregate.readCounts(contentId);
         vo.setLikeCount(counts.likeCount());
         vo.setFavoriteCount(counts.favoriteCount());
         vo.setCoinCount(counts.coinCount());
-        vo.setCommentCount(contentCountCache.getCommentCount(contentId));
+        vo.setCommentCount(counts.commentCount());
         return vo;
     }
 

@@ -437,4 +437,15 @@ public class LikeCache {
             log.warn("点赞计数回填失败（不影响本次读结果，下次读重试）: key={}", countKey);
         }
     }
+
+    /**
+     * 内容点赞数的**回填契约**（T44-2）：详情计数聚合读（content 域）在 miss 时经
+     * {@code InteractionService} 转发调到这里——值来自聚合层一趟 {@code findCountColumns}
+     * 刚查出的列快照，本方法只负责"用它写自己的键"（域内口径：likeTtl、覆盖写）。
+     * ★ 值必须来自"该键的真理源"（content 行的列），聚合层不得传别处算出的值；
+     * 命中键**不调**本方法（有选择回填——否则会用本次快照覆盖未失效的键）。
+     */
+    public void backfillContentCount(long contentId, int count) {
+        backfillCountQuietly(contentLikeCountKey(contentId), count);
+    }
 }

@@ -27,9 +27,11 @@ import io.github.yjhhhaaa06.videoweb.interaction.model.vo.InteractionStatusVO;
  * {@code content:favoriteCount}（favorite 域）/ {@code content:coinCount}（coin 域）。
  * 内容缓存 {@code content:{id}} 只放**慢变**字段（标题 / 描述 / 媒体 / 作者 / 分区）——
  * 否则每一次点赞或评论都要 {@code DEL} 整份载荷，让媒体装配与 JOIN 陪葬。
- * 三个来源由互动域一趟聚合（{@code InteractionService#getPublicCounts}），
- * 评论数由内容域自己的 {@code ContentCountCache} 填（{@code content} 不得依赖 {@code comment}，
- * 见 {@code ArchitectureTests} 规则 4）。
+ * ★ T44-2 起四个计数的**读取**由计数聚合层一趟提供（{@code ContentCountAggregate}：
+ * 一趟 pipeline MGET 四键 → miss 单飞回源一条四列点查 → 有选择回填）；
+ * 三个外域计数键的**回填**经互动域转发到各自域（content 不直写他域缓存，
+ * {@code 模块边界与依赖.md} §六 登记例外）。评论数由内容域自持
+ * （{@code content} 不得依赖 {@code comment}，见 {@code ArchitectureTests} 规则 4）。
  *
  * <p>⚠️ T43 起**列表 VO 与本类不再同形**：列表没有任何计数（用户 2026-10-19 拍板），
  * 见 {@link ContentVO}。互动态仍在两处共用同一个子对象定义。
@@ -45,10 +47,11 @@ public class ContentDetailVO extends ContentCacheDTO {
     private InteractionStatusVO interaction;
 
     /**
-     * 内容的**点赞数**（公共计数，请求无关；T43）。
+     * 内容的**点赞数**（公共计数，请求无关；T43 平铺 / T44-1 起回源读 {@code content.like_count} 列）。
      *
      * <p>★ 绝不进 {@link ContentCacheDTO}：来源是 {@code content:likeCount:{id}} 独立缓存 key
-     * （点赞域持有，回源 {@code COUNT(*) content_like}）。平铺在本类上、**不进** {@code interaction}
+     * （点赞域持有，T44-1 起回源 {@code content.like_count} 列——该列由点赞写路径事务内 ±1 维护、
+     * 删除内容时归零）。平铺在本类上、**不进** {@code interaction}
      * —— 它是请求无关的公共数字，"我的状态"才属于互动域。
      */
     private long likeCount;

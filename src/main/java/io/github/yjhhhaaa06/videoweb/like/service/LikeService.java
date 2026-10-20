@@ -163,6 +163,15 @@ public class LikeService {
         return likeCache.getContentLikeCount(contentId);
     }
 
+    /**
+     * 内容点赞数的**回填转发**（T44-2）：详情计数聚合读（content 域）经 {@code InteractionService}
+     * 调到这里，值来自 {@code content.like_count} 列快照。content 不得直连 like（T13/F-16 拆掉的边），
+     * 经互动域转发是既有形态（读 {@code isContentLiked} 同路）。
+     */
+    public void backfillContentLikeCount(long contentId, int count) {
+        likeCache.backfillContentCount(contentId, count);
+    }
+
     public boolean isCommentLiked(long userId, long commentId) {
         return likeCache.isCommentLiked(userId, commentId);
     }

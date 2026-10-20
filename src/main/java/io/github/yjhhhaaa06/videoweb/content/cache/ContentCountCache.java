@@ -62,6 +62,11 @@ public class ContentCountCache extends RedisOps {
     /**
      * 读内容评论总数（公共计数，与登录态无关）。
      *
+     * <p>⚠️ <b>T44-2 起详情路径改走聚合层</b>（{@code ContentCountAggregate} 一趟 MGET +
+     * miss 单飞），本方法的直接调用方已清零；**有意保留**——它是"单键读"的现成通道
+     * （对齐 {@code CoinService#batchGetCoinCount} 的保留先例），删除前先读
+     * {@code 缓存与数据一致性.md §五.2}。
+     *
      * @return 评论总数；内容行不存在 ⇒ {@code 0}（详情路径在此之前已 404）
      */
     public long getCommentCount(long contentId) {
@@ -119,6 +124,15 @@ public class ContentCountCache extends RedisOps {
         } catch (CacheUnavailableException e) {
             log.warn("评论数回填失败（不影响本次读结果，下次读重试）: key={}", key, e);
         }
+    }
+
+    /**
+     * 评论总数的**回填契约**（T44-2）：详情计数聚合读在 miss 时直接调到这里（同域，无转发）——
+     * 值来自聚合层一趟 {@code findCountColumns} 刚查出的 {@code content.comment_count} 列快照，
+     * 本方法只负责"用它写自己的键"。★ 命中键**不调**本方法（有选择回填）。
+     */
+    public void backfillCommentCount(long contentId, long count) {
+        backfillQuietly(CacheKeys.contentCommentCount(contentId), count);
     }
 
     private static long nullToZero(Integer value) {

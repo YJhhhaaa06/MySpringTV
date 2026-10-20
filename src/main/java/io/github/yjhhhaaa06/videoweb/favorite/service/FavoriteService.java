@@ -842,6 +842,15 @@ public class FavoriteService {
         return favoriteCache.getFavoriteCount(contentId);
     }
 
+    /**
+     * 收藏数的**回填转发**（T44-2）：详情计数聚合读（content 域）经 {@code InteractionService}
+     * 调到这里，值来自 {@code content.favorite_count} 列快照（本域 T12 起的真理源）。
+     * content 直连本域会闭成装配环（F-18），经互动域转发不新增断环点。
+     */
+    public void backfillFavoriteCount(long contentId, long count) {
+        favoriteCache.backfillFavoriteCount(contentId, count);
+    }
+
     // ========================================================================
     // 夹内列表分页（T6：读路径）
     // ========================================================================

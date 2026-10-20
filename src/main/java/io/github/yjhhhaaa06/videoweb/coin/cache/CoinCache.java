@@ -384,6 +384,16 @@ public class CoinCache {
         }
     }
 
+    /**
+     * 累计投币数的**回填契约**（T44-2）：详情计数聚合读（content 域）在 miss 时经
+     * {@code InteractionService} 转发调到这里——值来自聚合层一趟 {@code findCountColumns}
+     * 刚查出的 {@code content.coin_count} 列快照，本方法只负责"用它写自己的键"。
+     * ★ 命中键**不调**本方法（有选择回填）；内容行不存在时聚合层不得调（不写无行内容的键）。
+     */
+    public void backfillCoinCount(long contentId, long count) {
+        backfillCountQuietly(CacheKeys.contentCoinCount(contentId), count);
+    }
+
     private static int nullToZero(Integer value) {
         return value == null ? 0 : value;
     }

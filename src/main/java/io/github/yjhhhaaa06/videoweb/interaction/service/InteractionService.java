@@ -3,7 +3,6 @@ package io.github.yjhhhaaa06.videoweb.interaction.service;
 import io.github.yjhhhaaa06.videoweb.coin.service.CoinService;
 import io.github.yjhhhaaa06.videoweb.favorite.service.FavoriteService;
 import io.github.yjhhhaaa06.videoweb.follow.service.FollowService;
-import io.github.yjhhhaaa06.videoweb.interaction.model.ContentPublicCounts;
 import io.github.yjhhhaaa06.videoweb.interaction.model.InteractionDimension;
 import io.github.yjhhhaaa06.videoweb.interaction.model.InteractionTarget;
 import io.github.yjhhhaaa06.videoweb.interaction.model.vo.InteractionStatusVO;
@@ -81,7 +80,9 @@ import java.util.Set;
  * 也不是"四维全 null 的空壳对象"）—— "没有登录态"与"登录但无互动"必须可区分（R-10 §六）。
  * 两个契约同款。
  *
- * <p>本类全是**纯读**（四趟缓存 / DB 读）⇒ 不加 {@code @Transactional}（事务边界篇 §四）。
+ * <p>本类的读方法全是**纯读**（四趟缓存 / DB 读）⇒ 不加 {@code @Transactional}（事务边界篇 §四）；
+ * T44-2 起另有三个**回填转发**方法（best-effort 写各域缓存、内部不抛，见
+ * {@code backfillLikeCount}）——它们不构成业务事务边界，同样不需要 {@code @Transactional}。
  */
 @Service
 public class InteractionService {
@@ -159,36 +160,33 @@ public class InteractionService {
     }
 
     /**
-     * 内容的**公共计数**（点赞 / 收藏 / 投币），请求无关、匿名可读（T43）。
+     * ★ 公共计数的**回填转发**（T44-2）：详情计数聚合读（content 域 {@code ContentCountAggregate}）
+     * 在计数键 miss 时，把一趟 {@code findCountColumns} 刚查出的列快照经这里转发给数据所属的域，
+     * 由各域自己的 cache 写各自的键（like/favorite/coin 三键分属三域，content 不得直写）。
      *
-     * <h2>★ 为什么放在互动域（以及为什么这里只有三个数）</h2>
-     * 详情响应要平铺返回四个公共计数，其中三个的数据源正好是本域已聚合的三个域
-     * （like / favorite / coin）：{@code LikeService#getContentLikeCount}、
-     * {@code FavoriteService#getFavoriteCount}、{@code CoinService#getCoinCount}。
-     * <ul>
-     *   <li><b>不放 content 域</b>：{@code content → favorite.service} 会与
-     *       {@code FavoriteService → ContentService}（{@code loadContentVOs}）闭成**直接装配环**
-     *       （F-18 记的是它加 interaction 后的传递环，这里更近一层）；</li>
-     *   <li><b>本域是唯一现成的断点</b>：{@code favoriteService} 在本域已经是
-     *       {@code @Lazy} 注入（T10），走这里**不新增任何 @Lazy**；</li>
-     *   <li><b>评论数不在这里</b>：评论域的 service 依赖内容域，进来会闭成新的装配环
-     *       ⇒ 它由内容域自己的 {@code ContentCountCache} 提供（见 {@link ContentPublicCounts}）。</li>
-     * </ul>
+     * <h2>它取代了什么</h2>
+     * 取代本域原 {@code getPublicCounts}（T43 引入的三数聚合读）：T44-2 起详情路径的四个计数
+     * 由聚合层一趟 MGET + miss 单飞回源提供，本域的读聚合失去调用方；**写侧转发**是聚合的
+     * 对称形态——本域仍不是数据所有者，只做通道。
      *
-     * <p>⚠️ 与 {@link #getStatus} 的区别：那个在 {@code userId == null} 时短路返回 {@code null}；
-     * 本方法**不看登录态**（匿名详情也要显示数字），故**没有** userId 入参 —— 少一个参数
-     * 也少一种"误把它放进匿名短路里"的可能。
-     *
-     * <p>⚠️ 三次单条读（详情路径专用）。列表**不调**本方法：T43 起列表面不返回任何计数。
-     *
-     * @param contentId 内容 id
-     * @return 三个公共计数（内容不存在时各缓存层给出 0，详情路径在此之前已 404）
+     * <h2>★ 三个参数的纪律（有选择回填的落点）</h2>
+     * 聚合层**只对 miss 的键**调用对应转发（命中键传不进来）：回填未失效的键会用本次快照
+     * 覆盖它，重开"旧值复活"窗口。值为各域真理源（列），各域 cache 用自己的 TTL 落写。
+     * <p>⚠️ 三次调用彼此独立、任一失败不影响其余（各 cache 内部 best-effort，不抛）——
+     * 回填失败交由下次 miss 自愈，与单键回填的失败语义一致。
      */
-    public ContentPublicCounts getPublicCounts(long contentId) {
-        return new ContentPublicCounts(
-                likeService.getContentLikeCount(contentId),
-                favoriteService.getFavoriteCount(contentId),
-                coinService.getCoinCount(contentId));
+    public void backfillLikeCount(long contentId, long count) {
+        likeService.backfillContentLikeCount(contentId, Math.toIntExact(count));
+    }
+
+    /** 收藏数回填转发（T44-2，见 {@link #backfillLikeCount} 的纪律说明）。 */
+    public void backfillFavoriteCount(long contentId, long count) {
+        favoriteService.backfillFavoriteCount(contentId, count);
+    }
+
+    /** 累计投币数回填转发（T44-2，见 {@link #backfillLikeCount} 的纪律说明）。 */
+    public void backfillCoinCount(long contentId, long count) {
+        coinService.backfillCoinCount(contentId, count);
     }
 
     /**
