@@ -167,7 +167,9 @@ UPDATE users SET coin_deci = coin_deci + 10, last_sign_date = :today
   ★ **不给 `InteractionDimension` 加 `COIN` 常量** —— 没有任何列表面需要"我投了几枚"（YAGNI）。
 - **`coinCount`（公共计数）只在 `ContentDetailVO` 上平铺**（T43 起，见
   [缓存与数据一致性 §五.1](../../tech/cache/缓存与数据一致性.md)），**不进 `ContentCacheDTO`**；
-  由 `InteractionService#getPublicCounts`（like / favorite / coin 一趟聚合）填。
+  由内容域的 `ContentCountAggregate` 一趟 MGET 取齐（T44-2，见
+  [缓存与数据一致性 §五.2](../../tech/cache/缓存与数据一致性.md)），miss 键经互动域
+  `backfillCoinCount` 转发回填。
 - ⚠️ **T40 → T43 的一处反转**：T40 曾让 `coinCount` 随**列表**各面返回（`ContentStatusFiller` /
   `FeedService` 各一趟 `MGET`）。T43 拍板"计数只在详情"，列表**不再带任何计数** ⇒
   那两趟批量与 `feed → coin.service` 依赖一并删除。`ContentVO` 上**没有** `coinCount` 字段。
@@ -198,7 +200,7 @@ UPDATE users SET coin_deci = coin_deci + 10, last_sign_date = :today
 | coin → `content.dao.ContentDao` | `findAliveContentAuthorAndType`（一趟取 `authorId` + `type`）/ `updateCoinCount` / `findCoinCount` / `findCoinCountsByIds`（计数缓存回源） | 《模块边界与依赖》§三「**同事务改计数/级联 ⇒ 允许 DAO 薄依赖**」；其中**纯读的那几条窄查询**属该文 §六 要登记的读例外 |
 | coin → `user.dao.UserDao` | `updateCoinDeci` / `deductCoinDeci` / `signIn` / `findCoinDeci` / `findLastSignDate` | **计数列方法进所在表的 DAO**（follow 域 `updateFollowCount` 先例）；`users` 的两列由本域维护 |
 | coin → `coin.dao.ContentCoinDao` | `content_coin` 表（**按表命名**，镜像 `ContentLikeDao`） | 自有数据 |
-| interaction → `coin.service.CoinService` | 详情互动态的第四维 `coin`（`getCoinAmount`，按 `type` 分流）+ **公共计数** `getCoinCount`（`getPublicCounts` 三件套之一，T43） | §六；**只调 Service**，不碰 `coin.cache`（ArchUnit 规则 2） |
+| interaction → `coin.service.CoinService` | 详情互动态的第四维 `coin`（`getCoinAmount`，按 `type` 分流）+ **公共计数回填转发** `backfillCoinCount`（T44-2；T43 的读聚合 `getPublicCounts` 已删） | §六；**只调 Service**，不碰 `coin.cache`（ArchUnit 规则 2） |
 
 ★ **T43 删掉的两条边**：`content → coin.service`（详情/列表填 `coinCount`）与
 `feed → coin.service`（列表批量）。前者改由互动域聚合（`content → interaction` 是既有边），

@@ -29,8 +29,6 @@ import java.util.Set;
  * <h2>鉴权：公开</h2>
  * TV 清单不含 {@code /start} ⇒ 匿名可访问；带 token 则填充互动态
  * （{@code @CurrentUserId(required = false)}）；匿名 ⇒ 每条 {@code "interaction": null}。
- * ★ T40：公共计数 {@code coinCount} **与登录态无关** ⇒ 无论匿名都批量填充
- * （放在互动态填充之后、**不在**任何匿名短路里）。
  *
  * <h2>★ 两个"看起来像 bug、其实是规格"的点（勿改）</h2>
  * <ol>
