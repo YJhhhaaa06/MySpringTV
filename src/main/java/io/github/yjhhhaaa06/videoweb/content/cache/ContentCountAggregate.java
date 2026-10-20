@@ -91,7 +91,8 @@ public class ContentCountAggregate extends RedisOps {
     /**
      * 读详情四计数：命中直用，miss 单飞回源一趟 {@code findCountColumns} 并**有选择**回填。
      *
-     * @return 四计数值（内容行不存在的防御分支 ⇒ 全 0；正常调用时序下载荷已 404 短路）
+     * @return 四计数值；列快照为 null（防御分支，正常时序不可达）⇒ miss 位按 0 作答、
+     *         命中位保留缓存值
      */
     public ContentCountColumns readCounts(long contentId) {
         String likeKey = CacheKeys.contentLikeCount(contentId);

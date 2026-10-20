@@ -207,7 +207,8 @@ class ContentDetailCountAggregateTests extends AbstractContentIntegrationTest {
                 .as("★ coin 键不被 404 路径回填").isFalse();
         // ★ favorite 键按**既存口径**残留：favorite_item 行删除时不删、favorite_count 列不重算，
         // favorite 域不订阅 REMOVE（与"残留成员指向已删内容永不外显"同款——无读路径消费，TTL 自愈）。
-        // 此断言同时钉住"404 不回填"：若聚合被挪到 404 之前，"999"会被列快照覆盖 → 红。
+        // 此断言钉的是"回填全部"回归：若聚合层无视 miss 集把 favorite 也回填，"999"会被列快照
+        // 覆盖 → 红；"聚合被挪到 404 之前"的回归由上面 like/comment/coin 三键的 hasKey 断言钉住。
         assertThat(redis.opsForValue().get(CacheKeys.contentFavoriteCount(contentId)))
                 .as("★ favorite 键保持删除前的陈旧值（既存口径：不订阅 REMOVE + 404 不回填）")
                 .isEqualTo("999");
