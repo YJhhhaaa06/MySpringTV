@@ -117,6 +117,10 @@ UPDATE users SET coin_deci = coin_deci - ?
 **事务**：投币是 `@Transactional`（关系行 + 两条计数列 + **两个用户**的余额必须同进同退）；
 末尾发 `CoinChangedEvent`，由 `CoinChangedListener` 在 `@TransactionalEventListener(AFTER_COMMIT)` 写缓存。
 
+★ **锁序**：两行 `users` 按 **id 升序**取锁（扣款与作者入账的先后随 `userId` / `authorId` 大小切换）。
+固定"投票者先"会让 A→B 与 B→A 并发互投成 ABBA 环（InnoDB `1213` ⇒ 500）；升序后无环，
+且扣款 0 行抛异常即整笔回滚，"先入账后扣款"不改变语义。
+
 ### 4.2 签到（幂等，一条原子语句，**不加事务**）
 
 ```sql

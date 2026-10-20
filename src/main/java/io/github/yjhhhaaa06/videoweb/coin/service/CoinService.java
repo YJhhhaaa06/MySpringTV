@@ -166,13 +166,24 @@ public class CoinService {
         }
 
         // ⑥ 余额：条件扣款是"够不够"的唯一判据（0 行 ⇒ 硬币不足）。禁止先查余额再减。
+        // ⑦ 作者收益 +count 个十分位（= count 枚的 1/10），计数 +count。
+        //    ★ ⑥⑦ 各锁 users 一行，**必须按 id 升序取锁**：A→B 与 B→A 并发互投时，
+        //      固定"投票者先、作者后"会成环 ⇒ InnoDB 1213 ⇒ 500（与设计 §九 #5 的
+        //      content_coin 锁升级窗口不是同一对语句）。先入账后扣款不影响语义 ——
+        //      扣款 0 行抛异常 ⇒ 整笔回滚，作者收益不会残留。
         int costDeci = count * DECI_PER_COIN;
-        if (userDao.deductCoinDeci(userId, costDeci) == 0) {
-            throw new ParamException("硬币不足");
+        Long authorId = content.authorId();
+        if (authorId != null && authorId < userId) {
+            userDao.updateCoinDeci(authorId, count);
+            if (userDao.deductCoinDeci(userId, costDeci) == 0) {
+                throw new ParamException("硬币不足");
+            }
+        } else {
+            if (userDao.deductCoinDeci(userId, costDeci) == 0) {
+                throw new ParamException("硬币不足");
+            }
+            userDao.updateCoinDeci(authorId, count);
         }
-
-        // ⑦ 成功：作者收益 +count 个十分位（= count 枚的 1/10），计数 +count。
-        userDao.updateCoinDeci(content.authorId(), count);
         contentDao.updateCoinCount(contentId, count);
 
         Integer balanceDeci = userDao.findCoinDeci(userId);

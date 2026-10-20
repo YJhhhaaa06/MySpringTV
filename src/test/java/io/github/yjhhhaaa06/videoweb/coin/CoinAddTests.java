@@ -209,6 +209,54 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
         assertThat(coinDeciOf(voter.id())).as("投票者没被扣款").isZero();
     }
 
+    // ==================== 5.1 ★ 锁序分支的对照（作者 id 更小 ⇒ 先入账后扣款） ====================
+
+    @Test
+    @DisplayName("★ 作者 id 更小：先入账、扣款失败仍整笔回滚（作者没白拿币）")
+    void 作者id更小时先入账分支同样整笔回滚() {
+        // 夹具刻意**反序**创建：先注册 author、后注册 voter ⇒ authorId < userId，
+        // 让实现走"先入账后扣款"那一支（其余用例的 voter 都先注册，只覆盖另一支）。
+        TestUser author = registerUser("13900003851", "coinadd_lock_author");
+        TestUser voter = registerUser("13900003861", "coinadd_lock_voter");
+        assertThat(author.id()).as("夹具前提：作者 id 更小（自增序变了这条就失效）").isLessThan(voter.id());
+        setCoinDeci(voter.id(), 0);
+        long contentId = insertContent(author.id(), VIDEO, "投币视频锁序");
+
+        ResponseEntity<String> resp = addCoin(voter.token(), contentId, 1);
+
+        assertThat(resp.getStatusCode().value()).isEqualTo(400);
+        assertThat(Envelope.msg(resp)).as("文案冻结：「硬币不足」").isEqualTo("硬币不足");
+        // ★ 判别力：这一支里作者入账发生在扣款**之前**（已是成功写），只有事务能把它撤掉 ——
+        //   去掉 @Transactional 会看到作者余额 +1；把 if 分支的入账删掉则互投用例先红。
+        assertThat(authorCoinDeciOf(author.id())).as("先入账的那笔被回滚，作者没收到币").isZero();
+        assertThat(coinDeciOf(voter.id())).as("投票者没被扣款").isZero();
+        assertThat(coinCountOf(contentId)).as("计数写在扣款之后 ⇒ 没执行").isZero();
+        assertThat(amountOf(voter.id(), contentId)).as("封顶写被一起回滚").isNull();
+    }
+
+    @Test
+    @DisplayName("互投：两人分别给对方内容各投 1 枚 ⇒ 两个锁序分支各走一次，四处终态都正确")
+    void 互投两笔都成功() {
+        TestUser a = registerUser("13900003871", "coinadd_mutual_a");
+        TestUser b = registerUser("13900003881", "coinadd_mutual_b");
+        setCoinDeci(a.id(), 10);
+        setCoinDeci(b.id(), 10);
+        long contentA = insertContent(a.id(), VIDEO, "A 的视频");
+        long contentB = insertContent(b.id(), VIDEO, "B 的视频");
+
+        // a → b 的内容：authorId(b) > userId(a) ⇒ 先扣款；b → a 的内容：反向 ⇒ 先入账。
+        assertThat(addCoin(a.token(), contentB, 1).getStatusCode().value()).isEqualTo(200);
+        assertThat(addCoin(b.token(), contentA, 1).getStatusCode().value()).isEqualTo(200);
+
+        // 各自：−10（投出）+ 1（收到对方 1 枚的 1/10）= 1 个十分位
+        assertThat(coinDeciOf(a.id())).isEqualTo(1);
+        assertThat(coinDeciOf(b.id())).isEqualTo(1);
+        assertThat(coinCountOf(contentA)).isEqualTo(1);
+        assertThat(coinCountOf(contentB)).isEqualTo(1);
+        assertThat(amountOf(a.id(), contentB)).isEqualTo(1);
+        assertThat(amountOf(b.id(), contentA)).isEqualTo(1);
+    }
+
     // ==================== 6. 已满 ⇒ 409 ====================
 
     @Test
