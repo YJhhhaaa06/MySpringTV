@@ -39,6 +39,7 @@ io.github.yjhhhaaa06.videoweb
     ├── admin/     内容管理端
     ├── favorite/  收藏（收藏夹 / 收藏记录 / 稍后再看；2026-10-07 收藏一期起，2026-10-15 一轮收口）
     ├── coin/      投币（硬币：签到得币 · 视频投币 · UP主 1/10 · 不可取消；2026-10-19 设计落地）
+    ├── history/   播放记录（进度 / 播放量 / mp4 时长；2026-10-21 设计，T45 起落地）
     └── interaction/ 互动域（聚合"我 赞/藏/关注了吗"三态；**无 controller/dao/cache/event**，R-10 §3.6，2026-10-11 收藏二期 T9 起）
 ```
 
@@ -58,7 +59,7 @@ io.github.yjhhhaaa06.videoweb
 | MQ | 拓扑/重连/重试+DLQ/预取交框架原生；发布不等 confirm；投递三态 + 补偿缓冲 | [MQ与投递可靠性](tech/mq/MQ与投递可靠性.md) |
 | 可观测 | 日志四输出端 + MDC 请求标识 + 出口一处脱敏 + Micrometer 打点 + 审计 | [可观测](tech/observability/可观测.md) |
 | 安全 | 自研 `JwtAuthFilter` + `@Public` / `@RequiresLogin` / `@RequiresAdmin`（**默认拒绝**；Spring Security **已拍板不迁**，F-01/F-02） | [安全与鉴权](tech/security/安全与鉴权.md)（代价见 [已知代价](tech/security/安全与鉴权-已知代价.md)） |
-| 数据 | Flyway SQL-first；**V1 baseline 冻结**；增量演进已到 **V4**（`favorite_*` 两表 + `content.favorite_count`（V2/V3）+ `watch_later`（V4）） | [数据与Schema演进](tech/data-evolution/数据与Schema演进.md) |
+| 数据 | Flyway SQL-first；**V1 baseline 冻结**；增量演进已到 **V5**（`favorite_*`（V2/V3）+ `watch_later`（V4）+ `content_coin`/`coin_count`（V5））；**V6/V7（播放记录 + 删遗留 `video`/`videoinfo`）设计中** | [数据与Schema演进](tech/data-evolution/数据与Schema演进.md) |
 | 事务 | 事务边界载体独立成 bean（避免自调用）；纯读去事务 | [事务边界](tech/transaction/事务边界.md) |
 
 ---
@@ -80,6 +81,7 @@ io.github.yjhhhaaa06.videoweb
 | 了解**关注动态流**整体数据流 | [domain/feed](domain/feed/feed.md) | feed 编排变更 |
 | 了解**收藏 / 收藏夹 / 稍后再看**的数据模型与口径 | [domain/favorite](domain/favorite/favorite.md)（用户可见规则见 [favorite-需求](domain/favorite/favorite-需求.md)；已拍板接受的代价见 [favorite-已知代价](domain/favorite/favorite-已知代价.md)） | 收藏域口径变更 |
 | 了解**投币 / 硬币**的数据模型与口径 | [domain/coin](domain/coin/coin.md)（用户可见规则见 [coin-需求](domain/coin/coin-需求.md)） | 投币域口径变更 |
+| 了解**播放记录 / 播放量 / 视频时长**的数据模型与口径 | [domain/history](domain/history/history.md)（用户可见规则见 [history-需求](domain/history/history-需求.md)） | 播放记录域口径变更 |
 
 ---
 

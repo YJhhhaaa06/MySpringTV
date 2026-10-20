@@ -16,27 +16,21 @@
 
 ## 周期头（每窗开读）
 
-* **方向**：★ **详情读聚合专项**（2026-10-20，`T44-1`–`T44-3`）——
-  like 计数回源切 `content.like_count` 列（T44-1）+ 详情四计数聚合读层
-  （一趟 MGET + miss 单飞一条列查 + 有选择回填，T44-2）。
-  **用户 2026-10-20 拍板**（三轮讨论：先查库盘点 → 合并读 / 全量回填的取舍 → 定形
-  "2 趟 Redis + contentId 单飞 + 全量查一次 + 只回填 miss 键"）。
-* **活事实源 / 设计落点**：口径 = [缓存与数据一致性 §5.1](../architecture/tech/cache/缓存与数据一致性.md)
-  （键拆分，T43 定稿）+ **§5.2**（聚合读形态与已知代价，T44-2 新增）；
-  边界登记见 [模块边界与依赖 §六](../architecture/tech/module-boundary/模块边界与依赖.md)
-  （like 读列例外 + MGET 键布局通道 + 回填转发边）。
-* ★ **编号裁定（用户 2026-10-20）**：上一期头曾把"计数缓存专项"的五个子任务占位为
-  `T43`–`T47`，**实际均为 T43 的子任务**（代码 / 文档里的 `T43` 引用是其中定稿项的锚点，
-  **不回收、不全面改名**）。本期起用 **`T44`**，子任务写 `T44-1/T44-2/T44-3`；
-  **下一期从 `T45` 起**。
-* ★ **执行约定**：一任务一 commit（G1）；本期执行者自拆为 3 个子任务、各 1 commit，
-  每 commit 可编译且自带验收测试 + 反向验证。
-* **本期目标态**：like 回源读列 + 删除归零；详情 Redis 读 2 趟、冷内容 DB 3 条
-  （列查 1 + 载荷 2）；命中键绝不被聚合层覆盖。
-* **回归基线**：默认组 **659 例** + resilience **41 例**（全绿，2026-10-20 本期收口）。
-  ⚠️ **口径澄清**：上一期写的"全量 692 例"是**含 resilience** 的总数（692 = 默认 651 + 41）；
-  `tools/run_tests.py` 默认排除 resilience ⇒ 两口径分开记。⚠️ 本环境跑全量需
-  `DB_POOL_MAX_SIZE=4`（否则 Testcontainers MySQL 报 `Too many connections`）。
+* **方向**：★ **播放记录（history）专项**（2026-10-21 起，需求源 = `CURRENT_NEEDS.md` §四 `R-18`）——
+  进度上报 / 播放事件（去重计播放量）/ 历史列表（失效占位）/ 续播 / mp4 时长解析。
+  **用户 2026-10-21 拍板**：做播放量（B 方案：冗余列 + 独立 key + 详情第 5 计数）；进度与播放事件
+  **拆两端点**（`/report` 纯进度、`/play` 唯一计数入口）；历史**不可删**；失效内容**做占位**；
+  时长存 `content_media` + `ContentCacheDTO` 投影；V7 删遗留 `video` / `videoinfo`。
+* **活事实源 / 设计落点**：[history.md](../architecture/domain/history/history.md)（设计）+
+  [history-需求.md](../architecture/domain/history/history-需求.md)（用户可见规则）。
+  ★ **代码注释只引这两篇 + `类#方法`**；不得引用任何草稿 / 本登记台。
+* ★ **编号**：**从 `T45` 起**（`T43` 占位说明、`T44` 收口结论均见 git）。首批只拆 `T45`–`T47`；
+  这批执行完**停下来复盘**，再决定下一批（播放量读面 / 历史读面 / 收口）。
+* ★ **执行约定**：一任务一 commit（G1）；每 commit 可编译且自带验收测试 + 反向验证。
+  清单只给**目标 / 红线 / 验收入口**，**不写实现步骤**（G13）——执行者自行决定拆法；
+  遇到清单前提不成立先登记 `CURRENT_ISSUES.md`，不擅自扩范围。
+* **回归基线**：默认组 **659 例** + resilience **41 例**（2026-10-20 T44 收口）。
+  ⚠️ 本环境跑全量需 `DB_POOL_MAX_SIZE=4`（否则 Testcontainers MySQL 报 `Too many connections`）。
 
 ---
 
@@ -49,7 +43,7 @@
 | G3 | **疑问分级**：可自答的 → 任务回写留一句；须裁决的 → **停下问用户**，不擅自拍板、不硬扛、不超范围 |
 | G4 | 一任务 = 四要素 + 三句以内回写；探索过程 / 失败尝试 / 中间稿一律走 git，不进本文件 |
 | G5 | **声明式机制必须配契约测试**：断言通过 ≠ 机制生效；写「证明某机制」的用例前先自问「去掉那行实现会红吗」（详见仓库根 `AGENTS.md`「测试纪律」节） |
-| G6 | 改 schema 走 Flyway **最高版本 +1**（⚠️ **已应用的迁移文件逐字节冻结**——**连注释都不能改**，见 `architecture/tech/data-evolution/数据与Schema演进.md` §2.4）；★ 本期无 schema 变更（`like_count` 列 V1 已有，见 T44-1 回写） |
+| G6 | 改 schema 走 Flyway **最高版本 +1**（⚠️ **已应用的迁移文件逐字节冻结**——**连注释都不能改**，见 `architecture/tech/data-evolution/数据与Schema演进.md` §2.4）；★ 本期有 schema 变更：**V6**（播放记录）+ **V7**（删遗留表），见 T45 |
 | G8 | ★ **跨期约定（升格保留）**：测试必须只断言可观察行为（HTTP 状态 + body + DB 终态）—— 换实现时测试**不许改**；改了就说明测试在抄实现（纪律①）。⚠️ **回源口径契约变更除外**（如 T12 / T44-1 的"回源真理源切换"）：oracle 必须跟随真理源，此时改测试属**契约跟随**而非迎合，须在用例注释里写明口径变更依据 |
 | G13 | ★ **跨期约定（升格保留）**：清单只给方向与红线，不写死实现步骤 —— 有些问题**只有执行期才看得见**。执行中发现清单前提不成立 / 与既有实现冲突 / 有更好的拆法 ⇒ **自行决断或停下登记 `CURRENT_ISSUES.md` I-##** |
 | G14 | ★ **每个任务都显式标注「可质疑」（2026-10-11 用户要求）**：**任务可被质疑**（前提不成立 / 需求已被既有实现覆盖 / 执行时机不对）；**设计也可被质疑**。⚠️ 但本项目是学习项目、**无真实流量**（见 `AGENTS.md`「项目定位与优化口径」）⇒ **质疑成立 ≠ 停做**：**先把代价写进回写**；若仍做，注明"**已知代价后选择做**"。**只有质疑指向真实缺陷才必须停下回报** |
@@ -68,70 +62,78 @@
 > ⚠️ **读法（G14 校准）**：块里列的是**已知代价 / 反对理由**，**不是"请自行否决"** ——
 > 出现"停下回报"字样时按 G14 理解：**先记代价、再决定**；**只有指向真实缺陷才必须停**。
 
-**（`T43` 及其子任务——曾占位为 `T43`–`T47`——已全部收口并清出）**
-计数规范形态（独立 key + 只在详情平铺 + 列表零计数）的活事实源 =
-[缓存与数据一致性 §5.1](../architecture/tech/cache/缓存与数据一致性.md)；
-`T44`–`T47` 为占位编号（实为 T43 的子任务），**不再引用**。全文在 git。
+**（`T44-1`–`T44-3` 已收口：`34fe36f` / `88cb8b3` / `aadbf7c`；T43 占位编号的裁定见 git）**
 
-### T44-1 like 回源切 `like_count` 列 + 作者删除时归零【已完成】
+### T45 V6/V7 迁移 + 结构契约【待执行】
 
-> ⚠️ **先质疑（G14）**：① **侦查推翻前提**——开工前以为 like 是"唯一没有冗余列的计数"、
-> 需要 V6 迁移；实际 `content.like_count` V1 已有 + 点赞写路径事务内 ±1 维护（T34 守卫），
-> **缺的只是读路径消费 + 删除归零** ⇒ 专项缩水、无 schema 变更（G6 无涉）。
-> ② 已知代价：like 计数的真理源从"行数"变为"列"，依赖写路径正确维护
-> （不变量 oracle 钉住 + `devclean/recount.py` 对账工具兜底，F-07 同族）。
+> ⚠️ **先质疑（G14）**：① 表结构是后面所有任务的硬前提，先做不返工；② **删遗留表不可逆**
+> （dev 库旧数据会丢，已与用户确认）⇒ 先 `grep` 留零引用证据，再删；③ `InfrastructureConnectivityTests`
+> 与 `WatchLaterSchemaTests` 的表数 / 版本锚点**必须同 commit 改**，否则全量回归红。
 
-* **入口线索**：`ContentDao#findLikeCountById` / `resetLikeCount` / `LikeCache#getContentLikeCount` /
-  `LikeCountMaintenanceTests`
-* **目标**：like 计数缓存 miss 回源从 `COUNT(*) content_like` 切 `like_count` 列（对齐 T12 的
-  favorite 先例）；`deleteContent` 同事务归零（不变量对软删行成立，`/like/content/count`
-  对已删内容仍返 0）
-* **红线边界**：外部契约不变（端点行为逐字）；评论赞侧不切（范围纪律）；列查询刻意不带
-  `is_deleted`（口径同 `findCoinCount`：读列值非可见性）
-* **回写**：单 commit `feat(like):T44-1`（8 文件）。测试 `LikeCountMaintenanceTests` 3 例
-  （不变量双 oracle / 删除归零 + 端点契约回归 / **列漂移判别**：列=99 行=1 ⇒ 端点返 99，
-  回源改回 COUNT 必红；含对照内容防"恒 99"假绿）。反向验证 2 处全红后还原。
-  `ContentCountTests` 第 4 用例 like oracle 随口径改列（G8 契约跟随，注释已写依据）。
-  ★ 执行期修正一处用例错误：软删行仍存在 ⇒ "无行不回填"分支不可达，键被回填 "0" 是**正确**
-  行为（列值 0 = 真相，与旧行数口径一致），断言改为钉 "0"。
+* **入口线索**：`src/main/resources/db/migration/V6__watch_history.sql`（新）/
+  `V7__drop_legacy_video.sql`（新）/ `HistorySchemaTests`（新）/
+  `InfrastructureConnectivityTests` / `WatchLaterSchemaTests` /
+  `architecture/tech/data-evolution/数据与Schema演进.md` / `INDEX.md` §一（版本号）
+* **目标**：V6 建 `content_media.duration_seconds`、`content.play_count`、`watch_history`（DDL 见
+  `history.md` §二，**逐字一致**）；V7 删 `video` / `videoinfo`。空库迁移后 **18 张业务表 + flyway = 19 行**，
+  版本序 `1..7`。
+* **红线边界**：V1–V5 **逐字节不动**；本任务**不写业务代码**；索引集只许 `PRIMARY` /
+  `uk_user_content` / `idx_user_update` / `idx_content_id`；删表前用可复现 `grep` 留证据。
+* **验收**：`HistorySchemaTests` 钉列集 / 索引集 / 唯一键**真插两行** / 两遗留表不存在；
+  `InfrastructureConnectivityTests`（20→19 行、版本 1..7）与 `WatchLaterSchemaTests#endsWith("7")` 同步；
+  `数据与Schema演进.md` 与 `INDEX.md` 的"当前版本 / 下一次"同步；`mvnw test-compile`。
+* **回写**：（完成后三句内写清改了什么、验证结果）
 
-### T44-2 详情计数聚合读层【已完成】
+### T46 时长：解析 → 落库 → 内容载荷【待执行】
 
-> ⚠️ **先质疑（G14）**：合并读 / 全量回填 / 有选择回填三轮取舍的最终形态——
-> **已知代价后选择做**：① 聚合路径不做命中续期（四键 TTL 跨域，一趟 pipeline 带不了四种
-> EXPIRE）⇒ 热键每 TTL 周期重回源 1 条点查；② 单飞不跨载荷/计数合并（不复刻 `CacheAside`
-> 三态，载荷并入挂 F-26）；③ content.cache 读他域键名 + 经互动域转发回填 = 两条边界税，
-> 已在《模块边界与依赖》§六 登记；④ follower 重复 SET 幂等无害。收益端见 §5.2。
+> ⚠️ **先质疑（G14）**：① 时长是"进度百分比"的唯一分母，但**解析失败不能阻断发布**——
+> 否则异常 mp4 会把发布流程变成新的失败点；② 换源也会换视频，只在上传时解析会留
+> "时长永远停在旧值"的显式不一致 ⇒ 两个调用点都要接；③ 存量 257 条不回填，null = 未知（已接受）。
 
-* **入口线索**：`ContentCountAggregate`（新）/ `ContentCountColumns`（新 record）/
-  `ContentDao#findCountColumns` / `InteractionService#backfill{Like,Favorite,Coin}Count` /
-  `ContentDetailCountAggregateTests`
-* **目标**：详情四计数一趟 pipeline MGET（Redis 读 5→2 趟）；miss 单飞（`detail:counts:{id}`）
-  回源一条四列点查（冷内容 DB 5→3 条）；**只回填 miss 的键**（命中键不碰——防快照覆盖
-  未失效键重开旧值复活窗口）
-* **红线边界**：content 不直写他域键（回填经互动域转发）；404 短路在聚合之前；
-  降级直查 DB 不回填；DB 异常上抛 500
-* **回写**：单 commit `feat(content):T44-2`（16 文件）。删 `getPublicCounts` 与
-  `ContentPublicCounts`（唯一调用方被取代）；`CoinService#getCoinCount` /
-  `ContentCountCache#getCommentCount` 有意保留（单键通道，先例同款）。
-  测试 5 例：有选择回填（**反向验证：注入"回填全部"红**）/ 单飞合一（**反向验证：注入
-  "去单飞"红**；atMost(3) 而非 times(1)——线程调度无法保证全重叠，理由在用例内）/
-  脏值自愈 / 404 不回填（favorite 键按既存口径残留，如实钉）/ Redis 降级。
-  ★ 实测坑：record 组件**必须包装 Long**（MyBatis `<constructor>` 按 javaType 反射，
-  原生 canonical 构造器不匹配 ⇒ NoSuchMethodException ⇒ 详情 500，已写进 record Javadoc）。
+* **入口线索**：`upload/service/Mp4DurationReader`（新）/ `UploadController#uploadVideo` / `#replace` /
+  `ContentService#addVideo` / `#replaceMedia` / `ContentMedia` + `ContentMediaDao` + `ContentMediaMapper.xml` /
+  `ContentCacheDTO` / `ContentCache#buildContentMedia` / **`ContentCache#copyCommon`** / `UploadFlowTests`
+* **目标**：发布与换源（`type=1`）解析 mp4，`content_media.duration_seconds` 落库；
+  所有内容响应多 `durationSeconds`（由 `buildContentMedia` 从**已有视频行**投影，**零额外查询**）；
+  解析失败 ⇒ null、仍 200；存量不回填。
+* **红线边界**：用 `RandomAccessFile` 只读 box 头，**不整文件读**；`moov` 任意位置（非 faststart）/
+  v0·v1 / `size==1` / `timescale==0` 或 duration 全 F ⇒ null；`type=2/3` 换源**不得清空**
+  视频行的时长；不改前端；`ContentCacheDTO` **只加 duration 一个字段**（计数禁入）；
+  **`copyCommon` 必须同步**（只改 DTO 不改它 ⇒ VO 恒 null，DB 断言仍绿 = 假绿）；
+  `addMedia` 签名变更要同步两处测试桩（`ContentMilestoneTests` / `UploadTransactionTests`）。
+* **验收**：`Mp4DurationReaderTests` 手搓字节（moov 前 / 尾、v1 64 位、`size==1`、`timescale=0`、
+  截断、非 mp4）；上传手搓 mp4 ⇒ DB 列落库 + 详情回显；换源两分支；解析失败仍 200；
+  **内容 JSON 键集用例**（含 `durationSeconds`、不抖落既有键——仓内原本没有精确键集断言）。
+* **回写**：（同上）
 
-### T44-3 文档收口 + 全量回归 + 登记台【已完成】
+### T47 history 写路径：report / play + 播放量【待执行】
 
-* **入口线索**：缓存文档 §5.2（新）/ 边界文档 §六（like 读例外 + 两条通道登记）/
-  `FURTHER_ISSUES` F-26（载荷读并入聚合层，留池）
-* **目标**：三道文档门禁 0 违规；全量回归全绿（默认组 + resilience 分口径记）
-* **红线边界**：不新开归档目录（本期无设计稿，形态进活文档 §5.2）；review #2 的两处
-  注释修正并入本 commit
-* **回写**：doc_refs / doc_links 0 违规，doc_stats 超限项均为归档件（不受控）；
-  回归默认组 **659 例** + resilience **41 例** 全绿（= T43 基线 692 含 resilience − 41 + 新增 8，
-  口径自洽）。两轮 subagent review（T44-1 / T44-2）结论主会话均已复核并落实
-  （T44-1 修 1 处编号残留 + 2 处注释；T44-2 零必须修项，2 处注释并入本 commit）。
+> ⚠️ **先质疑（G14）**：① `/report` 用一条 ODKU、**不判首播** ⇒ 绕开 Connector/J
+> `useAffectedRows=false` 的 affected-rows 歧义（拆端点的核心收益）；② 若把两端点合并，
+> 就必须在热路径上判首播 ⇒ 回到 ODKU 歧义 / 两条语句，**不合并**；③ `/play` 是唯一计数入口，
+> 播放事件丢失会少计（已知代价，已接受）；④ 本任务**不碰详情读面**——播放量写完还看不见，
+> 是下一批的事（每 commit 仍可编译）。
 
+* **入口线索**：`history/controller/HistoryController`（新，类级 `@RequiresLogin`）/
+  `history/service/HistoryService`（新）/ `history/dao/WatchHistoryDao` + `WatchHistoryMapper.xml` /
+  `history/event/PlayCountChangedEvent` / `ContentDao#updatePlayCount` /
+  `ArchitectureTests.DOMAINS` / `architecture/tech/module-boundary/模块边界与依赖.md` §一·§六 /
+  `application.yaml` 权重表 / `SecurityContractTests`
+* **目标**：`/history/report`（ODKU、LWW、按 `durationSeconds` clamp、**不判首播**）+
+  `/history/play`（`INSERT IGNORE` + 条件 `UPDATE` 判首播、`play_count + 1`、单事务、发布事件）；
+  `history` 进 `DOMAINS`；两个 POST 登记权重（各 1）；类级 `@RequiresLogin`。
+* **红线边界**：`/play` 是唯一计数入口（`/report` 不写 `play_count`）；**不用 ODKU 判首播**；
+  内容删除**不碰** `watch_history`；不建缓存；不改 `ContentDetailVO`（下一批）；不改 `/report`
+  为"进度只能增"；**依赖边登记与代码同 commit**（`DOMAINS` + 边界文档 §一 清单补 `history`
+  ——现清单漏了 `coin`，实际 12 域，补后 13 —— + §六 新增 `content ⇄ history` 一行）。
+* **验收**：LWW（低覆盖高）/ clamp / 图文 400 / 已删 404 / 匿名 401 / `progress<0` 400；
+  重复 play 不 +；**并发 play 恰 +1**；DB oracle `play_count == COUNT(play_counted=1)`；
+  `RateLimitWeightTableTests` 36→38；`SecurityContractTests` 四端点。
+* **回写**：（同上）
+
+> **下一批（等 T45–T47 执行完复盘后再拆）**：播放量读面（`content:playCount` + 聚合 5 键 +
+> 详情 VO + `ContentCache#removeContent` 失效该键 + 缓存文档 §5.1/§5.2 四→五）、
+> 历史列表 / 续播 / 失效占位、文档收口 + 全量回归。**不要提前拆**——上一批的实测结论会改拆法。
 
 ```
 ### T# <任务名>（来源 R-## / 设计 §x）【待执行】
