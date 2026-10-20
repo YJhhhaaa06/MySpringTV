@@ -203,7 +203,7 @@ public class CoinRedisOps extends RedisOps {
             args.add(String.valueOf(e.getKey()));
             args.add(String.valueOf(e.getValue()));
         }
-        eval(BACKFILL_AMOUNT_SCRIPT, List.of(hashKey, emptyKey), args.toArray(new String[0]));
+        eval(BACKFILL_AMOUNT_SCRIPT, List.of(hashKey, emptyKey), args.toArray(new Object[0]));
     }
 
     /**

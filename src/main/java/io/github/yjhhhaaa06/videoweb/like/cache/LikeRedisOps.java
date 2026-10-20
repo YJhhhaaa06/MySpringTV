@@ -172,7 +172,7 @@ public class LikeRedisOps extends RedisOps {
         for (Long m : members) {
             args.add(String.valueOf(m));
         }
-        eval(BACKFILL_SET_SCRIPT, List.of(setKey, emptySetKey), args.toArray(new String[0]));
+        eval(BACKFILL_SET_SCRIPT, List.of(setKey, emptySetKey), args.toArray(new Object[0]));
     }
 
     /**
