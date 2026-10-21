@@ -44,7 +44,7 @@ import static org.mockito.Mockito.verify;
  *       （eq(contentId) 收窄 + 另一内容做对照哨兵；不钉 times(1) 的理由见用例内注释——
  *       线程调度无法保证全部线程时间上重叠，atMost 对"去单飞"形态判别等价且稳定）；</li>
  *   <li><b>脏值自愈</b>：非数字缓存值按 miss 处理并被回填覆盖；</li>
- *   <li><b>404 短路在聚合之前</b>：内容删除（四键已被 REMOVE 监听器失效）后的详情请求
+ *   <li><b>404 短路在聚合之前</b>：内容删除（五键中四键已被 REMOVE 监听器失效；playCount 由 removeContent 失效）后的详情请求
  *       不得把计数键回填出来——预热在前保证"键不存在"有判别力（假绿形态①的规避）。</li>
  * </ol>
  *
@@ -79,7 +79,7 @@ class ContentDetailCountAggregateTests extends AbstractContentIntegrationTest {
         long contentId = insertVideoContent(authorId, "聚合-有选择回填");
         String viewerToken = registerAndGetToken(VIEWER_PHONE, VIEWER);
 
-        // 预热：详情一次，四键全部回填（like="0"）
+        // 预热：详情一次，五键全部回填（like="0"）
         JsonNode before = Envelope.data(get("/search/IdSearch?contentId=" + contentId, authorToken));
         assertThat(before.path("likeCount").asLong()).as("前置：0 赞").isZero();
 
@@ -198,7 +198,7 @@ class ContentDetailCountAggregateTests extends AbstractContentIntegrationTest {
         long contentId = insertVideoContent(authorId, "聚合-脏值");
 
         assertThat(get("/search/IdSearch?contentId=" + contentId, token).getStatusCode().value())
-                .as("前置：详情可读（四键回填）").isEqualTo(200);
+                .as("前置：详情可读（五键回填）").isEqualTo(200);
 
         redis.opsForValue().set(CacheKeys.contentCoinCount(contentId), "not-a-number");
 
@@ -216,7 +216,7 @@ class ContentDetailCountAggregateTests extends AbstractContentIntegrationTest {
         long authorId = userIdOf(AUTHOR_PHONE);
         long contentId = insertVideoContent(authorId, "聚合-404短路");
 
-        // 预热四键（否则"键不存在"零判别力——假绿形态①）
+        // 预热五键（否则"键不存在"零判别力——假绿形态①）
         assertThat(get("/search/IdSearch?contentId=" + contentId, authorToken).getStatusCode().value())
                 .isEqualTo(200);
         assertThat(redis.hasKey(CacheKeys.contentLikeCount(contentId))).isTrue();

@@ -186,7 +186,7 @@ public interface ContentDao {
      * <p>SQL: {@code select like_count, comment_count, favorite_count, coin_count, play_count from content where id = ?}。
      *
      * <p>★ 为什么一趟取齐（T44-2 的核心收益）：详情响应要平铺五个计数，此前各自独立回源
-     * （冷内容全 miss = 6 条 SQL）；五列同在本行上 ⇒ 一趟主键点查取齐，miss 键再按
+     * （冷内容全 miss = 5 条单列查询）；五列同在本行上 ⇒ 一趟主键点查取齐，miss 键再按
      * "有选择回填"分别写回各自的独立键（只回填 miss 的，命中键不动——否则会把别域
      * "未失效的键"用本次快照覆盖，重开已消除的旧值复活窗口）。
      *
@@ -210,7 +210,7 @@ public interface ContentDao {
      * {@code COUNT(*) FROM content_like}（行数实时聚合）；本方法把它切到
      * {@code content.like_count} 列——该列自 V1 起就存在，且点赞写路径一直在事务内
      * ±1 维护（{@link #updateLikeCount}，T34 防负守卫），只是**读路径从未消费过它**。
-     * 切换动机：详情计数聚合读层（T44-2）的"全量查"要一趟从 {@code content} 行取齐四计数，
+     * 切换动机：详情计数聚合读层（T44-2）的"全量查"要一趟从 {@code content} 行取齐五计数，
      * like 若仍走实时聚合，就成了该查询里唯一随热度变贵的成员（favorite 在 T12 已做过同款切换）。
      *
      * <p>★ <b>刻意不加 {@code is_deleted = 0}</b>：同 {@link #findCoinCount}——读的是**列值**，

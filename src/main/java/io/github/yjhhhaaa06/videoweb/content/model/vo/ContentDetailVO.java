@@ -24,13 +24,14 @@ import io.github.yjhhhaaa06.videoweb.interaction.model.vo.InteractionStatusVO;
  * <h2>★ T43：四个计数（T48 起五个）为什么都在这里、且都不进 {@link ContentCacheDTO}</h2>
  * 计数的规范形态 = **一个计数一个独立 key**：
  * {@code content:likeCount}（like 域）/ {@code content:commentCount}（content 域）/
- * {@code content:favoriteCount}（favorite 域）/ {@code content:coinCount}（coin 域）。
+ * {@code content:favoriteCount}（favorite 域）/ {@code content:coinCount}（coin 域）/
+ * {@code content:playCount}（content 域，T48 第 5 个）。
  * 内容缓存 {@code content:{id}} 只放**慢变**字段（标题 / 描述 / 媒体 / 作者 / 分区）——
  * 否则每一次点赞或评论都要 {@code DEL} 整份载荷，让媒体装配与 JOIN 陪葬。
- * ★ T44-2 起五个计数的**读取**由计数聚合层一趟提供（{@code ContentCountAggregate}：
- * 一趟 pipeline MGET 五键 → miss 单飞回源一条五列点查 → 有选择回填）；
+ * ★ T44-2 起计数**读取**由计数聚合层一趟提供（T48 起五键）：
+ * {@code ContentCountAggregate} 一趟 pipeline MGET 五键 → miss 单飞回源一条五列点查 → 有选择回填；
  * 三个外域计数键的**回填**经互动域转发到各自域（content 不直写他域缓存，
- * {@code 模块边界与依赖.md} §六 登记例外）。评论数由内容域自持
+ * {@code 模块边界与依赖.md} §六 登记例外）。评论数与播放量由内容域自持
  * （{@code content} 不得依赖 {@code comment}，见 {@code ArchitectureTests} 规则 4）。
  *
  * <p>⚠️ T43 起**列表 VO 与本类不再同形**：列表没有任何计数（用户 2026-10-19 拍板），

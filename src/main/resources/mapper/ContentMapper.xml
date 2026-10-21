@@ -95,8 +95,8 @@
         select like_count from content where id = #{contentId}
     </select>
 
-    <!-- 一趟读齐四公共计数列（T44-2 详情计数聚合读的回源）。
-         ★ 四列同在本行 ⇒ 一趟主键点查（冷内容全 miss 从 5 条 SQL 收敛为 1 条）。
+    <!-- 一趟读齐五公共计数列（T44-2 详情计数聚合读的回源；T48 加 play_count）。
+         ★ 五列同在本行 ⇒ 一趟主键点查（五个计数键各自回源时是 5 条单列查询，现 1 条）。
          同样**刻意不加 is_deleted 过滤**（理由同 findCoinCount）：读的是列值；
          调用时序保证载荷已命中 ⇒ 必有行，无行 null 是防御分支。
          ⚠️ ContentCountColumns 是 record ⇒ 必须 <constructor>，javaType 包装类型。 -->

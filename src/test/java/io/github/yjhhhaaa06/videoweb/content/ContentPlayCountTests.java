@@ -94,6 +94,7 @@ class ContentPlayCountTests extends AbstractContentIntegrationTest {
         // /report 只写进度，不是计数入口
         assertThat(post("/history/report?contentId=" + contentId + "&progress=30", null, viewerToken)
                 .getStatusCode().value()).isEqualTo(200);
+        assertThat(playCountColumn(contentId)).as("★ 独立 oracle：/report 没碰 play_count 列").isEqualTo(1);
         assertThat(detail(contentId).path("playCount").asLong())
                 .as("★ /report 不改变播放量（唯一计数入口是 /play）").isEqualTo(1L);
     }
@@ -173,12 +174,13 @@ class ContentPlayCountTests extends AbstractContentIntegrationTest {
         assertThat(redis.hasKey(CacheKeys.contentPlayCount(contentId)))
                 .as("★ removeContent 一并失效播放量键（去掉那行 ⇒ 本断言红）").isFalse();
 
-        // 404 短路在计数聚合之前：给键造一个可区分的陈旧值，404 请求后它必须原封不动
-        redis.opsForValue().set(CacheKeys.contentPlayCount(contentId), "999");
+        // 404 短路在计数聚合之前：键刚被删除 ⇒ 若聚合先跑一步，它会 miss 并回填列值 "1"
+        // ⇒ 下面的 hasKey 断言会红。⚠️ 不能先给键预置一个值（那样是命中，聚合本来就不回填
+        //   ⇒ 两种实现都为真，零判别力 —— T42 假绿形态①）。
         assertThat(get("/search/IdSearch?contentId=" + contentId, authorToken).getStatusCode().value())
                 .as("前置：详情 404").isEqualTo(404);
-        assertThat(redis.opsForValue().get(CacheKeys.contentPlayCount(contentId)))
-                .as("★ 404 路径不回填（回填会被列值 1 覆盖 ⇒ 红）").isEqualTo("999");
+        assertThat(redis.hasKey(CacheKeys.contentPlayCount(contentId)))
+                .as("★ 404 路径不回填（聚合若在 404 之前执行，会把列值回填进来 ⇒ 红）").isFalse();
     }
 
     // ==================== 列表零计数 ====================

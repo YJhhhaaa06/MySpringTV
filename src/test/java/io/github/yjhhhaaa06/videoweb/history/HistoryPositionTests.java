@@ -52,9 +52,12 @@ class HistoryPositionTests extends AbstractContentIntegrationTest {
     }
 
     @Test
-    @DisplayName("无记录 ⇒ progress=0（**不 404**）；data 恰好 {progress} 一键")
+    @DisplayName("有内容但我没看过 ⇒ progress=0（**不 404**）；data 恰好 {progress} 一键")
     void 无记录返回零() {
-        ResponseEntity<String> resp = position(viewerToken, 999999L);
+        // ★ 用**存在且可播**的内容（不是不存在的 id）：这样这条用例只回答"有内容但没记录"，
+        //   不与被删 / 不存在两条重复；也让"给 position 加内容校验"的反证能同时命中三条。
+        long contentId = insertVideoContent(authorId, "从没看过的视频");
+        ResponseEntity<String> resp = position(viewerToken, contentId);
 
         assertThat(resp.getStatusCode().value()).as("无记录是合法状态（不 404）").isEqualTo(200);
         JsonNode data = Envelope.data(resp);

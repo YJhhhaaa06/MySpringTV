@@ -31,9 +31,9 @@ import java.util.List;
  * <h2>★ T43：{@code likeCount} / {@code commentCount} 已从本载荷移出（用户 2026-10-19 拍板）</h2>
  * 它们是**高频变化**的计数：留在本载荷里，每次点赞 / 发评论都必须 {@code DEL content:{id}}，
  * 让标题、媒体 URL、作者名这些**慢变**字段陪葬（热内容上内容缓存近乎永久失效）。
- * 现在四个计数一律走独立 key（{@code content:likeCount} / {@code content:commentCount} /
- * {@code content:favoriteCount} / {@code content:coinCount}），**只在详情响应里平铺返回**；
- * 列表面不再带任何计数。口径见
+ * 现在五个计数一律走独立 key（{@code content:likeCount} / {@code content:commentCount} /
+ * {@code content:favoriteCount} / {@code content:coinCount} / {@code content:playCount}），
+ * **只在详情响应里平铺返回**；列表面不再带任何计数。口径见
  * {@code architecture/tech/cache/缓存与数据一致性.md} §五。
  * <p>⚠️ 于是本载荷只承载"**改一次要写库**"的字段：编辑内容 / 删改媒体 / 改名 / 删除。
  * 若将来又想往这里塞计数，先读上面那条口径。

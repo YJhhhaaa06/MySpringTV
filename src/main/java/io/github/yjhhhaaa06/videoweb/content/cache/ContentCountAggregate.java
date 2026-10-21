@@ -24,7 +24,7 @@ import java.util.List;
  *       三态读，与本类正交——详情 Redis 读共 2 趟）；</li>
  *   <li><b>miss 非空 ⇒ 进程内单飞</b>（key = {@code detail:counts:{id}}，同内容并发 miss
  *       只一次回源）：loader = {@link ContentDao#findCountColumns}——五列同在 content 行上，
-     * <b>一趟主键点查取齐</b>（冷内容全 miss 的 DB 成本从 6 条 SQL 收敛为 1 条）；</li>
+     * <b>一趟主键点查取齐</b>（冷内容全 miss 时，五个计数键各自回源 = 5 条单列查询，现收敛为 1 条）；</li>
  *   <li><b>有选择回填</b>：只对**自己 miss 的键**回填，命中键一个都不碰——否则会用本次快照
  *       覆盖未失效的键，重开"旧值复活"窗口（写事务 DEL 后、快照回填前的时间差）。</li>
  * </ol>

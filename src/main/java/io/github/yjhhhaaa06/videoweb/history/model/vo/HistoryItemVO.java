@@ -25,9 +25,11 @@ import java.time.LocalDateTime;
  * 总时长取不到才置 null，前端据此选择不渲染进度条。
  *
  * <h2>⚠️ 为什么 {@code invalid} 用包装类型 {@code Boolean}</h2>
- * 同 {@code WatchLaterItemVO}：属性名 {@code invalid} 配 {@code boolean} 会让 Lombok 生成
- * {@code isInvalid()}；包装类型 ⇒ getter 恒为 {@code getInvalid()} ⇒ JSON 键名逐字是
- * {@code invalid}，不会漂移。
+ * 沿用 {@code WatchLaterItemVO} 的形态（两个列表的占位形状保持一致）。
+ * ⚠️ 如实声明：{@code Boolean invalid}（{@code getInvalid()}）与 {@code boolean invalid}
+ * （{@code isInvalid()}）在 Jackson 下**都**序列化成 {@code "invalid"} —— 所以"包装类型"**不是**
+ * 键名稳定性的来源，`HistoryListTests#形状契约` 的键集断言也测不到这一点；
+ * 保留包装只因它与既有 VO 同形、且能表达"未判定"（{@code null}）。
  *
  * <p>JSON 形状（{@code /history/list} 的 {@code data.list} 元素）：
  * <pre>

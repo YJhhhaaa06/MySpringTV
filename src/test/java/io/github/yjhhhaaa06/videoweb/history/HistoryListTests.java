@@ -217,10 +217,14 @@ class HistoryListTests extends AbstractContentIntegrationTest {
 
         assertThat(Envelope.data(list(viewerToken, "0", null)).path("page").asLong())
                 .as("page ≤ 0 → 1").isEqualTo(1L);
+        assertThat(Envelope.data(list(viewerToken, "-7", null)).path("page").asLong())
+                .as("★ 负页码同样归一（不是只有 0）").isEqualTo(1L);
         assertThat(Envelope.data(list(viewerToken, "abc", null)).path("page").asLong())
                 .as("page 非数字 → 1（与全项目分页端点同款静默归一）").isEqualTo(1L);
         assertThat(Envelope.data(list(viewerToken, null, "abc")).path("pageSize").asLong())
                 .as("pageSize 非数字 → 缺省 20").isEqualTo(20L);
+        assertThat(Envelope.data(list(viewerToken, null, "0")).path("pageSize").asLong())
+                .as("★ pageSize ≤ 0 → 缺省 20（否则会退化成 0 条的假空页）").isEqualTo(20L);
         assertThat(Envelope.data(list(viewerToken, null, "999")).path("pageSize").asLong())
                 .as("超上限 → 100").isEqualTo(100L);
         assertThat(Envelope.data(list(viewerToken, null, "2")).path("pageSize").asLong())
@@ -246,6 +250,33 @@ class HistoryListTests extends AbstractContentIntegrationTest {
         assertThat(row.path("authorName").asString()).isEqualTo(AUTHOR);
         assertThat(row.path("durationSeconds").asInt()).isEqualTo(600);
         assertThat(row.path("progress").asInt()).isEqualTo(123);
+    }
+
+    @Test
+    @DisplayName("★失效判据只有「装载契约取不到」：时长未知 / file_exists=0 的**存活**视频仍是正常行")
+    void 时长未知或未落盘不算失效() {
+        // 夹具默认**不写** duration_seconds（= 存量老视频的形态）⇒ 时长恒 null，但它完全可播；
+        // file_exists=0 是扫描标记缺失，也不等于不能播（history.md §八 明文禁止拿这两者判 404）。
+        // 判据若被写成 `content == null || durationSeconds == null`（或加了 file_exists 过滤）⇒ 这里红。
+        long noDuration = insertVideoContent(authorId, "时长未知的标题");
+        long notOnDisk = insertVideoContent(authorId, "扫描标记缺失的标题");
+        jdbcTemplate.update("UPDATE content_media SET file_exists = 0 WHERE content_id = ?", notOnDisk);
+        insertHistory(viewerId, noDuration, 1, 21, "2020-01-01 00:00:00");
+        insertHistory(viewerId, notOnDisk, 2, 22, "2020-01-01 00:00:00");
+
+        JsonNode data = Envelope.data(list(viewerToken, null, null));
+        assertThat(data.path("total").asLong()).isEqualTo(2L);
+
+        JsonNode a = item(data.path("list"), noDuration);
+        assertThat(a.path("invalid").asBoolean())
+                .as("★ 时长 null ≠ 失效：解析失败的老视频仍可播").isFalse();
+        assertThat(a.path("title").asString()).isEqualTo("时长未知的标题");
+        assertThat(a.path("durationSeconds").isNull()).as("时长确实未知 ⇒ null（与失效无关）").isTrue();
+
+        JsonNode b = item(data.path("list"), notOnDisk);
+        assertThat(b.path("invalid").asBoolean())
+                .as("★ file_exists=0 ≠ 失效（扫描标记不是可播判据）").isFalse();
+        assertThat(b.path("title").asString()).isEqualTo("扫描标记缺失的标题");
     }
 
     @Test
@@ -354,7 +385,7 @@ class HistoryListTests extends AbstractContentIntegrationTest {
     }
 
     @Test
-    @DisplayName("★形状契约：信封 5 键；条目恰好 8 键（invalid 键名不漂移成 isInvalid）")
+    @DisplayName("★形状契约：信封 5 键；条目恰好 8 键（键名与设计 §三 的 JSON 逐字一致）")
     void 形状契约() {
         long contentId = insertVideoContent(authorId, "形状内容");
         insertHistory(viewerId, contentId, 1, 1, "2020-01-01 00:00:00");
@@ -364,9 +395,12 @@ class HistoryListTests extends AbstractContentIntegrationTest {
                 .as("分页信封字段集冻结（PageResult 是跨域共享信封）")
                 .containsExactlyInAnyOrder("list", "total", "page", "pageSize", "totalPages");
         assertThat(data.path("list").get(0).propertyNames())
-                .as("★ 条目键集：invalid 用**包装 Boolean** ⇒ 键是 invalid（boolean 会变成 isInvalid）")
+                .as("★ 条目键集：逐字对齐 history.md §三 的 JSON 形状")
                 .containsExactlyInAnyOrder("contentId", "watchedTime", "invalid", "title",
                         "coverUrl", "authorName", "progress", "durationSeconds");
+        // ⚠️ 如实声明：`Boolean invalid`（→ getInvalid）与 `boolean invalid`（→ isInvalid）在 Jackson
+        //    下**都**序列化成 "invalid" ⇒ 这条键集断言**测不到**包装类型与否。保留包装是沿用
+        //    WatchLaterItemVO 的形态（可表达 null），不是靠这条断言守的。
     }
 
     @Test
