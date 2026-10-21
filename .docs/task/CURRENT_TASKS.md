@@ -24,12 +24,15 @@
 * **活事实源 / 设计落点**：[history.md](../architecture/domain/history/history.md)（设计）+
   [history-需求.md](../architecture/domain/history/history-需求.md)（用户可见规则）。
   ★ **代码注释只引这两篇 + `类#方法`**；不得引用任何草稿 / 本登记台。
-* ★ **编号**：**从 `T45` 起**（`T43` 占位说明、`T44` 收口结论均见 git）。首批只拆 `T45`–`T47`；
-  这批执行完**停下来复盘**，再决定下一批（播放量读面 / 历史读面 / 收口）。
+* ★ **编号**：**从 `T45` 起**（`T43` 占位说明、`T44` 收口结论均见 git）。
+  **首批 `T45`–`T47` 已交付**（2026-10-21，`b0bc6d4` / `c9fb17f`+`0d39568` / `92e10cf`）；
+  **第二批 `T48`–`T49` 已拆**（本窗口，读面：播放量可见 + 历史列表/续播）；
+  **收口批（文档收口 + 全量回归 + 编号收编 + 归档裁定）不提前拆** —— 等 T48–T49 执行完复盘再决定。
 * ★ **执行约定**：一任务一 commit（G1）；每 commit 可编译且自带验收测试 + 反向验证。
   清单只给**目标 / 红线 / 验收入口**，**不写实现步骤**（G13）——执行者自行决定拆法；
   遇到清单前提不成立先登记 `CURRENT_ISSUES.md`，不擅自扩范围。
-* **回归基线**：默认组 **659 例** + resilience **41 例**（2026-10-20 T44 收口）。
+* **回归基线**：默认组 **701 例** + resilience **41 例**（2026-10-21，覆盖 `9f260d6`；T45–T47 新增 42 例）。
+  T48–T49 结束后各自累加新例数；**期收尾以实测复核**。
   ⚠️ 本环境跑全量需 `DB_POOL_MAX_SIZE=4`（否则 Testcontainers MySQL 报 `Too many connections`）。
 
 ---
@@ -145,9 +148,100 @@
   与刷新时间红；去 clamp + 去 `play_counted=0` ⇒ 截断 / 重复 / 并发 / 不变量 4 红）。
   ⚠️ 验收行的"四端点"与范围矛盾 ⇒ 本批只钉两路由，已登记 **I-23**（读面批次必须补）。
 
-> **下一批（等 T45–T47 执行完复盘后再拆）**：播放量读面（`content:playCount` + 聚合 5 键 +
-> 详情 VO + `ContentCache#removeContent` 失效该键 + 缓存文档 §5.1/§5.2 四→五）、
-> 历史列表 / 续播 / 失效占位、文档收口 + 全量回归。**不要提前拆**——上一批的实测结论会改拆法。
+### T48 播放量读面：第 5 个公共计数（5 键聚合 + 事件消费 + 详情平铺）【待执行】
+
+> ⚠️ **先质疑（G14）**：
+> - **任务**：前提成立 —— `play_count` 列已在写（T47）、`PlayCountChangedEvent` 已在发，但**没有任何消费者**
+>   （当前状态 = "写进去了、还看不见"）。不做这一步，`/history/play` 就是纯写不读的死路径。
+> - **设计**：把播放量做成"第 5 个独立计数 key + 进详情聚合"是 T43 口径的直接延伸（**不加缓存文档新章**）；
+>   代价 = 详情多一位解析、聚合多一个键，都是常数。**更贵的替代**（让历史域提供计数 / 播放量进载荷）会新增
+>   `content → history` 边或重开"计数内联载荷"的连坐失效 —— 都比现在差。
+> - **执行时机**：必须在 T49 之前 —— 历史列表**不带**播放量（T43 列表零计数），所以 T49 不依赖本任务；
+>   但本任务要先做，因为它是"5 键"这个口径的定稿点，缓存文档一次改到位，T49 不用再回来改。
+
+* **入口线索**：`common/cache/CacheKeys`（新增 `contentPlayCount`）/ `content/model/ContentCountColumns` /
+  `mapper/ContentMapper.xml`（`contentCountColumnsMap` + `findCountColumns`）/ `content/cache/ContentCountAggregate` /
+  `content/cache/ContentCountCache`（`backfillCommentCount` 为同域回填的先例）/ `content/event/`（新增
+  `PlayCountChangedListener`；形态抄 `content/event/ContentCacheChangedListener` 与 coin 域的条件 `INCRBY` Lua）/
+  `history/event/PlayCountChangedEvent`（已在发，**不改它**）/ `content/model/vo/ContentDetailVO` /
+  `content/service/ContentService#getContentDetailVO` / `content/cache/ContentCache#removeContent` /
+  `缓存与数据一致性.md` §五 表 + §5.1 + §5.2 / `history.md` §五 + §7.3
+* **目标**：`content:playCount:{id}`（content 域自持、TTL = `contentTtl`、**无空标记**）+ 详情聚合**四键 → 五键**
+  （一趟 pipeline 读五键、漏哪键回填哪键）+ `PlayCountChangedListener` 条件 `INCRBY 1` + `ContentDetailVO.playCount`
+  平铺（详情路径 Redis / DB 趟数**不变**：仍 2 趟 Redis、冷内容 1 条列查）+ `removeContent` 一并失效该键。
+* **红线边界**：
+  - **不改写路径**（`/play` 的 SQL / 事务 / 事件发布一行不动）；**不加 `content → history` 边**（消费方向只有
+    `history.event → content.event`，与本仓"订阅落自己域 event 包"一致）；
+  - `ContentCountColumns` 第 5 组件**必须包装 `Long`** 且 `<constructor>` 同步（原生 `long` ⇒ `NoSuchMethodException`
+    ⇒ 详情 500，T44-2 实测）；`ZERO` / `merged` / `values` / `missed` / `anyMissed` **五处一起改**，漏一处就是错值或恒 0；
+  - 条件 `INCRBY` 的 **Lua 每域自持**（content 域自己一份，**不许 import coin.cache**）——冷 key **不建**
+    （键不存在 ⇒ 什么都不写；否则把增量 1 当总量钉进 TTL，比 miss 更坏）；**无空标记**（`0` 合法）；
+  - 计数**只进详情**：`ContentCacheDTO` **不加**字段（否则列表也带上，破 T43 列表零计数）；
+  - 监听器必须 `AFTER_COMMIT`（`/play` 回滚时**不许** +1）；失效失败只记 WARN 不抛（TTL 兜底）。
+* **验收**：
+  - 端到端：`/history/play` ⇒ 详情 `playCount` 变 1；再 play 一次仍 1；`/report` 不改变它；图文详情恒 0；
+  - **冷 key 不写半套**：不预热 ⇒ `/play` 后 `content:playCount:{id}` **仍不存在**，随后详情回源
+    `content.play_count` 列拿到真值（这条同时钉"条件 INCR"与"回源读列"，去掉条件就红）；
+  - 聚合层（`ContentDetailCountAggregateTests` 四键 → 五键）：五键全 miss 一趟回源、**只回填 miss 的键**
+    （预热 playCount=7 → 只失效 like → 详情后 playCount 仍 7）、脏值按 miss、Redis 降级不回填；
+  - 详情 JSON：`playCount` 在位；★ **`UploadDurationTests` 的精确键集 18 → 19**（契约跟随，注释写明依据 =
+    `history.md` §五"第 5 个公共计数"，不是迎合）；列表面 `has("playCount")==false`（多面至少 `/start` 一条）；
+  - 内容删除 ⇒ `content:playCount` 消失（`removeContent`），且 404 请求不回填它（T44-2 同款假绿形态①：**先预热**）；
+  - 文档：缓存 §五 表加 content（播放量）行、§5.1 口径 1/3/4 与读路径表加一行、§5.2 "四键/5 条 SQL"数字订正；
+    `history.md` §五 的"分批交付状态"段改成终态、§7.3 标注已交付；`FURTHER_ISSUES` **不动**（本任务无裁剪）；
+  - 反向验证四组（缺一不交付）：① 去掉 `merged` 的 playCount 位；② 去掉 `backfillPlayCount` 调用；
+    ③ 监听器去掉"键存在才 INCR"的条件；④ 去掉 `removeContent` 的 `invalidatePlayCount` —— 各自至少 1 红。
+* **回写**：（完成后三句内写清改了什么、验证结果；探索过程不写）
+
+### T49 历史读面：`/history/list` + `/history/position`（失效占位 / 续播）【待执行】
+
+> ⚠️ **先质疑（G14）**：
+> - **任务**：前提成立 —— `watch_history` 已在写（T47）、详情已有 `durationSeconds`（T46），读面是本期唯一还没落地的
+>   用户可见能力；不打这一批，写路径的数据无人消费。
+> - **设计**：**不缓存**（私有 + 写多读少 + 每次上报都变 ⇒ 缓存必然"写后就废"），这是**刻意不做**，
+>   推翻条件 = 出现真实读放大（本仓无流量）。历史**不可删** ⇒ 失效条目只能**占位**、不能从页里剔除
+>   （剔除 = 用户看不到 = 永远没人处理，且 `total` 与页内条数会打架）。
+> - **执行时机**：本批端点用 `GET` ⇒ **不登记限流权重**（`RateLimitWeightTableTests` 只扫非 GET，38 不动）；
+>   但 **I-23 的欠账必须在本任务内核销**（两个读端点补进 `SecurityContractTests`）——否则类级
+>   `@RequiresLogin` 对它们的保护没有任何判别力证据。
+
+* **入口线索**：`favorite/service/WatchLaterService#list` + `favorite/model/vo/WatchLaterItemVO`（**形态照抄**：
+  一个 VO 两个角色、占位三字段一个都不能给、`offset` 用 `long` 防溢出）/ `favorite/controller/WatchLaterController`
+  （`page` / `pageSize` 归一化）/ `content/service/ContentService#loadContentVOs`（**唯一**装载契约）/
+  `history/dao/WatchHistoryDao` + `WatchHistoryMapper.xml` / `history/service/HistoryService` /
+  `history/controller/HistoryController` / `SecurityContractTests#history写端点需登录` /
+  `history.md` §三 + §七.1 + §七.2 / `history-需求.md` §二 + §三
+* **目标**：`GET /history/list`（`PageResult<HistoryItemVO>`，`update_time DESC, content_id DESC`，缺省 20 / 上限 100，
+  失效占位）+ `GET /history/position`（`{progress}`，无记录 `0`，**不校验内容、不 404**）；本域 DAO 补齐
+  `countByUserId` / `findPageByUserId` / `findProgress`；`SecurityContractTests` 补两路由（核销 **I-23**）。
+* **红线边界**：
+  - **不缓存**、**不建新表/新迁移**（本任务零 schema 变更）、**不删历史行**；
+  - 展示字段**只**经 `loadContentVOs` 一趟批量取（**不许**直写 `content` / `content_media` / `users` 表 SQL ——
+    一期 I-07 的教训）；失效判据 = **装载契约"取不到"**，不是 `durationSeconds == null`、也不是 `file_exists = 0`；
+  - 失效占位：`invalid=true` + `title="内容已失效"` + `coverUrl/authorName/durationSeconds` **全 null**（一个分支内三次赋值，
+    不写三个各自判断的 if）+ **`progress` 保留**；`total` **含**失效行、一整页失效也**整页返回**（不跳过）；
+  - `invalid` **必须包装 `Boolean`**（`boolean` 会生成 `isInvalid()` ⇒ JSON 键名漂移）；`watchedTime` = `update_time`
+    （**不是** `create_time`）；排序键序与 id 序在夹具里**必须反向**（AGENTS.md：夹具插入顺序是判别力的一部分）；
+  - `position` **不 join 内容、不判存在性**（已删内容的进度照样回答；"内容是死是活"由详情 404 负责）；
+  - 读端点 `GET` ⇒ 权重表**不动**；但 `SecurityContractTests` 两路由**必须**补（I-23）。
+* **验收**：
+  - 列表：三行夹具（`update_time` 序与 id 序反向）⇒ 返回顺序正确、同一秒按 `content_id DESC`；上报旧行后它**移到最前**
+    （`watchedTime` 确实是 `update_time`）；`total` 用独立 oracle `SELECT COUNT(*) FROM watch_history WHERE user_id=?` 复算（含失效行）；
+    分页第二页内容正确、`offset` 不为负（`page` 很大时不 500）；
+  - 失效占位：软删一条 ⇒ `invalid=true`、标题占位、三字段 null、`progress` 保留、`total` 不缩水、**整页仍是 `pageSize` 条**；
+  - 续播：无记录 `0`；有记录返回存储秒数；内容已删**仍返回进度**（不 404）；`contentId` 不存在返回 `0`；
+  - 鉴权：`SecurityContractTests` 覆盖 `/history/list`、`/history/position`（钉"路由落到 `@Controller`"，
+    **不声称**覆盖类级注解 —— 判据边界写进注释）；HTTP 侧 401 用例保留但注明是假绿；
+  - 反向验证（缺一不交付）：① 排序去掉 `content_id DESC`（同秒夹具必须红）；② 占位只换标题不清作者（红）；
+    ③ 失效行被跳过 ⇒ `total`/页内条数断言红；④ `position` 加"内容不存在 ⇒ 404"（红）；
+  - 文档：`history.md` §三 的交付进度注 + §七 标注读面已交付；`CURRENT_ISSUES.md` I-23 → 已解决（补一行摘要）。
+* **回写**：（完成后三句内写清改了什么、验证结果；探索过程不写）
+
+> **下一批（等 T48–T49 执行完复盘后再拆，不要提前拆）**：**期收尾** ——
+> 文档收口（`history.md` / `history-需求.md` 终态复核、缓存文档一致性、`INDEX.md` §一 的版本与域清单）、
+> `CURRENT_NEEDS.md` §四 与 `CURRENT_TASKS.md` 清出、编号速查收编（`history.md` 附录补 `T45`–`T49` 一行结论）、
+> 全量回归（默认组 + resilience）并把**实测例数**写回周期头、`FURTHER_ISSUES` 逐行核销（前端接入 / 时长回填 / 容量上限）。
+> ⚠️ 收口批的**拆法取决于 T48–T49 的实测结论**（例如 5 键聚合是否暴露新的假绿形态）——上一批复盘会改拆法。
 
 ```
 ### T# <任务名>（来源 R-## / 设计 §x）【待执行】
