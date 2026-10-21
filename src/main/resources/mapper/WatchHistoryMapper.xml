@@ -68,4 +68,13 @@
         LIMIT #{limit} OFFSET #{offset}
     </select>
 
+    <!-- 续播位置（/history/position）：uk_user_content 点查。
+         ★ 刻意**不碰 content / content_media**、不判内容存在性（history.md §七.2）：
+           内容已删照样回答进度（内容是死是活由详情 404 负责）。
+         无行时 MyBatis 返回 null ⇒ service 折成 0（resultType 用包装 Integer，不用 int）。 -->
+    <select id="findProgress" resultType="java.lang.Integer">
+        SELECT progress_seconds FROM watch_history
+        WHERE user_id = #{userId} AND content_id = #{contentId}
+    </select>
+
 </mapper>

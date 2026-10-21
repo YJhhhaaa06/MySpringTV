@@ -16,10 +16,11 @@ import java.util.List;
  *       的**首播判定**两步，靠 affected-rows 的 1/0 判别。</li>
  * </ul>
  *
- * <h2>读路径（{@code /history/list}；续播的点查随 {@code /history/position} 一起落地）</h2>
+ * <h2>读路径（{@code /history/list} 与 {@code /history/position}）</h2>
  * <ul>
  *   <li>{@link #countByUserId}：列表 {@code total} —— 数的是**行**，失效条目照常计入；</li>
- *   <li>{@link #findPageByUserId}：一页**本域三列**。</li>
+ *   <li>{@link #findPageByUserId}：一页**本域三列**；</li>
+ *   <li>{@link #findProgress}：续播位置点查（{@code uk_user_content}，无行 ⇒ {@code null}）。</li>
  * </ul>
  * ★ 读路径**不 join** {@code content} / {@code content_media} / {@code users}：展示字段与
  * 失效判据都由 {@code ContentService#loadContentVOs} 给出（`模块边界与依赖.md` §三；
@@ -92,4 +93,14 @@ public interface WatchHistoryDao {
     List<HistoryItemVO> findPageByUserId(@Param("userId") long userId,
                                          @Param("offset") long offset,
                                          @Param("limit") int limit);
+
+    /**
+     * 续播位置（{@code GET /history/position}）：{@code (user_id, content_id)} 点查进度。
+     *
+     * <p>★ <b>不判内容存在性</b>：内容已删也照样回答（"内容是死是活"由详情 404 负责，
+     * 这里只回答"我的进度是多少"）。无行 ⇒ {@code null}，由调用方折成 {@code 0}。
+     *
+     * @return 进度秒数；{@code null} = 该用户对这个内容没有历史
+     */
+    Integer findProgress(@Param("userId") long userId, @Param("contentId") long contentId);
 }

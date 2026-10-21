@@ -6,6 +6,7 @@ import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import io.github.yjhhhaaa06.videoweb.common.web.PageParams;
 import io.github.yjhhhaaa06.videoweb.history.model.vo.HistoryItemVO;
+import io.github.yjhhhaaa06.videoweb.history.model.vo.HistoryPositionVO;
 import io.github.yjhhhaaa06.videoweb.history.service.HistoryService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -17,8 +18,8 @@ import org.springframework.web.bind.annotation.RestController;
  * 播放记录接口入口（路径前缀 {@code /history}，播放记录专项 T47）。
  *
  * <h2>★ 鉴权：**类级** {@code @RequiresLogin}（与 {@code /watchlater} 的逐端点刻意不同）</h2>
- * 本域**全部**端点（含下一批的 {@code /list}、{@code /position}）都只对"当前登录用户"有意义：
- * 没有公开面可言。类级注解的语义因此是准确的，也是**面向未来端点**的保护——
+ * 本域**全部四个端点**（{@code /report}、{@code /play}、{@code /list}、{@code /position}）
+ * 都只对"当前登录用户"有意义：没有公开面可言。类级注解的语义因此是准确的，也是**面向未来端点**的保护——
  * 将来往 {@code /history/**} 加端点会被自动保护。判别力由
  * {@code SecurityContractTests#history写端点需登录} 直接对 {@code RequestMappingLookup} 求值守着
  * （HTTP 侧 401 是假绿：{@code @CurrentUserId} 解析器自己会抛 401）。
@@ -72,6 +73,20 @@ public class HistoryController {
         return ApiResponse.success(historyService.list(userId,
                 PageParams.normalizePage(page),
                 PageParams.normalizePageSize(pageSize, HISTORY_PAGE_SIZE_MAX, HISTORY_PAGE_SIZE_DEFAULT)));
+    }
+
+    // ==================== 读：续播位置 ====================
+
+    /**
+     * 续播位置：{@code GET /history/position?contentId=}，{@code data} 是 {@code {"progress":N}}。
+     *
+     * <p>★ <b>不校验内容、不返回 404</b>：内容已删 / 不存在都照常回答 —— 后者无记录 ⇒ {@code 0}。
+     * 内容是死是活由详情的 404 负责（{@code history.md} §七.2）。
+     */
+    @GetMapping("/position")
+    public ApiResponse<HistoryPositionVO> position(@CurrentUserId long userId,
+                                                   @RequestParam long contentId) {
+        return ApiResponse.success(new HistoryPositionVO(historyService.position(userId, contentId)));
     }
 
     // ==================== 写：report / play ====================

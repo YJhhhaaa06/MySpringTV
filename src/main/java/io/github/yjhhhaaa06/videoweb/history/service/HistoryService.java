@@ -20,10 +20,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 播放记录业务：写路径（{@code /history/report} 与 {@code /history/play}）+ 历史列表
- * （{@code /history/list}，续播位置随 {@code /history/position} 一起落地）。
+ * 播放记录业务：写路径（{@code /history/report} 与 {@code /history/play}）+ 读路径
+ * （{@code /history/list} 历史列表、{@code /history/position} 续播位置）。
  *
- * <p>设计 / 口径的唯一事实源：{@code architecture/domain/history/history.md} §四（写）/ §七.1（列表）。
+ * <p>设计 / 口径的唯一事实源：{@code architecture/domain/history/history.md} §四（写）/ §七（读）。
  * 本类只做"校验 → 写"与"取页 → 组装"的编排：
  *
  * <table>
@@ -194,6 +194,24 @@ public class HistoryService {
         row.setAuthorName(content.getAuthorName());
         row.setDurationSeconds(content.getDurationSeconds());
         return row;
+    }
+
+    /**
+     * 续播位置（{@code GET /history/position?contentId=}）：{@code (user_id, content_id)} 点查。
+     *
+     * <p>★ <b>不校验内容、不返回 404</b>（{@code history.md} §七.2）：内容已删也照样回答进度
+     * —— 内容是死是活由详情 404 负责，这里只回答"我的进度是多少"。无记录 ⇒ {@code 0}
+     * （不是 404、不是 {@code null}：前端拿到 0 就能从头播）。
+     *
+     * <p>⚠️ 这里**不读 {@code durationSeconds}**：时长随详情返回，本端点不重复读一次内容。
+     *
+     * @param userId    当前登录用户
+     * @param contentId 内容 id（**不判存在性**：不存在 ⇒ 无行 ⇒ 0）
+     * @return 上次看到的秒数；无记录 ⇒ 0
+     */
+    public int position(long userId, long contentId) {
+        Integer progress = watchHistoryDao.findProgress(userId, contentId);
+        return progress == null ? 0 : progress;
     }
 
     /**
