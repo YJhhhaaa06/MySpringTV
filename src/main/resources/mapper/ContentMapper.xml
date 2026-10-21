@@ -169,6 +169,17 @@
         UPDATE content SET like_count = 0 WHERE id = #{contentId}
     </update>
 
+    <!-- 播放量 +1（T47，history 写路径的唯一计数入口）：`/history/play` 判首播成功后，
+         与 watch_history 的标记位**同一事务**执行。
+         ★ 无防负守卫：play_count 是 int unsigned 且**只增**（没有"取消播放"）
+           ⇒ 不需要 like_count / comment_count 那套 CAST(... AS SIGNED)（口径差异，非漏改，
+           见 history.md §二）。
+         ★ 内容删除后本语句**不会被调用**（/play 先过 404），历史行也不动
+           —— 失效占位要它（history.md §五）。 -->
+    <update id="updatePlayCount">
+        UPDATE content SET play_count = play_count + 1 WHERE id = #{contentId}
+    </update>
+
     <!-- 收藏数批量重算（T12，与 like_count 增量式**刻意不同**）：一趟 CASE-WHEN 写回一批行的
          favorite_count 绝对值，**不是** N 次单行 UPDATE（删夹可一次波及上千条内容，
          逐行 UPDATE 就是 N 次往返 —— favorite.md §四 强制探索的确认点）。

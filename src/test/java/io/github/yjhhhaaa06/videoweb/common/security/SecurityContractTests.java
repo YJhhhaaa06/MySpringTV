@@ -316,6 +316,20 @@ class SecurityContractTests extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("★播放记录 T47：/history 两个写端点判为需登录（钉路由；**不**证明类级注解在不在）")
+    void history写端点需登录() {
+        // 本域四个端点都只对当前登录用户有意义（历史是"我的"私有记录）⇒ 类级 @RequiresLogin。
+        // ★ 判别力边界（如实声明，同 coin）：本仓是**默认拒绝** ⇒ 去掉类级注解后 requiresLogin
+        //   仍然是 true ⇒ 这条用例**测不到"注解在不在"**。它真正钉的是"路由落到了一个
+        //   @Controller 处理器上"（路径写错 / 控制器没被扫到 ⇒ 未映射 ⇒ false）。
+        // ⚠️ HTTP 侧对 @RequiresLogin 同样是假绿（401 由 @CurrentUserId 参数解析器兜出）。
+        // 📌 T47 只落写路径两个端点；/history/list、/history/position 属下一批读面 ——
+        //   它们**必须在本批之后补进这里**（否则"四端点"永远只有两条被钉住）。
+        assertThat(requiresLogin("POST", "/history/report")).isTrue();
+        assertThat(requiresLogin("POST", "/history/play")).isTrue();
+    }
+
+    @Test
     @DisplayName("未映射的路径返回 false：真正的 404 由 DispatcherServlet 产生，本机制不越权处理路由")
     void 未映射路径不需登录() {
         assertThat(requiresLogin("GET", "/no/such/endpoint")).isFalse();

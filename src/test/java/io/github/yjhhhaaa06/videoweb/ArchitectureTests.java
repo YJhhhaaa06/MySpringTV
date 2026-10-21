@@ -54,13 +54,14 @@ class ArchitectureTests {
      * {@code favorite} 由独立开发期的**收藏一期 T1** 新增（迁移收口后的第一个新域）、
      * {@code interaction} 由**收藏二期 T9** 新增（R-10 的互动域）、
      * {@code coin} 由**投币专项 T36** 新增（R-17），
+     * {@code history} 由**播放记录专项 T47** 新增（R-18），
      * 一并纳入边界约束（否则新域会成为**没有任何规则约束的空洞**）。
      *
      * <p>⚠️ 域集合是**这五条规则的唯一作用域**：加域漏登记 ⇒ 规则 1/2/3/5 对它是**永远绿的假绿**
      * （"ArchUnit 规则通过"不是有效验收，"{@code DOMAINS} 含它"才是）。
      */
     private static final String[] DOMAINS = {"user", "content", "comment", "like", "follow", "coupon",
-            "upload", "admin", "feed", "favorite", "interaction", "coin"};
+            "upload", "admin", "feed", "favorite", "interaction", "coin", "history"};
 
     private static final String BASE = "io.github.yjhhhaaa06.videoweb";
 

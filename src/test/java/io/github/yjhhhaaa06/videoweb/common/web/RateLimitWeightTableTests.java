@@ -69,7 +69,7 @@ class RateLimitWeightTableTests extends AbstractHttpIntegrationTest {
     private static final double SEED = 50;
 
     /** 非 GET 端点的**实际总数**（本类扫描面的 sanity 下界；新增端点后只增不减）。 */
-    private static final int EXPECTED_NON_GET_AT_LEAST = 36;
+    private static final int EXPECTED_NON_GET_AT_LEAST = 38;
 
     @Autowired
     private StringRedisTemplate redis;
@@ -174,7 +174,7 @@ class RateLimitWeightTableTests extends AbstractHttpIntegrationTest {
 
         // sanity：扫描面必须真的看到端点（introspection 失效 ⇒ 本用例会"全绿"但什么都没查——假绿防线）
         assertThat(seen)
-                .as("扫描面 sanity：handler 映射里应看到全部非 GET 端点（本仓当前 ≥ 36）")
+                .as("扫描面 sanity：handler 映射里应看到全部非 GET 端点（本仓当前 ≥ 38；T47 加 /history/report|play）")
                 .isGreaterThanOrEqualTo(EXPECTED_NON_GET_AT_LEAST);
         assertThat(missing)
                 .as("非 GET 端点必须全部登记（漏配 ⇒ 只吃 default-base = 1，权重静默失效）")

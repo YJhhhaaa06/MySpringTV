@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  watch_history Mapper（播放记录专项 T47）。
+  SQL 逐字来自 architecture/domain/history/history.md §四 —— 那三个语句是设计的一部分，
+  尤其"ODKU 不判首播 / INSERT IGNORE + 条件 UPDATE 判首播"的拆分，改动前先读那份文档。
+-->
+<mapper namespace="io.github.yjhhhaaa06.videoweb.history.dao.WatchHistoryDao">
+
+    <!-- /history/report：一条 ODKU，**不判首播**（不读 play_counted、不看 affected rows）。
+         ★ update_time 必须显式 SET：列上的 ON UPDATE 在"值没变"时不触发
+           ⇒ 同一秒重复上报不会把该行移到列表最前（history.md §二 口径 5）。 -->
+    <insert id="upsertProgress">
+        INSERT INTO watch_history (user_id, content_id, progress_seconds)
+        VALUES (#{userId}, #{contentId}, #{progressSeconds})
+        ON DUPLICATE KEY UPDATE
+          progress_seconds = VALUES(progress_seconds),
+          update_time = CURRENT_TIMESTAMP
+    </insert>
+
+    <!-- /history/play ①：行不存在 ⇒ 建行并直接标记已计（affected = 1 即首播）。
+         ★ 不用 ODKU：useAffectedRows=false 下"插入"与"值没变的更新"都返回 1
+           ⇒ 会把重复播放误判成首播（history.md §四.2）。 -->
+    <insert id="insertIgnoreCounted">
+        INSERT IGNORE INTO watch_history (user_id, content_id, progress_seconds, play_counted)
+        VALUES (#{userId}, #{contentId}, 0, 1)
+    </insert>
+
+    <!-- /history/play ②：行已存在 ⇒ 条件抢占标记位（affected = 1 即首播，0 = 已计过）。
+         条件 UPDATE 在并发下是天然的互斥：只有一个事务能把 0 改成 1 ⇒ 播放量恰 +1。 -->
+    <update id="markCountedIfNotCounted">
+        UPDATE watch_history SET play_counted = 1
+        WHERE user_id = #{userId} AND content_id = #{contentId} AND play_counted = 0
+    </update>
+
+</mapper>

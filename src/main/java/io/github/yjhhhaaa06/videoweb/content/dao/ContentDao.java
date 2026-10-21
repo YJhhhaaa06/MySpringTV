@@ -303,6 +303,20 @@ public interface ContentDao {
     int resetLikeCount(@Param("contentId") long contentId);
 
     /**
+     * 播放量 {@code +1}（T47）：{@code history} 域在**判首播成功后**、与 {@code watch_history}
+     * 的标记位**同一事务**调用。
+     *
+     * <p>★ <b>没有防负守卫</b>：{@code content.play_count} 是 {@code int unsigned} 且**只增**
+     * （没有"取消播放"）⇒ 不需要 {@link #updateLikeCount} / {@link #updateCommentCount} 那套
+     * {@code CAST(... AS SIGNED)}。这是口径差异、不是漏改（见 {@code history.md} §二）。
+     *
+     * <p>★ 内容删除后**不会被调用**（{@code /play} 先过 404），历史行也不动 —— 失效占位要它。
+     *
+     * @return 受影响行数（正常恒 1；内容在事务内被并发删除时可能 0，调用方不据此判成败）
+     */
+    int updatePlayCount(@Param("contentId") long contentId);
+
+    /**
      * 收藏数**批量重算**（T12，收藏二期-3）：一趟 CASE-WHEN 把一批
      * {@code (contentId, favoriteCount)} 对写回 {@code content.favorite_count} 绝对值。
      *
