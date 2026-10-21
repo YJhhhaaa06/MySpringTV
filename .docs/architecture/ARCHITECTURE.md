@@ -59,7 +59,7 @@ io.github.yjhhhaaa06.videoweb
 | MQ | 拓扑/重连/重试+DLQ/预取交框架原生；发布不等 confirm；投递三态 + 补偿缓冲 | [MQ与投递可靠性](tech/mq/MQ与投递可靠性.md) |
 | 可观测 | 日志四输出端 + MDC 请求标识 + 出口一处脱敏 + Micrometer 打点 + 审计 | [可观测](tech/observability/可观测.md) |
 | 安全 | 自研 `JwtAuthFilter` + `@Public` / `@RequiresLogin` / `@RequiresAdmin`（**默认拒绝**；Spring Security **已拍板不迁**，F-01/F-02） | [安全与鉴权](tech/security/安全与鉴权.md)（代价见 [已知代价](tech/security/安全与鉴权-已知代价.md)） |
-| 数据 | Flyway SQL-first；**V1 baseline 冻结**；增量演进已到 **V7**（`favorite_*`（V2/V3）+ `watch_later`（V4）+ `content_coin`/`coin_count`（V5）+ `watch_history`/`duration_seconds`/`play_count`（V6）+ 删遗留 `video`/`videoinfo`（V7））；下一次 **V8** | [数据与Schema演进](tech/data-evolution/数据与Schema演进.md) |
+| 数据 | Flyway SQL-first；**V1 baseline 冻结**；增量演进已到 **V8**（`favorite_*`（V2/V3）+ `watch_later`（V4）+ `content_coin`/`coin_count`（V5）+ `watch_history`/`duration_seconds`/`play_count`（V6）+ 删遗留 `video`/`videoinfo`（V7）+ `watch_history` 列表覆盖索引（V8））；下一次 **V9** | [数据与Schema演进](tech/data-evolution/数据与Schema演进.md) |
 | 事务 | 事务边界载体独立成 bean（避免自调用）；纯读去事务 | [事务边界](tech/transaction/事务边界.md) |
 
 ---

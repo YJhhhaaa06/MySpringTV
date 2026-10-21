@@ -52,7 +52,8 @@
         SELECT COUNT(*) FROM watch_history WHERE user_id = #{userId}
     </select>
 
-    <!-- 一页历史（update_time DESC, content_id DESC），走 idx_user_update。
+    <!-- 一页历史（update_time DESC, content_id DESC），走 idx_user_update_content（V8 的覆盖复合索引：
+         前三列就是本 ORDER BY，progress_seconds 让本 SELECT 三列免回表）。
          ① ★ 不 join content / content_media / users（模块边界 §三；一期 I-07 的教训）：
             展示字段与失效判据都归 ContentService#loadContentVOs；
          ② ★ tie-breaker 用 content_id DESC（不是行 id）：update_time 是秒精度，

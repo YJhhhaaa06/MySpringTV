@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *
  * <h2>覆盖什么（期望值出自favorite.md §九 的 DDL 与口径，盖住实现照样写得出来）</h2>
  * <ul>
- *   <li><b>版本行</b>：{@code flyway_schema_history} 里 V1 / V2 / V3 / V4 / V5 / V6 / V7 **全部 applied 且 success**
+ *   <li><b>版本行</b>：{@code flyway_schema_history} 里 V1 / V2 / V3 / V4 / V5 / V6 / V7 / V8 **全部 applied 且 success**
  *       —— ⚠️ 只断"某一行存在"会漏掉"最新一版没跑"的真相（I-02）；</li>
  *   <li><b>列集</b>：{@code id / user_id / content_id / create_time}（favorite.md §九 的 DDL）；</li>
  *   <li>★ <b>唯一键 {@code uk_user_content (user_id, content_id)}</b>：T17「重复 add ⇒ 移到最前」的
@@ -40,7 +40,7 @@ class WatchLaterSchemaTests extends AbstractIntegrationTest {
     private JdbcTemplate jdbcTemplate;
 
     @Test
-    @DisplayName("★全部迁移版本都被应用（V1~V7 且 success）—— 不止最新一版，防 I-02 的'只断首行'假绿")
+    @DisplayName("★全部迁移版本都被应用（V1~V8 且 success）—— 不止最新一版，防 I-02 的'只断首行'假绿")
     void 全部迁移版本都被应用() {
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
                 "SELECT version, success FROM flyway_schema_history WHERE success = 1 ORDER BY installed_rank");
@@ -51,9 +51,9 @@ class WatchLaterSchemaTests extends AbstractIntegrationTest {
                 .contains("4");
         assertThat(appliedVersions.get(0)).as("首版本必须是 V1（baseline）").isEqualTo("1");
         // ★ "末版本认账"锚点：每加一版迁移都要显式改这一行（T36 的 V5 = 投币专项；
-        //   T45 的 V6 = 播放记录、V7 = 删遗留表）。
+        //   T45 的 V6 = 播放记录、V7 = 删遗留表；V8 = 播放记录列表覆盖索引）。
         //   它不是"跟着实现改断言"，而是把"新增的版本有没有真的被应用"变成一次人工确认。
-        assertThat(appliedVersions).as("V7 必须是最后一个已应用版本（V6/V7 = 播放记录专项 T45）").endsWith("7");
+        assertThat(appliedVersions).as("V8 必须是最后一个已应用版本（V8 = 播放记录列表覆盖索引）").endsWith("8");
     }
 
     @Test

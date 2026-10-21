@@ -77,7 +77,7 @@ V1 一旦在任一库上被应用，就写进了该库的 `flyway_schema_history
 
 **结论**：V1 是**冻结**的。它是一份"已经发生过的历史"，不是可以被编辑的当前状态。
 
-### 2.3 增量演进：逐版本新增（当前已应用到 V7）
+### 2.3 增量演进：逐版本新增（当前已应用到 V8）
 
 要改结构，**新增一个版本号更高的脚本**，绝不回写 V1：
 
@@ -90,7 +90,8 @@ db/migration/
 ├── V5__coin.sql                      ← 已应用（2026-10-19 投币 T36）：`content_coin` + 三列
 ├── V6__watch_history.sql             ← 已应用（2026-10-21 播放记录 T45）：`watch_history` + 两列
 ├── V7__drop_legacy_video.sql         ← 已应用（2026-10-21 播放记录 T45）：删遗留 `video` / `videoinfo`
-└── V8__<描述>.sql                    ← 下一次演进写这里（编号递增，绝不回写 V1~V7）
+├── V8__watch_history_list_index.sql  ← 已应用（2026-10-21 播放记录 T50）：换 `watch_history` 列表索引
+└── V9__<描述>.sql                    ← 下一次演进写这里（编号递增，绝不回写 V1~V8）
 ```
 
 - V2 在**所有环境**都会被执行（活库：V1 已应用 ⇒ 只有 V2 是新的，会真正跑；空库：V1→V2 顺序跑完）。
@@ -108,6 +109,10 @@ db/migration/
   ★ 删表**单独一版**是刻意的：DROP 不可逆，与建表混在一个文件里会让回滚粒度变成"全做或全不做"，
   而两件事的风险等级完全不同。V1 里那两条 `CREATE TABLE … IF NOT EXISTS video/videoinfo`
   **不改**（冻结）—— 空库终态由"V1 建、V7 删"共同决定，最终仍是 18 张业务表。
+- ★ **现状更新（2026-10-21，T50）**：**`V8__watch_history_list_index.sql`** 落了列表索引替换
+  （`idx_user_update` → `idx_user_update_content` 覆盖复合索引）⇒ **下一次演进走 V9**。
+  ★ 它是**非结构性**的一版（不动表/列、表计数不变），单独一版是为了让"查询计划优化"有独立的
+  回滚与审计粒度；动机 / 基线 / 代价见 [history.md §二·§7.1](../../domain/history/history.md)。
 
 ⚠️ **V5 落地时活库路径的特殊之处**：三条 `ALTER TABLE … ADD COLUMN` 是裸语句（MySQL 8.0 不支持
 `ADD COLUMN IF NOT EXISTS`），只由 Flyway 应用一次；落笔前已用 `information_schema` 复核活库
@@ -208,7 +213,7 @@ registry.add("video.upload.root", AbstractIntegrationTest::testMediaRoot); // �
 V1 共定义 **15 张业务表**，V2 再增 **2 张**（收藏一期），V4 再增 **1 张**（收藏三期 T17 稍后再看），
 V5 再增 **1 张**（投币 T36 `content_coin`）+ **3 列**（`users.coin_deci` / `users.last_sign_date` / `content.coin_count`），
 V6 再增 **1 张**（播放记录 T45 `watch_history`）+ **2 列**（`content_media.duration_seconds` / `content.play_count`），
-V7 **减 2 张**（删遗留 `video` / `videoinfo`）；
+V7 **减 2 张**（删遗留 `video` / `videoinfo`），V8 **不动表 / 列**（只换 `watch_history` 的列表索引）；
 **当前**活库/测试库的 `information_schema`
 （`table_type='BASE TABLE'`）计数 = **19** = 18 张业务表 + 1 张 Flyway 元表 `flyway_schema_history`
 （与 `InfrastructureConnectivityTests` 的断言一致）。按归属域列出（归属判据见 [模块边界与依赖](../module-boundary/模块边界与依赖.md)）：
@@ -267,7 +272,7 @@ V7 **减 2 张**（删遗留 `video` / `videoinfo`）；
 
 | # | 表 / 列 | 归属域 | 用途（一句） | 口径 |
 |---|---|---|---|---|
-| 20 | `watch_history` | history | 播放记录：**一人一内容一行**（`uk_user_content` 是 ODKU / `INSERT IGNORE` 的落点）+ `idx_user_update` 服务历史列表倒序 + `idx_content_id` 只服务不变量复算 | `play_counted` 与 `progress_seconds` **解耦**（拆端点：`/report` 只改进度、`/play` 只改标记）；**不可删**（删了就和"播放量只增"打架） |
+| 20 | `watch_history` | history | 播放记录：**一人一内容一行**（`uk_user_content` 是 ODKU / `INSERT IGNORE` 的落点）+ `idx_user_update_content`（**V8 起**：列表倒序 + 三列覆盖）+ `idx_content_id` 只服务不变量复算 | `play_counted` 与 `progress_seconds` **解耦**（拆端点：`/report` 只改进度、`/play` 只改标记）；**不可删**（删了就和"播放量只增"打架） |
 | — | `content_media.duration_seconds` | （列在 content_media 上，业务归 upload 解析 / content 投影） | 视频时长（秒；mp4 `moov → mvhd` 解析） | **可空**，NULL = 未知（解析失败 / 图文 / 存量不回填）；只对 `type=1` 的媒体行有意义 |
 | — | `content.play_count` | （列在 content 上，业务归 content 自持） | 播放量（**按用户去重**，一人一次） | `int unsigned` 且**只增**（没有取消播放）⇒ 刻意没有 like / comment 的防负守卫 |
 
@@ -279,6 +284,16 @@ V7 **减 2 张**（删遗留 `video` / `videoinfo`）；
 | 为什么单独一版 | DROP **不可逆**；与 V6 的建表混在一个文件里会让回滚粒度变成"全做或全不做"，而两件事风险等级不同 |
 | 删前证据（可复算） | `grep -rn "videoinfo" src/` ⇒ 只命中 V1 脚本自身；`grep -rniE "(from\|into\|update\|table)\s+\`?video\`?" src/main src/test` ⇒ 0 命中 |
 | 冻结状态 | ✅ **已应用 ⇒ 逐字节冻结**；V1 那两条 `CREATE TABLE … IF NOT EXISTS` **不改**（空库终态由"V1 建、V7 删"共同决定） |
+
+**V8 增量（`V8__watch_history_list_index.sql`，2026-10-21 播放记录专项 T50）——★ 只换索引、不动表/列**：
+
+| 项 | 内容 |
+|---|---|
+| 做了什么 | `DROP KEY idx_user_update` + `ADD KEY idx_user_update_content (user_id, update_time DESC, content_id DESC, progress_seconds)` |
+| 为什么换 | 列表 `ORDER BY update_time DESC, content_id DESC` 的 tie-break 列 `content_id` 不在旧索引上 ⇒ 每页对该用户**全部行** filesort；新索引前三列即排序键、第四列让三页 SELECT 免回表（基线：5k 行 3.15ms→0.10ms、50k 行 37.8ms→0.2ms） |
+| 形态口径 | **替换**而非新增：新索引前缀已覆盖旧索引（`countByUserId` 一并覆盖）⇒ 索引总数不变（仍 4 个）；写路径代价实测无回归（1000 次 ODKU：5.52/5.81s → 5.93/5.55s） |
+| 为什么单独一版 | 非结构性但**独立回滚 / 审计粒度**（与建表、删表同级的可追溯单元）；表计数不变（仍 19） |
+| 冻结状态 | ✅ **已应用 ⇒ 逐字节冻结**（§2.4：连注释都不能改） |
 
 > 📌 本表出现的 `R-##` / `T#` 编号：收藏相关见 [favorite.md 附录「编号速查」](../../domain/favorite/favorite.md)，投币相关见 [coin.md 附录「编号速查」](../../domain/coin/coin.md)，播放记录相关见 [history.md 附录「编号速查」](../../domain/history/history.md)（编号的**活**查证入口；逐条论证在相应 `archive/` 或 git）。
 

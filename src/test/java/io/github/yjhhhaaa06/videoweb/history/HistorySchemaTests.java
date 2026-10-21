@@ -17,19 +17,22 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 播放记录域的**结构契约**验收：V6 建出的两列 + {@code watch_history} 一次到位，
- * V7 真的把两张遗留表删掉，且**全部迁移版本都被应用**。
+ * V7 真的把两张遗留表删掉，V8 把列表索引换成覆盖复合索引，且**全部迁移版本都被应用**。
  *
  * <h2>覆盖什么（期望值出自 history.md §二 的 DDL，盖住实现照样写得出来）</h2>
  * <ul>
- *   <li><b>版本行</b>：{@code flyway_schema_history} 里 V1…V7 **全部 applied 且 success**；</li>
+ *   <li><b>版本行</b>：{@code flyway_schema_history} 里 V1…V8 **全部 applied 且 success**；</li>
  *   <li><b>列集</b>：{@code id / user_id / content_id / progress_seconds / play_counted /
  *       create_time / update_time}（history.md §二 的 DDL）；</li>
  *   <li>★ <b>唯一键 {@code uk_user_content (user_id, content_id)}</b>：本域"一人一内容一行"
  *       的实现手段是 {@code ON DUPLICATE KEY UPDATE} / {@code INSERT IGNORE} —— 两者撞的都是它。
  *       丢了这个键，"重复上报"会**插出两行**（历史里出现同一视频两条），
  *       而 {@code /play} 的首播判定会**永远判首播**（播放量被重复累加）；</li>
- *   <li><b>索引全集</b>：{@code PRIMARY} / {@code uk_user_content} / {@code idx_user_update} /
- *       {@code idx_content_id} —— 多一个都要显式认账；</li>
+ *   <li><b>索引全集</b>：{@code PRIMARY} / {@code uk_user_content} / {@code idx_user_update_content} /
+ *       {@code idx_content_id} —— 多一个都要显式认账。V8 用
+ *       {@code (user_id, update_time DESC, content_id DESC, progress_seconds)} **替换**了 V6 的
+ *       {@code idx_user_update}：前三列匹配列表 {@code ORDER BY}，第四列让三列 SELECT 免回表
+ *       （EXPLAIN 基线见 history.md §七.1；实测 5k 行 3.15ms→0.10ms、50k 行 37.8ms→0.2ms）；</li>
  *   <li><b>两列</b>：{@code content_media.duration_seconds}（可空 —— NULL 就是"未知"）、
  *       {@code content.play_count}（{@code unsigned NOT NULL DEFAULT 0}）；</li>
  *   <li>★ <b>遗留表真的没了</b>：{@code video} / {@code videoinfo} 在 {@code information_schema} 里查不到
@@ -39,7 +42,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * <h2>反向验证（注入 ⇒ 必红）</h2>
  * 删掉 V7 文件 ⇒ 遗留表用例 + 版本行用例变红；删掉 V6 的 {@code uk_user_content}
  * ⇒ 唯一键用例变红（真插两行看它拦不拦）；把 {@code duration_seconds} 改成 NOT NULL
- * ⇒ 列属性用例变红（NULL = 未知是本域的核心口径）。
+ * ⇒ 列属性用例变红（NULL = 未知是本域的核心口径）；回退 V8 的索引（恢复成 V6 的
+ * {@code idx_user_update}）⇒ 索引全集用例变红（“优化是否还在”的可执行锚点；查询计划的
+ * filesort 证据是手工 EXPLAIN 基线，不是本用例的断言 —— 小夹具下优化器可能不用该索引）。
  */
 class HistorySchemaTests extends AbstractIntegrationTest {
 
@@ -52,14 +57,14 @@ class HistorySchemaTests extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("★全部迁移版本都被应用（V1~V7 且 success）—— V7 的删表也要真的跑到")
+    @DisplayName("★全部迁移版本都被应用（V1~V8 且 success）—— V7 的删表 / V8 的换索引也要真的跑到")
     void 全部迁移版本都被应用() {
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
                 "SELECT version, success FROM flyway_schema_history WHERE success = 1 ORDER BY installed_rank");
         List<String> appliedVersions = rows.stream().map(r -> String.valueOf(r.get("version"))).toList();
         assertThat(appliedVersions)
-                .as("★ 版本序必须连续 1..7：V6 建播放记录、V7 删遗留表（两者缺一都让上层结构对不上）")
-                .containsExactly("1", "2", "3", "4", "5", "6", "7");
+                .as("★ 版本序必须连续 1..8：V6 建播放记录、V7 删遗留表、V8 换列表索引（缺一都让上层结构对不上）")
+                .containsExactly("1", "2", "3", "4", "5", "6", "7", "8");
     }
 
     @Test
@@ -91,14 +96,14 @@ class HistorySchemaTests extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("索引全集：PRIMARY + uk_user_content + idx_user_update + idx_content_id，无冗余")
+    @DisplayName("索引全集：PRIMARY + uk_user_content + idx_user_update_content + idx_content_id，无冗余")
     void 索引全集就位() {
         assertThat(全部索引("watch_history"))
-                .as("索引全集逐一对账：idx_content_id 只服务不变量复算，不加任何冗余索引")
+                .as("索引全集逐一对账：列表索引 V8 覆盖 ORDER BY + 三列；idx_content_id 只服务不变量复算，不加任何冗余索引")
                 .containsEntry("uk_user_content", "user_id,content_id")
-                .containsEntry("idx_user_update", "user_id,update_time")
+                .containsEntry("idx_user_update_content", "user_id,update_time,content_id,progress_seconds")
                 .containsEntry("idx_content_id", "content_id")
-                .containsOnlyKeys("PRIMARY", "uk_user_content", "idx_user_update", "idx_content_id");
+                .containsOnlyKeys("PRIMARY", "uk_user_content", "idx_user_update_content", "idx_content_id");
     }
 
     @Test

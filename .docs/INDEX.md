@@ -32,7 +32,7 @@ Flyway + Testcontainers。由 `old-project/TVhomework1`（Servlet + 手写连接
 > （`@Public` 是唯一放行口）+ 处理器级角色判定（`@RequiresAdmin`）—— `SecurityPassthroughConfig` 是**终态**，
 > 不是临时态。口径 = `architecture/tech/security/安全与鉴权.md`，代价 = 同目录 `安全与鉴权-已知代价.md`。
 > ③ ★ **`old-project/TVhomework1` 只读留存、禁止删除**（它是行为判据的原始规格书）；
-> **V1 baseline 冻结**（改了会让测试库与活库分叉），增量演进已到 **V7**（V6 `watch_history` / V7 删遗留表），下一次走 **V8**。
+> **V1 baseline 冻结**（改了会让测试库与活库分叉），增量演进已到 **V8**（V6 `watch_history` / V7 删遗留表 / V8 换列表索引），下一次走 **V9**。
 
 ---
 
@@ -65,7 +65,7 @@ Flyway + Testcontainers。由 `old-project/TVhomework1`（Servlet + 手写连接
 | ★ **加新功能 / 看设计** | `architecture/domain/favorite/`（`favorite.md` 设计 + `favorite-需求.md` 用户可见规则 + `favorite-已知代价.md` 台账）、`feed/feed.md`（域文档样板）、`history/history.md`（播放记录：写读路径 + 时长 + 编号速查）。本期做哪些 ⇒ `task/CURRENT_NEEDS.md` | 开工前登记 / 设计变更时 |
 | **知道下一步做什么** | `task/CURRENT_NEEDS.md` §三 / §四 + `task/CURRENT_ISSUES.md` + `task/FURTHER_ISSUES.md` | 排期 / 收尾时 |
 | **知道当初为什么这么定** | 结论在 `architecture/**`（域文档的「编号速查」+ `*-已知代价.md` 的四要素）；过程与逐条论证只留 git 历史（归档**非必要勿读**） | 新决策进活文档 |
-| **改 schema / 加迁移** | `architecture/tech/data-evolution/数据与Schema演进.md`（V1 冻结、当前 **V7**、下次 **V8**、§2.4 冻结纪律） | 每次演进 |
+| **改 schema / 加迁移** | `architecture/tech/data-evolution/数据与Schema演进.md`（V1 冻结、当前 **V8**、下次 **V9**、§2.4 冻结纪律） | 每次演进 |
 | **处理事务边界** | `architecture/tech/transaction/事务边界.md`（写新事务开工前必须表态） | 事务边界变化时 |
 | **动测试** | **仓库根 `AGENTS.md`「测试纪律」节**（防"测试迎合"四条 + 实测补充，**唯一事实源**） | 测试体系变更 |
 | **写脚本** | `tools/README.md`（Python 硬性约定：UTF-8 / 路径 / 默认只预演）+ 分目录 `tools/docs/README.md`（文档门禁）/ `tools/devclean/README.md`（开发期清理） | 加脚本时 |

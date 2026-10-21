@@ -28,7 +28,7 @@
 
 ---
 
-## 二、数据模型（Flyway **V6**；遗留表清理 **V7**）
+## 二、数据模型（Flyway **V6** 建表；**V7** 清遗留表；**V8** 换列表索引）
 
 ```sql
 -- V6：播放记录
@@ -61,9 +61,26 @@ DROP TABLE IF EXISTS `videoinfo`;
 DROP TABLE IF EXISTS `video`;
 ```
 
+```sql
+-- V8：列表索引替换（T50）—— 覆盖 ORDER BY + 三列 SELECT，**替换**而非新增
+ALTER TABLE `watch_history`
+  DROP KEY `idx_user_update`,
+  ADD KEY `idx_user_update_content`
+      (`user_id`, `update_time` DESC, `content_id` DESC, `progress_seconds`);
+```
+
+> ★ **V8 为什么换（2026-10-21，T50）**：列表的 `ORDER BY update_time DESC, content_id DESC` 里
+> `content_id` **不在** V6 的 `idx_user_update (user_id, update_time)` 上 ⇒ 排序键不是索引序 ⇒
+> 每页都对该用户**全部行** filesort（`EXPLAIN` = `Using filesort`）。新索引**前三列就是排序键**
+> （前向索引扫描），第四列 `progress_seconds` 让本页 SELECT 三列**免回表**。
+> ★ 形态是**替换**不是新增：新索引前缀已完全覆盖旧索引（`countByUserId` 一并覆盖）⇒ 索引总数不变。
+> ⚠️ 代价：每条上报都改 `update_time`（口径 5）⇒ 该索引项随每次上报重写（写放大），**已实测无回归**；
+> 基线数字与复算命令见 §7.1。
+
 > ⚠️ **迁移锚点同步**：V6/V7 会让 `InfrastructureConnectivityTests`（表数 **20 → 19**、版本
 > `1..5` → `1..7`）与 `WatchLaterSchemaTests#全部迁移版本都被应用`（`endsWith("5")` → `"7"`）变红，
 > **必须同 commit 改**。这不是回归，而是把"新版本真的被应用 / 遗留表真的被删"变成一次人工认账。
+> V8 无表计数变化，但版本锚点再 +1（`1..8` / `endsWith("8")`）。
 > `RateLimitWeightTableTests.EXPECTED_NON_GET_AT_LEAST`（36 → 38）在**加端点时**同步。
 
 **口径**：
@@ -269,9 +286,25 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
 
 ### 7.1 历史列表
 
-1. 一页 `watch_history`（`idx_user_update`，`update_time DESC, content_id DESC`）+ 一次 `count`；
+1. 一页 `watch_history`（`idx_user_update_content`，`update_time DESC, content_id DESC`）+ 一次 `count`；
 2. `ContentService#loadContentVOs` 一趟批量取展示字段；
 3. 取不到的条目构造**失效占位**（`total` 不变、页内条目不缩水）。
+
+**排序成本基线（T50，2026-10-21 实测；V8 前后对照）**：旧索引 `idx_user_update (user_id, update_time)`
+不含 tie-break 列 `content_id` ⇒ 每页对该用户**全部行** filesort；V8 的覆盖复合索引前三列即排序键：
+
+| 场景（造数：scratch 库、单用户 N 行） | V6 旧索引 | V8 新索引 |
+|---|---|---|
+| 页 1（`LIMIT 20 OFFSET 0`）@ 5 千行 | `Using filesort`，3.15 ms | `Using index`，**0.10 ms** |
+| 页 1 @ 5 万行 | 37.8 ms | **0.2 ms** |
+| 深翻 `OFFSET 49900` @ 5 万行 | 62.3 ms | 43 ms（offset 走动，与索引无关） |
+| 建索引（51k 行表 `ALTER`，INPLACE） | — | 276 ms（一次性） |
+| 写：同一批 1000 次 ODKU（逐条自动提交） | 5.52 / 5.81 s | 5.93 / 5.55 s（**噪声内，无回归**） |
+
+- 复算：建同构表 → 单用户插 N 行（`update_time` 递减）→
+  `EXPLAIN ANALYZE SELECT content_id, update_time, progress_seconds FROM watch_history WHERE user_id=1 ORDER BY update_time DESC, content_id DESC LIMIT 20 OFFSET 0;`
+- ★ 本仓**无流量**（`AGENTS.md`）：上表是"造数据放大机制"的**优化前后基线**（本仓跨期约定：
+  无基线不得宣称"优化生效"），不是线上问题。
 
 **不缓存**：私有 + 写多读少 + 每次上报都变 ⇒ 缓存必然"写后就废"。这是**刻意不做**；
 推翻 = 出现真实读放大（本仓无流量，见 `AGENTS.md`「项目定位与优化口径」）。
@@ -381,7 +414,7 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
 ★ **内容 JSON 键集**：`UploadDurationTests#详情键集含durationSeconds且不抖落既有键`（**19 键**精确集；
 T48 加 `playCount` —— 契约跟随本篇 §五「第 5 个公共计数」，不是迎合）。
 
-**迁移锚点**：表数 20→19、版本 `1..7`、`endsWith("7")`、非 GET 端点 36→38（**迁移 / 加端点时各自同步**）。
+**迁移锚点**：表数 20→19、版本 `1..8`、`endsWith("8")`、非 GET 端点 36→38（**迁移 / 加端点时各自同步**）。
 
 **计数聚合**：5 键 MGET / 有选择回填 / 冷 key 不建（`content:playCount`）/ Redis 降级。
 ⚠️ 跨域缓存断言用 `StringRedisTemplate` + `CacheKeys`，**不要 import `content.cache`**
@@ -394,6 +427,7 @@ T48 加 `playCount` —— 契约跟随本篇 §五「第 5 个公共计数」�
 - `/report` 的 ODKU 改 `GREATEST` ⇒ LWW 红；去掉显式 `update_time` ⇒ "重复上报刷新时间"红；
 - 去掉 clamp ⇒ 截断红；去掉 `play_counted = 0` 条件 ⇒ 重复 / 并发 / 不变量 4 红；
 - 抽走 V7 迁移 ⇒ `HistorySchemaTests` 2 红（⚠️ 必须同时清 `target/classes` 副本，否则读到旧资源、假绿）；
+- **抽走 V8 迁移** ⇒ 3 红（`HistorySchemaTests` 索引全集 + 版本行、`WatchLaterSchemaTests` 版本行；2026-10-21 实测）；
 - 去掉 V6 的 `uk_user_content` ⇒ 唯一键 + 索引全集 2 红。
 
 ---
@@ -402,7 +436,8 @@ T48 加 `playCount` —— 契约跟随本篇 §五「第 5 个公共计数」�
 
 > 本表**每号一行**；未完成任务不收编（滚动见 `task/CURRENT_TASKS.md`）。逐条论证走 git。
 > ★ **本专项已收口（2026-10-21）**：`T45`–`T49` 全部交付（执行态已从登记台清出，过程在 git
-> `6f895f5..3ea45f1`）；裁剪项见 [需求篇](./history-需求.md) §六（每条带推翻条件）。
+> `6f895f5..3ea45f1`）；`T50`（V8 列表索引）为 2026-10-21 性能调研后的独立优化，已交付；
+> 裁剪项见 [需求篇](./history-需求.md) §六（每条带推翻条件）。
 
 | 编号 | 一句话 | 详见 |
 |---|---|---|
@@ -412,6 +447,7 @@ T48 加 `playCount` —— 契约跟随本篇 §五「第 5 个公共计数」�
 | T47 | **写路径**：`/report`（一条 ODKU、**无事务**、LWW、按当前时长 clamp、**不写 play_count**）/ `/play`（`INSERT IGNORE` → 条件 `UPDATE ... play_counted=0` 判首播 → `play_count+1` → 发事件，**单事务**）；`history` 进 `DOMAINS`、两端点权重各 1（36→38） | 本篇 §四 · `HistoryWriteTests` |
 | T48 | **播放量读面（第 5 个公共计数）**：`content:playCount`（content 域自持）+ 详情计数聚合**四→五键** + `PlayCountChangedListener`（`AFTER_COMMIT` 条件 `INCRBY`，冷 key 不建）+ `ContentDetailVO.playCount` + `removeContent` 一并失效；详情精确键集 **19** | 本篇 §五 · §7.3 · `ContentPlayCountTests` |
 | T49 | **读面**：`/history/list`（本域三列 → 一趟 `loadContentVOs`，失效占位保留 `progress`、`total` 含失效行、整页失效整页返回、`pageSize` 20/100；**不缓存**）+ `/history/position`（点查、不校验内容、无记录 0）；`SecurityContractTests` 补两路由 ⇒ **I-23 核销** | 本篇 §三 · §七.1/§7.2 · `HistoryListTests` / `HistoryPositionTests` |
+| T50 | **V8 列表索引（覆盖复合索引替换）**：`idx_user_update` → `idx_user_update_content (user_id, update_time DESC, content_id DESC, progress_seconds)` —— 前三列即列表 `ORDER BY`（消灭每页全量 filesort），第四列让三列 SELECT 免回表；**替换**而非新增（索引数不变）。实测：5k 行 3.15ms→0.10ms、50k 行 37.8ms→0.2ms；写路径无回归 | 本篇 §二 · §7.1 · `HistorySchemaTests` |
 
 ---
 
