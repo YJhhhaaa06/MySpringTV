@@ -114,9 +114,11 @@ DROP TABLE IF EXISTS `video`;
 **限流权重**：`[POST /history/report] = 1`、`[POST /history/play] = 1`
 （**有意低于**"其余非 GET 写 3"：上报是设计上最高频的写；无心跳前提。推翻 = 接前端心跳时重估）。
 
-> 📌 **交付进度（2026-10-21）**：上表**前两行已在代码里**（T47）；`/list`、`/position` 属**下一批读面**。
-> 四个端点共用一个类级 `@RequiresLogin`，读面落地后**自动被保护**，但
-> `SecurityContractTests` 的两条断言要那时才补得上（见 `I-23`）。
+> 📌 **交付进度（2026-10-21，T49 落地后）**：上表**四个端点全部已在代码里**（写路径 T47、读面 T49）。
+> 四个端点共用一个类级 `@RequiresLogin`；`SecurityContractTests#history写端点需登录` 已钉住
+> `/report`、`/play`、`/list`、`/position` 四条路由（`I-23` 核销）。
+> ⚠️ 判别力边界：本仓默认拒绝 ⇒ 该用例只钉"路由落到了 `@Controller` 处理器上"，
+> **不证明**类级注解在位；HTTP 侧 401 是假绿（`@CurrentUserId` 解析器兜出）。
 
 ---
 
@@ -279,6 +281,11 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
 一条 `uk_user_content` 点查；无行 ⇒ `progress=0`。不校验内容、不返回 404
 （内容是死是活由详情的 404 负责；这里只回答"我的进度是多少"）。
 
+> 📌 **已交付（T49）**：§7.1 / §7.2 两条读路径均已落地（`HistoryService#list` / `#position`）。
+> 顺序与 `total` 由 `HistoryListTests` 用**独立 oracle** 复算（排序夹具让 `update_time` 序与
+> `content_id` 序**反向**、同秒用例让行 id 序与内容 id 序**反向**）；占位三字段、
+> "已删内容仍答进度"由同批用例钉住。列表**不缓存**（§7.1 的口径未变）。
+
 ### 7.3 详情
 
 `ContentDetailVO` 加 `playCount`（第 5 个公共计数），由 `ContentCountAggregate` 一趟提供；
@@ -349,8 +356,10 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
   （把该行拨回 2020 再上报 —— 不显式 `SET` 时列上的 `ON UPDATE` 不触发，这条是唯一能钉住口径 5 的断言）。
 - `/play`：首播 `play_count + 1`；重复 play 不变；**并发两次恰 +1**（`INSERT IGNORE` + 条件 UPDATE
   的判别力）；行不存在时建行（progress=0）；★ **被拒请求一行都不许落**（不是"先写再校验"）。
-- `/list`、`/position`：**下一批**（读面）交付时补，届时必须同时把它们补进
-  `SecurityContractTests#history写端点需登录`（`I-23`）。
+- `/list`、`/position`（T49 交付，`HistoryListTests` 13 例 + `HistoryPositionTests` 6 例）：
+  列表顺序 / `total` 用**独立 oracle** 复算；占位三字段 + `progress` 保留 + 页内条数不缩水；
+  续播"无记录 ⇒ 0 / 已删仍答 / 不存在 ⇒ 0"。两个读端点已补进
+  `SecurityContractTests#history写端点需登录`（`I-23` 核销）。
 - `@RequiresLogin` 的判别力**只在** `SecurityContractTests`（HTTP 侧 401 是假绿）。
 
 **DB 终态 / 独立 oracle**：
