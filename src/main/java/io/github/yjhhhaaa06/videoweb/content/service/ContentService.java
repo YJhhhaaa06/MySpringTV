@@ -225,16 +225,18 @@ public class ContentService {
         // 单条四维走互动域单条契约；匿名（userId == null）由它短路返回 null ⇒ "interaction": null。
         // coin 维在互动域内按 type 分流：视频 ⇒ 0/1/2；图文 ⇒ null（"该维不适用"）。
         vo.setInteraction(interactionService.getStatus(userId, contentId, vo.getAuthorId(), vo.getType()));
-        // T44-2：四个公共计数由聚合层一趟提供——MGET 四键（1 趟 pipeline）→ miss 单飞回源
-        // 一条四列点查 → 只对 miss 的键回填（命中键不碰）。详情 Redis 读共 2 趟、冷内容 DB 1 条。
+        // T44-2：四个公共计数（T48 起五个）由聚合层一趟提供——MGET 五键（1 趟 pipeline）→ miss 单飞回源
+        // 一条五列点查 → 只对 miss 的键回填（命中键不碰）。详情 Redis 读共 2 趟、冷内容 DB 1 条。
         // 形态与代价见 ContentCountAggregate 类注释与 缓存与数据一致性.md §五.2。
-        // ★ 与 T43 形态的差异：四键读不再各走各的回源（原 getPublicCounts 三次单条 + 评论数一条，
+        // ★ 与 T43 形态的差异：多键读不再各走各的回源（原 getPublicCounts 三次单条 + 评论数一条，
         //   冷内容 4 条 SQL），互动域的读聚合被本聚合层取代（其回填转发保留在互动域）。
         ContentCountColumns counts = countAggregate.readCounts(contentId);
         vo.setLikeCount(counts.likeCount());
         vo.setFavoriteCount(counts.favoriteCount());
         vo.setCoinCount(counts.coinCount());
         vo.setCommentCount(counts.commentCount());
+        // T48：第 5 个公共计数（播放量），来源 = content.play_count 列（首播 +1，按人去重）。
+        vo.setPlayCount(counts.playCount());
         return vo;
     }
 

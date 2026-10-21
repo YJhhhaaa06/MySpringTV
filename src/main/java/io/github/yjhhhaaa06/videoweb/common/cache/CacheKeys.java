@@ -86,6 +86,22 @@ public final class CacheKeys {
     }
 
     /**
+     * 内容**播放量**：{@code content:playCount:{id}}（String int，按人去重，只增）。
+     *
+     * <p>★ 与评论数同形：**content 域自持**（值就是本域 {@code content.play_count} 列），
+     * 回源 / 回填 / 失效都在 {@code ContentCountCache}，**不经任何跨域转发**——
+     * 历史域只声明"这条内容的播放量变了"（{@code PlayCountChangedEvent}），
+     * 内容域的 {@code PlayCountChangedListener} 自己决定怎么写（口径见
+     * {@code architecture/domain/history/history.md} §五）。
+     *
+     * <p>★ <b>刻意无空标记</b>（口径同 {@link #contentCommentCount(long)}）：{@code 0} 是合法值
+     * （没人播过的视频真实存在），必须与"key 不存在"靠 {@code GET} 返回 {@code null} / {@code "0"} 区分。
+     */
+    public static String contentPlayCount(long contentId) {
+        return "content:playCount:" + contentId;
+    }
+
+    /**
      * 内容类型分区索引：{@code content:index:{type}:{categoryId}}（LIST）。
      *
      * <p>{@code -1} 表示通配维度（推荐接口 type/category 为空时的归一）。

@@ -8,11 +8,11 @@ import io.github.yjhhhaaa06.videoweb.interaction.model.vo.InteractionStatusVO;
  * {@code favorite.md} §六，编号 R-10）。
  *
  * <p>与父类（{@link ContentCacheDTO}）的差异：内嵌子对象 {@link #interaction}（互动态）
- * 与**四个平铺的公共计数**（{@code likeCount} / {@code commentCount} / {@code favoriteCount} /
- * {@code coinCount}，T43 定形）。**媒体字段（videoUrl / imageUrls）在详情里
- * 是要返回的**——这正是它与 {@link ContentVO}（列表，屏蔽媒体）的区别。
+ * 与**五个平铺的公共计数**（{@code likeCount} / {@code commentCount} / {@code favoriteCount} /
+ * {@code coinCount} / {@code playCount}，前四个 T43 定形、播放量为 T48 第 5 个）。**媒体字段
+ * （videoUrl / imageUrls）在详情里是要返回的**——这正是它与 {@link ContentVO}（列表，屏蔽媒体）的区别。
  *
- * <h2>★ 对外 JSON 键集 = 父类全部键 + {@code interaction} + 四个公共计数（T10 / T40 / T43）</h2>
+ * <h2>★ 对外 JSON 键集 = 父类全部键 + {@code interaction} + 五个公共计数（T10 / T40 / T43 / T48）</h2>
  * 顶层 {@code isLiked} / {@code isFollowed} **已于 T10 搬进** {@code interaction} 子对象
  * （用户 2026-10-11 明确接受 breaking）；子对象键集恰好
  * {@code {isLiked, isFavorited, isFollowed, coin}}，逐字段口径见 {@link InteractionStatusVO}。
@@ -21,14 +21,14 @@ import io.github.yjhhhaaa06.videoweb.interaction.model.vo.InteractionStatusVO;
  * ⚠️ 公共计数**刻意不在子对象内**（也**不**收成一个 {@code counts} 子对象，T43 用户拍板）：
  * 它们是**请求无关**的、每个数一个来源域，平铺后可单独演进（例如以后只给详情加"播放量"）。
  *
- * <h2>★ T43：四个计数为什么都在这里、且都不进 {@link ContentCacheDTO}</h2>
+ * <h2>★ T43：四个计数（T48 起五个）为什么都在这里、且都不进 {@link ContentCacheDTO}</h2>
  * 计数的规范形态 = **一个计数一个独立 key**：
  * {@code content:likeCount}（like 域）/ {@code content:commentCount}（content 域）/
  * {@code content:favoriteCount}（favorite 域）/ {@code content:coinCount}（coin 域）。
  * 内容缓存 {@code content:{id}} 只放**慢变**字段（标题 / 描述 / 媒体 / 作者 / 分区）——
  * 否则每一次点赞或评论都要 {@code DEL} 整份载荷，让媒体装配与 JOIN 陪葬。
- * ★ T44-2 起四个计数的**读取**由计数聚合层一趟提供（{@code ContentCountAggregate}：
- * 一趟 pipeline MGET 四键 → miss 单飞回源一条四列点查 → 有选择回填）；
+ * ★ T44-2 起五个计数的**读取**由计数聚合层一趟提供（{@code ContentCountAggregate}：
+ * 一趟 pipeline MGET 五键 → miss 单飞回源一条五列点查 → 有选择回填）；
  * 三个外域计数键的**回填**经互动域转发到各自域（content 不直写他域缓存，
  * {@code 模块边界与依赖.md} §六 登记例外）。评论数由内容域自持
  * （{@code content} 不得依赖 {@code comment}，见 {@code ArchitectureTests} 规则 4）。
@@ -80,6 +80,17 @@ public class ContentDetailVO extends ContentCacheDTO {
      */
     private long coinCount;
 
+    /**
+     * 内容的**播放量**（公共计数，按人去重，请求无关；T48 的第 5 个公共计数）。
+     *
+     * <p>★ 来源是 {@code content:playCount:{id}}（内容域自持，回源 {@code content.play_count} 列）。
+     * 该列由播放写路径在**首播**分支事务内 +1（{@code HistoryService#play}），
+     * 缓存键由 {@code PlayCountChangedListener} 在提交后条件 {@code INCRBY 1} 维护
+     * （口径见 {@code architecture/domain/history/history.md} §五）。
+     * ★ 同样**不进** {@link ContentCacheDTO}：进了列表就跟着带，破"列表零计数"。
+     */
+    private long playCount;
+
     public ContentDetailVO() {
     }
 
@@ -121,5 +132,13 @@ public class ContentDetailVO extends ContentCacheDTO {
 
     public void setCoinCount(long coinCount) {
         this.coinCount = coinCount;
+    }
+
+    public long getPlayCount() {
+        return playCount;
+    }
+
+    public void setPlayCount(long playCount) {
+        this.playCount = playCount;
     }
 }

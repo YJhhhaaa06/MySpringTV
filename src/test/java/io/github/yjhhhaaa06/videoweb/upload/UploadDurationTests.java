@@ -80,7 +80,7 @@ class UploadDurationTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("★详情 JSON 键集：含 durationSeconds，且既有 17 个键一个都不少（仓内首条精确键集断言）")
+    @DisplayName("★详情 JSON 键集：含 durationSeconds，且既有 18 个键一个都不少（精确 19 键，契约跟随 T48）")
     void 详情键集含durationSeconds且不抖落既有键() {
         String token = registerAndGetToken("13800000202", "dur-keys", PASSWORD);
         long contentId = uploadVideo(token, TITLE_KEYWORD + " 键集", mp4Seconds(4), "keys.mp4", "video/mp4");
@@ -88,12 +88,16 @@ class UploadDurationTests extends AbstractHttpIntegrationTest {
         JsonNode data = Envelope.data(get("/search/IdSearch?contentId=" + contentId, null));
 
         assertThat(data.has("durationSeconds")).as("新键必须在").isTrue();
+        // ★ T48 起键集 18 → 19（新增 playCount）：这是**契约跟随**，不是测试迎合 ——
+        //   依据 = architecture/domain/history/history.md §五「第 5 个公共计数」：
+        //   播放量与赞/评/藏/币一样只在详情平铺（不进 ContentCacheDTO ⇒ 列表仍零计数）。
         assertThat(keysOf(data))
-                .as("★ 精确键集：多一个 / 少一个都是契约变更（durationSeconds 之外不许有别的漂移）")
+                .as("★ 精确键集：多一个 / 少一个都是契约变更（durationSeconds / playCount 之外不许有别的漂移）")
                 .containsExactlyInAnyOrder(
                         "id", "authorId", "type", "title", "description", "categoryId", "commentEnabled",
                         "authorName", "coverUrl", "videoUrl", "imageUrls", "createTime", "interaction",
-                        "likeCount", "commentCount", "favoriteCount", "coinCount", "durationSeconds");
+                        "likeCount", "commentCount", "favoriteCount", "coinCount", "durationSeconds",
+                        "playCount");
     }
 
     @Test

@@ -13,12 +13,14 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 /**
- * 内容的**评论总数**缓存（T43）—— 独立 key {@code content:commentCount:{id}}。
+ * 内容的**两个本域计数**缓存 —— 评论总数 {@code content:commentCount:{id}}（T43）与
+ * 播放量 {@code content:playCount:{id}}（T48）。两者都是"值即本域列"（{@code content.comment_count} /
+ * {@code content.play_count}），回源 / 回填 / 失效全在本类，**不经任何跨域转发**。
  *
  * <h2>为什么它不在 {@link ContentCache} 里</h2>
  * {@link ContentCache} 管的是 {@code content:{id}}（整份 JSON + 索引），失效语义是"慢变字段变了"。
- * 评论数是**高频变化**的计数，生命周期与内容载荷相反（内容改一次、评论数改几千次）——
- * 混在一个类里会让"谁失效谁"重新变成一句注释。故单列一个小类，只做一件事。
+ * 计数是**高频变化**的，生命周期与内容载荷相反（内容改一次、评论数改几千次）——
+ * 混在一个类里会让"谁失效谁"重新变成一句注释。故单列一个小类，只做计数这一件事。
  *
  * <h2>为什么归 **content** 域（而不是 comment 域）</h2>
  * 值就是本域 {@code content.comment_count} 这一列，且 {@code ArchitectureTests} 规则 4 禁止
@@ -133,6 +135,15 @@ public class ContentCountCache extends RedisOps {
      */
     public void backfillCommentCount(long contentId, long count) {
         backfillQuietly(CacheKeys.contentCommentCount(contentId), count);
+    }
+
+    /**
+     * 播放量的**回填契约**（T48）：同 {@link #backfillCommentCount} —— 键是本域自己的，直调，
+     * **不经互动域**。值来自聚合层一趟 {@code findCountColumns} 刚查出的 {@code content.play_count}
+     * 列快照。★ 命中键**不调**本方法（有选择回填）。
+     */
+    public void backfillPlayCount(long contentId, long count) {
+        backfillQuietly(CacheKeys.contentPlayCount(contentId), count);
     }
 
     private static long nullToZero(Integer value) {

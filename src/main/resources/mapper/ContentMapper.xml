@@ -107,11 +107,12 @@
             <arg column="comment_count" javaType="java.lang.Long"/>
             <arg column="favorite_count" javaType="java.lang.Long"/>
             <arg column="coin_count" javaType="java.lang.Long"/>
+            <arg column="play_count" javaType="java.lang.Long"/>
         </constructor>
     </resultMap>
 
     <select id="findCountColumns" resultMap="contentCountColumnsMap">
-        select like_count, comment_count, favorite_count, coin_count
+        select like_count, comment_count, favorite_count, coin_count, play_count
         from content where id = #{contentId}
     </select>
 

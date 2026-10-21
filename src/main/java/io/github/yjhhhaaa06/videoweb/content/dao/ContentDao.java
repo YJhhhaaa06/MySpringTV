@@ -181,12 +181,12 @@ public interface ContentDao {
     Integer findCommentCount(@Param("contentId") long contentId);
 
     /**
-     * **一趟读齐四个公共计数列**（T44-2 详情计数聚合读的回源）。
+     * **一趟读齐五个公共计数列**（T44-2 详情计数聚合读的回源；播放量为 T48 第 5 列）。
      *
-     * <p>SQL: {@code select like_count, comment_count, favorite_count, coin_count from content where id = ?}。
+     * <p>SQL: {@code select like_count, comment_count, favorite_count, coin_count, play_count from content where id = ?}。
      *
-     * <p>★ 为什么一趟取齐（T44-2 的核心收益）：详情响应要平铺四个计数，此前各自独立回源
-     * （冷内容全 miss = 5 条 SQL）；四列同在本行上 ⇒ 一趟主键点查取齐，miss 键再按
+     * <p>★ 为什么一趟取齐（T44-2 的核心收益）：详情响应要平铺五个计数，此前各自独立回源
+     * （冷内容全 miss = 6 条 SQL）；五列同在本行上 ⇒ 一趟主键点查取齐，miss 键再按
      * "有选择回填"分别写回各自的独立键（只回填 miss 的，命中键不动——否则会把别域
      * "未失效的键"用本次快照覆盖，重开已消除的旧值复活窗口）。
      *
@@ -197,7 +197,7 @@ public interface ContentDao {
      * <p>⚠️ 返回 record ⇒ 必须用 {@code <constructor>} 映射（{@code ContentMapper.xml}），
      * javaType 用包装类型。
      *
-     * @return 四计数列；内容行不存在 ⇒ {@code null}（防御分支，正常调用时序下不可达）
+     * @return 五计数列；内容行不存在 ⇒ {@code null}（防御分支，正常调用时序下不可达）
      */
     ContentCountColumns findCountColumns(@Param("contentId") long contentId);
 
