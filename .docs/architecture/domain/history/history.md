@@ -401,10 +401,17 @@ T48 加 `playCount` —— 契约跟随本篇 §五「第 5 个公共计数」�
 ## 附录：编号速查（**活**的查证入口）
 
 > 本表**每号一行**；未完成任务不收编（滚动见 `task/CURRENT_TASKS.md`）。逐条论证走 git。
+> ★ **本专项已收口（2026-10-21）**：`T45`–`T49` 全部交付（执行态已从登记台清出，过程在 git
+> `6f895f5..3ea45f1`）；裁剪项见 [需求篇](./history-需求.md) §六（每条带推翻条件）。
 
 | 编号 | 一句话 | 详见 |
 |---|---|---|
 | R-18 | 播放记录专项拍板：**做播放量**（一人一次，冗余列 + 独立 key + 详情第 5 计数）/ **进度与播放事件拆两端点** / 历史**不可删** / 失效占位 / 时长存 `content_media` + `ContentCacheDTO` 投影 / V7 删遗留 `video`·`videoinfo` | 本篇 · [需求篇](./history-需求.md) |
+| T45 | **V6/V7 迁移 + 结构契约**：`content_media.duration_seconds` / `content.play_count` / `watch_history`（唯一键 `uk_user_content` + 两个索引）；删遗留 `video`·`videoinfo`（`grep` 零引用证据）。锚点同 commit：19 行 = 18 业务表 + flyway、版本 `1..7` | 本篇 §二 · `HistorySchemaTests` |
+| T46 | **mp4 时长**：`Mp4DurationReader` 用 `RandomAccessFile` 只读 box 头（moov 任意位置 / v0·v1 / `size==1` / 全 F / 截断 ⇒ null），发布与换源两处调用；落 `content_media` 并经 **`ContentCacheDTO` + `copyCommon`** 投影到所有内容响应；解析失败不阻断发布、存量不回填 | 本篇 §六 · `UploadDurationTests` |
+| T47 | **写路径**：`/report`（一条 ODKU、**无事务**、LWW、按当前时长 clamp、**不写 play_count**）/ `/play`（`INSERT IGNORE` → 条件 `UPDATE ... play_counted=0` 判首播 → `play_count+1` → 发事件，**单事务**）；`history` 进 `DOMAINS`、两端点权重各 1（36→38） | 本篇 §四 · `HistoryWriteTests` |
+| T48 | **播放量读面（第 5 个公共计数）**：`content:playCount`（content 域自持）+ 详情计数聚合**四→五键** + `PlayCountChangedListener`（`AFTER_COMMIT` 条件 `INCRBY`，冷 key 不建）+ `ContentDetailVO.playCount` + `removeContent` 一并失效；详情精确键集 **19** | 本篇 §五 · §7.3 · `ContentPlayCountTests` |
+| T49 | **读面**：`/history/list`（本域三列 → 一趟 `loadContentVOs`，失效占位保留 `progress`、`total` 含失效行、整页失效整页返回、`pageSize` 20/100；**不缓存**）+ `/history/position`（点查、不校验内容、无记录 0）；`SecurityContractTests` 补两路由 ⇒ **I-23 核销** | 本篇 §三 · §七.1/§7.2 · `HistoryListTests` / `HistoryPositionTests` |
 
 ---
 
