@@ -114,6 +114,10 @@ DROP TABLE IF EXISTS `video`;
 **限流权重**：`[POST /history/report] = 1`、`[POST /history/play] = 1`
 （**有意低于**"其余非 GET 写 3"：上报是设计上最高频的写；无心跳前提。推翻 = 接前端心跳时重估）。
 
+> 📌 **交付进度（2026-10-21）**：上表**前两行已在代码里**（T47）；`/list`、`/position` 属**下一批读面**。
+> 四个端点共用一个类级 `@RequiresLogin`，读面落地后**自动被保护**，但
+> `SecurityContractTests` 的两条断言要那时才补得上（见 `I-23`）。
+
 ---
 
 ## 四、写路径
@@ -201,6 +205,12 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
   —— 键删了也不会再回填，因为详情 404 在聚合之前）。
 - 不新增 `content → history` 边：详情不反查历史，播放量走"列 + 自己的 key"。
 
+> 📌 **分批交付状态（2026-10-21，T47 落地后）**：本表**前两行已在代码里**
+> （`content.play_count` 列 + `HistoryService#play` 的 `+1` + `PlayCountChangedEvent` 已发布）；
+> **后三行（5 键聚合 / `backfillPlayCount` / `PlayCountChangedListener`）与详情 `playCount`
+> 属下一批读面**。因此当前状态是"播放量写进去了、还看不见"——计划内的中间态，
+> 下一批只加读侧与消费方，**不改写路径**。上表描述的是本域**终态**。
+
 ---
 
 ## 六、时长（upload 域解析，内容载荷投影）
@@ -245,6 +255,9 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
   **漏一条 select 就是静默 null**（§十一 的测试钉住）。
 - ★ 仓内**原本没有**内容 JSON 的精确键集断言 ⇒ 本域开工时要补一条：新响应**含** `durationSeconds`、
   且不抖落既有键（`ContentReadTests` 的 `keysOf` 只用于 `interaction`，不能当整体键集证据）。
+  **已补（T46）**：`UploadDurationTests#详情键集含durationSeconds且不抖落既有键`（详情 18 键精确集会，
+  逐字列出）、`#列表也带时长`（列表面也带该键 —— 它是慢变字段，不受 T43"列表零计数"约束）。
+  反向验证实测：抽掉 `copyCommon` 那一行 ⇒ 回显 3 红而 **DB 断言仍绿**（就地看到这条假绿）。
 
 ---
 
@@ -324,25 +337,27 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
 
 ## 十一、测试口径（钉住什么）
 
-**契约（HTTP）**：
+**契约（HTTP）**（落点：`history/HistoryWriteTests`，2026-10-21 交付 10 例）：
 - `/report`：首次建行；低进度覆盖高进度（**LWW 的判别力**，不是"只增"）；超过时长被 clamp；
-  图文 400、已删 404、匿名 401；`progress=-1` 400。
+  图文 400、已删 404、匿名 401；`progress=-1` 400；★ **重复上报同一进度仍刷新 `update_time`**
+  （把该行拨回 2020 再上报 —— 不显式 `SET` 时列上的 `ON UPDATE` 不触发，这条是唯一能钉住口径 5 的断言）。
 - `/play`：首播 `play_count + 1`；重复 play 不变；**并发两次恰 +1**（`INSERT IGNORE` + 条件 UPDATE
-  的判别力）；行不存在时建行（progress=0）。
-- `/list`：按最后上报倒序；分页大小；失效条目占位（`invalid=true`、title 文案、cover/author/duration 为 null、
-  progress 保留）；`total` 含失效行。
-- `/position`：有记录返进度；无记录返 0；已删内容仍返历史进度。
+  的判别力）；行不存在时建行（progress=0）；★ **被拒请求一行都不许落**（不是"先写再校验"）。
+- `/list`、`/position`：**下一批**（读面）交付时补，届时必须同时把它们补进
+  `SecurityContractTests#history写端点需登录`（`I-23`）。
 - `@RequiresLogin` 的判别力**只在** `SecurityContractTests`（HTTP 侧 401 是假绿）。
 
 **DB 终态 / 独立 oracle**：
 `content.play_count == SELECT COUNT(*) FROM watch_history WHERE content_id=? AND play_counted=1`；
-`watch_history` 的 `(user_id, content_id)` 唯一。
+`watch_history` 的 `(user_id, content_id)` 唯一（`HistorySchemaTests#同一用户同一内容撞唯一键`，
+**真插两行**看它拦不拦）。
 
-**时长**：
+**时长**（`Mp4DurationReaderTests` 15 例 + `UploadDurationTests` 8 例）：
 `Mp4DurationReaderTests` 用**手搓字节**（moov 在前 / 在尾、v0 / v1 64 位、`size==1`、`timescale=0`、
-截断、非 mp4）；`UploadFlowTests` 上传一个手搓 mp4 ⇒ `content_media.duration_seconds` 落库 + 详情回显；
-换源 type=1 刷新时长、type=2/3 不清空视频时长；解析失败仍 200。
-★ **内容 JSON 键集**：含 `durationSeconds` 且不抖落既有键（仓内原本无此断言，**开工补一条**）。
+截断、非 mp4）；`UploadDurationTests` 上传一个手搓 mp4 ⇒ `content_media.duration_seconds` 落库 + 详情回显
+（**两段都断**：只断 DB 会漏掉 `copyCommon` 漏搬的假绿）；
+换源 type=1 刷新时长（含"换成坏文件 ⇒ 回到 null"）、type=3 不清空视频时长；解析失败仍 200。
+★ **内容 JSON 键集**：`UploadDurationTests#详情键集含durationSeconds且不抖落既有键`（18 键精确集）。
 
 **迁移锚点**：表数 20→19、版本 `1..7`、`endsWith("7")`、非 GET 端点 36→38（**迁移 / 加端点时各自同步**）。
 
@@ -350,9 +365,14 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
 ⚠️ 跨域缓存断言用 `StringRedisTemplate` + `CacheKeys`，**不要 import `content.cache`**
 （`ArchUnit` 规则 2 会让测试红；本仓既有测试同款手法）。
 
-**反向验证（至少，执行期逐条实测登记）**：
-去掉 clamp ⇒ 红；去掉 `play_counted` 条件 ⇒ 并发用例红；`buildContentMedia` 不写 duration ⇒ 上传用例红；
-聚合少回填一位 ⇒ 5 键用例红；`/report` 改成判首播 ⇒ 并发/重复用例红。
+**反向验证（2026-10-21 逐条实测登记）**：
+- `addMedia`/select 不带 `duration_seconds` ⇒ `UploadDurationTests` 4 红；
+- 抽掉 `copyCommon` 的 `setDurationSeconds` ⇒ **3 红（回显/列表），而 DB 断言仍绿** ⇒ 证明"只断 DB"确实是假绿；
+- `replaceMedia` 不调 `updateMediaDuration` ⇒ 2 红（换源刷新 / 换源成坏文件）；
+- `/report` 的 ODKU 改 `GREATEST` ⇒ LWW 红；去掉显式 `update_time` ⇒ "重复上报刷新时间"红；
+- 去掉 clamp ⇒ 截断红；去掉 `play_counted = 0` 条件 ⇒ 重复 / 并发 / 不变量 4 红；
+- 抽走 V7 迁移 ⇒ `HistorySchemaTests` 2 红（⚠️ 必须同时清 `target/classes` 副本，否则读到旧资源、假绿）；
+- 去掉 V6 的 `uk_user_content` ⇒ 唯一键 + 索引全集 2 红。
 
 ---
 

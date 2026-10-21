@@ -64,7 +64,7 @@
 
 **（`T44-1`–`T44-3` 已收口：`34fe36f` / `88cb8b3` / `aadbf7c`；T43 占位编号的裁定见 git）**
 
-### T45 V6/V7 迁移 + 结构契约【待执行】
+### T45 V6/V7 迁移 + 结构契约【已完成】
 
 > ⚠️ **先质疑（G14）**：① 表结构是后面所有任务的硬前提，先做不返工；② **删遗留表不可逆**
 > （dev 库旧数据会丢，已与用户确认）⇒ 先 `grep` 留零引用证据，再删；③ `InfrastructureConnectivityTests`
@@ -82,9 +82,12 @@
 * **验收**：`HistorySchemaTests` 钉列集 / 索引集 / 唯一键**真插两行** / 两遗留表不存在；
   `InfrastructureConnectivityTests`（20→19 行、版本 1..7）与 `WatchLaterSchemaTests#endsWith("7")` 同步；
   `数据与Schema演进.md` 与 `INDEX.md` 的"当前版本 / 下一次"同步；`mvnw test-compile`。
-* **回写**：（完成后三句内写清改了什么、验证结果）
+* **回写**（`b0bc6d4`）：V6/V7 落地（删表证据：`videoinfo` 只命中 V1 自身、`(from|into|update|table) video`
+  0 命中）；`HistorySchemaTests` 6 例全绿（含"遗留表真的没了"）；两处锚点同 commit 改为 19 行 / 版本 `1..7` /
+  `endsWith("7")`。反向验证实测：**去掉 `uk_user_content`** ⇒ 唯一键 + 索引全集 2 红；
+  **抽走 V7** ⇒ 遗留表 + 版本序 2 红（⚠️ 抽 V7 必须同时清 `target/classes` 的副本，否则 Flyway 读的是旧资源、假绿）。
 
-### T46 时长：解析 → 落库 → 内容载荷【待执行】
+### T46 时长：解析 → 落库 → 内容载荷【已完成】
 
 > ⚠️ **先质疑（G14）**：① 时长是"进度百分比"的唯一分母，但**解析失败不能阻断发布**——
 > 否则异常 mp4 会把发布流程变成新的失败点；② 换源也会换视频，只在上传时解析会留
@@ -104,9 +107,14 @@
 * **验收**：`Mp4DurationReaderTests` 手搓字节（moov 前 / 尾、v1 64 位、`size==1`、`timescale=0`、
   截断、非 mp4）；上传手搓 mp4 ⇒ DB 列落库 + 详情回显；换源两分支；解析失败仍 200；
   **内容 JSON 键集用例**（含 `durationSeconds`、不抖落既有键——仓内原本没有精确键集断言）。
-* **回写**：（同上）
+* **回写**（`c9fb17f` + `0d39568`）：分两个 commit —— ①解析器（`RandomAccessFile` 只读 box 头，
+  15 例手搓字节：moov 在尾 / v1 / `size==1` / `timescale=0` / 全 F / 截断 / 非 mp4）；
+  ②落库与投影（`ContentMedia` + 5 条 select 全带列、`addMedia` 加参、`replaceMedia` 只在 `type=1`
+  调 `updateMediaDuration`、`buildContentMedia` 投影 + `copyCommon` 同步、`UploadDurationTests` 8 例）。
+  ★ 反向验证实测三组：**`copyCommon` 漏搬 ⇒ 3 条回显用例红而 DB 断言仍绿**（亲眼看到"只断 DB"的假绿）；
+  去 clamp/换源刷新 ⇒ 2 红；`addMedia`/select 不带列 ⇒ 4 红。§六.3 的"三个落点"实测全部有判别力。
 
-### T47 history 写路径：report / play + 播放量【待执行】
+### T47 history 写路径：report / play + 播放量【已完成】
 
 > ⚠️ **先质疑（G14）**：① `/report` 用一条 ODKU、**不判首播** ⇒ 绕开 Connector/J
 > `useAffectedRows=false` 的 affected-rows 歧义（拆端点的核心收益）；② 若把两端点合并，
@@ -129,7 +137,13 @@
 * **验收**：LWW（低覆盖高）/ clamp / 图文 400 / 已删 404 / 匿名 401 / `progress<0` 400；
   重复 play 不 +；**并发 play 恰 +1**；DB oracle `play_count == COUNT(play_counted=1)`；
   `RateLimitWeightTableTests` 36→38；`SecurityContractTests` 四端点。
-* **回写**：（同上）
+* **回写**（`92e10cf`）：`history` 域四类文件（Controller 类级 `@RequiresLogin` / Service /
+  DAO + Mapper / 事件）落地；`/report` 一条 ODKU（显式 `SET update_time`）、`/play` 单事务
+  （`INSERT IGNORE` → 条件 `UPDATE` → `play_count+1` → 发事件）。登记三处：`DOMAINS` 加 `history`、
+  权重表两端点各 1（36→38）、边界文档 §一 补 `coin`+`history`（11→13 域）与 §六 `content ⇄ history`
+  单向行。`HistoryWriteTests` 10 例全绿，反向验证两组各 2 / 4 红（`GREATEST`+无 `update_time` ⇒ LWW
+  与刷新时间红；去 clamp + 去 `play_counted=0` ⇒ 截断 / 重复 / 并发 / 不变量 4 红）。
+  ⚠️ 验收行的"四端点"与范围矛盾 ⇒ 本批只钉两路由，已登记 **I-23**（读面批次必须补）。
 
 > **下一批（等 T45–T47 执行完复盘后再拆）**：播放量读面（`content:playCount` + 聚合 5 键 +
 > 详情 VO + `ContentCache#removeContent` 失效该键 + 缓存文档 §5.1/§5.2 四→五）、
