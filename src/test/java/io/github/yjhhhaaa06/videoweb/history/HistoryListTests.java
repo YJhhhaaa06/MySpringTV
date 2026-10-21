@@ -283,6 +283,33 @@ class HistoryListTests extends AbstractContentIntegrationTest {
     }
 
     @Test
+    @DisplayName("★一整页失效也整页返回（pageSize=2 两条都失效 ⇒ 仍是 2 条占位，不补位、不跳过）")
+    void 整页失效也整页返回() {
+        long first = insertVideoContent(authorId, "失效一");
+        long second = insertVideoContent(authorId, "失效二");
+        insertHistory(viewerId, first, 1, 7, "2020-01-01 00:00:00");
+        insertHistory(viewerId, second, 2, 9, "2020-01-01 00:00:00");
+        jdbcTemplate.update("UPDATE content SET is_deleted = 1 WHERE id IN (?, ?)", first, second);
+
+        JsonNode data = Envelope.data(list(viewerToken, "1", "2"));
+
+        assertThat(data.path("total").asLong()).as("total 仍含两条失效行").isEqualTo(2L);
+        assertThat(data.path("pageSize").asLong()).isEqualTo(2L);
+        assertThat(data.path("list").size())
+                .as("★ 整页失效也照常返回满页（跳过 ⇒ 用户永远看不到，也就没法处理）").isEqualTo(2);
+        assertThat(contentIds(data.path("list"))).containsExactly(first, second);
+        for (JsonNode row : data.path("list")) {
+            assertThat(row.path("invalid").asBoolean()).isTrue();
+            assertThat(row.path("title").asString()).isEqualTo(INVALID_TITLE);
+            assertThat(row.path("coverUrl").isNull()).isTrue();
+            assertThat(row.path("authorName").isNull()).isTrue();
+            assertThat(row.path("durationSeconds").isNull()).isTrue();
+        }
+        assertThat(item(data.path("list"), first).path("progress").asInt()).isEqualTo(7);
+        assertThat(item(data.path("list"), second).path("progress").asInt()).isEqualTo(9);
+    }
+
+    @Test
     @DisplayName("★装载契约取不到也占位：type=1 但缺视频行（失效判据不是 is_deleted）")
     void 装载不出来的内容也占位() {
         long broken = insertBrokenVideoContent(authorId, "视频行缺失的标题");

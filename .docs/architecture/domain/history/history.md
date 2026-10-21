@@ -356,7 +356,7 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
   （把该行拨回 2020 再上报 —— 不显式 `SET` 时列上的 `ON UPDATE` 不触发，这条是唯一能钉住口径 5 的断言）。
 - `/play`：首播 `play_count + 1`；重复 play 不变；**并发两次恰 +1**（`INSERT IGNORE` + 条件 UPDATE
   的判别力）；行不存在时建行（progress=0）；★ **被拒请求一行都不许落**（不是"先写再校验"）。
-- `/list`、`/position`（T49 交付，`HistoryListTests` 13 例 + `HistoryPositionTests` 6 例）：
+- `/list`、`/position`（T49 交付，`HistoryListTests` 14 例 + `HistoryPositionTests` 6 例）：
   列表顺序 / `total` 用**独立 oracle** 复算；占位三字段 + `progress` 保留 + 页内条数不缩水；
   续播"无记录 ⇒ 0 / 已删仍答 / 不存在 ⇒ 0"。两个读端点已补进
   `SecurityContractTests#history写端点需登录`（`I-23` 核销）。

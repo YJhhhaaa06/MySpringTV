@@ -33,7 +33,7 @@
   遇到清单前提不成立先登记 `CURRENT_ISSUES.md`，不擅自扩范围。
 * **回归基线**：默认组 **701 例** + resilience **41 例**（2026-10-21，覆盖 `9f260d6`；T45–T47 新增 42 例）。
   **T48 实测累加：默认组 708 / resilience 41**（+7，覆盖 `d581b38`）。
-  **T49 实测：默认组 727 / resilience 41**（+19，覆盖 `c9f6800` + 本批 docs 提交）；**期收尾以实测为准**。
+  **T49 实测：默认组 728 / resilience 41**（+20，覆盖 `c1988d2` + 本批例数同步）；**期收尾以实测为准**。
   ⚠️ 本环境跑全量需 `DB_POOL_MAX_SIZE=4`（否则 Testcontainers MySQL 报 `Too many connections`）。
 
 ---
@@ -239,13 +239,13 @@
   - 反向验证（缺一不交付）：① 排序去掉 `content_id DESC`（同秒夹具必须红）；② 占位只换标题不清作者（红）；
     ③ 失效行被跳过 ⇒ `total`/页内条数断言红；④ `position` 加"内容不存在 ⇒ 404"（红）；
   - 文档：`history.md` §三 的交付进度注 + §七 标注读面已交付；`CURRENT_ISSUES.md` I-23 → 已解决（补一行摘要）。
-* **回写**（`7004a82` + `c9f6800` + 本次 docs 提交）：`/list` 先查本域三列
+* **回写**（`7004a82` + `c9f6800` + `c1988d2` + 本次例数同步）：`/list` 先查本域三列
   （`update_time DESC, content_id DESC`，`offset` 用 `long`）→ 一趟 `loadContentVOs` → 缺失即占位
   （标题换「内容已失效」、封面 / 作者 / 时长一个不留、`progress` 保留），`/position` 一条
   `findProgress`（无行 `0`、不判内容、不 404）；`pageSize` 20/100 由 Controller 归一，读端点不登记权重。
-  `HistoryListTests` 13 例 + `HistoryPositionTests` 6 例（排序与 `total` 均用独立 oracle 复算），
+  `HistoryListTests` 14 例 + `HistoryPositionTests` 6 例（排序与 `total` 均用独立 oracle 复算），
   `SecurityContractTests` 补两路由核销 **I-23**。反向验证四组红数 **1 / 2 / 3 / 3**；
-  默认组 **727/727**，resilience **41/41**。
+  默认组 **728/728**，resilience **41/41**。
 
 > **下一批（等 T48–T49 执行完复盘后再拆，不要提前拆）**：**期收尾** ——
 > 文档收口（`history.md` / `history-需求.md` 终态复核、缓存文档一致性、`INDEX.md` §一 的版本与域清单）、
