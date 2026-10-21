@@ -205,11 +205,13 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
   —— 键删了也不会再回填，因为详情 404 在聚合之前）。
 - 不新增 `content → history` 边：详情不反查历史，播放量走"列 + 自己的 key"。
 
-> 📌 **分批交付状态（2026-10-21，T47 落地后）**：本表**前两行已在代码里**
-> （`content.play_count` 列 + `HistoryService#play` 的 `+1` + `PlayCountChangedEvent` 已发布）；
-> **后三行（5 键聚合 / `backfillPlayCount` / `PlayCountChangedListener`）与详情 `playCount`
-> 属下一批读面**。因此当前状态是"播放量写进去了、还看不见"——计划内的中间态，
-> 下一批只加读侧与消费方，**不改写路径**。上表描述的是本域**终态**。
+> 📌 **交付状态（2026-10-21，T48 落地后）**：上表**全部已在代码里** ——
+> 写侧 = `content.play_count` 列 + `HistoryService#play` 的首播 `+1` + `PlayCountChangedEvent`（T47）；
+> 读侧 = 5 键聚合（`ContentCountColumns` 第 5 组件 `Long playCount`）+ 本域 `backfillPlayCount` +
+> `content.event.PlayCountChangedListener` 的条件 `INCRBY 1`（`AFTER_COMMIT`）+ 详情 `ContentDetailVO.playCount`
+> + `ContentCache#removeContent` 一并失效（T48）。**写路径没有为读面改过一行**。
+> 断言口径见 `ContentPlayCountTests`（含"冷 key 不写半套""回滚不污染""删除后 404 不回填"
+> 与 `UploadDurationTests` 的详情 19 键精确集）。
 
 ---
 
@@ -282,6 +284,9 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
 `ContentDetailVO` 加 `playCount`（第 5 个公共计数），由 `ContentCountAggregate` 一趟提供；
 `durationSeconds` 随父类 `ContentCacheDTO` 返回。详情路径的 Redis / DB 趟数不变
 （仍是 2 趟 Redis + 冷内容 1 条列查）。
+
+**已交付（T48）**：`playCount` 与赞/评/藏/币同批从聚合层返回，**列表不带**（T43 口径）；
+详情 JSON 的精确键集由 `UploadDurationTests#详情键集含durationSeconds且不抖落既有键` 钉住（19 键）。
 
 ---
 
@@ -358,7 +363,8 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
 截断、非 mp4）；`UploadDurationTests` 上传一个手搓 mp4 ⇒ `content_media.duration_seconds` 落库 + 详情回显
 （**两段都断**：只断 DB 会漏掉 `copyCommon` 漏搬的假绿）；
 换源 type=1 刷新时长（含"换成坏文件 ⇒ 回到 null"）、type=3 不清空视频时长；解析失败仍 200。
-★ **内容 JSON 键集**：`UploadDurationTests#详情键集含durationSeconds且不抖落既有键`（18 键精确集）。
+★ **内容 JSON 键集**：`UploadDurationTests#详情键集含durationSeconds且不抖落既有键`（**19 键**精确集；
+T48 加 `playCount` —— 契约跟随本篇 §五「第 5 个公共计数」，不是迎合）。
 
 **迁移锚点**：表数 20→19、版本 `1..7`、`endsWith("7")`、非 GET 端点 36→38（**迁移 / 加端点时各自同步**）。
 

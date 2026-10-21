@@ -32,7 +32,7 @@
   清单只给**目标 / 红线 / 验收入口**，**不写实现步骤**（G13）——执行者自行决定拆法；
   遇到清单前提不成立先登记 `CURRENT_ISSUES.md`，不擅自扩范围。
 * **回归基线**：默认组 **701 例** + resilience **41 例**（2026-10-21，覆盖 `9f260d6`；T45–T47 新增 42 例）。
-  T48–T49 结束后各自累加新例数；**期收尾以实测复核**。
+  **T48 实测累加：默认组 708 / resilience 41**（+7，覆盖 `d581b38`）；T49 结束后再复核，**期收尾以实测为准**。
   ⚠️ 本环境跑全量需 `DB_POOL_MAX_SIZE=4`（否则 Testcontainers MySQL 报 `Too many connections`）。
 
 ---
@@ -148,7 +148,7 @@
   与刷新时间红；去 clamp + 去 `play_counted=0` ⇒ 截断 / 重复 / 并发 / 不变量 4 红）。
   ⚠️ 验收行的"四端点"与范围矛盾 ⇒ 本批只钉两路由，已登记 **I-23**（读面批次必须补）。
 
-### T48 播放量读面：第 5 个公共计数（5 键聚合 + 事件消费 + 详情平铺）【待执行】
+### T48 播放量读面：第 5 个公共计数（5 键聚合 + 事件消费 + 详情平铺）【已完成】
 
 > ⚠️ **先质疑（G14）**：
 > - **任务**：前提成立 —— `play_count` 列已在写（T47）、`PlayCountChangedEvent` 已在发，但**没有任何消费者**
@@ -191,7 +191,10 @@
     `history.md` §五 的"分批交付状态"段改成终态、§7.3 标注已交付；`FURTHER_ISSUES` **不动**（本任务无裁剪）；
   - 反向验证四组（缺一不交付）：① 去掉 `merged` 的 playCount 位；② 去掉 `backfillPlayCount` 调用；
     ③ 监听器去掉"键存在才 INCR"的条件；④ 去掉 `removeContent` 的 `invalidatePlayCount` —— 各自至少 1 红。
-* **回写**：（完成后三句内写清改了什么、验证结果；探索过程不写）
+* **回写**（`08960de` + `d581b38` + 本次 docs 提交）：5 键聚合（`ContentCountColumns` 第 5 位 `Long playCount`
+  → mapper `play_count` → 详情第 5 计数）+ `PlayCountChangedListener`（`AFTER_COMMIT` 条件 `INCRBY`）+
+  `removeContent` 一并失效；写路径与 `ContentCacheDTO` 零改动。`ContentPlayCountTests` 6 例 + 聚合 5 键 1 例，
+  详情键集 18→19（契约跟随 §五）。反向验证四组红数 **4 / 5 / 1 / 1**；默认组 **708/708**，resilience **41/41**。
 
 ### T49 历史读面：`/history/list` + `/history/position`（失效占位 / 续播）【待执行】
 
