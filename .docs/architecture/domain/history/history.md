@@ -356,10 +356,16 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
   （把该行拨回 2020 再上报 —— 不显式 `SET` 时列上的 `ON UPDATE` 不触发，这条是唯一能钉住口径 5 的断言）。
 - `/play`：首播 `play_count + 1`；重复 play 不变；**并发两次恰 +1**（`INSERT IGNORE` + 条件 UPDATE
   的判别力）；行不存在时建行（progress=0）；★ **被拒请求一行都不许落**（不是"先写再校验"）。
-- `/list`、`/position`（T49 交付，`HistoryListTests` 14 例 + `HistoryPositionTests` 6 例）：
+- `/list`、`/position`（T49 交付，`HistoryListTests` 15 例 + `HistoryPositionTests` 6 例）：
   列表顺序 / `total` 用**独立 oracle** 复算；占位三字段 + `progress` 保留 + 页内条数不缩水；
-  续播"无记录 ⇒ 0 / 已删仍答 / 不存在 ⇒ 0"。两个读端点已补进
+  续播"有内容但无记录 ⇒ 0 / 已删仍答 / 不存在 ⇒ 0"。两个读端点已补进
   `SecurityContractTests#history写端点需登录`（`I-23` 核销）。
+- ★ **失效判据的可判性**（T48–T49 审查后补）：`HistoryListTests#时长未知或未落盘不算失效` 用
+  **时长恒 null 的存活视频**与 `file_exists=0` 的存活视频各一条，钉住"判据只有装载契约取不到"。
+  没有这条时，把判据写成 `content == null || durationSeconds == null` 仍然全绿（夹具视频默认不写时长）。
+- ⚠️ **占位字段的注入形式**：`toItemVO` 里的三次置空对本域 Mapper **是 no-op**（那三列根本没被映射
+  ⇒ 恒 null）⇒ 单删 `setAuthorName(null)` **不会红**；要证明"占位不泄露展示字段"，注入必须
+  **同时**给 SQL 加越界 join 取作者。这条如实写在这里，避免把它当成"单点注入即红"的证据。
 - `@RequiresLogin` 的判别力**只在** `SecurityContractTests`（HTTP 侧 401 是假绿）。
 
 **DB 终态 / 独立 oracle**：

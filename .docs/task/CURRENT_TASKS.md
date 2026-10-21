@@ -33,7 +33,8 @@
   遇到清单前提不成立先登记 `CURRENT_ISSUES.md`，不擅自扩范围。
 * **回归基线**：默认组 **701 例** + resilience **41 例**（2026-10-21，覆盖 `9f260d6`；T45–T47 新增 42 例）。
   **T48 实测累加：默认组 708 / resilience 41**（+7，覆盖 `d581b38`）。
-  **T49 实测：默认组 728 / resilience 41**（+20，覆盖 `c1988d2` + 本批例数同步）；**期收尾以实测为准**。
+  **T49 实测：默认组 729 / resilience 41**（+21；含 `d2af8c4` 审查修正新增的 1 例）。
+  ★ 收口前一次性全量（`clean test`，含两组）**770/770 绿**（2026-10-21，`d2af8c4` 之后）；**期收尾以实测为准**。
   ⚠️ 本环境跑全量需 `DB_POOL_MAX_SIZE=4`（否则 Testcontainers MySQL 报 `Too many connections`）。
 
 ---
@@ -244,8 +245,16 @@
   （标题换「内容已失效」、封面 / 作者 / 时长一个不留、`progress` 保留），`/position` 一条
   `findProgress`（无行 `0`、不判内容、不 404）；`pageSize` 20/100 由 Controller 归一，读端点不登记权重。
   `HistoryListTests` 14 例 + `HistoryPositionTests` 6 例（排序与 `total` 均用独立 oracle 复算），
-  `SecurityContractTests` 补两路由核销 **I-23**。反向验证四组红数 **1 / 2 / 3 / 3**；
-  默认组 **728/728**，resilience **41/41**。
+  `SecurityContractTests` 补两路由核销 **I-23**。反向验证（实测，② 的口径见下）：
+  ① 去掉 `content_id DESC` = **1 红**；② 占位字段"必须配合**越界 join 取作者**才红" ——
+  **只删 `setAuthorName(null)` 是 0 红**（占位行的那三列本来就来自 Mapper 未映射 ⇒ 恒 null，
+  单点注入无判别力；已在用例 javadoc 与 `history.md` §十一 如实写明）；③ 跳过失效行 = **3 红**；
+  ④ `position` 加"内容不存在 ⇒ 404" = **3 红**（含"有内容但无记录"）。
+  ⚠️ 独立审查又补了三条欠账（`d2af8c4`）：**失效判据**原来没有判别力（夹具视频时长恒 null
+  ⇒ 判据写成 `durationSeconds == null` 也全绿）⇒ 新增「时长未知 / `file_exists=0` 的存活视频
+  仍是正常行」；`ContentPlayCountTests` 的"404 不回填"原先把键预置成命中值 ⇒ 断言两种实现都为真
+  ⇒ 改成删除后断"键仍不存在"；分页归一补 `page<0` / `pageSize=0`。
+  默认组 **729/729**，resilience **41/41**（含修正后的复跑）。
 
 > **下一批（等 T48–T49 执行完复盘后再拆，不要提前拆）**：**期收尾** ——
 > 文档收口（`history.md` / `history-需求.md` 终态复核、缓存文档一致性、`INDEX.md` §一 的版本与域清单）、
