@@ -10,6 +10,8 @@ import io.github.yjhhhaaa06.videoweb.upload.model.UploadResult;
 import io.github.yjhhhaaa06.videoweb.upload.model.UploadType;
 import io.github.yjhhhaaa06.videoweb.upload.service.FileUploadService;
 import io.github.yjhhhaaa06.videoweb.upload.service.Mp4DurationReader;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -60,6 +62,8 @@ import java.util.OptionalInt;
 @RequestMapping("/api/upload")
 @RequiresLogin
 public class UploadController {
+
+    private static final Logger log = LoggerFactory.getLogger(UploadController.class);
 
     private final FileUploadService fileUploadService;
     private final ContentService contentService;
@@ -210,10 +214,20 @@ public class UploadController {
     /**
      * 解析已落盘视频的时长（秒）。**任何失败都返回 {@code null}**（= 未知），绝不抛出：
      * 时长只服务"进度百分比"，不能让异常 mp4 把发布变成新的失败点（{@code history.md} §六.2）。
+     *
+     * <p>⚠️ {@code catch} 覆盖的不只是解析器内部的异常：{@code Path.of} 在
+     * {@link Mp4DurationReader#readSeconds} 的 try **之外**（{@code InvalidPathException} 是
+     * RuntimeException，不会被那边的 catch 吞掉）—— 少了这层，一个畸形路径就会让发布 500，
+     * 而"时长解析失败不阻断发布"的契约就不再字面成立。
      */
     private static Integer readDuration(UploadResult result) {
-        OptionalInt duration = Mp4DurationReader.readSeconds(Path.of(result.absolutePath()));
-        return duration.isPresent() ? duration.getAsInt() : null;
+        try {
+            OptionalInt duration = Mp4DurationReader.readSeconds(Path.of(result.absolutePath()));
+            return duration.isPresent() ? duration.getAsInt() : null;
+        } catch (RuntimeException e) {
+            log.warn("时长解析入口异常，按未知处理（发布继续）: absolutePath={}", result.absolutePath(), e);
+            return null;
+        }
     }
 
     private static String requireTitle(String title) {

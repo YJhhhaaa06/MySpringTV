@@ -332,6 +332,7 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
 | 9 | 首播的理论 1213 死锁窗口（`INSERT IGNORE` → 条件 `UPDATE`） | 与 coin 同族，未复现；真实并发出现 ⇒ 改 ODKU 或重试 |
 | 10 | 列表 offset 翻页在上报并发下会重复/漏 | 排序键 `update_time` 会被上报改写；B站 用游标。本仓沿用 `PageResult`（跟随主流）。推翻 = 历史翻页成为主路径 |
 | 11 | 播放量**只在详情**，列表卡片没有 | T43「列表零计数」口径；B站 卡片有播放量 ⇒ 这是**本仓口径**，不是遗漏 |
+| 12 | ★ `INSERT IGNORE` 会把**非唯一键的错误**（列截断 / 未来的 CHECK 或第二条唯一键）也降级成 warning ⇒ `affected=0` 被一律读作"已计过"，那一次播放量被**静默丢弃** | 前提：`watch_history` **只有 `uk_user_content` 一个唯一键**、且 `user_id` / `content_id` 是 `bigint`、`progress_seconds` 恒 0 ⇒ 当前不可能触发（T47 代码复核结论）。推翻 = 给本表加约束 / 加第二个唯一键 / 改写入列宽 ⇒ 届时应改成"先查后插"或 `ON DUPLICATE KEY` + 显式判别，别继续靠 `IGNORE` 的 0 |
 
 ---
 
