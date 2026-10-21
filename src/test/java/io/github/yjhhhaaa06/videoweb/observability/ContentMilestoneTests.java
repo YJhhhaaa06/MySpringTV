@@ -14,6 +14,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -60,7 +61,7 @@ class ContentMilestoneTests extends AbstractContentIntegrationTest {
         try (LogCapture system = LogCapture.root()) {
             system.clear();
             long videoId = contentService.addVideo(authorId, "obs-mile-video", "d", 1,
-                    "/upload/video/obs-mile.mp4", "/upload/cover/obs-mile.png");
+                    "/upload/video/obs-mile.mp4", "/upload/cover/obs-mile.png", 12);
             String videoLine = lineContaining(system.lines(), "msg=添加视频成功, contentId=" + videoId);
             assertThat(videoLine).contains("level=INFO")
                     .contains("logger=io.github.yjhhhaaa06.videoweb.content.event.ContentMilestoneListener");
@@ -86,14 +87,14 @@ class ContentMilestoneTests extends AbstractContentIntegrationTest {
         // 让「建内容行之后的第二条媒体行插入」失败 ⇒ 整个 addVideo 事务回滚。
         // 借 SpyBean 而不是真造 DB 故障：故障点要**可复现且落在事务内**。
         doThrow(new IllegalStateException("模拟提交前失败"))
-                .when(contentMediaDao).addMedia(anyLong(), anyString(), anyInt(), anyInt());
+                .when(contentMediaDao).addMedia(anyLong(), anyString(), anyInt(), anyInt(), any());
 
         int contentRowsBefore = countContentRows();
 
         try (LogCapture system = LogCapture.root()) {
             system.clear();
             assertThatThrownBy(() -> contentService.addVideo(authorId, "obs-mile-rollback", "d", 1,
-                    "/upload/video/rollback.mp4", "/upload/cover/rollback.png"))
+                    "/upload/video/rollback.mp4", "/upload/cover/rollback.png", null))
                     .isInstanceOf(IllegalStateException.class);
 
             assertThat(countContaining(system.lines(), "msg=添加视频成功"))

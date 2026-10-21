@@ -493,14 +493,16 @@ public class ContentService {
      *
      * @param videoUrl 已落盘视频的**应用内相对 URL**
      * @param coverUrl 已落盘封面的应用内相对 URL
+     * @param durationSeconds 视频时长（秒）；{@code null} = 解析失败 / 未知（**不阻断发布**，
+     *                        见 {@code history.md} §六.2 —— 只影响"进度百分比"，不影响可播性）
      * @return 新内容 id
      */
     @Transactional
     public long addVideo(long userId, String title, String description, int categoryId,
-                         String videoUrl, String coverUrl) {
+                         String videoUrl, String coverUrl, Integer durationSeconds) {
         long contentId = doAddContent(userId, ContentType.VIDEO, title, description, categoryId);
-        contentMediaDao.addMedia(contentId, videoUrl, UploadType.VIDEO.getMediaType(), 1);
-        contentMediaDao.addMedia(contentId, coverUrl, UploadType.COVER.getMediaType(), 1);
+        contentMediaDao.addMedia(contentId, videoUrl, UploadType.VIDEO.getMediaType(), 1, durationSeconds);
+        contentMediaDao.addMedia(contentId, coverUrl, UploadType.COVER.getMediaType(), 1, null);
         // S9 补回（原 TODO(feed 切片)）：声明"内容已发布"，由 feed 域订阅后投递写扩散消息。
         // ★ 与 TV 的差异：TV 直调 feedPushNotifier（content→feed 编译期依赖），此处改发事件
         //   （content 只声明自己发生了什么）——消掉 content⇄feed 环（《决策留痕表》C-9）。
@@ -527,11 +529,11 @@ public class ContentService {
                         String coverUrl, List<String> imageUrls) {
         long contentId = doAddContent(userId, ContentType.POST, title, description, categoryId);
         if (coverUrl != null) {
-            contentMediaDao.addMedia(contentId, coverUrl, UploadType.COVER.getMediaType(), 1);
+            contentMediaDao.addMedia(contentId, coverUrl, UploadType.COVER.getMediaType(), 1, null);
         }
         int sort = 1;
         for (String imageUrl : imageUrls) {
-            contentMediaDao.addMedia(contentId, imageUrl, UploadType.IMAGE.getMediaType(), sort++);
+            contentMediaDao.addMedia(contentId, imageUrl, UploadType.IMAGE.getMediaType(), sort++, null);
         }
         // S9 补回（原 TODO(feed 切片)）：口径同 addVideo（《遗留台账》A3 → 已闭合）。
         events.publishEvent(new ContentPublishedEvent(contentId, userId));
@@ -559,6 +561,13 @@ public class ContentService {
      * （同时把 {@code file_exists} 置 1 并记录校验时间）→ ③ 回写内容级 {@code content.file_exists}
      * 聚合。三者同进同退（TV 原样）。
      *
+     * <h2>★ T46：换视频要**同时**刷新时长（换图片 / 封面不能碰）</h2>
+     * {@code type == 1} ⇒ 在**同一事务**里更新该行的 {@code duration_seconds}
+     * （{@code durationSeconds == null} 表示新文件解析失败 ⇒ 时长回到"未知"，
+     * 这比"保留旧视频的时长"更诚实：旧时长配新视频，进度百分比直接算错）。
+     * {@code type == 2/3} ⇒ **不调用** {@code ContentMediaDao#updateMediaDuration}
+     * ⇒ 视频行的时长原样保留（换封面不该影响视频时长）。
+     *
      * <h2>提交后：两条清理/刷新，顺序与归属</h2>
      * <ol>
      *   <li>{@code REFRESH} 内容缓存（媒体 url 变了，详情的 videoUrl/coverUrl/imageUrls 要重载）；</li>
@@ -567,14 +576,21 @@ public class ContentService {
      *       事务已提交），故不会出现"DB 未提交却删了旧文件"。</li>
      * </ol>
      *
+     * @param durationSeconds 换视频时的**新**时长（秒）；{@code null} = 未知。
+     *                        仅 {@code type == 1} 时被使用，其余类型忽略
      * @return 被替换掉的**旧** url（供调用方清理物理文件）
      */
     @Transactional
-    public String replaceMedia(long contentId, long userId, int type, int sort, String newUrl) {
+    public String replaceMedia(long contentId, long userId, int type, int sort, String newUrl,
+                               Integer durationSeconds) {
         ContentMedia media = findOwnedMedia(contentId, userId, type, sort);
         String oldUrl = media.getUrl();
         Timestamp now = Timestamp.valueOf(LocalDateTime.now());
         contentMediaDao.updateMediaUrl(media.getMediaId(), newUrl, true, now);
+        if (type == UploadType.VIDEO.getMediaType()) {
+            // ★ 只在这个分支调用：换图片/封面时视频行的时长必须原样保留（history.md §六.2）
+            contentMediaDao.updateMediaDuration(media.getMediaId(), durationSeconds);
+        }
         contentDao.updateFileExists(contentId, true, now);
         events.publishEvent(ContentCacheChangedEvent.refresh(contentId));
         return oldUrl;

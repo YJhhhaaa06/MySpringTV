@@ -92,13 +92,16 @@ public interface ContentMediaDao {
      *
      * <p>TV: {@code insert into content_media(content_id,url,type,sort) VALUES (?, ?,?,?)}
      *
-     * @param type 1 视频 / 2 图片 / 3 封面（调用方按上传类型给出，TV {@code UploadType.mediaType} 口径）
-     * @param sort 同 type 内序号（视频/封面恒 1；图片从 1 递增）
+     * @param type            1 视频 / 2 图片 / 3 封面（调用方按上传类型给出，TV {@code UploadType.mediaType} 口径）
+     * @param sort            同 type 内序号（视频/封面恒 1；图片从 1 递增）
+     * @param durationSeconds 视频时长（秒）；**只有视频行给值**，封面/图片传 {@code null}
+     *                        （列可空，{@code null} = 未知，见 {@code history.md} §六.2）
      */
     int addMedia(@Param("contentId") long contentId,
                  @Param("url") String url,
                  @Param("type") int type,
-                 @Param("sort") int sort);
+                 @Param("sort") int sort,
+                 @Param("durationSeconds") Integer durationSeconds);
 
     /**
      * 换源：更新单条媒体的 url，并立即标记"文件存在" + 记录校验时间。
@@ -110,6 +113,18 @@ public interface ContentMediaDao {
                        @Param("url") String url,
                        @Param("exists") boolean exists,
                        @Param("lastVerifyTime") java.sql.Timestamp lastVerifyTime);
+
+    /**
+     * 换源后刷新**该媒体行**的时长（T46；发布路径不走这里——那里是 {@code addMedia} 直接写入）。
+     *
+     * <p>★ 刻意与 {@link #updateMediaUrl} 分成两条语句：换图片（type=2）/ 封面（type=3）时
+     * 调用方**根本不调用本方法** ⇒ "换非视频不清空视频行的时长"由调用点保证，
+     * 而不是靠 SQL 里判 type（那种隐式约定在评审里看不见）。
+     *
+     * @param durationSeconds 新时长（秒）；解析失败传 {@code null} ⇒ 时长回到"未知"
+     */
+    int updateMediaDuration(@Param("mediaId") long mediaId,
+                            @Param("durationSeconds") Integer durationSeconds);
 
     // ========================================================================
     // S8：admin（媒体审计）
