@@ -1,17 +1,29 @@
 package io.github.yjhhhaaa06.videoweb.history.dao;
 
+import io.github.yjhhhaaa06.videoweb.history.model.vo.HistoryItemVO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+
+import java.util.List;
 
 /**
  * 播放记录数据访问（{@code watch_history}，本域自有表）。
  *
- * <h2>三个方法 = 写路径的全部 SQL</h2>
+ * <h2>写路径三个方法</h2>
  * <ul>
  *   <li>{@link #upsertProgress}：{@code /history/report} 的**一条** ODKU（不判首播、不读后写）；</li>
  *   <li>{@link #insertIgnoreCounted} / {@link #markCountedIfNotCounted}：{@code /history/play}
  *       的**首播判定**两步，靠 affected-rows 的 1/0 判别。</li>
  * </ul>
+ *
+ * <h2>读路径（{@code /history/list}；续播的点查随 {@code /history/position} 一起落地）</h2>
+ * <ul>
+ *   <li>{@link #countByUserId}：列表 {@code total} —— 数的是**行**，失效条目照常计入；</li>
+ *   <li>{@link #findPageByUserId}：一页**本域三列**。</li>
+ * </ul>
+ * ★ 读路径**不 join** {@code content} / {@code content_media} / {@code users}：展示字段与
+ * 失效判据都由 {@code ContentService#loadContentVOs} 给出（`模块边界与依赖.md` §三；
+ * 一期 I-07 的教训）。
  *
  * <h2>★ 为什么 {@code /play} 不用 {@code ON DUPLICATE KEY UPDATE} 判首播</h2>
  * Connector/J 默认 {@code useAffectedRows=false} ⇒ ODKU 的"插入"与"值没变的更新"**都返回 1**
@@ -52,4 +64,32 @@ public interface WatchHistoryDao {
      * @return 1 = 本次抢占成功（首播）；0 = 别人已经计过（幂等返回）
      */
     int markCountedIfNotCounted(@Param("userId") long userId, @Param("contentId") long contentId);
+
+    /**
+     * 该用户的历史行数（列表 {@code total}）。
+     *
+     * <p>★ <b>包含失效条目</b>：失效内容的历史行不删（历史不可删）、也照样占一条 ——
+     * 否则 {@code total} 与页内条数会打架（{@code architecture/domain/history/history.md} §七.1）。
+     *
+     * @param userId 当前登录用户
+     */
+    int countByUserId(@Param("userId") long userId);
+
+    /**
+     * 该用户的一页历史（{@code update_time DESC, content_id DESC}）。
+     *
+     * <p>★ 只查本域三列（{@code content_id} / {@code update_time} / {@code progress_seconds}）：
+     * 标题 / 封面 / 作者 / 时长由 {@code ContentService#loadContentVOs} 组装；
+     * 失效判据也在那里（**不是** SQL 的 join 或 {@code is_deleted} 条件）。
+     *
+     * <p>⚠️ {@code offset} 用 {@code long} 接收：{@code page} 无上限，
+     * {@code (page - 1) * pageSize} 在 {@code int} 下会溢出成负数 ⇒ {@code OFFSET -…} 变语法错 ⇒ 500。
+     *
+     * @param userId 当前登录用户
+     * @param offset 跳过行数（调用方用 {@code long} 计算，不为负）
+     * @param limit  页大小
+     */
+    List<HistoryItemVO> findPageByUserId(@Param("userId") long userId,
+                                         @Param("offset") long offset,
+                                         @Param("limit") int limit);
 }

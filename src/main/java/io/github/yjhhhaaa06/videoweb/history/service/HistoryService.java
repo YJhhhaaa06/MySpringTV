@@ -2,23 +2,29 @@ package io.github.yjhhhaaa06.videoweb.history.service;
 
 import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
+import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentType;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentVO;
 import io.github.yjhhhaaa06.videoweb.content.service.ContentService;
 import io.github.yjhhhaaa06.videoweb.history.dao.WatchHistoryDao;
 import io.github.yjhhhaaa06.videoweb.history.event.PlayCountChangedEvent;
+import io.github.yjhhhaaa06.videoweb.history.model.vo.HistoryItemVO;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
- * 播放记录写路径（{@code /history/report} 与 {@code /history/play}）。
+ * 播放记录业务：写路径（{@code /history/report} 与 {@code /history/play}）+ 历史列表
+ * （{@code /history/list}，续播位置随 {@code /history/position} 一起落地）。
  *
- * <p>设计 / 口径的唯一事实源：{@code architecture/domain/history/history.md} §四。
- * 本类只做"校验 → 写"的编排，两件事分别对应两个端点：
+ * <p>设计 / 口径的唯一事实源：{@code architecture/domain/history/history.md} §四（写）/ §七.1（列表）。
+ * 本类只做"校验 → 写"与"取页 → 组装"的编排：
  *
  * <table>
  *   <caption>两端点的分工（拆端点是本域的核心决策）</caption>
@@ -44,6 +50,13 @@ import java.util.List;
  */
 @Service
 public class HistoryService {
+
+    /**
+     * 失效内容的占位标题 —— 与 {@code WatchLaterService.INVALID_CONTENT_TITLE}、{@code FavoriteService}
+     * 的**同字面量**（各持一份常量，因三处占位对象类型不同；口径源头 =
+     * {@code architecture/domain/history/history-需求.md} §二「失效视频」）。
+     */
+    private static final String INVALID_CONTENT_TITLE = "内容已失效";
 
     private final WatchHistoryDao watchHistoryDao;
     private final ContentService contentService;
@@ -112,6 +125,75 @@ public class HistoryService {
         }
         contentDao.updatePlayCount(contentId);
         events.publishEvent(new PlayCountChangedEvent(contentId));
+    }
+
+    /**
+     * 历史列表分页（{@code GET /history/list?page=&pageSize=}）：按**最后上报时间倒序**
+     * （{@code update_time DESC, content_id DESC}）；失效条目返回**占位**（{@code history.md} §七.1）。
+     *
+     * <h2>★ 分页单位是 {@code watch_history} 行</h2>
+     * {@code total} **包含**失效条目；失效记录**占一条、返回一条占位**；一整页都是失效条目
+     * 也**照常返回整页**（跳过 ⇒ 用户看不到 ⇒ 永远没人处理，且 {@code total} 与页内条数会打架）。
+     *
+     * <h2>装载契约</h2>
+     * 先查本域三列，再**一趟批量**调 {@link ContentService#loadContentVOs} 取展示字段。
+     * 返回条数可能少于入参（"装不出来"的被契约跳过），"缺"就是本列表的**唯一失效判据**
+     * —— **不是** {@code durationSeconds == null}，也**不是** {@code file_exists = 0}。
+     *
+     * <p>⚠️ 本端点是"我的"私有视角（只需登录，无归属参数）。空历史 ⇒ {@code list=[]} +
+     * {@code total=0}（不是 404）。
+     *
+     * @param userId   当前登录用户
+     * @param page     页码（≥1，由 Controller 归一）
+     * @param pageSize 页大小（1..域级上限，由 Controller 归一）
+     */
+    public PageResult<HistoryItemVO> list(long userId, int page, int pageSize) {
+        int total = watchHistoryDao.countByUserId(userId);
+        // ⚠️ 用 long 防 int 溢出：page 无上限 ⇒ (page-1)*pageSize 溢出成负数会让 `OFFSET -…` 变 SQL 语法错 ⇒ 500。
+        long offset = (long) (page - 1) * pageSize;
+        List<HistoryItemVO> rows = watchHistoryDao.findPageByUserId(userId, offset, pageSize);
+
+        List<Long> contentIds = new ArrayList<>(rows.size());
+        for (HistoryItemVO row : rows) {
+            contentIds.add(row.getContentId());
+        }
+        Map<Long, ContentVO> byContentId = new HashMap<>(contentIds.size());
+        for (ContentVO content : contentService.loadContentVOs(contentIds)) {
+            byContentId.put(content.getId(), content);
+        }
+        List<HistoryItemVO> items = new ArrayList<>(rows.size());
+        for (HistoryItemVO row : rows) {
+            items.add(toItemVO(row, byContentId.get(row.getContentId())));
+        }
+        return new PageResult<>(items, total, page, pageSize);
+    }
+
+    /**
+     * 组装一条历史条目：正常行抄 content 契约的展示字段，失效行**构造**占位。
+     *
+     * <p>★ 与 {@code WatchLaterService#toItemVO} **同口径、各自一份**（两处 VO 类型不同）：
+     * 失效行四个展示字段**一个都不能给**（只换标题不置空作者 ⇒ 作者仍可见；只置空封面不换标题
+     * ⇒ 标题仍可见），故这里是**一个分支内的四次赋值**，不写成四个各自判断的条件。
+     * ★ {@code progress} **不在**清空之列：它是历史数据（"看到第几秒"仍然真实）。
+     *
+     * @param row     Mapper 查出的行（本域三列有值；**就地修改**并返回 —— 本 VO 一身两职）
+     * @param content content 装载契约给出的展示条目；{@code null} = 装不出来 ⇒ 占位
+     */
+    private HistoryItemVO toItemVO(HistoryItemVO row, ContentVO content) {
+        if (content == null) {
+            row.setInvalid(Boolean.TRUE);
+            row.setTitle(INVALID_CONTENT_TITLE);
+            row.setCoverUrl(null);
+            row.setAuthorName(null);
+            row.setDurationSeconds(null);
+            return row;
+        }
+        row.setInvalid(Boolean.FALSE);
+        row.setTitle(content.getTitle());
+        row.setCoverUrl(content.getCoverUrl());
+        row.setAuthorName(content.getAuthorName());
+        row.setDurationSeconds(content.getDurationSeconds());
+        return row;
     }
 
     /**

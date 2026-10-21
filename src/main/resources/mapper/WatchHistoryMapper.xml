@@ -35,4 +35,37 @@
         WHERE user_id = #{userId} AND content_id = #{contentId} AND play_counted = 0
     </update>
 
+    <!-- /history/list 的行类型：★ 只映射本域三列。
+         title/coverUrl/authorName/durationSeconds 由 HistoryService#list 经
+         ContentService#loadContentVOs 组装；判失效也在那里（history.md §三 / §七.1）。
+         ★ watchedTime = update_time（最后上报时间），**不是** create_time（首次观看）。 -->
+    <resultMap id="historyItemVoMap"
+               type="io.github.yjhhhaaa06.videoweb.history.model.vo.HistoryItemVO">
+        <result property="contentId" column="content_id"/>
+        <result property="watchedTime" column="update_time"/>
+        <result property="progress" column="progress_seconds"/>
+    </resultMap>
+
+    <!-- 历史总条数（列表 total）。数的是 watch_history **行** —— 失效条目照常计入
+         （历史不可删、占位不缩水；否则 total 与页内条数打架，history.md §七.1）。 -->
+    <select id="countByUserId" resultType="int">
+        SELECT COUNT(*) FROM watch_history WHERE user_id = #{userId}
+    </select>
+
+    <!-- 一页历史（update_time DESC, content_id DESC），走 idx_user_update。
+         ① ★ 不 join content / content_media / users（模块边界 §三；一期 I-07 的教训）：
+            展示字段与失效判据都归 ContentService#loadContentVOs；
+         ② ★ tie-breaker 用 content_id DESC（不是行 id）：update_time 是秒精度，
+            同一秒的两行必须有序（history.md §三）；
+         ③ 失效行**不跳过**：整页失效也照常返回（跳过 ⇒ 用户看不到 ⇒ 永远没人处理）。 -->
+    <select id="findPageByUserId" resultMap="historyItemVoMap">
+        SELECT content_id AS content_id,
+               update_time AS update_time,
+               progress_seconds AS progress_seconds
+        FROM watch_history
+        WHERE user_id = #{userId}
+        ORDER BY update_time DESC, content_id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
 </mapper>

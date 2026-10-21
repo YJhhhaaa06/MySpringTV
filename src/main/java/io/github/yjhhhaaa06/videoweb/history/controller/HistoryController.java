@@ -1,9 +1,13 @@
 package io.github.yjhhhaaa06.videoweb.history.controller;
 
+import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
+import io.github.yjhhhaaa06.videoweb.common.web.PageParams;
+import io.github.yjhhhaaa06.videoweb.history.model.vo.HistoryItemVO;
 import io.github.yjhhhaaa06.videoweb.history.service.HistoryService;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -19,28 +23,58 @@ import org.springframework.web.bind.annotation.RestController;
  * {@code SecurityContractTests#history写端点需登录} 直接对 {@code RequestMappingLookup} 求值守着
  * （HTTP 侧 401 是假绿：{@code @CurrentUserId} 解析器自己会抛 401）。
  *
- * <h2>请求形态：写 {@code POST} + {@code x-www-form-urlencoded}</h2>
+ * <h2>请求形态：写 {@code POST} + {@code x-www-form-urlencoded}、读 {@code GET} + query</h2>
  * 沿袭 {@code /like/*}、{@code /watchlater/*} 的既有风格（{@code @RequestParam} 同时覆盖 form 与 query）。
  *
  * <h2>成功信封</h2>
- * 两个端点都返回空数据体（{@code {"code":200,"msg":"success"}}）；
- * 错误码见 {@code history.md} §八（400 负进度 / 图文、404 内容不存在、401 未登录）。
+ * 两个写端点返回空数据体（{@code {"code":200,"msg":"success"}}）；{@code /list} 返回分页信封，
+ * {@code /position} 返回 {@code {"progress":N}}。错误码见 {@code history.md} §八
+ * （400 负进度 / 图文、404 内容不存在、401 未登录）。
  *
  * <h2>分批交付说明</h2>
- * 本批（T47）只落**写路径**两个端点；{@code /list}（历史列表）与 {@code /position}（续播位置）
- * 属于下一批读面。播放量虽然已在写，但**详情的 {@code playCount} 字段也在下一批**
- * ⇒ 本批结束时"播放量写进去了但还看不见"，这是计划内的中间态（每个 commit 仍可编译可测）。
+ * 写路径两段（T47）+ 列表（{@code /list}）+ 续播位置（{@code /position}）构成四端点全集；
+ * 读端点用 {@code GET} ⇒ **不登记限流权重**（权重表只覆盖非 GET）。
  */
 @RestController
 @RequestMapping("/history")
 @RequiresLogin
 public class HistoryController {
 
+    /** 列表 pageSize 上限（各域自持常量，见 {@code PageParams}）。与 {@code FavoriteController} 同量级取 100。 */
+    private static final int HISTORY_PAGE_SIZE_MAX = 100;
+
+    /** 列表 pageSize 缺省：一屏 20 条（{@code history-需求.md} §二「分页」）。 */
+    private static final int HISTORY_PAGE_SIZE_DEFAULT = 20;
+
     private final HistoryService historyService;
 
     public HistoryController(HistoryService historyService) {
         this.historyService = historyService;
     }
+
+    // ==================== 读：历史列表 ====================
+
+    /**
+     * 历史列表分页（**最后观看时间倒序**，同一秒按内容 id 倒序）。
+     * {@code data} 是分页信封 {@code {list,total,page,pageSize,totalPages}}；
+     * ★ 失效条目返回占位（{@code invalid=true}、标题「内容已失效」、封面 / 作者 / 时长 {@code null}），
+     * 但**保留 {@code contentId} 与 {@code progress}**。
+     *
+     * <p>分页单位是 {@code watch_history} 行：{@code total} **包含**失效条目，一整页都是失效条目也照常返回满页。
+     * 空历史 ⇒ {@code list=[]} + {@code total=0}（不 404）。
+     *
+     * <p>分页归一：{@code page} 缺省/非数字/≤0 → 1；{@code pageSize} 同上 → 20，且恒 ≤ 100。
+     */
+    @GetMapping("/list")
+    public ApiResponse<PageResult<HistoryItemVO>> list(@CurrentUserId long userId,
+                                                       @RequestParam(required = false) String page,
+                                                       @RequestParam(required = false) String pageSize) {
+        return ApiResponse.success(historyService.list(userId,
+                PageParams.normalizePage(page),
+                PageParams.normalizePageSize(pageSize, HISTORY_PAGE_SIZE_MAX, HISTORY_PAGE_SIZE_DEFAULT)));
+    }
+
+    // ==================== 写：report / play ====================
 
     /**
      * 上报播放进度：{@code POST /history/report?contentId=&progress=}（进度单位**秒**）。
