@@ -142,13 +142,19 @@
 * **强制探索**：6 个死码各自的"该不该复活"；`ErrorCode` 被测试直接引用的地方。
 * **验收**：**死码表清零**（每个码都有产码点，`ErrorCodeContractTests` 钉住）；登录失败用码而非 `msg` 区分
   （与「账号不存在」同码）；`AccessLogTests` 全绿且判据仍能区分"有信封 / 无信封"。
-* **回写**：`ErrorCode` → 43 项三元（码 = 枚举名，状态由枚举携带，四个取值点共用）；全站抛出点显式赋码
+* **回写**：`ErrorCode` → **42 项**三元（码 = 枚举名，状态由枚举携带，四个取值点共用）；全站抛出点显式赋码
   （**删掉所有"只给 message、码由类决定"的构造器**，这是当年泛码/死码的根因），`ApiResponse.code` 与
   73 处 `Envelope.code` 断言一并换字符串，访问日志 `code=OK`（`0` 保留为"无信封"哨兵）；死码处置 =
   `CONTENT_NOT_FOUND`/`COMMENT_NOT_FOUND` 复活、`DUPLICATE_LIKE→LIKE_ALREADY_LIKED`、`ACCESS_DENIED→AUTH_FORBIDDEN`、
-  `INVALID_PHONE`/`CACHE_ERROR`/泛码 `NOT_FOUND`/`CONFLICT`/`PARAM_ERROR` 删除。反向验证：注入一个无产码点的码 ⇒
-  `ErrorCodeContractTests#无死码` 必红；护栏还挣到一分 —— §2.2 白名单**漏了既有关注域 `FOLLOW`**（已补，`R-22` ②）。
-  ⚠️ 未做：非 GET 端点的 `cost.base` 未动（`T58`）；旧 SPA 只做了一行最小兼容（`api.js`），完整适配归 `T61`。
+  `INVALID_PHONE`/`CACHE_ERROR`/泛码 `NOT_FOUND`/`CONFLICT`/`PARAM_ERROR` 删除。
+  **登录按 `R-22` 收口**：`AUTH_BAD_CREDENTIALS` 单码单文案 + 假哈希抹平 BCrypt 耗时差（只统一 code/msg 不够）；
+  注册口 `USER_PHONE_TAKEN` 如实回答已登记为已知代价（§2.2）。
+  反向验证两条都真红过：① 注入一个无产码点的码 ⇒ `ErrorCodeContractTests#无死码` 红；
+  ② 去掉假哈希 ⇒ `UserFlowTests#登录失败两分支耗时同量级` 红（比值掉到 0.05 量级）。
+  护栏还挣到一分 —— §2.2 白名单**漏了既有关注域 `FOLLOW`**（已补，`R-22` ②）。
+  ⚠️ 未做：非 GET 端点的 `cost.base` 未动（`T58`）；旧 SPA 只做了**过渡桥**（`api.js`：`err.code` 仍给数字 status
+  让 18 个 view 的既有分支继续命中，`err.bizCode` 给字符串码），完整适配归 `T61`；
+  两处待裁决已登记 `I-24`（三处 status 与 §2.1 措辞不一致）/ `I-25`（重复抢券对外是 `SYSTEM_DUPLICATE_KEY`）。
 
 #### T56 单一错误出口 + 框架级错误归位（来源 `R-21` §1.1 / 设计 §2.1）【待执行】
 
