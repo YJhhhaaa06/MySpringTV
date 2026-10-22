@@ -33,6 +33,23 @@ import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record ApiFieldError(String field, ErrorCode code, String message) {
 
+    /**
+     * 三条不变量（构造即校验，比在 {@code toSummary()} 里兜 null 更早、更响）：
+     * {@code code} 必非空（码表是唯一来源）、{@code message} 必非空（对外展示的稳定文案）、
+     * {@code field} 要么是请求字段名、要么**为 null**（表示"定位不到"），不接受空串（那会输出 {@code ": xxx"}）。
+     */
+    public ApiFieldError {
+        if (code == null) {
+            throw new IllegalArgumentException("errors[].code 必须来自 ErrorCode");
+        }
+        if (message == null || message.isBlank()) {
+            throw new IllegalArgumentException("errors[].message 必须是稳定文案（不能为空）");
+        }
+        if (field != null && field.isBlank()) {
+            throw new IllegalArgumentException("errors[].field 要么是请求字段名，要么为 null");
+        }
+    }
+
     /** 字段级错误的构造入口（保证 {@code code} 只能来自码表）。 */
     public static ApiFieldError of(String field, ErrorCode code, String message) {
         return new ApiFieldError(field, code, message);

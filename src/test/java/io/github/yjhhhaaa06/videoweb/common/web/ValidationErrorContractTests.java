@@ -5,9 +5,11 @@ import io.github.yjhhhaaa06.videoweb.support.AbstractHttpIntegrationTest;
 import io.github.yjhhhaaa06.videoweb.support.Envelope;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import tools.jackson.databind.JsonNode;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -195,7 +197,46 @@ class ValidationErrorContractTests extends AbstractHttpIntegrationTest {
         assertThat(error.path("message").asString()).isEqualTo("用户名不能为空");
     }
 
+    @Test
+    @DisplayName("同一字段违反两条约束 ⇒ 两条 errors（不合并：合并要选「哪条算第一条」）")
+    void 同字段多条约束不合并() {
+        // password="" 同时违反 @NotBlank 与 @Pattern（空串也匹配不上 ^[a-zA-Z0-9]{6,16}$）
+        // ⇒ 契约 §2.5.1 明确"不合并"，否则"还违反了另一条"的信息会被悄悄丢掉。
+        ResponseEntity<String> resp = post("/user/register",
+                Map.of("username", "u", "password", "", "phone", "13800000000"), null);
+
+        assertThat(resp.getStatusCode().value()).isEqualTo(400);
+        JsonNode errors = Envelope.errors(resp);
+        assertThat(errors.size()).as("两条约束各一条：%s", resp.getBody()).isEqualTo(2);
+        assertThat(fieldNames(errors)).containsExactly("password", "password");
+        // 两条文案不同（不是同一条被复制两次）——这才是"每条违反一条"的证据。
+        assertThat(messageOfIndex(errors, 0)).isNotEqualTo(messageOfIndex(errors, 1));
+    }
+
+    @Test
+    @DisplayName("报文残缺（不是值错）⇒ 文案是「请求体缺失或格式错误」，不误报成类型错误")
+    void 报文残缺不误报为类型错误() {
+        // ★ 判别点：解析层失败（StreamRead）与数据绑定层失败（Databind）是两类成因。
+        // 无论能否从引用链回收字段名，**文案**都必须说"报文坏了"，而不是"某字段类型不对"。
+        ResponseEntity<String> resp = postRaw("/user/login", "{\"phone\":\"13800000000\",");
+
+        assertThat(resp.getStatusCode().value()).isEqualTo(400);
+        JsonNode error = singleError(resp);
+        assertThat(error.path("message").asString()).isEqualTo("请求体缺失或格式错误");
+    }
+
     // ==================== 辅助（只读 JSON 树，不反序列化成 ApiResponse） ====================
+
+    /** 发送**原始文本**请求体（用于构造残缺 JSON；正常路径一律走基类的对象序列化）。 */
+    private ResponseEntity<String> postRaw(String path, String rawBody) {
+        return send(spec -> spec.uri(path)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(rawBody.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    private static String messageOfIndex(JsonNode errors, int index) {
+        return errors.get(index).path("message").asString();
+    }
 
     private static JsonNode singleError(ResponseEntity<String> resp) {
         JsonNode errors = Envelope.errors(resp);

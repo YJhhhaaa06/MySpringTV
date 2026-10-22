@@ -68,11 +68,14 @@ class ApiErrorExitContractTests extends AbstractHttpIntegrationTest {
     private static final Pattern REQUEST_ID = Pattern.compile("^[0-9a-f]{16}$");
 
     /**
-     * 唯一的合法失败体骨架（§2.1 / §2.5）。
+     * 唯一的合法失败体骨架（§2.1 / §2.5.1）。
      *
      * <p>`T57` 起有**两种**形状：{@code {code,msg}} 与 {@code {code,msg,errors:[{…}]}}（校验族）。
      * 断言仍然只认这两个形状——多一个 {@code timestamp}、{@code msg} 改名、{@code errors} 不是数组都算漂移。
-     * 中文文案里不会有引号，故用这个窄正则即可判别多字段/少字段。
+     *
+     * <p>⚠️ 本正则刻意**不**校验 errors 元素的内部形状（那由
+     * {@link ValidationErrorContractTests} 逐键断言；正则写不了"三键必选 + field 可缺"）。
+     * 这里只要求 {@code errors} 是"对象数组"，且出现在 {@code msg} **之后**（字段顺序也是契约）。
      */
     private static final Pattern FAILURE_BODY =
             Pattern.compile("^\\{\"code\":\"[A-Z][A-Z0-9_]*\",\"msg\":\"[^\"]*\"(,\"errors\":\\[\\{.*}])?}$");
@@ -204,8 +207,17 @@ class ApiErrorExitContractTests extends AbstractHttpIntegrationTest {
         assertThat(body.has("code")).isTrue();
         assertThat(body.has("msg")).isTrue();
         if (body.has("errors")) {
-            assertThat(body.get("errors").isArray())
+            JsonNode errors = body.get("errors");
+            assertThat(errors.isArray())
                     .as("errors 必须是数组（不是对象 / 不是字符串）：%s", resp.getBody()).isTrue();
+            for (JsonNode error : errors) {
+                // 元素形状：{field?,code,message} —— field 可缺（整体不可解析），但 code/message 必在，
+                // 且**不许**多出第四个键（size 2..3 与两条 has 一起把"多键"挡住）。
+                assertThat(error.has("code")).as("errors[] 元素必须有 code：%s", error).isTrue();
+                assertThat(error.has("message")).as("errors[] 元素必须有 message：%s", error).isTrue();
+                assertThat(error.size()).as("errors[] 元素只能是 {field?,code,message}：%s", error)
+                        .isBetween(2, 3);
+            }
         }
         assertThat(Envelope.hasDataField(resp)).as("失败体不得出现 data（NON_NULL 的失败分支）").isFalse();
 

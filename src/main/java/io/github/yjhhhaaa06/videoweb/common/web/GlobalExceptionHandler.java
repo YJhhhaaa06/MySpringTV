@@ -20,12 +20,15 @@ import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import tools.jackson.core.JacksonException;
+import tools.jackson.databind.DatabindException;
 import tools.jackson.databind.exc.InvalidFormatException;
 
 import java.util.ArrayList;
@@ -125,15 +128,21 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiResponse<Void>> handleValidation(MethodArgumentNotValidException ex,
                                                               HttpServletRequest req) {
-        List<ApiFieldError> errors = ex.getBindingResult().getFieldErrors().stream()
+        List<ApiFieldError> errors = new ArrayList<>();
+        ex.getBindingResult().getFieldErrors().stream()
                 .map(fe -> ApiFieldError.of(fe.getField(), ErrorCode.PARAM_INVALID, defaultMessage(fe)))
-                .toList();
+                .forEach(errors::add);
+        // ★ 类级（全局）约束（如将来的 @AssertTrue / 自定义跨字段校验）没有 field，
+        // 但**不能**静默丢掉——那会让"原因存在却读不到"。以无 field 条目输出（§2.5.1）。
+        // 今天没有任何类级约束（不可达分支），保留它是为了不让下一个加类级约束的人掉坑。
+        ex.getBindingResult().getGlobalErrors().stream()
+                .map(oe -> ApiFieldError.ofWholeRequest(ErrorCode.PARAM_INVALID, defaultMessage(oe.getDefaultMessage())))
+                .forEach(errors::add);
         log.warn("参数校验失败 {} {} -> {}", req.getMethod(), req.getRequestURI(),
                 errors.stream().map(ApiFieldError::toSummary).toList());
         if (errors.isEmpty()) {
-            // 理论分支：只有类级（全局）约束、没有字段错误时无法给出 field。
-            // 此时退回"只有码 + 默认文案"的信封，**不**造一个 field 为空的假条目
-            // （那会让前端以为"某个字段错了"却无从挂载）。
+            // 理论分支：Bean Validation 报了"校验失败"却一条原因都没给（框架侧变化）。
+            // 退回"只有码 + 默认文案"的信封，**不**造假条目（`errors:[]` 会被 ApiResponse 拒绝）。
             return errorWriter.toResponse(ErrorCode.PARAM_INVALID);
         }
         return errorWriter.toResponse(ErrorCode.PARAM_INVALID, ApiErrorWriter.summary(errors), errors);
@@ -150,15 +159,16 @@ public class GlobalExceptionHandler {
      * <h2>★ 为什么 message 是一张"稳定文案表"，而不是异常自带的文本</h2>
      * 这些异常自带的 message 有两类问题：① 可能**回显客户端发来的值**
      * （{@code MethodArgumentTypeMismatchException} 的 {@code for value [xxx]}），那是 PII 进 body 的路径；
-     * ② 全是英文框架措辞，前端无法展示。故这里按异常类型映射到四个固定中文文案，
-     * 异常对象**只进日志**（出口脱敏负责把回显掩掉）。
+     * ② 全是英文框架措辞，前端无法展示。故这里按异常类型映射到固定中文文案，异常对象**只进日志**。
+     * ⚠️ 日志侧的脱敏**只覆盖已登记形态**（手机号，见 {@code common/log/LogMasker}）——
+     * 密码等仍会明文落盘。这是既有已知口径，别把"只进日志"理解成"日志里看不见"。
      *
      * <h2>字段名从哪来</h2>
      * <ul>
      *   <li>缺参 → {@code getParameterName()}；缺 part → {@code getRequestPartName()}；</li>
-     *   <li>类型不匹配 → {@code getName()}（是**参数名**，与请求里的键同名）；</li>
+     *   <li>类型不匹配 → {@code getName()}（Spring 给的是**参数名**，与请求里的键同名）；</li>
      *   <li>请求体不可解析 → Jackson 的**引用链**最深一层属性名（{@link JacksonException#getPath()}）；
-     *       整体格式错（报文残缺 / 空体）时**无法**定位字段 ⇒ 该条不出现 {@code field}。</li>
+     *       报文残缺时字段名可能仍可回收（EOF 发生在该字段值处），此时照给；空体 / 根层失败则省略。</li>
      * </ul>
      */
     @ExceptionHandler({
@@ -169,7 +179,7 @@ public class GlobalExceptionHandler {
     })
     public ResponseEntity<ApiResponse<Void>> handleBadRequest(Exception ex, HttpServletRequest req) {
         // ⚠️ 本条消息会**回显被拒的参数值**（如 MethodArgumentTypeMismatch 的 "for value [xxx]"）——
-        // 它正是 PII 进日志的一条真实路径。出口脱敏（logback 的 %maskedMsg）负责把它按形态掩掉，
+        // 它正是 PII 进日志的一条真实路径。出口脱敏只掩**已登记形态**（手机号），
         // 故此处**不**在调用点手写脱敏（否则就是两套机制、两处要维护）。
         // ★ 响应体**只给稳定文案**：异常 message 可能含入参回显，不许进 body。
         log.warn("请求参数错误 {} {} -> {}", req.getMethod(), req.getRequestURI(), ex.getMessage());
@@ -182,7 +192,7 @@ public class GlobalExceptionHandler {
     /**
      * 把参数类异常翻译成**一条**字段级错误（`T57`）：能定位就给 {@code field}，不能就省略。
      *
-     * <p>文案表（对外契约，改动需同步 §2.5）：
+     * <p>文案表（对外契约，改动需同步 §2.5.1）：
      * {@code 缺少必填参数} / {@code 缺少必填部分} / {@code 参数类型不正确} /
      * {@code 参数取值不合法} / {@code 请求体缺失或格式错误}。
      */
@@ -202,21 +212,28 @@ public class GlobalExceptionHandler {
     /**
      * 请求体不可解析（{@link HttpMessageNotReadableException}）：尽力定位到字段。
      *
-     * <p>区分两种成因：{@code InvalidFormatException}（值存在但不可转换，如 {@code "abc"} → {@code Long}、
-     * 非法枚举字面量）文案用 {@code 参数取值不合法}；其余（结构不对 / 类型不对 / 报文残缺）用
-     * {@code 参数类型不正确}；完全定位不到字段时退化为 {@code 请求体缺失或格式错误}。
+     * <p>★ 先按**失败层**分类，再按能否定位字段决定是否给 {@code field}：
+     * <ul>
+     *   <li><b>数据绑定层</b>（{@link DatabindException}）：报文结构能读，是某个值/类型不对 ——
+     *       {@link InvalidFormatException}（{@code "abc"} → {@code Long}、非法枚举字面量）用
+     *       {@code 参数取值不合法}，其余用 {@code 参数类型不正确}；字段名能定位就带上。</li>
+     *   <li><b>解析层</b>（报文残缺 / 空体 / 根层类型不符）：语义是"报文坏了"而不是"某字段错了" ——
+     *       文案用 {@code 请求体缺失或格式错误}；字段名若仍可回收（EOF 恰好在该字段值处）照样带上，
+     *       它只用于定位排查，不改文案。</li>
+     * </ul>
      */
     private static ApiFieldError bodyErrorOf(Exception ex) {
         JacksonException jackson = jacksonExceptionOf(ex);
-        if (jackson == null) {
-            return ApiFieldError.ofWholeRequest(ErrorCode.PARAM_INVALID, "请求体缺失或格式错误");
+        String field = jackson == null ? null : deepestFieldOf(jackson);
+        String message;
+        if (jackson instanceof DatabindException) {
+            message = jackson instanceof InvalidFormatException ? "参数取值不合法" : "参数类型不正确";
+        } else {
+            message = "请求体缺失或格式错误";
         }
-        String field = deepestFieldOf(jackson);
-        if (field == null) {
-            return ApiFieldError.ofWholeRequest(ErrorCode.PARAM_INVALID, "请求体缺失或格式错误");
-        }
-        String message = jackson instanceof InvalidFormatException ? "参数取值不合法" : "参数类型不正确";
-        return ApiFieldError.of(field, ErrorCode.PARAM_INVALID, message);
+        return field == null
+                ? ApiFieldError.ofWholeRequest(ErrorCode.PARAM_INVALID, message)
+                : ApiFieldError.of(field, ErrorCode.PARAM_INVALID, message);
     }
 
     /** 沿 cause 链找 Jackson 的异常（Spring 会包一层 {@code HttpMessageNotReadableException}）。 */
@@ -257,8 +274,10 @@ public class GlobalExceptionHandler {
      * {@link #handleUnexpected} 变成 **500「服务器内部错误」**：用户填了空用户名，后端报"服务器内部错误"。
      * 这是"注解看着像保证、实际错得离谱"的典型——判别力只来自 {@code ValidationErrorContractTests#请求参数上的约束生效}。
      *
-     * <p>字段名取 {@link MethodParameter#getParameterName()}（编译带 {@code -parameters}，Boot 默认开），
-     * 它已剥掉 {@code @RequestParam} 的重命名，仍是**请求里的参数名**。
+     * <p>字段名取**请求里的名字**（不是 Java 形参名）：先看 {@code @RequestParam(name/value)} /
+     * {@code @RequestPart(name/value)}，没有别名才回退 {@link MethodParameter#getParameterName()}
+     * （{@code -parameters} 编出的形参名，Boot 默认开）。本仓目前**没有**任何别名写法，
+     * 但"以后有人加别名"是低成本高概率的变化，不能靠"恰好同名"。
      * 文案取约束注解上的 {@code message}（源码里的稳定文案）；缺失时退回 {@code 参数不合法}。
      */
     @ExceptionHandler(HandlerMethodValidationException.class)
@@ -266,7 +285,7 @@ public class GlobalExceptionHandler {
                                                                    HttpServletRequest req) {
         List<ApiFieldError> errors = new ArrayList<>();
         for (ParameterValidationResult result : ex.getParameterValidationResults()) {
-            String field = result.getMethodParameter().getParameterName();
+            String field = requestNameOf(result.getMethodParameter());
             for (MessageSourceResolvable error : result.getResolvableErrors()) {
                 errors.add(ApiFieldError.of(field, ErrorCode.PARAM_INVALID, messageOf(error, "参数不合法")));
             }
@@ -288,6 +307,25 @@ public class GlobalExceptionHandler {
     private static String messageOf(MessageSourceResolvable error, String fallback) {
         String message = error.getDefaultMessage();
         return message == null || message.isBlank() ? fallback : message;
+    }
+
+    /**
+     * 被校验的方法参数在**请求里**的名字。
+     *
+     * <p>★ {@link MethodParameter#getParameterName()} 是 **Java 形参名**：{@code @RequestParam("alias") String x}
+     * 会给 {@code x}，而请求里叫 {@code alias}。前端只认请求名，故先读注解上的别名，
+     * 没写别名时两者才等价（本仓现状）。
+     */
+    private static String requestNameOf(MethodParameter parameter) {
+        RequestParam param = parameter.getParameterAnnotation(RequestParam.class);
+        if (param != null && !param.name().isBlank()) {
+            return param.name();
+        }
+        RequestPart part = parameter.getParameterAnnotation(RequestPart.class);
+        if (part != null && !part.name().isBlank()) {
+            return part.name();
+        }
+        return parameter.getParameterName();
     }
 
     /**
@@ -427,6 +465,11 @@ public class GlobalExceptionHandler {
     }
 
     private static String defaultMessage(FieldError fe) {
-        return fe.getDefaultMessage() == null ? "非法值" : fe.getDefaultMessage();
+        return defaultMessage(fe.getDefaultMessage());
+    }
+
+    /** 约束注解未写 {@code message} 时的兜底（本仓约定必须写，见 §2.5.1；漏写走这里，不落 Locale 默认值）。 */
+    private static String defaultMessage(String message) {
+        return message == null || message.isBlank() ? "非法值" : message;
     }
 }
