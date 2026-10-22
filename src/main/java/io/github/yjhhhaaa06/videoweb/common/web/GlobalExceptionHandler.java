@@ -21,6 +21,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.exc.InvalidFormatException;
 
 import java.util.List;
 import java.util.Set;
@@ -133,11 +135,26 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * 缺参 / 类型不匹配 / 请求体不可解析 / **缺 multipart part**：均归为参数错误。
+     * 缺参 / 类型不匹配 / 请求体不可解析 / **缺 multipart part**：均归为参数错误，
+     * 且**统一给出字段级定位** {@code errors:[{field, code, message}]}（`T57`）。
      *
      * <p>⚠️ 最后一类（{@link MissingServletRequestPartException}）是 S7 加入的：
      * 上传端点的必填文件 part 缺失时 Spring 抛它。TV 侧同场景是
      * {@code getPart → null → NPE 未捕获 → 500}（《决策留痕表》D-11 的记录来源），本实现按 D-3 先例统一归 400。
+     *
+     * <h2>★ 为什么 message 是一张"稳定文案表"，而不是异常自带的文本</h2>
+     * 这些异常自带的 message 有两类问题：① 可能**回显客户端发来的值**
+     * （{@code MethodArgumentTypeMismatchException} 的 {@code for value [xxx]}），那是 PII 进 body 的路径；
+     * ② 全是英文框架措辞，前端无法展示。故这里按异常类型映射到四个固定中文文案，
+     * 异常对象**只进日志**（出口脱敏负责把回显掩掉）。
+     *
+     * <h2>字段名从哪来</h2>
+     * <ul>
+     *   <li>缺参 → {@code getParameterName()}；缺 part → {@code getRequestPartName()}；</li>
+     *   <li>类型不匹配 → {@code getName()}（是**参数名**，与请求里的键同名）；</li>
+     *   <li>请求体不可解析 → Jackson 的**引用链**最深一层属性名（{@link JacksonException#getPath()}）；
+     *       整体格式错（报文残缺 / 空体）时**无法**定位字段 ⇒ 该条不出现 {@code field}。</li>
+     * </ul>
      */
     @ExceptionHandler({
             MissingServletRequestParameterException.class,
@@ -151,7 +168,79 @@ public class GlobalExceptionHandler {
         // 故此处**不**在调用点手写脱敏（否则就是两套机制、两处要维护）。
         // ★ 响应体**只给稳定文案**：异常 message 可能含入参回显，不许进 body。
         log.warn("请求参数错误 {} {} -> {}", req.getMethod(), req.getRequestURI(), ex.getMessage());
-        return errorWriter.toResponse(ErrorCode.PARAM_INVALID);
+        ApiFieldError error = fieldErrorOf(ex);
+        return errorWriter.toResponse(ErrorCode.PARAM_INVALID,
+                ApiErrorWriter.summary(List.of(error)),
+                List.of(error));
+    }
+
+    /**
+     * 把参数类异常翻译成**一条**字段级错误（`T57`）：能定位就给 {@code field}，不能就省略。
+     *
+     * <p>文案表（对外契约，改动需同步 §2.5）：
+     * {@code 缺少必填参数} / {@code 缺少必填部分} / {@code 参数类型不正确} /
+     * {@code 参数取值不合法} / {@code 请求体缺失或格式错误}。
+     */
+    private static ApiFieldError fieldErrorOf(Exception ex) {
+        if (ex instanceof MissingServletRequestParameterException missingParam) {
+            return ApiFieldError.of(missingParam.getParameterName(), ErrorCode.PARAM_INVALID, "缺少必填参数");
+        }
+        if (ex instanceof MissingServletRequestPartException missingPart) {
+            return ApiFieldError.of(missingPart.getRequestPartName(), ErrorCode.PARAM_INVALID, "缺少必填部分");
+        }
+        if (ex instanceof MethodArgumentTypeMismatchException typeMismatch) {
+            return ApiFieldError.of(typeMismatch.getName(), ErrorCode.PARAM_INVALID, "参数类型不正确");
+        }
+        return bodyErrorOf(ex);
+    }
+
+    /**
+     * 请求体不可解析（{@link HttpMessageNotReadableException}）：尽力定位到字段。
+     *
+     * <p>区分两种成因：{@code InvalidFormatException}（值存在但不可转换，如 {@code "abc"} → {@code Long}、
+     * 非法枚举字面量）文案用 {@code 参数取值不合法}；其余（结构不对 / 类型不对 / 报文残缺）用
+     * {@code 参数类型不正确}；完全定位不到字段时退化为 {@code 请求体缺失或格式错误}。
+     */
+    private static ApiFieldError bodyErrorOf(Exception ex) {
+        JacksonException jackson = jacksonExceptionOf(ex);
+        if (jackson == null) {
+            return ApiFieldError.ofWholeRequest(ErrorCode.PARAM_INVALID, "请求体缺失或格式错误");
+        }
+        String field = deepestFieldOf(jackson);
+        if (field == null) {
+            return ApiFieldError.ofWholeRequest(ErrorCode.PARAM_INVALID, "请求体缺失或格式错误");
+        }
+        String message = jackson instanceof InvalidFormatException ? "参数取值不合法" : "参数类型不正确";
+        return ApiFieldError.of(field, ErrorCode.PARAM_INVALID, message);
+    }
+
+    /** 沿 cause 链找 Jackson 的异常（Spring 会包一层 {@code HttpMessageNotReadableException}）。 */
+    private static JacksonException jacksonExceptionOf(Throwable ex) {
+        Throwable cause = ex.getCause();
+        while (cause != null && !(cause instanceof JacksonException)) {
+            cause = cause.getCause();
+        }
+        return (JacksonException) cause;
+    }
+
+    /**
+     * Jackson 引用链里**最深一层**的属性名（{@code {"a":{"b":1}}} 取 {@code b}）。
+     *
+     * <p>数组下标引用没有属性名（{@code getPropertyName() == null}）⇒ 跳过，
+     * 于是 {@code {"items":[{"x":"bad"}]}} 仍能定位到 {@code x}。
+     */
+    private static String deepestFieldOf(JacksonException ex) {
+        List<JacksonException.Reference> path = ex.getPath();
+        if (path == null || path.isEmpty()) {
+            return null;
+        }
+        String field = null;
+        for (JacksonException.Reference reference : path) {
+            if (reference.getPropertyName() != null) {
+                field = reference.getPropertyName();
+            }
+        }
+        return field;
     }
 
     /**

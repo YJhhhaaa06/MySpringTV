@@ -32,6 +32,9 @@ import org.springframework.web.bind.annotation.RestController;
  * 全局出口的**统一文案**（{@code "参数错误"}）。而 TV 这里的两条文案是**区分开的**
  * （缺参 {@code "缺少 userId"} / 格式错 {@code "userId 格式错误"}），且**状态码都是 400**。
  * 既然差别只在 msg，收 {@code String} 并复刻旧判定最省事、也最忠实。
+ * <p>★ `T57` 复核：现在全局出口会给出 {@code errors[field=userId]} 与稳定文案
+ * （{@code 缺少必填参数} / {@code 参数类型不正确}）——"能定位到参数"这件事已经由契约保证，
+ * 但**TV 的原话仍未保留** ⇒ 本决策不变（要的是那两句文案，不是"能不能定位"）。
  * （与同域 {@code /search/IdSearch} 的处置不同：那里的 contentId **没有**专用文案
  * ——TV 对它是"空判写 PARAM_ERROR + 未捕获的 parseLong"，故那边直接用了参数绑定。）
  */

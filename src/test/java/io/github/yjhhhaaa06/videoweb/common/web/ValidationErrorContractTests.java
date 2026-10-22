@@ -109,7 +109,79 @@ class ValidationErrorContractTests extends AbstractHttpIntegrationTest {
                 .isFalse();
     }
 
+    // ==================== 框架族：缺参 / 类型 / 不可解析（同一形状） ====================
+
+    @Test
+    @DisplayName("缺必填参数 ⇒ 400 + errors[field=参数名]（不是只回一句「参数错误」）")
+    void 缺必填参数带字段定位() {
+        String token = registerAndGetToken("13800000201", "t57-missing-param", "123456");
+
+        // /comment/delete 的 commentId 是必填 @RequestParam ⇒ Spring 抛
+        // MissingServletRequestParameterException（参数名由异常携带，不靠解析文案）。
+        ResponseEntity<String> resp = post("/comment/delete", null, token);
+
+        assertThat(resp.getStatusCode().value()).isEqualTo(400);
+        assertThat(Envelope.code(resp)).isEqualTo(ErrorCode.PARAM_INVALID.getCode());
+        JsonNode error = singleError(resp);
+        assertThat(error.path("field").asString()).isEqualTo("commentId");
+        assertThat(error.path("code").asString()).isEqualTo(ErrorCode.PARAM_INVALID.getCode());
+        assertThat(error.path("message").asString()).isEqualTo("缺少必填参数");
+        assertThat(Envelope.msg(resp)).as("顶层摘要与 errors 同源").isEqualTo("commentId: 缺少必填参数");
+    }
+
+    @Test
+    @DisplayName("参数类型不匹配 ⇒ 400 + errors[field=参数名]，且不回显非法值")
+    void 类型不匹配带字段定位且不回显() {
+        // contentId 声明为 Long，传 abc 由 Spring 转换失败（MethodArgumentTypeMismatchException）。
+        ResponseEntity<String> resp = get("/comment/show?contentId=abc", null);
+
+        assertThat(resp.getStatusCode().value()).isEqualTo(400);
+        JsonNode error = singleError(resp);
+        assertThat(error.path("field").asString()).isEqualTo("contentId");
+        assertThat(error.path("message").asString()).isEqualTo("参数类型不正确");
+        // ★ 异常 message 里带着 "Failed to convert 'contentId' with value: 'abc'" —— 那是回显，只许进日志
+        assertThat(resp.getBody()).as("回显只进日志，不进 body").doesNotContain("abc");
+    }
+
+    @Test
+    @DisplayName("请求体里的值不可解析 ⇒ errors[field] 指到具体字段（非法取值的定位能力）")
+    void 请求体取值不可解析能定位字段() {
+        String token = registerAndGetToken("13800000202", "t57-bad-value", "123456");
+
+        // contentId 是 Long，JSON 里给 "abc" ⇒ Jackson 的 InvalidFormatException，
+        // 引用链是 ["contentId"] ⇒ field 可以精确到字段（这正是"非法枚举值/非法取值"的定位路径）。
+        ResponseEntity<String> resp = post("/comment/add",
+                Map.of("contentId", "abc", "message", "hi"), token);
+
+        assertThat(resp.getStatusCode().value()).isEqualTo(400);
+        JsonNode error = singleError(resp);
+        assertThat(error.path("field").asString()).isEqualTo("contentId");
+        assertThat(error.path("message").asString()).isEqualTo("参数取值不合法");
+        assertThat(resp.getBody()).doesNotContain("abc");
+    }
+
+    @Test
+    @DisplayName("请求体整体不可解析 ⇒ 400 + 一条无 field 的 errors（不伪造字段名）")
+    void 请求体整体不可解析时不给假字段() {
+        // 需要 @RequestBody 的端点不带请求体 ⇒ HttpMessageNotReadableException，且无可定位字段。
+        ResponseEntity<String> resp = post("/user/login", null, null);
+
+        assertThat(resp.getStatusCode().value()).isEqualTo(400);
+        JsonNode error = singleError(resp);
+        assertThat(error.has("field")).as("定位不到字段时**省略** field，而不是编一个名字：%s", error).isFalse();
+        assertThat(error.size()).as("只有 code / message 两个键").isEqualTo(2);
+        assertThat(error.path("message").asString()).isEqualTo("请求体缺失或格式错误");
+        assertThat(Envelope.msg(resp)).isEqualTo("请求体缺失或格式错误");
+    }
+
     // ==================== 辅助（只读 JSON 树，不反序列化成 ApiResponse） ====================
+
+    private static JsonNode singleError(ResponseEntity<String> resp) {
+        JsonNode errors = Envelope.errors(resp);
+        assertThat(errors.isArray()).as("errors 必须是数组：%s", resp.getBody()).isTrue();
+        assertThat(errors.size()).as("这一类错误只定位到一个字段：%s", resp.getBody()).isEqualTo(1);
+        return errors.get(0);
+    }
 
     private static List<String> fieldNames(JsonNode errors) {
         List<String> names = new ArrayList<>();

@@ -287,6 +287,11 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
         ResponseEntity<String> resp = postMultipart("/api/upload/video", form, token);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(400);
+        // `T57`（契约 §2.5）：缺 part 与缺参/类型不匹配同一形状——errors[field=part 名]。
+        // part 名由 MissingServletRequestPartException 携带，不靠解析文案。
+        assertThat(Envelope.errors(resp).size()).as("一条字段级错误：%s", resp.getBody()).isEqualTo(1);
+        assertThat(Envelope.errors(resp).get(0).path("field").asString()).isEqualTo("video");
+        assertThat(Envelope.errors(resp).get(0).path("message").asString()).isEqualTo("缺少必填部分");
     }
 
     // ==================== 3. 换源（replace） ====================

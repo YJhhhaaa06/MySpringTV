@@ -55,6 +55,9 @@ import java.util.List;
  * {@code "contentId格式错误"}（同为 400）。新实现交给 Spring 的参数绑定 ⇒ 走全局出口的
  * **统一文案**（{@code "参数错误"}）。**HTTP 状态码与 body 的 code 不变（400）**，
  * 只有 {@code msg} 变化——与 S1（coupon）删掉 1062 判断后的同类差异，已记入决策表与提交信息。
+ * <p>★ `T57` 起这类错误不再是"只有一句话"：出口统一给 {@code errors:[{field,code,message}]}
+ * （{@code field=contentId}，文案如 {@code 缺少必填参数} / {@code 参数类型不正确}），
+ * {@code msg} 变成该条的摘要。差异仍然存在（TV 的原话没有保留），但**机器已经能定位到参数**了。
  */
 @RestController
 @RequestMapping("/content")
