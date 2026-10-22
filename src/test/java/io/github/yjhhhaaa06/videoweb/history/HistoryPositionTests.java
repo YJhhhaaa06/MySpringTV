@@ -1,14 +1,18 @@
 package io.github.yjhhhaaa06.videoweb.history;
 
+import io.github.yjhhhaaa06.videoweb.common.cache.RedisCircuitBreaker;
 import io.github.yjhhhaaa06.videoweb.content.AbstractContentIntegrationTest;
 import io.github.yjhhhaaa06.videoweb.support.Envelope;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import tools.jackson.databind.JsonNode;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.doReturn;
 
 /**
  * 续播位置（{@code GET /history/position}）的**行为契约**（播放记录专项 T49-2）。
@@ -25,8 +29,15 @@ import static org.assertj.core.api.Assertions.assertThat;
  * </ul>
  *
  * <h2>反向验证（注入 ⇒ 必红，实测见任务回写）</h2>
- * 给 {@code position} 加"内容不存在 ⇒ 404"⇒ 「已删仍答」与「不存在 ⇒ 0」两条红。
+ * 给 {@code position} 加"内容不存在 ⇒ 404"⇒ 「已删仍答」与「不存在 ⇒ 0」两条红；
+ * 去掉"读缓冲优先"⇒ {@code 缓冲优先于已落库的值} 红。
+ *
+ * <p>★ 轮询周期推到 1h：本类自己用 {@code /flush} 造前置状态，不要让兜底线程同时动同一批键。
  */
+@TestPropertySource(properties = {
+        "video.history.buffer.poll-interval=1h",
+        "video.history.buffer.buffer-ttl=3h"
+})
 class HistoryPositionTests extends AbstractContentIntegrationTest {
 
     private static final String AUTHOR_PHONE = "13900000201";
@@ -39,6 +50,9 @@ class HistoryPositionTests extends AbstractContentIntegrationTest {
     private String viewerToken;
     private long viewerId;
     private long authorId;
+
+    @MockitoSpyBean
+    private RedisCircuitBreaker breaker;
 
     @BeforeEach
     void setUpUsers() {
@@ -132,6 +146,50 @@ class HistoryPositionTests extends AbstractContentIntegrationTest {
         //    注解是否在位只由 SecurityContractTests 求值（钉路由，不证明注解）。
         assertThat(position(null, contentId).getStatusCode().value()).as("未登录 ⇒ 401").isEqualTo(401);
         assertThat(position("not-a-jwt", contentId).getStatusCode().value()).as("坏 token ⇒ 401").isEqualTo(401);
+    }
+
+    // ==================== R-19（T51-3）：读缓冲优先 ====================
+
+    /**
+     * ★ 缓冲是数据库的**上游**：用户"看到 900 但还没来得及 flush"（或崩溃了）时，
+     * 重开页面必须拿到 900，而不是库里那个更旧的 500。
+     *
+     * <p>判别力：去掉"读缓冲优先"⇒ 返回 500 ⇒ 本用例红。
+     */
+    @Test
+    @DisplayName("★缓冲优先：库里 500、缓冲里 900（未落库）⇒ 返回 900")
+    void 缓冲优先于已落库的值() {
+        long contentId = insertVideoContent(authorId, "缓冲优先视频");
+        post("/history/report?contentId=" + contentId + "&progress=500", null, viewerToken);
+        post("/history/flush", null, viewerToken);
+
+        // 再上报一次但**不 flush**：这条只活在缓冲里（模拟"崩溃 / 还没退出"）
+        post("/history/report?contentId=" + contentId + "&progress=900", null, viewerToken);
+
+        assertThat(Envelope.data(position(viewerToken, contentId)).path("progress").asInt())
+                .as("★ 缓冲比库新 ⇒ 必须返回 900（读到 500 说明没读缓冲）")
+                .isEqualTo(900);
+    }
+
+    /**
+     * Redis 不可用时的姿态：**降级查库**，不 500。
+     *
+     * <p>此时拿到的是落库的旧值 —— 这是本仓既有降级口径的延续（详情 / 列表在 Redis 挂时同样降级），
+     * 不是本端点独有的劣化。
+     */
+    @Test
+    @DisplayName("缓冲不可用 ⇒ 降级读库（返回已落库的值，不 500）")
+    void 缓冲不可用时降级查库() {
+        long contentId = insertVideoContent(authorId, "降级视频");
+        post("/history/report?contentId=" + contentId + "&progress=500", null, viewerToken);
+        post("/history/flush", null, viewerToken);
+
+        doReturn(false).when(breaker).tryAcquire();
+
+        ResponseEntity<String> resp = position(viewerToken, contentId);
+        assertThat(resp.getStatusCode().value()).as("降级不是错误：%s", resp.getBody()).isEqualTo(200);
+        assertThat(Envelope.data(resp).path("progress").asInt())
+                .as("拿落库的旧值").isEqualTo(500);
     }
 
     private ResponseEntity<String> position(String token, long contentId) {

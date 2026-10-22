@@ -6,6 +6,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.context.TestPropertySource;
 import tools.jackson.databind.JsonNode;
 
 import java.sql.Timestamp;
@@ -40,7 +41,14 @@ import static org.assertj.core.api.Assertions.assertThat;
  * ① 去掉 {@code content_id DESC} ⇒ 同秒用例红；
  * ② 占位分支不清作者（配合越界 join 取作者）⇒ 占位用例红；
  * ③ 失效行被跳过 ⇒ {@code total} / 页内条数断言红。
+ *
+ * <p>★ 轮询周期推到 1h：本类会"只上报不 flush"来钉"列表不合并缓冲"，
+ * 15s 的兜底触发会把它悄悄落库 ⇒ 那条断言偶发红。
  */
+@TestPropertySource(properties = {
+        "video.history.buffer.poll-interval=1h",
+        "video.history.buffer.buffer-ttl=3h"
+})
 class HistoryListTests extends AbstractContentIntegrationTest {
 
     private static final String AUTHOR_PHONE = "13900000101";
@@ -420,6 +428,36 @@ class HistoryListTests extends AbstractContentIntegrationTest {
     // ========================================================================
     // HTTP / 夹具 / 独立 oracle
     // ========================================================================
+
+    /**
+     * ★ `R-19`（T51-3）明确的口径：**列表不合并缓冲**。
+     *
+     * <p>为什么不做：合并会打崩分页语义 —— {@code total} 算不算缓冲里的条目？
+     * 排序键要拿 {@code serverReceiveTs} 和 {@code update_time} 混着比？两样都会让这一页的
+     * 边界变得无法解释。代价是"崩溃用户刚看的新视频最多滞后一个兜底窗口才进列表"（§12.6/§12.7 #2）。
+     *
+     * <p>判别力：若把缓冲合并进列表，第二条断言（未 flush 时 {@code total=0}）会红。
+     */
+    @Test
+    @DisplayName("★列表不合并缓冲：只上报未 flush ⇒ 看不到；flush 后才出现")
+    void 列表不合并缓冲() {
+        long contentId = insertVideoContent(authorId, "只在缓冲里的视频");
+        post("/history/report?contentId=" + contentId + "&progress=42", null, viewerToken);
+
+        JsonNode before = Envelope.data(list(viewerToken, null, null));
+        assertThat(before.path("total").asInt())
+                .as("★ 缓冲里的条目不计入 total（分页语义不接受半合并）")
+                .isZero();
+        assertThat(contentIds(before.path("list")))
+                .as("★ 未 flush ⇒ 列表里不该有它")
+                .doesNotContain(contentId);
+
+        post("/history/flush", null, viewerToken);
+
+        JsonNode after = Envelope.data(list(viewerToken, null, null));
+        assertThat(after.path("total").asInt()).isEqualTo(1);
+        assertThat(contentIds(after.path("list"))).containsExactly(contentId);
+    }
 
     private ResponseEntity<String> list(String token, String page, String pageSize) {
         StringBuilder url = new StringBuilder("/history/list");

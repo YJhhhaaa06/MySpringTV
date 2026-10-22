@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
 
 /**
  * 播放记录业务：写路径（{@code /history/report} 与 {@code /history/play}）+ 读路径
@@ -240,7 +241,12 @@ public class HistoryService {
     }
 
     /**
-     * 续播位置（{@code GET /history/position?contentId=}）：{@code (user_id, content_id)} 点查。
+     * 续播位置（{@code GET /history/position?contentId=}）：**先读缓冲，未命中再点查 DB**。
+     *
+     * <p>★ `R-19`（T51-3）起读缓冲优先：缓冲一定是数据库的**上游**（比库里新），
+     * 所以崩溃 / 断网的用户重开时拿到的是"最后上报的秒数"而不是库里那个更旧的值。
+     * 代价是 `/position` 从此依赖 Redis —— Redis 不可用时**降级查库**（拿到旧值，可接受；
+     * 此时本仓的详情 / 列表也全部在降级）。
      *
      * <p>★ <b>不校验内容、不返回 404</b>（{@code history.md} §七.2）：内容已删也照样回答进度
      * —— 内容是死是活由详情 404 负责，这里只回答"我的进度是多少"。无记录 ⇒ {@code 0}
@@ -253,6 +259,14 @@ public class HistoryService {
      * @return 上次看到的秒数；无记录 ⇒ 0
      */
     public int position(long userId, long contentId) {
+        try {
+            OptionalInt buffered = reportBuffer.cachedProgress(userId, contentId);
+            if (buffered.isPresent()) {
+                return buffered.getAsInt();
+            }
+        } catch (CacheUnavailableException e) {
+            log.debug("续播位置读缓冲失败，降级查库: userId={}, contentId={}", userId, contentId);
+        }
         Integer progress = watchHistoryDao.findProgress(userId, contentId);
         return progress == null ? 0 : progress;
     }
