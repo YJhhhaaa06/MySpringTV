@@ -188,7 +188,7 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
         ResponseEntity<String> resp = get("/start", null);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
-        assertThat(Envelope.code(resp)).isEqualTo(200);
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
 
         String anonRaw = rawOf(ANON_KEY);
         assertThat(anonRaw).as("放行后匿名桶必须被写过").isNotNull();
@@ -210,7 +210,7 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
         ResponseEntity<String> resp = get("/start", null);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(429);
-        assertThat(Envelope.code(resp)).as("业务码与 HTTP 对齐（T23 契约）").isEqualTo(429);
+        assertThat(Envelope.code(resp)).as("业务码与 HTTP 对齐（T23 契约）").isEqualTo("RATE_LIMITED");
         assertThat(Envelope.msg(resp)).isEqualTo("请求过于频繁");
 
         // 独立 oracle：被拒 ⇒ 用户桶只扣询问费（0.3），尾款（0.7）不扣；
@@ -359,7 +359,7 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
     // ==================== 访问日志（链序实测） ====================
 
     @Test
-    @DisplayName("★ 429 的访问行 code=429（AccessLogFilter 包住限流器的链序实测）")
+    @DisplayName("★ 429 的访问行 code=RATE_LIMITED（AccessLogFilter 包住限流器的链序实测）")
     void 被拒429的访问行code429_链序实测() {
         putBucket(ANON_KEY, 0.2, System.currentTimeMillis());
         putBucket(SERVER_KEY, CAP, System.currentTimeMillis());
@@ -372,7 +372,7 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
         String line = awaitAccessLine("/start", "status=429");
         assertThat(line)
                 .as("429 必须补记业务码——否则访问行记成 code=0，三态塌成两态")
-                .contains("code=429 ");
+                .contains("code=RATE_LIMITED ");
         assertThat(line).contains("userId=- ");
     }
 }

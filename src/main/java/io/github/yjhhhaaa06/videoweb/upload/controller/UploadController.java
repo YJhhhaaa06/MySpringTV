@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.upload.controller;
 
 import io.github.yjhhhaaa06.videoweb.common.exception.BusinessException;
+import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
@@ -183,11 +184,11 @@ public class UploadController {
                                                    @RequestPart(value = "file", required = false) MultipartFile file) {
         UploadType uploadType = UploadType.fromMediaType(type);
         if (uploadType == null) {
-            throw new ParamException("type 不合法，应为 1/2/3");
+            throw new ParamException(ErrorCode.UPLOAD_TYPE_INVALID, "type 不合法，应为 1/2/3");
         }
         // 缺文件 / 空文件 → TV 文案逐字保留（旧实现显式判 null 与 size<=0，同为 400）
         if (file == null || file.getSize() <= 0) {
-            throw new ParamException("请选择要替换的文件");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "请选择要替换的文件");
         }
 
         UploadResult result = null;
@@ -232,10 +233,10 @@ public class UploadController {
 
     private static String requireTitle(String title) {
         if (title == null || title.isBlank()) {
-            throw new ParamException("标题不能为空");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "标题不能为空");
         }
         if (title.length() > 50) {
-            throw new ParamException("标题不得超过50字");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "标题不得超过50字");
         }
         return title;
     }
@@ -246,7 +247,7 @@ public class UploadController {
             return "-";
         }
         if (description.length() > maxLength) {
-            throw new ParamException(message);
+            throw new ParamException(ErrorCode.PARAM_INVALID, message);
         }
         return description;
     }
@@ -260,7 +261,7 @@ public class UploadController {
      */
     private static int parseCategoryId(String categoryId) {
         if (categoryId == null || categoryId.length() > 1 || !categoryId.matches("^[0-9]+$")) {
-            throw new ParamException("暂时没有这个分区");
+            throw new ParamException(ErrorCode.CONTENT_CATEGORY_INVALID, "暂时没有这个分区");
         }
         return Integer.parseInt(categoryId);
     }

@@ -7,6 +7,7 @@ import io.github.yjhhhaaa06.videoweb.common.cache.CacheUnavailableException;
 import io.github.yjhhhaaa06.videoweb.common.cache.SingleFlight;
 import io.github.yjhhhaaa06.videoweb.common.config.ContentCacheProperties;
 import io.github.yjhhhaaa06.videoweb.common.config.MediaProperties;
+import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentMediaDao;
@@ -473,10 +474,10 @@ public class ContentCache {
     /** 参数校验 + 归一为索引 key（TV {@code buildQueryKey} 逐字保留：同文案、同判定顺序）。 */
     private String buildQueryKey(Integer type, Integer categoryId) {
         if (type != null && type != 0 && (type < 1 || type > 2)) {
-            throw new ParamException("不支持的内容类型: " + type);
+            throw new ParamException(ErrorCode.CONTENT_TYPE_INVALID, "不支持的内容类型: " + type);
         }
         if (categoryId != null && (categoryId < 0 || categoryId > 9)) {
-            throw new ParamException("不支持的分区: " + categoryId);
+            throw new ParamException(ErrorCode.CONTENT_CATEGORY_INVALID, "不支持的分区: " + categoryId);
         }
         int t = (type != null && type != 0) ? type : -1;
         int c = (categoryId != null) ? categoryId : -1;

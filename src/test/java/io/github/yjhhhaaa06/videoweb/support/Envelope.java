@@ -50,8 +50,18 @@ public final class Envelope {
         return parse(response).path("data").path(field).asLong();
     }
 
-    public static int code(ResponseEntity<String> response) {
-        return parse(response).path("code").asInt();
+    /**
+     * 取业务码（**字符串**，如 {@code "AUTH_BAD_CREDENTIALS"}、成功为 {@code "OK"}）。
+     *
+     * <p>★ `T55` 起码不再是 HTTP 状态码的数字副本：断言必须写**具体码**，
+     * 只写数字会退回到"两层信息重复"的旧形态（也编译不过 —— {@code String} 与 {@code int} 不同型）。
+     */
+    public static String code(ResponseEntity<String> response) {
+        JsonNode node = parse(response).path("code");
+        if (node.isMissingNode() || node.isNull()) {
+            return null;
+        }
+        return node.asString();
     }
 
     public static String msg(ResponseEntity<String> response) {

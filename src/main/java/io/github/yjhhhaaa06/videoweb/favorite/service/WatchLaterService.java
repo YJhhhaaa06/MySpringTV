@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.favorite.service;
 
 import io.github.yjhhhaaa06.videoweb.common.config.FavoriteLimitProperties;
+import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
@@ -123,7 +124,7 @@ public class WatchLaterService {
      */
     public void remove(long userId, List<Long> contentIds) {
         if (contentIds == null || contentIds.isEmpty()) {
-            throw new ParamException("没有要移出的内容（contentIds 不能为空）");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "没有要移出的内容（contentIds 不能为空）");
         }
         watchLaterDao.deleteByUserAndContentIds(userId, contentIds);
     }
@@ -224,10 +225,10 @@ public class WatchLaterService {
     private void requireVideoContent(long contentId) {
         Integer type = contentDao.findAliveContentType(contentId);
         if (type == null) {
-            throw new NotFoundException("内容不存在");
+            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
         }
         if (type != CONTENT_TYPE_VIDEO) {
-            throw new ParamException("只能添加视频");
+            throw new ParamException(ErrorCode.WATCHLATER_TYPE_INVALID, "只能添加视频");
         }
     }
 
@@ -245,7 +246,7 @@ public class WatchLaterService {
     private void requireCapacity(long userId, long contentId) {
         int max = limits.watchLaterMaxItems();
         if (watchLaterDao.countByUserIdExcludingContent(userId, contentId) >= max) {
-            throw new ParamException("稍后再看已满（最多 " + max + " 条）");
+            throw new ParamException(ErrorCode.WATCHLATER_FULL, "稍后再看已满（最多 " + max + " 条）");
         }
     }
 

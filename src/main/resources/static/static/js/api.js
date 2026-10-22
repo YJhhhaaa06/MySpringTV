@@ -6,6 +6,8 @@
 //     （决策③ 保留 JWT；新后端 JwtAuthFilter 只认 Authorization）。
 //   - 新后端把 **HTTP 状态码与业务 code 对齐**（决策⑧「HTTP 状态码正确化」），
 //     不再是 TV 的"协议层恒 200"。但错误响应**仍带 {code,msg} 信封**，
+//     ★ T55 起 `code` 是**字符串码**（成功 "OK"、失败 "AUTH_BAD_CREDENTIALS" 等），
+//       不再是 HTTP 状态码的数字副本；下面 request() 做了最小兼容，完整适配见 T61。
 //     故必须**先读 body 再判**——若沿用旧写法按 `res.ok` 短路，会丢掉 msg/code，
 //     且 401 无法触发清登录态跳转，各视图的 `e.code === 401/403` 分支也会失效。
 //   - 唯一无信封的错误：未识别路径由 Spring 直接产出 404（D-6），此时回落到
@@ -83,16 +85,29 @@ export async function request(path, options = {}) {
     try { body = await res.json(); } catch (e) { body = null; }
   }
 
-  if (body && typeof body.code === 'number') {
-    if (body.code === 200) return body.data;
+  // ★ T55：业务码从「HTTP 状态码的副本」改成**字符串码**（成功 = "OK"，失败 = "AUTH_BAD_CREDENTIALS" 这类）。
+  //   这里做**过渡桥**，两件事：
+  //   ① 清登录态按**码**判（不再按数字 401）：AUTH_UNAUTHORIZED / AUTH_TOKEN_EXPIRED / AUTH_USER_NOT_FOUND；
+  //      ⚠️ AUTH_BAD_CREDENTIALS（登录失败）与 AUTH_OLD_PASSWORD_WRONG（改密时原密码错）**也是 401**，
+  //      但绝不能清态 —— 这正是"401 = 清态"这条老规则在 T55 后不再成立的原因（见接口契约 §2.1 注）。
+  //   ② `err.code` 暂时仍给**数字状态码**，让 18 个 view 里 `e.code === 401/403/404/409` 的既有分支继续命中
+  //      （旧后端 code 恒等于 status，故数值等价）；新的字符串码放在 `err.bizCode`。
+  //   ⚠️ 这是**临时兼容**：T61 会把各 view 改成按 `bizCode` 分支并删掉数字兼容，别在这上面加新逻辑。
+  const isEnvelope = body && (typeof body.code === 'string' || typeof body.code === 'number');
+  if (isEnvelope) {
+    if (body.code === 'OK' || body.code === 200) return body.data;
 
-    if (body.code === 401) {
+    const authLapsed = body.code === 'AUTH_UNAUTHORIZED'
+      || body.code === 'AUTH_TOKEN_EXPIRED'
+      || body.code === 'AUTH_USER_NOT_FOUND';
+    if (authLapsed) {
       clearAuth();
       showToast('登录已过期，请重新登录');
       location.hash = '#/login';
     }
     const err = new Error(body.msg || '请求失败');
-    err.code = body.code;
+    err.code = res.status;      // 过渡：旧 view 读数字
+    err.bizCode = body.code;    // 新契约：字符串码（T61 起 view 改读这个）
     err.status = res.status;
     throw err;
   }

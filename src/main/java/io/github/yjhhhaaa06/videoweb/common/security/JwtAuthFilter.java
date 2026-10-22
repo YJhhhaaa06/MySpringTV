@@ -11,7 +11,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.annotation.Order;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -104,7 +103,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             } catch (BusinessException e) {
                 // 令牌非法/过期。仅在需要登录时拒绝；否则按匿名处理（不要因坏 token 阻断公开接口）
                 if (authz.loginRequired()) {
-                    writeError(request, response, e.getCode(), e.getMessage());
+                    writeError(request, response, e.getErrorCode(), e.getMessage());
                     return;
                 }
                 log.debug("公开端点收到非法令牌，按匿名处理: {} {}", request.getMethod(), request.getRequestURI());
@@ -115,7 +114,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         //    ★ 顺序不可交换：@RequiresAdmin 的端点也要求登录 ⇒ 匿名访问 admin 端点得 401（契约），
         //      而不是掉到第 ③ 段变成 403。
         if (authz.loginRequired() && request.getAttribute(ATTR_USER_ID) == null) {
-            writeError(request, response, ErrorCode.UNAUTHORIZED.getCode(), ErrorCode.UNAUTHORIZED.getMessage());
+            writeError(request, response, ErrorCode.AUTH_UNAUTHORIZED);
             return;
         }
 
@@ -124,7 +123,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         if (authz.adminRequired()) {
             Long userId = (Long) request.getAttribute(ATTR_USER_ID);
             if (userId == null || !adminChecker.isAdmin(userId)) {
-                writeError(request, response, ErrorCode.FORBIDDEN.getCode(), ErrorCode.FORBIDDEN.getMessage());
+                writeError(request, response, ErrorCode.AUTH_FORBIDDEN);
                 return;
             }
         }
@@ -156,15 +155,24 @@ public class JwtAuthFilter extends OncePerRequestFilter {
      * {@code BusinessCodeAdvice}，而 advice 只对**经过 DispatcherServlet** 的响应生效——
      * 本过滤器在 DispatcherServlet **之前**短路（401/403 根本到不了控制器）。若不在此处补记，
      * 鉴权拒绝的访问行会记成 {@code code=0}，与"静态资源"混为一谈，访问日志的三态就塌成两态。
-     * 这与 TV 把 {@code code} 写在统一出口、且 AuthFilter 也走该出口是同一回事。
+     *
+     * <p>★ {@code T55} 起状态与码同源于 {@link ErrorCode}，不再 {@code HttpStatus.resolve}：
+     * 旧的 {@code int code} 既能当状态又能当码，正是"两层信息重复"的根。
      */
-    private void writeError(HttpServletRequest request, HttpServletResponse response, int code, String msg)
+    private void writeError(HttpServletRequest request, HttpServletResponse response, ErrorCode errorCode)
             throws IOException {
-        request.setAttribute(AccessLogFilter.ATTR_BUSINESS_CODE, code);
-        HttpStatus status = HttpStatus.resolve(code);
-        response.setStatus((status == null ? HttpStatus.UNAUTHORIZED : status).value());
+        writeError(request, response, errorCode, errorCode.getMessage());
+    }
+
+    /**
+     * @param msg 对外文案（令牌过期等场景可被异常携带的更具体文案覆盖）
+     */
+    private void writeError(HttpServletRequest request, HttpServletResponse response,
+                            ErrorCode errorCode, String msg) throws IOException {
+        request.setAttribute(AccessLogFilter.ATTR_BUSINESS_CODE, errorCode.getCode());
+        response.setStatus(errorCode.getStatus().value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding("UTF-8");
-        objectMapper.writeValue(response.getWriter(), ApiResponse.error(code, msg));
+        objectMapper.writeValue(response.getWriter(), ApiResponse.error(errorCode.getCode(), msg));
     }
 }

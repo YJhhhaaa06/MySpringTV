@@ -102,7 +102,7 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
         ResponseEntity<String> resp = addFolder("稍后再看", me.token);
 
         assertThat(resp.getStatusCode().value()).as("新建夹成功").isEqualTo(200);
-        assertThat(Envelope.code(resp)).isEqualTo(200);
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
         // ⚠️ data 是**纯字符串**，故取整个 data 节点再 asString()；Envelope.str 是给对象型 data 用的
         assertThat(Envelope.data(resp).asString()).as("写端点的 data 是中文文案（同 /like/add、/follow/add）")
                 .isEqualTo("创建成功");
@@ -196,7 +196,7 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
         ResponseEntity<String> resp = listFolders(fresh.token);
 
         assertThat(resp.getStatusCode().value()).as("空态不是错误").isEqualTo(200);
-        assertThat(Envelope.code(resp)).isEqualTo(200);
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
         assertThat(Envelope.hasDataField(resp)).as("★ data 键必须**存在**（NON_NULL 只剥 null；空数组不是 null，必须留在信封里）")
                 .isTrue();
         JsonNode data = Envelope.data(resp);
@@ -353,7 +353,7 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
         ResponseEntity<String> resp = removeFolder(defaultFolder, me.token);
 
         assertThat(resp.getStatusCode().value()).as("默认夹删不掉（favorite-需求.md §二）").isEqualTo(409);
-        assertThat(Envelope.code(resp)).isEqualTo(409);
+        assertThat(Envelope.code(resp)).isEqualTo("FAVORITE_FOLDER_DEFAULT");
         assertThat(folderExists(defaultFolder)).as("★ 409 之后夹必须还在").isTrue();
         assertThat(oracleItemCount(defaultFolder)).as("★ 夹内条目也不得被动过（拒删必须发生在删条目之前）")
                 .isEqualTo(1);

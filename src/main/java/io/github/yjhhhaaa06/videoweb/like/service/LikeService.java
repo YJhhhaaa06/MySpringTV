@@ -2,6 +2,7 @@ package io.github.yjhhhaaa06.videoweb.like.service;
 
 import io.github.yjhhhaaa06.videoweb.comment.dao.CommentDao;
 import io.github.yjhhhaaa06.videoweb.common.exception.ConflictException;
+import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
 import io.github.yjhhhaaa06.videoweb.like.cache.LikeCache;
@@ -84,10 +85,10 @@ public class LikeService {
     @Transactional
     public void likeContent(long userId, long contentId) {
         if (!contentDao.isContentExist(contentId)) {
-            throw new NotFoundException("内容不存在");
+            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
         }
         if (contentLikeDao.isLiked(userId, contentId)) {
-            throw new ConflictException("不可重复点赞");
+            throw new ConflictException(ErrorCode.LIKE_ALREADY_LIKED, "不可重复点赞");
         }
         contentLikeDao.addLike(userId, contentId);
         contentDao.updateLikeCount(contentId, 1);
@@ -103,10 +104,10 @@ public class LikeService {
     @Transactional
     public void removeLikeContent(long userId, long contentId) {
         if (!contentDao.isContentExist(contentId)) {
-            throw new NotFoundException("内容不存在");
+            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
         }
         if (!contentLikeDao.isLiked(userId, contentId)) {
-            throw new ConflictException("未点赞，无法取消");
+            throw new ConflictException(ErrorCode.LIKE_NOT_LIKED, "未点赞，无法取消");
         }
         contentLikeDao.deleteLike(userId, contentId);
         contentDao.updateLikeCount(contentId, -1);
@@ -127,10 +128,10 @@ public class LikeService {
     @Transactional
     public void likeComment(long userId, long commentId) {
         if (!commentDao.isCommentExist(commentId)) {
-            throw new NotFoundException("评论不存在");
+            throw new NotFoundException(ErrorCode.COMMENT_NOT_FOUND, "评论不存在");
         }
         if (commentLikeDao.isLiked(userId, commentId)) {
-            throw new ConflictException("不可重复点赞");
+            throw new ConflictException(ErrorCode.LIKE_ALREADY_LIKED, "不可重复点赞");
         }
         commentLikeDao.addLike(userId, commentId);
         commentDao.updateLikeCount(commentId, 1);
@@ -141,10 +142,10 @@ public class LikeService {
     @Transactional
     public void removeLikeComment(long userId, long commentId) {
         if (!commentDao.isCommentExist(commentId)) {
-            throw new NotFoundException("评论不存在");
+            throw new NotFoundException(ErrorCode.COMMENT_NOT_FOUND, "评论不存在");
         }
         if (!commentLikeDao.isLiked(userId, commentId)) {
-            throw new ConflictException("未点赞，不可取消");
+            throw new ConflictException(ErrorCode.LIKE_NOT_LIKED, "未点赞，不可取消");
         }
         commentLikeDao.removeLike(userId, commentId);
         commentDao.updateLikeCount(commentId, -1);

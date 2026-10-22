@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.content.controller;
 
+import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
@@ -75,11 +76,11 @@ public class SearchController {
     public ApiResponse<ContentDetailVO> idSearch(@CurrentUserId(required = false) Long userId,
                                                  @RequestParam(required = false) Long contentId) {
         if (contentId == null) {
-            throw new ParamException("contentId不能为空");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "contentId不能为空");
         }
         ContentDetailVO detail = contentService.getContentDetailVO(contentId, userId);
         if (detail == null) {
-            throw new NotFoundException("找不到对应内容");
+            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "找不到对应内容");
         }
         return ApiResponse.success(detail);
     }
@@ -98,7 +99,7 @@ public class SearchController {
                                                             @RequestParam(required = false) String page,
                                                             @RequestParam(required = false) String pageSize) {
         if (keyword == null || keyword.isBlank()) {
-            throw new ParamException("输入不能为空");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "输入不能为空");
         }
         return ApiResponse.success(contentService.search(
                 keyword.trim(),

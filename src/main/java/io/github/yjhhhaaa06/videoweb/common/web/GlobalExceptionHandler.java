@@ -8,7 +8,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
@@ -22,19 +21,19 @@ import org.springframework.web.multipart.support.MissingServletRequestPartExcept
 import java.util.stream.Collectors;
 
 /**
- * 统一异常出口（决策⑧：错误出口统一 + 两层语义对齐）。
+ * 统一异常出口（控制器层）。
  *
- * <p>从 TV 的 {@code ExceptionFilter} 承接职责。旧的出口是 Servlet Filter 里的
- * 手写 type-dispatch；此处改为 {@code @RestControllerAdvice}，注册在 Spring MVC 的
- * 异常解析链上，与 {@code @Valid} 校验失败共用同一个出口。
+ * <p><b>两层语义</b>（{@code architecture/tech/api/接口契约.md} §2.1）：
+ * HTTP status 表**类别**（前端做通用分支），body {@code code} 是**字符串码**（前端翻字典做精细分支），
+ * {@code msg} 只是兜底文案。状态与码**同源于异常携带的 {@link ErrorCode}**，本类不再
+ * {@code HttpStatus.resolve(code)} —— 那正是"码与状态重复"的旧形态。
  *
- * <p><b>HTTP 状态码正确化</b>：TV 现状是「协议层恒 200、语义码在 body」。
- * 这里把 HTTP status 与业务 code 对齐（401→401、403→403、404→404、409→409），
- * 同时**保留 body 里的 code**，两层语义一致。
+ * <p>⚠️ 本类只管**进了 {@code DispatcherServlet} 之后的**错误。过滤器链上的 401/403/429
+ * 在 servlet 之前短路（{@code JwtAuthFilter#writeError} / {@code RateLimitFilter#writeTooManyRequests}），
+ * advice 覆盖不到；三处的信封形状由 {@code T56} 收敛为同一个 writer，**链序不变**。
  *
  * <p>注意：Spring Security **不接管授权**（F-01/F-02 于 2026-10-18 拍板不迁），
- * 因此没有 {@code AuthenticationEntryPoint}/{@code AccessDeniedHandler} 需要对齐——
- * 401/403 的短路出口只有 {@code JwtAuthFilter#writeError} 一处。
+ * 因此没有 {@code AuthenticationEntryPoint}/{@code AccessDeniedHandler} 需要对齐。
  * ⚠️ 若将来真的迁到方法安全（推翻条件见 {@code 安全与鉴权.md} §六），本类的
  * {@code @ExceptionHandler(Exception.class)} 会把 {@code @PreAuthorize} 抛出的
  * {@code AccessDeniedException} **吞成 500**（{@code ExceptionTranslationFilter} 在外侧，轮不到），
@@ -45,23 +44,18 @@ import java.util.stream.Collectors;
 public class GlobalExceptionHandler {
 
     /**
-     * 业务异常：业务码已是对外语义，直接映射为 HTTP 状态。
-     * 若业务码不是合法 HTTP 状态（例如自定义 1001），回落到 400 以免产生非法响应。
+     * 业务异常：状态与码都来自异常携带的 {@link ErrorCode}。
+     *
+     * <p>可预期的业务拒绝：**WARN + 只记结论，不记堆栈**。
+     * 级别是 WARN 而非 INFO/ERROR：INFO 会让"正常成功"与"被拒绝"在级别上不可分；
+     * ERROR 会把无需介入的输入错误报成运维事故。
      */
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusiness(BusinessException ex, HttpServletRequest req) {
-        int code = ex.getCode();
-        HttpStatus status = HttpStatus.resolve(code);
-        if (status == null) {
-            log.warn("业务码 {} 不是合法 HTTP 状态，回落 400: {} {}", code, req.getMethod(), req.getRequestURI());
-            status = HttpStatus.BAD_REQUEST;
-        }
-        // 可预期的业务拒绝：**WARN + 只记结论，不记堆栈**（沿袭 TV LOG_CONVENTION「包装点即源头」）。
-        // ⚠️ 级别是 WARN 而非 INFO/ERROR：这是 T2 的显式口径——"预期拒绝走 WARN，不进 ERROR"。
-        //    INFO 会让"正常成功"与"被拒绝"在级别上不可分；ERROR 会让可预期拒绝混进 error.log
-        //    并把无需介入的输入错误报成运维事故。WARN 恰好是"业务层判断过、无需人工介入"的位置。
-        log.warn("业务异常 {} {} -> code={}, msg={}", req.getMethod(), req.getRequestURI(), code, ex.getMessage());
-        return ResponseEntity.status(status).body(ApiResponse.error(code, ex.getMessage()));
+        log.warn("业务异常 {} {} -> code={}, msg={}",
+                req.getMethod(), req.getRequestURI(), ex.getCode(), ex.getMessage());
+        return ResponseEntity.status(ex.getStatus())
+                .body(ApiResponse.error(ex.getCode(), ex.getMessage()));
     }
 
     /**
@@ -77,12 +71,18 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleBusy(ServiceBusyException ex, HttpServletRequest req) {
         log.warn("服务繁忙 {} {} -> code={}, retryAfter={}s, msg={}",
                 req.getMethod(), req.getRequestURI(), ex.getCode(), ex.getRetryAfterSeconds(), ex.getMessage());
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+        return ResponseEntity.status(ErrorCode.SYSTEM_UNAVAILABLE.getStatus())
                 .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()))
                 .body(ApiResponse.error(ex.getCode(), ex.getMessage()));
     }
 
-    /** {@code @Valid} 校验失败：取第一条字段错误作为提示（对齐 TV 单条 message 的形状）。 */
+    /**
+     * {@code @Valid} 校验失败：码 {@code PARAM_INVALID}，{@code msg} 是全部字段错误的拼接串。
+     *
+     * <p>⚠️ 拼接串只是**过渡态**：{@code T57} 会补 {@code errors:[{field,code,message}]}
+     * 把字段级定位交给机器读；{@code msg} 保留为"人读摘要"。
+     * 现在就把 {@code field: message} 的形式保留着，前端至少能靠它做临时解析。
+     */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiResponse<Void>> handleValidation(MethodArgumentNotValidException ex,
                                                               HttpServletRequest req) {
@@ -91,7 +91,7 @@ public class GlobalExceptionHandler {
                 .collect(Collectors.joining("; "));
         log.warn("参数校验失败 {} {} -> {}", req.getMethod(), req.getRequestURI(), detail);
         return ResponseEntity.badRequest()
-                .body(ApiResponse.error(ErrorCode.PARAM_ERROR.getCode(), detail));
+                .body(ApiResponse.error(ErrorCode.PARAM_INVALID.getCode(), detail));
     }
 
     /**
@@ -99,8 +99,7 @@ public class GlobalExceptionHandler {
      *
      * <p>⚠️ 最后一类（{@link MissingServletRequestPartException}）是 S7 加入的：
      * 上传端点的必填文件 part 缺失时 Spring 抛它。TV 侧同场景是
-     * {@code getPart → null → NPE 未捕获 → 500}（《决策留痕表》D-11 的记录来源），
-     * 本实现按 D-3 先例统一归 400。
+     * {@code getPart → null → NPE 未捕获 → 500}（《决策留痕表》D-11 的记录来源），本实现按 D-3 先例统一归 400。
      */
     @ExceptionHandler({
             MissingServletRequestParameterException.class,
@@ -112,43 +111,44 @@ public class GlobalExceptionHandler {
         // ⚠️ 本条消息会**回显被拒的参数值**（如 MethodArgumentTypeMismatch 的 "for value [xxx]"）——
         // 它正是 PII 进日志的一条真实路径。出口脱敏（logback 的 %maskedMsg）负责把它按形态掩掉，
         // 故此处**不**在调用点手写脱敏（否则就是两套机制、两处要维护）。
+        // ★ 响应体**只给稳定文案**：异常 message 可能含入参回显，不许进 body。
         log.warn("请求参数错误 {} {} -> {}", req.getMethod(), req.getRequestURI(), ex.getMessage());
-        return ResponseEntity.badRequest()
-                .body(ApiResponse.error(ErrorCode.PARAM_ERROR.getCode(), ErrorCode.PARAM_ERROR.getMessage()));
+        return ResponseEntity.badRequest().body(ApiResponse.error(ErrorCode.PARAM_INVALID));
     }
 
     /**
      * 唯一键冲突：DB 层兜底竞态（决策②：SQLException 手工包装退役，DataAccessException 接管）。
      *
-     * <p>业务层已先查重，但并发下仍可能撞唯一键。此处映射为 409，与业务层的
-     * {@code ConflictException}/{@code DuplicatePhoneException} 保持同一对外语义，
-     * 使「先查后插」的竞态对客户端不可见（回应《事务边界决策表》U-2 的补注）。
+     * <p>业务层已先查重，但并发下仍可能撞唯一键。★ 这里**只能**回
+     * {@link ErrorCode#SYSTEM_DUPLICATE_KEY}：拿到的是 {@code DuplicateKeyException}，
+     * 不知道撞的是 {@code users.phone} 还是 {@code users.username}，硬猜会把两种 409 报反。
+     * 前端处置（提示换值 / 重试）对两种都对。
      */
     @ExceptionHandler(DuplicateKeyException.class)
     public ResponseEntity<ApiResponse<Void>> handleDuplicateKey(DuplicateKeyException ex,
                                                                 HttpServletRequest req) {
         log.warn("唯一键冲突 {} {} -> {}", req.getMethod(), req.getRequestURI(), ex.getMostSpecificCause().getMessage());
-        return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(ApiResponse.error(ErrorCode.CONFLICT.getCode(), ErrorCode.CONFLICT.getMessage()));
+        return ResponseEntity.status(ErrorCode.SYSTEM_DUPLICATE_KEY.getStatus())
+                .body(ApiResponse.error(ErrorCode.SYSTEM_DUPLICATE_KEY));
     }
 
     /**
-     * 其余数据访问异常：TV 里这些被各 Service 手工 {@code catch (SQLException)} 包成
-     * DatabaseException 并**在包装点记堆栈**。新实现集中在唯一出口记录，业务代码不再需要 try/catch。
+     * 其余数据访问异常：TV 里这些被各 Service 手工 {@code catch (SQLException)} 包成 DatabaseException
+     * 并**在包装点记堆栈**。新实现集中在唯一出口记录，业务代码不再需要 try/catch。
      */
     @ExceptionHandler(DataAccessException.class)
     public ResponseEntity<ApiResponse<Void>> handleDataAccess(DataAccessException ex, HttpServletRequest req) {
         log.error("数据访问异常 {} {}", req.getMethod(), req.getRequestURI(), ex);
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.error(ErrorCode.DATABASE_ERROR.getCode(), ErrorCode.DATABASE_ERROR.getMessage()));
+        return ResponseEntity.status(ErrorCode.SYSTEM_DATABASE.getStatus())
+                .body(ApiResponse.error(ErrorCode.SYSTEM_DATABASE));
     }
 
     /** 兜底：未预期异常一律 500，且不把内部细节泄露到响应体。 */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleUnexpected(Exception ex, HttpServletRequest req) {
         log.error("未预期异常 {} {}", req.getMethod(), req.getRequestURI(), ex);
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.error(ErrorCode.SERVER_ERROR.getCode(), ErrorCode.SERVER_ERROR.getMessage()));
+        return ResponseEntity.status(ErrorCode.SYSTEM_INTERNAL.getStatus())
+                .body(ApiResponse.error(ErrorCode.SYSTEM_INTERNAL));
     }
 
     private static String defaultMessage(FieldError fe) {

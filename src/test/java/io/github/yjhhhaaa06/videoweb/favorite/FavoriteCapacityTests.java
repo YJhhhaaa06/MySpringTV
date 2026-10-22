@@ -128,7 +128,7 @@ class FavoriteCapacityTests extends AbstractHttpIntegrationTest {
 
         ResponseEntity<String> twentyFirst = addFolder("第 21 个", me.token);
         assertThat(twentyFirst.getStatusCode().value()).as("超上限 ⇒ 400").isEqualTo(400);
-        assertThat(Envelope.code(twentyFirst)).isEqualTo(400);
+        assertThat(Envelope.code(twentyFirst)).isEqualTo("FAVORITE_FOLDER_LIMIT");
         assertThat(Envelope.msg(twentyFirst)).as("文案要能自解释（用户看得到）").contains("上限");
         assertThat(countCustomFolders(me.id)).as("被拒的请求不得留下第 21 行").isEqualTo(CUSTOM_FOLDER_MAX_COUNT);
         assertThat(countCustomFolders(other.id)).as("旁人的 20 个夹也必须原样不动").isEqualTo(CUSTOM_FOLDER_MAX_COUNT);
@@ -194,7 +194,7 @@ class FavoriteCapacityTests extends AbstractHttpIntegrationTest {
 
         ResponseEntity<String> overflow = addItem(me.token, contentB, folder);
         assertThat(overflow.getStatusCode().value()).as("第 501 条 ⇒ 400").isEqualTo(400);
-        assertThat(Envelope.code(overflow)).isEqualTo(400);
+        assertThat(Envelope.code(overflow)).isEqualTo("FAVORITE_FOLDER_FULL");
         assertThat(oracleItemCount(folder))
                 .as("被拒后行数不得变化（400 必须发生在写库之前）").isEqualTo(CUSTOM_FOLDER_MAX_ITEMS);
         assertThat(itemRowCount(folder, contentB)).as("被拒的内容一条都没进").isZero();
@@ -240,7 +240,7 @@ class FavoriteCapacityTests extends AbstractHttpIntegrationTest {
 
         assertThat(resp.getStatusCode().value())
                 .as("★ 漏判 move 就能绕道把目标夹撑爆 ⇒ 必须 400").isEqualTo(400);
-        assertThat(Envelope.code(resp)).isEqualTo(400);
+        assertThat(Envelope.code(resp)).isEqualTo("FAVORITE_FOLDER_FULL");
         assertThat(itemRowCount(source, content)).as("被拒的移动必须**留在原位**（同 409 的口径）").isOne();
         assertThat(oracleItemCount(fullTarget)).as("目标夹一行都没多").isEqualTo(CUSTOM_FOLDER_MAX_ITEMS);
     }

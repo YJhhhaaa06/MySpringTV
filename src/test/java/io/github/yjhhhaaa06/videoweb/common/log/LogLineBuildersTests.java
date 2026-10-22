@@ -24,18 +24,18 @@ class LogLineBuildersTests {
     @Test
     @DisplayName("访问行：固定字段顺序 method → path → status → code → userId → cost → slow")
     void 访问行字段顺序() {
-        String line = AccessLogFilter.buildLine("GET", "/start", 200, 200, null, 3L, 1000L);
+        String line = AccessLogFilter.buildLine("GET", "/start", 200, "OK", null, 3L, 1000L);
 
-        assertThat(line).isEqualTo("method=GET path=/start status=200 code=200 userId=- cost=3ms slow=0");
+        assertThat(line).isEqualTo("method=GET path=/start status=200 code=OK userId=- cost=3ms slow=0");
     }
 
     @Test
-    @DisplayName("访问行：未登录记 userId=-，静态资源业务码 0，达到阈值打 slow=1")
+    @DisplayName("访问行：未登录记 userId=-，静态资源业务码缺省 0，达到阈值打 slow=1")
     void 访问行边界() {
-        String staticLine = AccessLogFilter.buildLine("GET", "/upload/a.png", 200, 0, null, 1L, 1000L);
+        String staticLine = AccessLogFilter.buildLine("GET", "/upload/a.png", 200, null, null, 1L, 1000L);
         assertThat(staticLine).contains("code=0 ").contains("userId=-").contains("slow=0");
 
-        String slowLine = AccessLogFilter.buildLine("POST", "/user/register", 200, 200, 42L, 1000L, 1000L);
+        String slowLine = AccessLogFilter.buildLine("POST", "/user/register", 200, "OK", 42L, 1000L, 1000L);
         assertThat(slowLine).contains("userId=42").contains("slow=1");
     }
 

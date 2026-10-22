@@ -103,7 +103,7 @@ class RateLimitMissPenaltyDisabledTests extends AbstractHttpIntegrationTest {
     void 关闭时_冷读也不补扣() throws InterruptedException {
         ResponseEntity<String> resp = get("/search/IdSearch?contentId=" + CONTENT_ID, null);
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
-        assertThat(Envelope.code(resp)).isEqualTo(200);
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
 
         // 给"不该来的补扣"一个到达窗口：补扣在响应之后发生（finally）——若实现无视关闭开关，
         // 差额会落在这 300ms 内（正确实现下此后无任何写，桶值冻结）。

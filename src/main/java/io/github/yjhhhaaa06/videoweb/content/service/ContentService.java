@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.content.service;
 
 import io.github.yjhhhaaa06.videoweb.common.exception.ConflictException;
+import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.exception.ForbiddenException;
 import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
@@ -299,7 +300,7 @@ public class ContentService {
     public void setCommentEnabled(long contentId, long userId, boolean enabled) {
         ContentCacheDTO dto = contentDao.findContent(contentId);
         if (dto == null) {
-            throw new NotFoundException("内容不存在");
+            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
         }
         if (dto.getAuthorId() != userId) {
             throw new ForbiddenException("只能操作自己的作品");
@@ -328,13 +329,13 @@ public class ContentService {
         String t = title == null ? "" : title.trim();
         String d = description == null ? "" : description.trim();
         if (t.isEmpty()) {
-            throw new ParamException("标题不能为空");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "标题不能为空");
         }
         if (t.length() > 50) {
-            throw new ParamException("标题不超过50字");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "标题不超过50字");
         }
         if (d.length() > 5000) {
-            throw new ParamException("简介不超过5000字");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "简介不超过5000字");
         }
         findOwnedContent(contentId, userId);
         contentDao.updateContentInfo(contentId, t, d);
@@ -349,7 +350,7 @@ public class ContentService {
     protected ContentCacheDTO findOwnedContent(long contentId, long userId) {
         ContentCacheDTO dto = contentDao.findContent(contentId);
         if (dto == null) {
-            throw new NotFoundException("内容不存在");
+            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
         }
         if (dto.getAuthorId() != userId) {
             throw new ForbiddenException("只能操作自己的作品");
@@ -381,7 +382,7 @@ public class ContentService {
     @Transactional
     public String deleteMedia(long contentId, long userId, int type, int sort) {
         if (type != 2) {
-            throw new ParamException("仅支持删除图片");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "仅支持删除图片");
         }
         ContentMedia media = findOwnedMedia(contentId, userId, type, sort);
         String oldUrl = media.getUrl();
@@ -603,7 +604,7 @@ public class ContentService {
         findOwnedContent(contentId, userId);
         ContentMedia media = contentMediaDao.findMediaByContentTypeSort(contentId, type, sort);
         if (media == null) {
-            throw new NotFoundException("媒体资源不存在");
+            throw new NotFoundException(ErrorCode.CONTENT_MEDIA_NOT_FOUND, "媒体资源不存在");
         }
         return media;
     }
@@ -703,13 +704,13 @@ public class ContentService {
     private void checkHideable(long contentId) {
         Integer state = contentDao.getContentStatus(contentId);
         if (state == null) {
-            throw new NotFoundException("内容不存在");
+            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
         }
         if (state == CONTENT_STATE_DELETED) {
-            throw new ConflictException("内容已删除，无法下架");
+            throw new ConflictException(ErrorCode.CONTENT_STATUS_CONFLICT, "内容已删除，无法下架");
         }
         if (state == CONTENT_STATE_HIDDEN) {
-            throw new ConflictException("内容已下架");
+            throw new ConflictException(ErrorCode.CONTENT_STATUS_CONFLICT, "内容已下架");
         }
     }
 
@@ -717,13 +718,13 @@ public class ContentService {
     private void checkUnhideable(long contentId) {
         Integer state = contentDao.getContentStatus(contentId);
         if (state == null) {
-            throw new NotFoundException("内容不存在");
+            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
         }
         if (state == CONTENT_STATE_DELETED) {
-            throw new ConflictException("内容已删除，无法恢复");
+            throw new ConflictException(ErrorCode.CONTENT_STATUS_CONFLICT, "内容已删除，无法恢复");
         }
         if (state == CONTENT_STATE_NORMAL) {
-            throw new ConflictException("内容未下架");
+            throw new ConflictException(ErrorCode.CONTENT_STATUS_CONFLICT, "内容未下架");
         }
     }
 }

@@ -196,7 +196,7 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
         ResponseEntity<String> resp = addCoin(voter.token(), contentId, 1);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(400);
-        assertThat(Envelope.code(resp)).isEqualTo(400);
+        assertThat(Envelope.code(resp)).isEqualTo("COIN_INSUFFICIENT");
         assertThat(Envelope.msg(resp)).as("文案冻结：「硬币不足」").isEqualTo("硬币不足");
 
         // ★ 零副作用 = 封顶写（INSERT IGNORE + 条件累加）已发生，但被事务一起撤回。
@@ -273,7 +273,7 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
         ResponseEntity<String> resp = addCoin(voter.token(), contentId, 1);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(409);
-        assertThat(Envelope.code(resp)).isEqualTo(409);
+        assertThat(Envelope.code(resp)).isEqualTo("COIN_ALREADY_FULL");
         assertThat(Envelope.msg(resp)).as("文案冻结（B站）：「对本稿件投币枚数已用完」")
                 .isEqualTo("对本稿件投币枚数已用完");
 
@@ -343,6 +343,7 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
         assertThat(resp.getStatusCode().value()).isEqualTo(400);
         assertThat(Envelope.msg(resp))
                 .as("★顺序 3>4：把自投检查提前会答「不能给自己投币」").isEqualTo("该内容不支持投币");
+                assertThat(Envelope.code(resp)).as("码也必须唯一表达原因（T55）").isEqualTo("COIN_NOT_SUPPORTED");
         assertThat(countCoinRows()).isZero();
         assertThat(coinDeciOf(author.id())).isEqualTo(20);
     }
@@ -361,6 +362,7 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
         assertThat(resp.getStatusCode().value())
                 .as("★顺序 4>5：把封顶检查提前会答 409").isEqualTo(400);
         assertThat(Envelope.msg(resp)).isEqualTo("不能给自己投币");
+        assertThat(Envelope.code(resp)).as("码也必须唯一表达原因（T55）").isEqualTo("COIN_SELF_FORBIDDEN");
         assertThat(amountOf(author.id(), contentId)).isEqualTo(2);
         assertThat(coinCountOf(contentId)).isEqualTo(2);
         assertThat(coinDeciOf(author.id())).isEqualTo(20);
@@ -399,6 +401,7 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
 
         assertThat(resp.getStatusCode().value()).isEqualTo(400);
         assertThat(Envelope.msg(resp)).as("文案冻结：「不能给自己投币」").isEqualTo("不能给自己投币");
+        assertThat(Envelope.code(resp)).isEqualTo("COIN_SELF_FORBIDDEN");
         assertThat(countCoinRows()).isZero();
         assertThat(coinCountOf(contentId)).isZero();
         assertThat(coinDeciOf(author.id())).isEqualTo(20);
@@ -581,7 +584,7 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
         //    机制是否生效只能由 SecurityContractTests 直接对 RequestMappingLookup 求值来证明
         //    （AGENTS.md「测试纪律」④）。
         assertThat(resp.getStatusCode().value()).isEqualTo(401);
-        assertThat(Envelope.code(resp)).isEqualTo(401);
+        assertThat(Envelope.code(resp)).isEqualTo("AUTH_UNAUTHORIZED");
         assertThat(Envelope.hasDataField(resp)).as("错误信封不含 data 键").isFalse();
     }
 

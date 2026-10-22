@@ -80,7 +80,7 @@ class HistoryReportBusyTests extends AbstractContentIntegrationTest {
         assertThat(resp.getStatusCode().value())
                 .as("★ 不降级直写库：故障瞬间把全部心跳压进 DB 正是本方案要避免的")
                 .isEqualTo(503);
-        assertThat(Envelope.code(resp)).isEqualTo(503);
+        assertThat(Envelope.code(resp)).isEqualTo("SYSTEM_UNAVAILABLE");
         assertThat(resp.getHeaders().getFirst("Retry-After"))
                 .as("★ 必须告诉客户端多久再来，否则它只能自己猜（恢复后可能几分钟才回来）")
                 .isNotNull();

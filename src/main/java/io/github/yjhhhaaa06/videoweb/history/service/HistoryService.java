@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.history.service;
 
 import io.github.yjhhhaaa06.videoweb.common.cache.CacheUnavailableException;
+import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ServiceBusyException;
@@ -105,7 +106,7 @@ public class HistoryService {
      */
     public void report(long userId, long contentId, int progressSeconds) {
         if (progressSeconds < 0) {
-            throw new ParamException("播放进度不能为负数");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "播放进度不能为负数");
         }
         if (!reportBuffer.isBackingStoreAvailable()) {
             throw busy();
@@ -282,11 +283,11 @@ public class HistoryService {
     private ContentVO requireVideoContent(long contentId) {
         List<ContentVO> loaded = contentService.loadContentVOs(List.of(contentId));
         if (loaded.isEmpty()) {
-            throw new NotFoundException("内容不存在");
+            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
         }
         ContentVO content = loaded.get(0);
         if (content.getType() != ContentType.VIDEO.getTypeNumber()) {
-            throw new ParamException("只能记录视频的播放进度");
+            throw new ParamException(ErrorCode.HISTORY_TYPE_INVALID, "只能记录视频的播放进度");
         }
         return content;
     }

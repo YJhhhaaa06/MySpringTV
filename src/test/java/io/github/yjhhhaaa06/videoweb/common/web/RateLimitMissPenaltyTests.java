@@ -146,7 +146,7 @@ class RateLimitMissPenaltyTests extends AbstractHttpIntegrationTest {
         // ---- 第一访：冷读（内容键已被清）⇒ 必回源 ⇒ 收尾补扣 ----
         ResponseEntity<String> first = get(详情(), null);
         assertThat(first.getStatusCode().value()).isEqualTo(200);
-        assertThat(Envelope.code(first)).isEqualTo(200);
+        assertThat(Envelope.code(first)).isEqualTo("OK");
 
         // 冷读的桶值 = 97 + d/1000（d = 门→收尾的请求处理时长；收尾补扣脚本的 refill 会把它算进去）
         // ⇒ 容差 ±1.0 容许 d ≤ 1s（顺序执行下实测为十毫秒级；若将来并发化需按 d 重估）。

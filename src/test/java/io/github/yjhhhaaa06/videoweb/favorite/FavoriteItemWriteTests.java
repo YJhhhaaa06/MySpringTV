@@ -101,7 +101,7 @@ class FavoriteItemWriteTests extends AbstractHttpIntegrationTest {
         ResponseEntity<String> resp = addItem(me.token, content, folderA);
 
         assertThat(resp.getStatusCode().value()).as("首次收藏成功").isEqualTo(200);
-        assertThat(Envelope.code(resp)).isEqualTo(200);
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
         // ⚠️ data 是纯字符串（I-03）：Envelope.str 走 data.<field> 路径取不到，必须取整个 data 节点
         assertThat(Envelope.data(resp).asString()).isEqualTo("收藏成功");
 

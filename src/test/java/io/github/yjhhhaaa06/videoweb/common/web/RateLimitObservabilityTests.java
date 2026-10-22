@@ -242,7 +242,7 @@ class RateLimitObservabilityTests extends AbstractHttpIntegrationTest {
 
         ResponseEntity<String> resp = get("/start", null);
         assertThat(resp.getStatusCode().value()).isEqualTo(429);
-        assertThat(Envelope.code(resp)).isEqualTo(429);
+        assertThat(Envelope.code(resp)).isEqualTo("RATE_LIMITED");
 
         String line = rejectionLine();
         assertThat(line).as("拒绝是「预期业务拒绝」⇒ WARN（对齐《可观测》§六）").contains("level=WARN ");

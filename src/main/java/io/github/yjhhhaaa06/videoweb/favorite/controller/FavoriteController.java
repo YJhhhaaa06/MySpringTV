@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.favorite.controller;
 
+import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.Public;
@@ -412,7 +413,7 @@ public class FavoriteController {
         return switch (raw.trim().toLowerCase()) {
             case "1", "true" -> Boolean.TRUE;
             case "0", "false" -> Boolean.FALSE;
-            default -> throw new ParamException("isPrivate格式错误，应为 0/1 或 true/false");
+            default -> throw new ParamException(ErrorCode.PARAM_INVALID, "isPrivate格式错误，应为 0/1 或 true/false");
         };
     }
 }

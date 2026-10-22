@@ -70,7 +70,7 @@ class AccessLogTests extends AbstractObservabilityTest {
 
         String line = awaitAccessLine("/start", "status=200");
         assertThat(line).contains("method=GET ");
-        assertThat(line).contains("code=200 ");
+        assertThat(line).contains("code=OK ");
         assertThat(line).contains("userId=- ");           // 公开端点无身份
         assertThat(line).contains("slow=0");
         assertThat(costOf(line))
@@ -80,7 +80,7 @@ class AccessLogTests extends AbstractObservabilityTest {
     }
 
     @Test
-    @DisplayName("未登录访问受保护接口：status=401 且业务码也是 401")
+    @DisplayName("未登录访问受保护接口：status=401 且业务码是字符串码 AUTH_UNAUTHORIZED")
     void 未登录_访问行记401() {
         clearLogs();
         ResponseEntity<String> response = post("/user/changePassword", Map.of(), null);
@@ -88,8 +88,9 @@ class AccessLogTests extends AbstractObservabilityTest {
 
         String line = awaitAccessLine("/user/changePassword", "status=401");
         assertThat(line)
-                .as("鉴权拒绝的业务码由 JwtAuthFilter 写入——缺它这里会退化成 0、与静态资源混为一谈")
-                .contains("code=401 ");
+                .as("鉴权拒绝的业务码由 JwtAuthFilter 写入——缺它这里会退化成 0、与静态资源混为一谈；"
+                        + "T55 起它是字符串码，不再是 status 的数字副本")
+                .contains("code=AUTH_UNAUTHORIZED ");
         assertThat(line).contains("userId=- ");
     }
 
@@ -140,7 +141,7 @@ class AccessLogTests extends AbstractObservabilityTest {
             List<String> states = new ArrayList<>(List.of(
                     stateOf(normal), stateOf(unauthorized), stateOf(staticResource)));
             assertThat(states).as("三态的 (status,code) 必须互不相同，否则'可区分'不成立").doesNotHaveDuplicates();
-            assertThat(states).containsExactlyInAnyOrder("200/200", "401/401", "200/0");
+            assertThat(states).containsExactlyInAnyOrder("200/OK", "401/AUTH_UNAUTHORIZED", "200/0");
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         } finally {
@@ -172,7 +173,7 @@ class AccessLogTests extends AbstractObservabilityTest {
                 .isEqualTo(500);
 
         String accessLine = awaitAccessLine("/user/changeUserName", "status=500");
-        assertThat(accessLine).contains("code=500 ");
+        assertThat(accessLine).contains("code=SYSTEM_DATABASE ");
         String requestId = reqIdOf(accessLine);
 
         String appLine = awaitSystemLine("req=" + requestId + " ");
@@ -200,14 +201,23 @@ class AccessLogTests extends AbstractObservabilityTest {
         return fieldOf(accessLine, "status=") + "/" + fieldOf(accessLine, "code=");
     }
 
-    /** 按 {@code prefix=<数字>} 取字段值（不用正则：日志行可能带行尾空白，正则的 {@code .*}
-     *  会把它一起留下，第一版就是这么踩的）。 */
+    /**
+     * 按 {@code prefix=<值>} 取字段值（不用正则：日志行可能带行尾空白，正则的 {@code .*}
+     * 会把它一起留下，第一版就是这么踩的）。
+     *
+     * <p>★ `T55` 起 {@code code=} 的值可能是字符串码（{@code AUTH_UNAUTHORIZED}），
+     * 故字符集从"纯数字"放宽到"字母数字下划线"；{@code status=} 仍是纯数字，两者互不影响。
+     */
     private static String fieldOf(String line, String prefix) {
         int start = line.indexOf(prefix);
         assertThat(start).as("访问行缺少字段 %s: %s", prefix, line).isGreaterThanOrEqualTo(0);
         int index = start + prefix.length();
         int end = index;
-        while (end < line.length() && Character.isDigit(line.charAt(end))) {
+        while (end < line.length()) {
+            char c = line.charAt(end);
+            if (!Character.isLetterOrDigit(c) && c != '_') {
+                break;
+            }
             end++;
         }
         return line.substring(index, end);

@@ -98,8 +98,8 @@ class JwtAuthFilterAuthzTests {
         assertThat(out.status()).isEqualTo(403);
         assertThat(out.body()).as("403 信封文案（沿袭 TV「无权访问」）").contains("无权访问");
         assertThat(out.businessCode())
-                .as("过滤器短路时补记业务码，否则访问日志的 code 会记成 0（三态塌两态）")
-                .isEqualTo(403);
+                .as("过滤器短路时补记业务码，否则访问日志的 code 会记成 0（三态塌两态）；T55 起是字符串码")
+                .isEqualTo("AUTH_FORBIDDEN");
     }
 
     @Test
@@ -111,7 +111,7 @@ class JwtAuthFilterAuthzTests {
         assertThat(out.status())
                 .as("若把 ②③ 两段顺序互换（或缺'admin 蕴含登录'），这里会变成 403")
                 .isEqualTo(401);
-        assertThat(out.businessCode()).isEqualTo(401);
+        assertThat(out.businessCode()).isEqualTo("AUTH_UNAUTHORIZED");
     }
 
     @Test

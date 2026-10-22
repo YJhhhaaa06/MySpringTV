@@ -52,7 +52,7 @@ public class CurrentUserIdArgumentResolver implements HandlerMethodArgumentResol
             return null;
         }
         throw new io.github.yjhhhaaa06.videoweb.common.exception.AuthException(
-                ErrorCode.UNAUTHORIZED, ErrorCode.UNAUTHORIZED.getMessage());
+                ErrorCode.AUTH_UNAUTHORIZED);
     }
 
     private static Class<?> wrap(Class<?> type) {

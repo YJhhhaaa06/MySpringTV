@@ -46,7 +46,7 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
         var resp = follow(a.id(), b.token());
 
         assertThat(resp.getStatusCode().value()).as("HTTP 状态码应与 body code 一致（200）").isEqualTo(200);
-        assertThat(Envelope.code(resp)).isEqualTo(200);
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
         assertThat(Envelope.data(resp).asString()).as("TV writeSuccess 文案").isEqualTo("关注成功");
 
         assertThat(countFollowRows(b.id(), a.id())).as("关系行").isEqualTo(1L);
@@ -63,7 +63,7 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
 
         var resp = unfollow(a.id(), b.token());
 
-        assertThat(Envelope.code(resp)).isEqualTo(200);
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
         assertThat(Envelope.data(resp).asString()).isEqualTo("已取关");
         assertThat(countFollowRows(b.id(), a.id())).isZero();
         assertThat(followCountColumn(b.id())).isZero();
@@ -78,7 +78,7 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
         var resp = follow(a.id(), a.token());
 
         assertThat(resp.getStatusCode().value()).isEqualTo(409);
-        assertThat(Envelope.code(resp)).isEqualTo(409);
+        assertThat(Envelope.code(resp)).isEqualTo("FOLLOW_SELF");
         assertThat(Envelope.msg(resp)).as("TV 原文案").isEqualTo("不能关注自己");
         assertThat(countFollowRows()).isZero();
         assertThat(followCountColumn(a.id())).isZero();
@@ -92,7 +92,7 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
 
         var resp = unfollow(a.id(), a.token());
 
-        assertThat(Envelope.code(resp)).isEqualTo(409);
+        assertThat(Envelope.code(resp)).isEqualTo("FOLLOW_SELF");
         assertThat(Envelope.msg(resp)).isEqualTo("不能取关自己");
         assertThat(countFollowRows()).isZero();
     }
@@ -106,7 +106,7 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
 
         var resp = follow(a.id(), b.token());
 
-        assertThat(Envelope.code(resp)).isEqualTo(409);
+        assertThat(Envelope.code(resp)).isEqualTo("FOLLOW_ALREADY");
         assertThat(Envelope.msg(resp)).isEqualTo("已关注，不可重复操作");
         assertThat(countFollowRows(b.id(), a.id())).as("不得产生第二行（唯一键亦兜底）").isEqualTo(1L);
         assertThat(followCountColumn(b.id())).as("计数只加一次 ⇒ 第二次被拦在写之前").isEqualTo(1);
@@ -121,7 +121,7 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
 
         var resp = unfollow(a.id(), b.token());
 
-        assertThat(Envelope.code(resp)).isEqualTo(409);
+        assertThat(Envelope.code(resp)).isEqualTo("FOLLOW_NOT_FOLLOWING");
         assertThat(Envelope.msg(resp)).isEqualTo("未关注，不可取消");
         assertThat(countFollowRows()).isZero();
         assertThat(followCountColumn(b.id())).isZero();
@@ -133,10 +133,10 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
     void 未登录全部401() {
         TestUser a = register(PHONE_A, "flow-a");
 
-        assertThat(Envelope.code(postForm("/follow/add", form("followedUserId", a.id()), null))).isEqualTo(401);
-        assertThat(Envelope.code(postForm("/follow/remove", form("followedUserId", a.id()), null))).isEqualTo(401);
-        assertThat(Envelope.code(getFollowing(a.id(), null))).isEqualTo(401);
-        assertThat(Envelope.code(getFollowers(a.id(), null))).isEqualTo(401);
+        assertThat(Envelope.code(postForm("/follow/add", form("followedUserId", a.id()), null))).isEqualTo("AUTH_UNAUTHORIZED");
+        assertThat(Envelope.code(postForm("/follow/remove", form("followedUserId", a.id()), null))).isEqualTo("AUTH_UNAUTHORIZED");
+        assertThat(Envelope.code(getFollowing(a.id(), null))).isEqualTo("AUTH_UNAUTHORIZED");
+        assertThat(Envelope.code(getFollowers(a.id(), null))).isEqualTo("AUTH_UNAUTHORIZED");
     }
 
     @Test
@@ -147,7 +147,7 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
         var resp = postForm("/follow/add", new org.springframework.util.LinkedMultiValueMap<>(), a.token());
 
         assertThat(resp.getStatusCode().value()).isEqualTo(400);
-        assertThat(Envelope.code(resp)).isEqualTo(400);
+        assertThat(Envelope.code(resp)).isEqualTo("PARAM_INVALID");
         assertThat(countFollowRows()).isZero();
     }
 
@@ -187,7 +187,7 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
 
         var resp = getFollowing(a.id(), a.token());
 
-        assertThat(Envelope.code(resp)).isEqualTo(200);
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
         JsonNode data = Envelope.data(resp);
         assertThat(data.isObject()).as("缺省应返回分页信封（T11-A 起不再是全量数组）").isTrue();
         assertThat(data.path("list").isArray()).isTrue();
@@ -208,7 +208,7 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
         // b 查自己的关注列表 → 应含 a；b 已关注 a ⇒ isFollowed=true；a≠b ⇒ isSelf=false
         var resp = getFollowing(b.id(), b.token());
 
-        assertThat(Envelope.code(resp)).isEqualTo(200);
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
         JsonNode item = singleItemOf(resp);
         assertThat(item.path("userId").asLong()).isEqualTo(a.id());
         assertThat(item.path("username").asString()).isEqualTo("flow-a");
@@ -227,7 +227,7 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
 
         var resp = getFollowers(a.id(), b.token());
 
-        assertThat(Envelope.code(resp)).isEqualTo(200);
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
         JsonNode item = singleItemOf(resp);
         assertThat(item.path("userId").asLong()).isEqualTo(b.id());
         assertThat(item.path("username").asString()).isEqualTo("flow-b");
@@ -337,7 +337,7 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
         var resp = get("/follow/following", a.token());
 
         assertThat(resp.getStatusCode().value()).isEqualTo(400);
-        assertThat(Envelope.code(resp)).isEqualTo(400);
+        assertThat(Envelope.code(resp)).isEqualTo("PARAM_INVALID");
     }
 
     // ==================== 断言辅助 ====================

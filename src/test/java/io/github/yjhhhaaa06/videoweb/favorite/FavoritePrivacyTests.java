@@ -93,7 +93,7 @@ class FavoritePrivacyTests extends AbstractHttpIntegrationTest {
         ResponseEntity<String> resp = update(folder, me.token, fields("isPrivate", "1"));
 
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
-        assertThat(Envelope.code(resp)).isEqualTo(200);
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
         assertThat(Envelope.data(resp).asString()).as("写端点的 data 是中文文案（同 T2）").isEqualTo("修改成功");
         assertThat(isPrivateOf(folder)).as("独立 oracle：直查 DB 终态").isEqualTo(1);
 

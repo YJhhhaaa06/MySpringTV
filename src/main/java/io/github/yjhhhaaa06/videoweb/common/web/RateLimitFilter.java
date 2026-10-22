@@ -15,7 +15,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.annotation.Order;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -340,14 +339,11 @@ public class RateLimitFilter extends OncePerRequestFilter {
     private void writeTooManyRequests(HttpServletRequest request,
                                       HttpServletResponse response,
                                       long retryAfterSeconds) throws IOException {
-        int code = ErrorCode.RATE_LIMITED.getCode();
-        request.setAttribute(AccessLogFilter.ATTR_BUSINESS_CODE, code);
-        HttpStatus status = HttpStatus.resolve(code);
-        response.setStatus((status == null ? HttpStatus.INTERNAL_SERVER_ERROR : status).value());
+        request.setAttribute(AccessLogFilter.ATTR_BUSINESS_CODE, ErrorCode.RATE_LIMITED.getCode());
+        response.setStatus(ErrorCode.RATE_LIMITED.getStatus().value());
         response.setHeader(HEADER_RETRY_AFTER, String.valueOf(retryAfterSeconds));
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding("UTF-8");
-        objectMapper.writeValue(response.getWriter(),
-                ApiResponse.error(code, ErrorCode.RATE_LIMITED.getMessage()));
+        objectMapper.writeValue(response.getWriter(), ApiResponse.error(ErrorCode.RATE_LIMITED));
     }
 }

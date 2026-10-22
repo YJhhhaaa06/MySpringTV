@@ -3,7 +3,7 @@ package io.github.yjhhhaaa06.videoweb.common.exception;
 /**
  * 503 服务繁忙（可重试），**带 {@code Retry-After} 秒数**。
  *
- * <p>为什么单独一个类型而不是直接用 {@code BusinessException(503, …)}：
+ * <p>为什么不直接用 {@code BusinessException(ErrorCode.SYSTEM_UNAVAILABLE, …)}：
  * 需要把一个**机器可读的退避时长**带到响应头上。只靠消息文本让客户端自己猜退避节奏，
  * 恢复后它可能几分钟才回来一次 —— 那段时间的进度就白白丢了。
  *
@@ -18,7 +18,7 @@ public class ServiceBusyException extends BusinessException {
     private final long retryAfterSeconds;
 
     public ServiceBusyException(String message, long retryAfterSeconds) {
-        super(ErrorCode.SERVICE_UNAVAILABLE, message);
+        super(ErrorCode.SYSTEM_UNAVAILABLE, message);
         this.retryAfterSeconds = Math.max(1L, retryAfterSeconds);
     }
 

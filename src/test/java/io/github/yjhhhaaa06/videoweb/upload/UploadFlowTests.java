@@ -123,7 +123,7 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
 
         // ---- 读回（旧 smoke S-08 的意图：上传后详情能看到 videoUrl）----
         ResponseEntity<String> detail = get("/search/IdSearch?contentId=" + contentId, null);
-        assertThat(Envelope.code(detail)).isEqualTo(200);
+        assertThat(Envelope.code(detail)).isEqualTo("OK");
         assertThat(Envelope.str(detail, "videoUrl")).endsWith(videoUrl);
     }
 

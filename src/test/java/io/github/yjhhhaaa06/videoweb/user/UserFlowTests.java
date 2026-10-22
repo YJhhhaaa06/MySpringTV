@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
+import java.util.Arrays;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -35,7 +36,7 @@ class UserFlowTests extends AbstractHttpIntegrationTest {
                 Map.of("phone", PHONE, "username", USERNAME, "password", PASSWORD), null);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(Envelope.code(resp)).isEqualTo(200);
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
         assertThat(Envelope.msg(resp)).isEqualTo("success");
         assertThat(Envelope.str(resp, "token")).isNotBlank();
         assertThat(Envelope.str(resp, "username")).isEqualTo(USERNAME);
@@ -61,7 +62,7 @@ class UserFlowTests extends AbstractHttpIntegrationTest {
                 Map.of("phone", PHONE, "username", "bob", "password", PASSWORD), null);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        assertThat(Envelope.code(resp)).isEqualTo(409);
+        assertThat(Envelope.code(resp)).isEqualTo("USER_PHONE_TAKEN");
         assertThat(countUsers()).isEqualTo(before);   // 关键：失败不留脏数据
     }
 
@@ -75,7 +76,7 @@ class UserFlowTests extends AbstractHttpIntegrationTest {
                 Map.of("phone", "13900000002", "username", USERNAME, "password", PASSWORD), null);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        assertThat(Envelope.code(resp)).isEqualTo(409);
+        assertThat(Envelope.code(resp)).isEqualTo("USER_NAME_TAKEN");
         assertThat(countUsers()).isEqualTo(before);
     }
 
@@ -86,7 +87,8 @@ class UserFlowTests extends AbstractHttpIntegrationTest {
                 Map.of("phone", PHONE, "username", USERNAME, "password", "abc"), null);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(Envelope.code(resp)).isEqualTo(400);
+        assertThat(Envelope.code(resp)).as("@Valid 拦下的字段格式错 ⇒ PARAM_INVALID（字段级定位归 T57 的 errors[]）")
+                .isEqualTo("PARAM_INVALID");
         assertThat(countUsers()).isZero();
     }
 
@@ -118,7 +120,7 @@ class UserFlowTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("密码错误：401 + 业务码 401（TV 语义，勿改成 404）")
+    @DisplayName("密码错误：401 + AUTH_BAD_CREDENTIALS（★T55 起与「账号不存在」同码同文案）")
     void 密码错误() {
         post("/user/register", Map.of("phone", PHONE, "username", USERNAME, "password", PASSWORD), null);
 
@@ -126,17 +128,58 @@ class UserFlowTests extends AbstractHttpIntegrationTest {
                 Map.of("phone", PHONE, "password", "wrongpass123"), null);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
-        assertThat(Envelope.code(resp)).isEqualTo(401);
+        assertThat(Envelope.code(resp)).isEqualTo("AUTH_BAD_CREDENTIALS");
     }
 
     @Test
-    @DisplayName("用户不存在：401 + 业务码 401（认证语义，不是 404）")
+    @DisplayName("账号不存在：401 + **同一个** AUTH_BAD_CREDENTIALS（拆开就是手机号探测口）")
     void 用户不存在() {
         ResponseEntity<String> resp = post("/user/login",
                 Map.of("phone", "13700000009", "password", PASSWORD), null);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
-        assertThat(Envelope.code(resp)).isEqualTo(401);
+        assertThat(Envelope.code(resp))
+                .as("★ 与「密码错误」必须同码：否则脚本能筛出哪些手机号注册过")
+                .isEqualTo("AUTH_BAD_CREDENTIALS");
+        assertThat(Envelope.msg(resp)).as("文案也必须同一句").isEqualTo("账号或密码错误");
+    }
+
+    /**
+     * ★ 时间侧信道：只统一 `code` 与 `msg` 是不够的。
+     *
+     * <p>账号不存在时若跳过 BCrypt，该分支会比"密码错"快 20 倍以上 —— 攻击者不看响应体、
+     * 只看耗时就能判断手机号是否注册过。`UserService#doLogin` 因此对假哈希也跑一次
+     * `matches`；去掉那一行，本用例的比值会掉到 0.05 量级。
+     *
+     * <p>取中位数（3 次）而不是平均值：首请求有 JIT / 连接预热，均值会被单点拖偏；
+     * 阈值放在 [0.5, 2.0] 这种"量级级"区间，不与 bcrypt 的具体成本绑死（换 cost 参数不用改断言）。
+     */
+    @Test
+    @DisplayName("★ 登录失败两分支耗时同量级（账号不存在也跑一次 BCrypt）")
+    void 登录失败两分支耗时同量级() {
+        post("/user/register", Map.of("phone", PHONE, "username", USERNAME, "password", PASSWORD), null);
+
+        long wrongPassword = medianMillis(() -> post("/user/login",
+                Map.of("phone", PHONE, "password", "wrongpass123"), null));
+        long noSuchUser = medianMillis(() -> post("/user/login",
+                Map.of("phone", "13700000077", "password", PASSWORD), null));
+
+        assertThat(wrongPassword).as("对照组必须真的付了 BCrypt 成本（否则比值没有意义）").isPositive();
+        assertThat((double) noSuchUser / wrongPassword)
+                .as("两个分支耗时必须同量级：去掉假哈希后是 0.05 量级（快 20 倍以上）")
+                .isBetween(0.5, 2.0);
+    }
+
+    /** 同一请求跑 3 次取中位数（毫秒）。 */
+    private static long medianMillis(Runnable request) {
+        long[] samples = new long[3];
+        for (int i = 0; i < samples.length; i++) {
+            long start = System.nanoTime();
+            request.run();
+            samples[i] = (System.nanoTime() - start) / 1_000_000;
+        }
+        Arrays.sort(samples);
+        return samples[1];
     }
 
     // ==================== 受保护接口（鉴权闭环） ====================
@@ -147,7 +190,7 @@ class UserFlowTests extends AbstractHttpIntegrationTest {
         ResponseEntity<String> resp = get("/user/me", null);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
-        assertThat(Envelope.code(resp)).isEqualTo(401);
+        assertThat(Envelope.code(resp)).isEqualTo("AUTH_UNAUTHORIZED");
         // 错误信封不应含 data 键（TV 的 error() 就没有）——形状契约
         assertThat(Envelope.hasDataField(resp)).isFalse();
     }
@@ -158,7 +201,7 @@ class UserFlowTests extends AbstractHttpIntegrationTest {
         ResponseEntity<String> resp = get("/user/me", "not.a.real.token");
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
-        assertThat(Envelope.code(resp)).isEqualTo(401);
+        assertThat(Envelope.code(resp)).isEqualTo("AUTH_UNAUTHORIZED");
     }
 
     @Test
@@ -186,8 +229,10 @@ class UserFlowTests extends AbstractHttpIntegrationTest {
 
         // 用户不存在 → 401，但这是"登录失败"，不是"被过滤器拦截"：
         // 用 msg 区分二者，确保坏 token 没有让公开端点提前被拒。
+        // ★ T55 起登录失败的文案统一为「账号或密码错误」（探测面口径），这条断言同时钉住
+        //   "坏 token 没被过滤器拦下" 与 "登录失败只有一句话"。
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
-        assertThat(Envelope.msg(resp)).isEqualTo("用户不存在");
+        assertThat(Envelope.msg(resp)).isEqualTo("账号或密码错误");
     }
 
     // ==================== 改密 ====================

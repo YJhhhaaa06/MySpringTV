@@ -3,6 +3,7 @@ package io.github.yjhhhaaa06.videoweb.comment.controller;
 import io.github.yjhhhaaa06.videoweb.comment.model.dto.AddCommentRequest;
 import io.github.yjhhhaaa06.videoweb.comment.model.vo.CommentVO;
 import io.github.yjhhhaaa06.videoweb.comment.service.CommentService;
+import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.common.model.dto.CursorResult;
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
@@ -137,7 +138,7 @@ public class CommentController {
                                @RequestParam(required = false) String page,
                                @RequestParam(required = false) String pageSize) {
         if (contentId == null) {
-            throw new ParamException("contentId不能为空");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "contentId不能为空");
         }
         if (page == null && pageSize == null) {
             return ApiResponse.success(commentService.getCommentsForContent(contentId, userId));
@@ -173,7 +174,7 @@ public class CommentController {
                                                         @RequestParam(required = false) String cursor,
                                                         @RequestParam(required = false) String pageSize) {
         if (rootId == null) {
-            throw new ParamException("rootId不能为空");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "rootId不能为空");
         }
         return ApiResponse.success(commentService.getRepliesForRoot(rootId, userId,
                 PageParams.normalizeCursor(cursor),

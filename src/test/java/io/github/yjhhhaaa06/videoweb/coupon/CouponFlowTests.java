@@ -46,7 +46,7 @@ class CouponFlowTests extends AbstractCouponIntegrationTest {
         ResponseEntity<String> resp = grab(couponId, token);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(Envelope.code(resp)).isEqualTo(200);
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
         // data 是纯字符串券码（不是对象）——形状契约
         assertThat(Envelope.data(resp).asString()).matches("[0-9A-Z]{16}");
 
@@ -66,7 +66,7 @@ class CouponFlowTests extends AbstractCouponIntegrationTest {
         ResponseEntity<String> resp = grab(couponId, token);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        assertThat(Envelope.code(resp)).isEqualTo(409);
+        assertThat(Envelope.code(resp)).isEqualTo("COUPON_UNAVAILABLE");
         assertThat(countOrders(couponId, null)).isZero();
         assertThat(stockOf(couponId)).isZero();          // 关键：不得为负
     }
@@ -80,7 +80,7 @@ class CouponFlowTests extends AbstractCouponIntegrationTest {
         ResponseEntity<String> resp = grab(couponId, token);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        assertThat(Envelope.code(resp)).isEqualTo(409);
+        assertThat(Envelope.code(resp)).isEqualTo("COUPON_UNAVAILABLE");
         assertThat(countOrders(couponId, null)).isZero();
         assertThat(stockOf(couponId)).isEqualTo(5);      // 未扣
     }
@@ -94,7 +94,7 @@ class CouponFlowTests extends AbstractCouponIntegrationTest {
         ResponseEntity<String> resp = grab(couponId, token);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        assertThat(Envelope.code(resp)).isEqualTo(409);
+        assertThat(Envelope.code(resp)).isEqualTo("COUPON_UNAVAILABLE");
         assertThat(countOrders(couponId, null)).isZero();
         assertThat(stockOf(couponId)).isEqualTo(998);
     }
@@ -121,7 +121,12 @@ class CouponFlowTests extends AbstractCouponIntegrationTest {
         ResponseEntity<String> second = grab(couponId, token);
 
         assertThat(second.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        assertThat(Envelope.code(second)).isEqualTo(409);
+        // ★ T55 把这个路径的对外码暴露出来了：重复抢券**不是**走 COUPON_UNAVAILABLE（那是"库存 0 / 时间窗外"），
+        //   而是撞 uk_coupon_user 唯一键 ⇒ DuplicateKeyException ⇒ 出口只能回 SYSTEM_DUPLICATE_KEY
+        //   （出口拿不到"撞的是哪个键"）。C-1 刻意不判 1062，故这是**已知代价**，
+        //   前端因此拿不到"您已抢过该优惠券"这句精确提示 ——
+        //   口径见 architecture/tech/api/接口契约.md §2.2「已知代价·第二例」（待裁决，未擅自改）。
+        assertThat(Envelope.code(second)).isEqualTo("SYSTEM_DUPLICATE_KEY");
 
         // 独立 oracle 复算：订单恰 1 行；库存恰减 1（不是 2）
         assertThat(countOrders(couponId, firstUserId())).isEqualTo(1L);
@@ -140,7 +145,7 @@ class CouponFlowTests extends AbstractCouponIntegrationTest {
         ResponseEntity<String> resp = post("/coupon/grab", Map.of("couponId", couponId), null);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
-        assertThat(Envelope.code(resp)).isEqualTo(401);
+        assertThat(Envelope.code(resp)).isEqualTo("AUTH_UNAUTHORIZED");
         assertThat(Envelope.hasDataField(resp)).as("错误信封不含 data 键").isFalse();
         assertThat(countOrders(couponId, null)).isZero();
     }
@@ -170,7 +175,7 @@ class CouponFlowTests extends AbstractCouponIntegrationTest {
         ResponseEntity<String> resp = get("/coupon/list", null);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(Envelope.code(resp)).isEqualTo(200);
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
         assertThat(Envelope.data(resp).isArray()).isTrue();
         assertThat(Envelope.data(resp).size()).isZero();
     }
@@ -215,7 +220,7 @@ class CouponFlowTests extends AbstractCouponIntegrationTest {
         ResponseEntity<String> resp = get("/coupon/my", null);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
-        assertThat(Envelope.code(resp)).isEqualTo(401);
+        assertThat(Envelope.code(resp)).isEqualTo("AUTH_UNAUTHORIZED");
     }
 
     @Test

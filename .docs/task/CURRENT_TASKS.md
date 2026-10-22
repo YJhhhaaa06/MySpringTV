@@ -24,17 +24,17 @@
   [安全与鉴权.md](../architecture/tech/security/安全与鉴权.md)（鉴权链）·
   [限流.md](../architecture/tech/rate-limit/限流.md)（`cost.base` 权重表口径）。
   ★ **代码注释只引这些篇 + `类#方法`**；不得引用任何草稿 / 本登记台。
-* ★ **编号**：`T54`–`T62`（9 项，可自拆子任务）。**`T54` ✅ 2026-10-22**（结论见
-  [接口契约 §2.9](../architecture/tech/api/接口契约.md) 与附录速查）；**下一编号从 `T63` 起**，
-  `R-21` 之后的决策从 `R-22` 起。
+* ★ **编号**：`T54`–`T62`（9 项，可自拆子任务）。**`T54` ✅ / `T55` ✅（均 2026-10-22）**（结论见
+  [接口契约 §2.9 / §2.1–2.2](../architecture/tech/api/接口契约.md) 与附录速查）；**下一编号从 `T63` 起**，
+  `R-21`/`R-22` 之后的决策从 `R-23` 起。
 * ★ **执行约定**：一任务一 commit（G1）；每 commit 可编译且自带验收测试 + 反向验证。
   清单只给**目标 / 红线 / 验收入口**，**不写实现步骤**（G13）——执行者自行决定拆法；
   遇到清单前提不成立先登记 `CURRENT_ISSUES.md`，不擅自扩范围。
 * ★ **顺序纪律（本专项特有）**：`T54` → `T55`/`T56`/`T57`（错误面）→ `T58`/`T59`（路由面 / 载荷面）→
   `T60` → `T61` → `T62`。**码表不定就改码 = 改两遍；路径不定就改形状 = 前端映射表重写两次。**
   路由一改，限流权重表（键是 `"[POST /x]"`）、安全契约测试、前端调用点**必须同一 commit 跟上**。
-* **回归基线**（2026-10-22，**`T54` 后复跑** `mvnw -o test`）：默认组 **802/802 绿**
-  （799 + `T54` 新增 3 例）。
+* **回归基线**（2026-10-22，**`T55` 后复跑** `mvnw -o test`）：全量 **808/808 绿**（802 + `T55` 新增 6 例：
+  `ErrorCodeContractTests` 5 + 登录耗时用例 1）。
   ⚠️ 本环境跑全量需 `DB_POOL_MAX_SIZE=4`（否则 Testcontainers MySQL 报 `Too many connections`）。
 * ★ **本专项不动 schema**（纯 HTTP 层）⇒ 不产生 Flyway 迁移；若执行中发现必须动表，先停下登记 `I-##`。
 
@@ -123,26 +123,32 @@
   另改 `.gitignore` 放行该目录（`/src/test/resources/*` + `!/src/test/resources/api/`，否则"契约快照不入库"，
   新克隆上护栏直接失效）。
 
-#### T55 状态码字典：HTTP 类别 + 字符串码（来源 `R-21` §1.1 / 设计 §2.1–2.2）【待执行】
+#### T55 状态码字典：HTTP 类别 + 字符串码（来源 `R-21` §1.1 / 设计 §2.1–2.2；★ 登录口径按 `R-22` 改）【已完成】
 
 > ⚠️ **先质疑（G14）**：
 > - **任务**：三维码表（status + 字符串码 + msg）会不会过度设计？—— 已知代价：码表要长期维护、码只会变多。
 >   **但**现状 `code == HTTP status` ⇒ body 零信息增量，前端确实无字典可翻，属真实缺陷。
 > - **设计**：能不能只靠 HTTP status + `msg`？—— 那样前端仍要匹配中文文案，正是要解决的问题。
+> - ★ **原目标里「登录三种失败态可机器区分」被推翻（`R-22` ③）**：那正是手机号探测口
+>   （「账号不存在」与「密码错」分开回答 ⇒ 脚本可批量筛已注册手机号）。改为**单码同文案同耗时**。
 
-* **入口线索**：`common/exception/ErrorCode.java`（20 项，**14 项被引用 / 6 项死码**）、`BusinessException` 及 7 个子类、
-  `GlobalExceptionHandler`、`common/log/AccessLogFilter`（**消费 int 型 code**，两码 status+code）。
+* **入口线索**：`common/exception/ErrorCode`（20 项、14 引用 / 6 死码）· `BusinessException` 及子类 ·
+  `GlobalExceptionHandler` · `common/log/AccessLogFilter`（消费 `int` 型 code，两码 status+code）。
 * **目标**：`ErrorCode` 改为"字符串码 + HTTP status + 默认 msg"三元；同义码合并、死码清零或复活（给出理由）；
-  登录三种失败态（用户不存在 / 密码错 / 令牌过期）**可机器区分**；全站只有一个码源。
-* **红线边界**：**访问日志口径必须同批改** —— `BusinessCodeAdvice` 现在把 `int code` 塞进请求属性，
-  改字符串后 `AccessLogFilter` 与 `AccessLogTests` 要一起改，否则"业务码 0 = 从未产生信封"的判据静默失效；
-  `msg` 只做中文兜底，**不许**变成第二套码；`JwtAuthFilter` / `RateLimitFilter` 必须取同一份码源（不各写字符串）；
+  **登录失败单码**（`AUTH_BAD_CREDENTIALS`，且耗时也统一）；全站只有一个码源。
+* **红线边界**：**访问日志口径必须同批改**（`code` 从 int 换 String，`code=0` 仍是"无信封"哨兵）；
+  `msg` 只做中文兜底，**不许**变成第二套码；`JwtAuthFilter` / `RateLimitFilter` 必须取同一份码源；
   成功响应的 `code` 规则（`"OK"` / 201 / 204）在此任务内定稿并写进文档。
-* **强制探索**：6 个死码各自的"该不该复活"（`DUPLICATE_LIKE` 有业务但没接线？`CONTENT_NOT_FOUND` 是否被
-  `NotFoundException` 的默认值吃掉）；`ErrorCode` 被测试直接引用的地方（改字符串会连带多少断言）。
-* **验收**：**每个码至少一条用例能触发**（死码表清零，或留下"故意保留 + 理由"的登记）；
-  登录三态用码而非 `msg` 断言；`AccessLogTests` 全绿且判据仍能区分"有信封 / 无信封"。
-* **回写**：
+* **强制探索**：6 个死码各自的"该不该复活"；`ErrorCode` 被测试直接引用的地方。
+* **验收**：**死码表清零**（每个码都有产码点，`ErrorCodeContractTests` 钉住）；登录失败用码而非 `msg` 区分
+  （与「账号不存在」同码）；`AccessLogTests` 全绿且判据仍能区分"有信封 / 无信封"。
+* **回写**：`ErrorCode` → 43 项三元（码 = 枚举名，状态由枚举携带，四个取值点共用）；全站抛出点显式赋码
+  （**删掉所有"只给 message、码由类决定"的构造器**，这是当年泛码/死码的根因），`ApiResponse.code` 与
+  73 处 `Envelope.code` 断言一并换字符串，访问日志 `code=OK`（`0` 保留为"无信封"哨兵）；死码处置 =
+  `CONTENT_NOT_FOUND`/`COMMENT_NOT_FOUND` 复活、`DUPLICATE_LIKE→LIKE_ALREADY_LIKED`、`ACCESS_DENIED→AUTH_FORBIDDEN`、
+  `INVALID_PHONE`/`CACHE_ERROR`/泛码 `NOT_FOUND`/`CONFLICT`/`PARAM_ERROR` 删除。反向验证：注入一个无产码点的码 ⇒
+  `ErrorCodeContractTests#无死码` 必红；护栏还挣到一分 —— §2.2 白名单**漏了既有关注域 `FOLLOW`**（已补，`R-22` ②）。
+  ⚠️ 未做：非 GET 端点的 `cost.base` 未动（`T58`）；旧 SPA 只做了一行最小兼容（`api.js`），完整适配归 `T61`。
 
 #### T56 单一错误出口 + 框架级错误归位（来源 `R-21` §1.1 / 设计 §2.1）【待执行】
 

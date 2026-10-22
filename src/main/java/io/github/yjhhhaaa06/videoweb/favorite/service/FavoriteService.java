@@ -2,6 +2,7 @@ package io.github.yjhhhaaa06.videoweb.favorite.service;
 
 import io.github.yjhhhaaa06.videoweb.common.config.FavoriteLimitProperties;
 import io.github.yjhhhaaa06.videoweb.common.exception.ConflictException;
+import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.exception.ForbiddenException;
 import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
@@ -363,7 +364,7 @@ public class FavoriteService {
         FavoriteFolder folder = folderDao.findById(folderId);
         // ★ 私密与不存在**合并成同一条拒绝**（同码同文案）—— 见方法注释"拒绝口径"节。
         if (folder == null || Boolean.TRUE.equals(folder.getIsPrivate())) {
-            throw new NotFoundException("收藏夹不存在");
+            throw new NotFoundException(ErrorCode.FAVORITE_FOLDER_NOT_FOUND, "收藏夹不存在");
         }
         return assembleFolderItems(folderId, page, pageSize);
     }
@@ -399,7 +400,7 @@ public class FavoriteService {
         //   理由：① 参数校验**不碰库**（省一次 SELECT，且不合法输入根本不需要知道夹在不在）；
         //   ② 让"非法输入 ⇒ 400"不随资源状态漂移（同一份非法请求，无论夹是谁的、在不在，都是 400）。
         if (name == null && isPrivate == null) {
-            throw new ParamException("没有要修改的字段（name / isPrivate 至少提供一个）");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "没有要修改的字段（name / isPrivate 至少提供一个）");
         }
         String validName = name == null ? null : requireValidName(name);
         FavoriteFolder folder = requireOwnedFolder(userId, folderId);
@@ -424,7 +425,7 @@ public class FavoriteService {
     public void deleteFolder(long userId, long folderId) {
         FavoriteFolder folder = requireOwnedFolder(userId, folderId);
         if (folder.defaultFolder()) {
-            throw new ConflictException("默认收藏夹不可删除");
+            throw new ConflictException(ErrorCode.FAVORITE_FOLDER_DEFAULT, "默认收藏夹不可删除");
         }
         // ★ T11 缓存（1/2）+ T12 重算范围：失效/重算集必须**在删之前**取 —— 收藏数既是缓存
         //   key（content:favoriteCount:{id}）也是重算范围，都是**内容维度**的，
@@ -514,7 +515,7 @@ public class FavoriteService {
     @Transactional
     public void addItem(long userId, Long folderId, long contentId) {
         if (!contentDao.isContentExist(contentId)) {
-            throw new NotFoundException("内容不存在");
+            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
         }
         long targetFolderId;
         boolean targetIsDefault;
@@ -583,7 +584,7 @@ public class FavoriteService {
     @Transactional
     public void removeItems(long userId, long folderId, List<Long> contentIds) {
         if (contentIds == null || contentIds.isEmpty()) {
-            throw new ParamException("没有要移出的内容（contentIds 不能为空）");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "没有要移出的内容（contentIds 不能为空）");
         }
         requireOwnedFolder(userId, folderId);
         itemDao.deleteByFolderAndContentIds(folderId, contentIds);
@@ -643,7 +644,7 @@ public class FavoriteService {
     @Transactional
     public void moveItem(long userId, long fromFolderId, long toFolderId, long contentId) {
         if (!contentDao.isContentExist(contentId)) {
-            throw new NotFoundException("内容不存在");
+            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
         }
         requireOwnedFolder(userId, fromFolderId);
         // ★ 目标夹取回**实体**（不只是校验归属）：容量判定要它的 is_default（分流 500 / 5000）。
@@ -1090,7 +1091,7 @@ public class FavoriteService {
     private void requireFolderCountBelowLimit(long userId) {
         int max = limits.customFolderMaxCount();
         if (folderDao.countCustomFoldersByUserId(userId) >= max) {
-            throw new ParamException("收藏夹数量已达上限（最多 " + max + " 个）");
+            throw new ParamException(ErrorCode.FAVORITE_FOLDER_LIMIT, "收藏夹数量已达上限（最多 " + max + " 个）");
         }
     }
 
@@ -1122,7 +1123,7 @@ public class FavoriteService {
     private void requireFolderCapacity(long folderId, boolean isDefault) {
         int max = isDefault ? limits.defaultFolderMaxItems() : limits.customFolderMaxItems();
         if (itemDao.countByFolderId(folderId) >= max) {
-            throw new ParamException(isDefault
+            throw new ParamException(ErrorCode.FAVORITE_FOLDER_FULL, isDefault
                     ? "默认收藏夹已满（最多 " + max + " 条）"
                     : "收藏夹已满（最多 " + max + " 条）");
         }
@@ -1138,7 +1139,7 @@ public class FavoriteService {
     private FavoriteFolder requireOwnedFolder(long userId, long folderId) {
         FavoriteFolder folder = folderDao.findById(folderId);
         if (folder == null) {
-            throw new NotFoundException("收藏夹不存在");
+            throw new NotFoundException(ErrorCode.FAVORITE_FOLDER_NOT_FOUND, "收藏夹不存在");
         }
         if (folder.getUserId() == null || folder.getUserId() != userId) {
             throw new ForbiddenException("只能操作自己的收藏夹");
@@ -1160,11 +1161,11 @@ public class FavoriteService {
      */
     private static String requireValidName(String name) {
         if (name == null || name.isBlank()) {
-            throw new ParamException("收藏夹名称不能为空");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "收藏夹名称不能为空");
         }
         String trimmed = name.strip();
         if (trimmed.length() > NAME_MAX_LENGTH) {
-            throw new ParamException("收藏夹名称不能超过 " + NAME_MAX_LENGTH + " 个字符");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "收藏夹名称不能超过 " + NAME_MAX_LENGTH + " 个字符");
         }
         return trimmed;
     }

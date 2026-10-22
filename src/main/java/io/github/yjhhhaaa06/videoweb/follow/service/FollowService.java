@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.follow.service;
 
 import io.github.yjhhhaaa06.videoweb.common.exception.ConflictException;
+import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
 import io.github.yjhhhaaa06.videoweb.follow.cache.FollowCache;
 import io.github.yjhhhaaa06.videoweb.follow.dao.FollowDao;
@@ -93,11 +94,11 @@ public class FollowService {
     @Transactional
     public void follow(long userId, long followedUserId) {
         if (userId == followedUserId) {
-            throw new ConflictException("不能关注自己");
+            throw new ConflictException(ErrorCode.FOLLOW_SELF, "不能关注自己");
         }
         // 先检查是否已关注（TV 口径：先查后写，不用 INSERT IGNORE —— 后者会把 409 静默变成 200）
         if (followDao.isFollowing(userId, followedUserId)) {
-            throw new ConflictException("已关注，不可重复操作");
+            throw new ConflictException(ErrorCode.FOLLOW_ALREADY, "已关注，不可重复操作");
         }
         followDao.insertFollow(userId, followedUserId);
         userDao.updateFollowCount(userId, 1);
@@ -121,10 +122,10 @@ public class FollowService {
     @Transactional
     public void unfollow(long userId, long followedUserId) {
         if (userId == followedUserId) {
-            throw new ConflictException("不能取关自己");
+            throw new ConflictException(ErrorCode.FOLLOW_SELF, "不能取关自己");
         }
         if (!followDao.isFollowing(userId, followedUserId)) {
-            throw new ConflictException("未关注，不可取消");
+            throw new ConflictException(ErrorCode.FOLLOW_NOT_FOLLOWING, "未关注，不可取消");
         }
         followDao.deleteFollow(userId, followedUserId);
         userDao.updateFollowCount(userId, -1);

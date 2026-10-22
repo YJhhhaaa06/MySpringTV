@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.content.controller;
 
+import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
@@ -81,11 +82,11 @@ public class ContentController {
                                               @RequestParam long contentId,
                                               @RequestParam(required = false) String enabled) {
         if (enabled == null || enabled.isEmpty()) {
-            throw new ParamException("enabled不能为空");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "enabled不能为空");
         }
         Boolean value = parseEnabled(enabled);
         if (value == null) {
-            throw new ParamException("enabled格式错误，应为 0/1 或 true/false");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "enabled格式错误，应为 0/1 或 true/false");
         }
         contentService.setCommentEnabled(contentId, userId, value);
         return ApiResponse.success("操作成功");

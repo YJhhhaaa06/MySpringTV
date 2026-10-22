@@ -57,7 +57,7 @@ class LikeFlowTests extends AbstractLikeIntegrationTest {
         ResponseEntity<String> resp = likeContent(contentId, token);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(Envelope.code(resp)).isEqualTo(200);
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
         assertThat(Envelope.data(resp).asString()).isEqualTo("点赞成功");
 
         // 独立 oracle：行数与计数字列互为复算（不读接口回显）
@@ -98,7 +98,7 @@ class LikeFlowTests extends AbstractLikeIntegrationTest {
         ResponseEntity<String> second = likeContent(contentId, token);
 
         assertThat(second.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        assertThat(Envelope.code(second)).isEqualTo(409);
+        assertThat(Envelope.code(second)).isEqualTo("LIKE_ALREADY_LIKED");
         assertThat(countContentLikeRows(contentId)).as("仍然只有一条记录").isEqualTo(1L);
         assertThat(contentLikeCountColumn(contentId)).as("计数不得被加两次").isEqualTo(1);
     }
@@ -112,7 +112,7 @@ class LikeFlowTests extends AbstractLikeIntegrationTest {
         ResponseEntity<String> resp = unlikeContent(contentId, token);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        assertThat(Envelope.code(resp)).isEqualTo(409);
+        assertThat(Envelope.code(resp)).isEqualTo("LIKE_NOT_LIKED");
         assertThat(contentLikeCountColumn(contentId)).isZero();
         assertThat(countContentLikeRows(contentId)).isZero();
     }
@@ -125,7 +125,7 @@ class LikeFlowTests extends AbstractLikeIntegrationTest {
         ResponseEntity<String> resp = likeContent(999_999_999L, token);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(Envelope.code(resp)).isEqualTo(404);
+        assertThat(Envelope.code(resp)).isEqualTo("CONTENT_NOT_FOUND");
     }
 
     // ==================== 状态 / 计数读端点 ====================

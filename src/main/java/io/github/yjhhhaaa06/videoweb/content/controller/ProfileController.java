@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.content.controller;
 
+import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.Public;
@@ -69,12 +70,12 @@ public class ProfileController {
     /** TV {@code parseUserId} 逐字：缺参 / 空白 → 400「缺少 userId」；非数字 → 400「userId 格式错误」。 */
     private static long parseUserId(String raw) {
         if (raw == null || raw.isBlank()) {
-            throw new ParamException("缺少 userId");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "缺少 userId");
         }
         try {
             return Long.parseLong(raw);
         } catch (NumberFormatException e) {
-            throw new ParamException("userId 格式错误");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "userId 格式错误");
         }
     }
 }

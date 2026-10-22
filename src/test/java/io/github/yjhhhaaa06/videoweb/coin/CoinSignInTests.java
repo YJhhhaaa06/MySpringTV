@@ -255,7 +255,7 @@ class CoinSignInTests extends AbstractCoinIntegrationTest {
         //    机制是否生效只能由 SecurityContractTests 直接对 RequestMappingLookup 求值来证明
         //    （AGENTS.md「测试纪律」④）。
         assertThat(resp.getStatusCode().value()).isEqualTo(401);
-        assertThat(Envelope.code(resp)).isEqualTo(401);
+        assertThat(Envelope.code(resp)).isEqualTo("AUTH_UNAUTHORIZED");
         assertThat(Envelope.hasDataField(resp)).as("错误信封不含 data 键").isFalse();
     }
 

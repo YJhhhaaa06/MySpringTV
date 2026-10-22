@@ -6,6 +6,7 @@ import io.github.yjhhhaaa06.videoweb.coin.event.CoinChangedEvent;
 import io.github.yjhhhaaa06.videoweb.coin.model.vo.CoinBalanceVO;
 import io.github.yjhhhaaa06.videoweb.coin.model.vo.SignInVO;
 import io.github.yjhhhaaa06.videoweb.common.exception.ConflictException;
+import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.common.time.SiteTime;
@@ -143,26 +144,26 @@ public class CoinService {
     public CoinBalanceVO add(long userId, long contentId, int count) {
         // ① 参数形态：先挡掉一切非法枚数，避免后续把它写进 SQL。
         if (count != 1 && count != 2) {
-            throw new ParamException("投币数量只能是 1 或 2");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "投币数量只能是 1 或 2");
         }
 
         // ② 存在性 + ③ 类型 + ④ 归属：一趟窄查询取回两列，顺序按设计 §四.1。
         ContentAuthorAndType content = contentDao.findAliveContentAuthorAndType(contentId);
         if (content == null) {
-            throw new NotFoundException("内容不存在");
+            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
         }
         if (content.type() == null || content.type() != 1) {
-            throw new ParamException("该内容不支持投币");
+            throw new ParamException(ErrorCode.COIN_NOT_SUPPORTED, "该内容不支持投币");
         }
         if (content.authorId() != null && content.authorId() == userId) {
-            throw new ParamException("不能给自己投币");
+            throw new ParamException(ErrorCode.COIN_SELF_FORBIDDEN, "不能给自己投币");
         }
 
         // ⑤ 封顶：先保证行存在，再条件累加。影响 0 行 ⇒ 已满（或这一次加完会超 2）。
         //    ★ 必须在扣款之前（5 先于 6）：「已满 + 余额不足」要答 409，不是 400。
         contentCoinDao.insertIgnoreZero(userId, contentId);
         if (contentCoinDao.addAmount(userId, contentId, count) == 0) {
-            throw new ConflictException("对本稿件投币枚数已用完");
+            throw new ConflictException(ErrorCode.COIN_ALREADY_FULL, "对本稿件投币枚数已用完");
         }
 
         // ⑥ 余额：条件扣款是"够不够"的唯一判据（0 行 ⇒ 硬币不足）。禁止先查余额再减。
@@ -176,11 +177,11 @@ public class CoinService {
         if (authorId != null && authorId < userId) {
             userDao.updateCoinDeci(authorId, count);
             if (userDao.deductCoinDeci(userId, costDeci) == 0) {
-                throw new ParamException("硬币不足");
+                throw new ParamException(ErrorCode.COIN_INSUFFICIENT, "硬币不足");
             }
         } else {
             if (userDao.deductCoinDeci(userId, costDeci) == 0) {
-                throw new ParamException("硬币不足");
+                throw new ParamException(ErrorCode.COIN_INSUFFICIENT, "硬币不足");
             }
             userDao.updateCoinDeci(authorId, count);
         }

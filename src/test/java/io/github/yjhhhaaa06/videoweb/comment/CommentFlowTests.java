@@ -48,7 +48,7 @@ class CommentFlowTests extends AbstractCommentIntegrationTest {
         ResponseEntity<String> resp = addComment(contentId, "第一条评论", null, token);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(Envelope.code(resp)).isEqualTo(200);
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
         assertThat(Envelope.data(resp).asString()).isEqualTo("评论成功");
 
         // 独立 oracle：不读接口回显，直接查列
@@ -124,7 +124,7 @@ class CommentFlowTests extends AbstractCommentIntegrationTest {
         ResponseEntity<String> resp = addComment(999_999_999L, "幽灵评论", null, token);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(Envelope.code(resp)).isEqualTo(404);
+        assertThat(Envelope.code(resp)).isEqualTo("CONTENT_NOT_FOUND");
         assertThat(countAllComments(999_999_999L)).isZero();
     }
 
@@ -145,20 +145,24 @@ class CommentFlowTests extends AbstractCommentIntegrationTest {
         ResponseEntity<String> resp = addComment(contentId, "给已删内容评论", null, token);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(Envelope.code(resp)).isEqualTo(404);
+        assertThat(Envelope.code(resp)).isEqualTo("CONTENT_NOT_FOUND");
         assertThat(countAllComments(contentId)).isZero();
     }
 
     @Test
-    @DisplayName("被回复评论不存在：409")
+    @DisplayName("被回复评论不存在：404（★契约变更 T55：不存在 ≠ 状态冲突，§2.1 的 404 行）")
     void 被回复评论不存在() {
         String token = registerAndGetToken(AUTHOR_PHONE, AUTHOR);
         long contentId = insertContent(userIdOf(AUTHOR_PHONE), true);
 
         ResponseEntity<String> resp = addComment(contentId, "回复幽灵", 999_999_999L, token);
 
-        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        assertThat(Envelope.code(resp)).isEqualTo(409);
+        // ★ 期望值随契约改（G8「契约跟随」）：旧实现抛 ConflictException（409「操作冲突」），
+        //   但它描述的是"目标资源不存在"，与 §2.1「404 = 资源不存在」冲突。
+        //   T55 只换码表时顺手归位 —— 与"被回复评论不属于该内容"（409 COMMENT_REPLY_TARGET_INVALID）
+        //   分界：那个目标**存在**，只是关系不合法。
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(Envelope.code(resp)).isEqualTo("COMMENT_NOT_FOUND");
         assertThat(countAllComments(contentId)).isZero();
     }
 
@@ -174,7 +178,7 @@ class CommentFlowTests extends AbstractCommentIntegrationTest {
         ResponseEntity<String> resp = addComment(contentA, "跨内容回复", foreignCommentId, token);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        assertThat(Envelope.code(resp)).isEqualTo(409);
+        assertThat(Envelope.code(resp)).isEqualTo("COMMENT_REPLY_TARGET_INVALID");
         assertThat(countAllComments(contentA)).isZero();
     }
 
@@ -188,7 +192,7 @@ class CommentFlowTests extends AbstractCommentIntegrationTest {
         ResponseEntity<String> resp = addComment(contentId, "关评论区后发帖", null, token);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        assertThat(Envelope.code(resp)).isEqualTo(409);
+        assertThat(Envelope.code(resp)).isEqualTo("COMMENT_DISABLED");
         assertThat(countAllComments(contentId)).isZero();
         assertThat(commentCountOf(contentId)).isZero();
     }
@@ -201,7 +205,7 @@ class CommentFlowTests extends AbstractCommentIntegrationTest {
         ResponseEntity<String> resp = addComment(contentId, "匿名评论", null, null);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
-        assertThat(Envelope.code(resp)).isEqualTo(401);
+        assertThat(Envelope.code(resp)).isEqualTo("AUTH_UNAUTHORIZED");
         assertThat(Envelope.hasDataField(resp)).as("错误信封不含 data 键").isFalse();
         assertThat(countAllComments(contentId)).isZero();
     }
@@ -318,7 +322,7 @@ class CommentFlowTests extends AbstractCommentIntegrationTest {
         ResponseEntity<String> resp = deleteComment(commentId, otherToken);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
-        assertThat(Envelope.code(resp)).isEqualTo(403);
+        assertThat(Envelope.code(resp)).isEqualTo("AUTH_FORBIDDEN");
         assertThat(isCommentDeleted(commentId)).as("403 不得留下任何脏数据").isFalse();
         assertThat(commentCountOf(contentId)).isEqualTo(1);
     }
@@ -345,7 +349,7 @@ class CommentFlowTests extends AbstractCommentIntegrationTest {
         ResponseEntity<String> resp = deleteComment(1L, null);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
-        assertThat(Envelope.code(resp)).isEqualTo(401);
+        assertThat(Envelope.code(resp)).isEqualTo("AUTH_UNAUTHORIZED");
     }
 
     @Test
