@@ -1,16 +1,55 @@
 # 播放记录（history）域
 
 > 定位（先读这一句）：本域记录**谁把哪个视频看到哪了**，并在**首次播放**时给内容累计一次**播放量**。
-> 本篇只讲本域的**数据模型 / 端点契约 / 写读路径 / 口径 / 边界**；**用户可见规则**另篇
-> （[history-需求](./history-需求.md)）。
-> **不展开**横切机制（缓存三态 / 事务 / 鉴权 / 限流 / 事件），去向见文末
-> [§边界与去向](#边界与去向机制外链)。
+> 本篇是服务端的**唯一事实源**（数据模型 / 端点契约 / 写读路径 / 口径 / 边界）。
+> **用户可见规则** → [history-需求](./history-需求.md)；**上报缓冲机制** → [history-上报缓冲](./history-上报缓冲.md)；
+> **客户端怎么配合** → [history-客户端契约](./history-客户端契约.md)。
 >
-> 📌 **落点纪律**：本域**开工就建**本篇与需求篇 —— 它们是**活的事实源**（执行中随代码改、
-> 收口时即终态）；**执行态**在 `task/CURRENT_TASKS.md` 的 `T#` 回写里；**过程物**（设计讨论 /
-> 方案比较）走 git，不进本篇。
-> ★ **代码注释只许引用本篇路径 + `类#方法`**，**不得引用 `task/` 登记台**（登记台每期重建 ⇒
-> 引用即悬空），也不得引用任何草稿文件。
+> 读法：只想接入或判断行为 ⇒ **§〇 + §三**；改代码 ⇒ 再读 **§四 / §七**；想知道"为什么这么做" ⇒ **§十**。
+> ★ 页面与词（播放页 / 历史记录页 / 观看会话 / 标签页）**先看** [history-术语表](./history-术语表.md) ——
+> 本域最容易出错的就是这几个词，说错了后面全歪。
+>
+> ★ **代码注释只许引用本篇路径 + `类#方法`**，不引 `task/` 登记台与任何草稿（登记台每期重建 ⇒ 引用即悬空）。
+
+---
+
+## 〇、六十秒上手
+
+一条数据流：
+
+```
+播放页                           服务端                                     存储
+/play     ──────────────────>  判首播（一人一次）──> content.play_count +1 ──> 事件 ──> content:playCount
+/report   ──────────────────>  校验 + clamp ─────────> Redis 缓冲（hash + dirty 集合）
+/flush    ──────────────────>  批量 ODKU ────────────> watch_history（写成功才条件删缓冲）
+【服务端轮询】────────────────>  同一段落库（只兜"停止上报"的会话）
+/list     <──────────────────  一页 watch_history + 一趟 loadContentVOs（取不到的做失效占位）
+/position <──────────────────  一条 uk_user_content 点查（只读**已落库**的值）
+```
+
+| 谁 | 做什么 | 端点 |
+|---|---|---|
+| 播放页 · 开始播放 | 记一次播放量（一人一次，幂等） | `POST /history/play` |
+| 播放页 · 初始化 | 取续播位置（无记录 ⇒ 0） | `GET /history/position` |
+| 播放页 · 播放中 | 报进度，**只进缓冲不落库** | `POST /history/report` |
+| 播放页 · 暂停/退出/切页 | 把该用户缓冲**同步落库** | `POST /history/flush` |
+| 历史记录页 · 翻页 | 分页读列表（**唯一的读端点**） | `GET /history/list` |
+
+**三条最容易记错的口径**：
+
+1. **一人一内容一行**（`uk_user_content`）：重复上报只改这一行，列表里不会出现两条。
+2. **播放量按人去重、只增**，且**只在详情平铺**；列表卡片一个计数都不带（本仓口径）。
+3. **进度后到即新（LWW）**，没有"只能增"守卫 ⇒ 重看从头会把进度改回 0（刻意偏离 B站，§十 #1）。
+
+**代码落点**（想读实现直接跳这里）：
+
+| 面 | 类 |
+|---|---|
+| 入口 | `history/controller/HistoryController`（类级 `@RequiresLogin`，五个端点） |
+| 写 | `HistoryService#report / #play / #flush` · `HistoryReportBuffer`（Redis 语义层）· `HistoryFlushService`（落库编排）· `HistoryFlushScheduler`（兜底轮询） |
+| 读 | `HistoryService#list / #position` · `WatchHistoryDao` |
+| 播放量 | `content.play_count` 列 · `ContentCountAggregate`（详情第五键）· `content.event.PlayCountChangedListener` |
+| 时长 | `upload/service/Mp4DurationReader` → `content_media.duration_seconds` → `ContentCacheDTO` |
 
 ---
 
@@ -21,7 +60,7 @@
 | 进度上报（`/history/report`，**先进 Redis 缓冲**，见 [上报缓冲](./history-上报缓冲.md)） | 历史删除 / 清空 |
 | 播放事件（`/history/play`，去重计播放量；**不进缓冲**） | 前端页面（`static/` 本期不动；播放历史后续一次性重制） |
 | 历史列表（`/history/list`，失效占位；**不合并缓冲**） | 历史列表缓存 |
-| 续播位置（`/history/position`，**只读已落库的值**，`R-20`） | 服务端**降频**（节流由客户端负责；缓冲只挡写库，不挡请求） |
+| 续播位置（`/history/position`，**只读已落库的值**） | 服务端**降频**（节流由客户端负责；缓冲只挡写库，不挡请求） |
 | 退出 flush（`/history/flush`）+ 空闲轮询兜底（[上报缓冲](./history-上报缓冲.md)） | 客户端节流（本期不做；见 [客户端契约](./history-客户端契约.md) §三） |
 | mp4 时长解析（发布 / 换源） | 「已看完」标记（由前端按 `progress / duration` 推导） |
 | 详情播放量（第 5 个公共计数） | 历史容量上限 / 旧行清理 |
@@ -63,26 +102,12 @@ DROP TABLE IF EXISTS `video`;
 ```
 
 ```sql
--- V8：列表索引替换（T50）—— 覆盖 ORDER BY + 三列 SELECT，**替换**而非新增
+-- V8：列表索引（**替换**而非新增，索引总数不变）
 ALTER TABLE `watch_history`
   DROP KEY `idx_user_update`,
-  ADD KEY `idx_user_update_content`
-      (`user_id`, `update_time` DESC, `content_id` DESC, `progress_seconds`);
+  ADD KEY `idx_user_update_content` (`user_id`, `update_time` DESC, `content_id` DESC, `progress_seconds`)
+  COMMENT '历史列表倒序（update_time DESC, content_id DESC）+ 三列覆盖；每条上报改 update_time ⇒ 一并维护';
 ```
-
-> ★ **V8 为什么换（2026-10-21，T50）**：列表的 `ORDER BY update_time DESC, content_id DESC` 里
-> `content_id` **不在** V6 的 `idx_user_update (user_id, update_time)` 上 ⇒ 排序键不是索引序 ⇒
-> 每页都对该用户**全部行** filesort（`EXPLAIN` = `Using filesort`）。新索引**前三列就是排序键**
-> （前向索引扫描），第四列 `progress_seconds` 让本页 SELECT 三列**免回表**。
-> ★ 形态是**替换**不是新增：新索引前缀已完全覆盖旧索引（`countByUserId` 一并覆盖）⇒ 索引总数不变。
-> ⚠️ 代价：每条上报都改 `update_time`（口径 5）⇒ 该索引项随每次上报重写（写放大），**已实测无回归**；
-> 基线数字与复算命令见 §7.1。
-
-> ⚠️ **迁移锚点同步**：V6/V7 会让 `InfrastructureConnectivityTests`（表数 **20 → 19**、版本
-> `1..5` → `1..7`）与 `WatchLaterSchemaTests#全部迁移版本都被应用`（`endsWith("5")` → `"7"`）变红，
-> **必须同 commit 改**。这不是回归，而是把"新版本真的被应用 / 遗留表真的被删"变成一次人工认账。
-> V8 无表计数变化，但版本锚点再 +1（`1..8` / `endsWith("8")`）。
-> `RateLimitWeightTableTests.EXPECTED_NON_GET_AT_LEAST`（36 → 38）在**加端点时**同步。
 
 **口径**：
 
@@ -95,20 +120,29 @@ ALTER TABLE `watch_history`
 | 5 | `update_time` 必须**显式** `SET ... = CURRENT_TIMESTAMP` | `ON UPDATE` 在"值没变"时不触发 ⇒ 重复上报同一秒不会移到最前 |
 | 6 | `idx_content_id` 不是运行时读路径 | 只服务不变量复算（`play_count == COUNT(*)`）与将来的清理工具 |
 
-> ⚠️ `play_count` 是 `unsigned` 且**只增**（没有取消播放）⇒ 不需要 T34 那套
+> ⚠️ `play_count` 是 `unsigned` 且**只增**（没有"取消播放"）⇒ 不需要别的计数那套
 > `CAST(... AS SIGNED)` 下溢守卫。这是口径差异、不是漏改。
+
+**为什么 V8 要换索引**：列表的 `ORDER BY update_time DESC, content_id DESC` 里 `content_id`
+**不在** V6 的 `idx_user_update (user_id, update_time)` 上 ⇒ 排序键不是索引序 ⇒ 每页都对该用户**全部行**
+filesort。新索引**前三列就是排序键**，第四列 `progress_seconds` 让本页 SELECT 三列**免回表**；
+新索引前缀已完全覆盖旧索引（`countByUserId` 一并覆盖）。代价 = 每条上报都改 `update_time` ⇒
+该索引项随每次上报重写（写放大，**已实测无回归**）。实测基线见 §7.1。
+
+> ⚠️ **迁移锚点要同 commit 改**（表数 / 版本 / 端点权重计数 —— **清单在 §十一**）。这不是回归，
+> 而是把"新版本真的被应用 / 遗留表真的被删"变成一次人工认账。
 
 ---
 
 ## 三、端点契约
 
 写 = `POST` + `x-www-form-urlencoded`，读 = `GET` + query（沿袭 `/like/*`、`/watchlater/*`）。
-`HistoryController` **类级 `@RequiresLogin`**：四个端点都只对当前登录用户有意义。
+`HistoryController` **类级 `@RequiresLogin`**：五个端点都只对当前登录用户有意义。
 
 | 端点 | 入参 | 出参（`data`） | 说明 |
 |---|---|---|---|
-| `POST /history/report` | `contentId`、`progress`（秒，整数） | 无（`msg="success"`） | **只写 Redis 缓冲、不落库**（[上报缓冲](./history-上报缓冲.md)）；后到即新（LWW）；按当前时长 clamp；Redis 不可用 ⇒ **503** |
-| `POST /history/flush` | 无（`userId` 取自登录态） | 无（`msg="success"`） | 把**该用户全部**脏缓冲**同步**落库（退出信号）；落库失败仍 **200**（数据留在缓冲等兜底） |
+| `POST /history/report` | `contentId`、`progress`（秒，整数） | 无（`msg="success"`） | **只写 Redis 缓冲、不落库**；后到即新（LWW）；按当前时长 clamp；Redis 不可用 ⇒ **503 + `Retry-After`** |
+| `POST /history/flush` | 无（`userId` 取自登录态） | 无（`msg="success"`） | 把**该用户全部**脏缓冲**同步**落库（退出信号）；落库失败仍 **200**（数据留缓冲等兜底） |
 | `POST /history/play` | `contentId` | 无（`msg="success"`） | 首播去重后 `play_count + 1`；行不存在则建行（progress=0） |
 | `GET /history/list` | `page`、`pageSize` | `PageResult<HistoryItemVO>` | 按 `update_time DESC, content_id DESC`；缺省 20 / 上限 100 |
 | `GET /history/position` | `contentId` | `{ "progress": 123 }` | 无记录 ⇒ `0`；**不校验内容、不返回 404** |
@@ -130,14 +164,9 @@ ALTER TABLE `watch_history`
   `Boolean`**（`boolean` 会被 Lombok 生成 `isInvalid()`，埋 JSON 键名漂移的坑）。
 - `position` 只给进度：时长已随详情 `durationSeconds` 返回，不重复读一次内容。
 
-**限流权重**：`[POST /history/report] = 1`、`[POST /history/play] = 1`、`[POST /history/flush] = 3`
-（前两者**有意低于**"其余非 GET 写 3"：上报是设计上最高频的写。★ 接心跳**不需要**重估 —— 缓冲挡的是 DB 写，请求数不变，权重按请求计；`/flush` 取 3 是因为它一次批量写库）。
-
-> 📌 **交付进度（2026-10-21，T49 落地后）**：上表**四个端点全部已在代码里**（写路径 T47、读面 T49）。
-> 四个端点共用一个类级 `@RequiresLogin`；`SecurityContractTests#history写端点需登录` 已钉住
-> `/report`、`/play`、`/list`、`/position` 四条路由（`I-23` 核销）。
-> ⚠️ 判别力边界：本仓默认拒绝 ⇒ 该用例只钉"路由落到了 `@Controller` 处理器上"，
-> **不证明**类级注解在位；HTTP 侧 401 是假绿（`@CurrentUserId` 解析器兜出）。
+**限流权重**：`[POST /history/report] = 1`、`[POST /history/play] = 1`、`[POST /history/flush] = 3`。
+前两者**有意低于**"其余非 GET 写 3"：上报是设计上最高频的写，★ 接心跳**不需要**重估 ——
+缓冲挡的是 DB 写、请求数不变，权重按请求计；`/flush` 取 3 是因为它一次批量写库。
 
 ---
 
@@ -145,9 +174,8 @@ ALTER TABLE `watch_history`
 
 ### 4.1 `/history/report`：校验 → **写缓冲**；落库在 flush（一条 ODKU，**不加事务**）
 
-> ★ **2026-10-22（`R-19`）起**：本端点**不再同步落库**，改为写 Redis 缓冲（[上报缓冲](./history-上报缓冲.md)）。下方 SQL 是
-> **flush / 轮询兜底**时执行的语句，语义（LWW、`update_time` 显式 SET、clamp）**逐字未变**。
-> ⚠️ `progress` 的 clamp 仍在请求线程做（需要 `durationSeconds`）；**Redis 里的值已是 clamp 后的**。
+下面这条 SQL 是 **flush / 轮询兜底**执行的语句，语义（LWW、`update_time` 显式 SET、clamp）在
+"上报即落库"时代**逐字未变**：
 
 ```sql
 INSERT INTO watch_history (user_id, content_id, progress_seconds)
@@ -156,6 +184,8 @@ ON DUPLICATE KEY UPDATE
   progress_seconds = VALUES(progress_seconds),
   update_time = CURRENT_TIMESTAMP;
 ```
+
+> ⚠️ `progress` 的 clamp 在**请求线程**做（需要 `durationSeconds`）⇒ **Redis 里的值已是 clamp 后的**。
 
 校验顺序（参数形态 → 存在性 → 类型）：
 
@@ -168,8 +198,8 @@ ON DUPLICATE KEY UPDATE
 - 校验复用 `ContentService#loadContentVOs(List.of(contentId))`：**返回空列表** ⇒ 404；`type != 1` ⇒ 400；
   顺带拿 `durationSeconds` 做 clamp（`progress = min(progress, duration)`；时长 null 则不 clamp）。
   **不新增 content 域方法、不新增 DAO 读边。**
-- ★ **不在这里计播放量** ⇒ ODKU 的 affected-rows 歧义（Connector/J 默认
-  `useAffectedRows=false` ⇒ "插入"与"值没变的更新"都返回 1）**不构成问题**——这是拆端点的最大收益。
+- ★ **不在这里计播放量** ⇒ ODKU 的 affected-rows 歧义（Connector/J 默认 `useAffectedRows=false`
+  ⇒ "插入"与"值没变的更新"都返回 1）**不构成问题** —— 这是拆端点的最大收益。
 - **不做"进度只能增"的守卫**：后到即新。重看从头会把进度改回 0（与 B站 不同，见
   [history-需求](./history-需求.md) §六）。
 
@@ -196,19 +226,18 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
   `insertIgnoreZero` 同形）。
 - 并发：两个首播请求，①或②只有一个 `affected=1` ⇒ 播放量恰 `+1`。
 - 锁序：先 `watch_history` 后 `content`；**内容删除不碰 `watch_history`**（无反向锁序）。
-  理论上仍有"`INSERT IGNORE` 共享锁 → 条件 `UPDATE` 排他锁"的 1213 窗口
-  （同 `coin.md` §九 #5，未复现）。
+  理论上仍有"`INSERT IGNORE` 共享锁 → 条件 `UPDATE` 排他锁"的 1213 窗口（未复现，§十 #9）。
 - `/play` 在行不存在时**建行（progress=0）**：否则"先 play 后 report"会丢播放量；
   历史里出现一条 00:00 的记录是预期行为。
-- `/play` 是**唯一**计播放量入口；`/report` 不计数（用户 2026-10-21 拍板）。
-  播放事件丢失 ⇒ 本次不计，下次观看会再发；**只看一次且丢包 ⇒ 永久少计**（§十 #2）。
+- `/play` 是**唯一**计播放量入口；`/report` 不计数。播放事件丢失 ⇒ 本次不计，下次观看会再发；
+  **只看一次且丢包 ⇒ 永久少计**（§十 #2）。
 
 ### 4.3 事务边界
 
 | 端点 / 路径 | 事务 | 理由 |
 |---|---|---|
 | `/report` | **不加** | 只写 Redis：单条 Lua（`HSET` + `ZADD`）本身原子（[上报缓冲](./history-上报缓冲.md)） |
-| `/flush` / 轮询兜底 | **一批一事务**；失败后**逐条重试** | 批量 ODKU 必须同进同退；一次数据异常若整批回滚会"毒死全批"⇒ 失败降级逐条，把坏行摘出去（[上报缓冲](./history-上报缓冲.md) §4） |
+| `/flush` / 轮询兜底 | **一批一事务**；失败后**逐条重试** | 批量 ODKU 必须同进同退；一次数据异常若整批回滚会"毒死全批"⇒ 失败降级逐条，把坏行摘出去（[上报缓冲](./history-上报缓冲.md) §四） |
 | `/play` | **加** | 标记位 + `content.play_count` 必须同进同退；否则不变量没有自愈路径 |
 
 ---
@@ -219,25 +248,18 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
 |---|---|
 | 列 | `content.play_count`（`unsigned`，只增；内容删除**不归零**） |
 | 缓存 key | `content:playCount:{id}`（content 域自持，同 `content:commentCount`） |
-| 详情读 | T44 计数聚合 **4 键 → 5 键**：`ContentCountColumns` 加 `playCount`、`ContentDao#findCountColumns` 加列、`ContentCountAggregate` 的解析 / 合并 / 回填各加一位。⚠️ record 组件**必须用包装 `Long`**（MyBatis `<constructor>` 按 javaType 反射，原生 `long` 会 `NoSuchMethodException` ⇒ 详情 500，T44-2 实测） |
+| 详情读 | 计数聚合 **4 键 → 5 键**：`ContentCountColumns` 加 `playCount`、`ContentDao#findCountColumns` 加列、`ContentCountAggregate` 的解析 / 合并 / 回填各加一位。⚠️ record 组件**必须用包装 `Long`**（MyBatis `<constructor>` 按 javaType 反射，原生 `long` 会 `NoSuchMethodException` ⇒ 详情 500） |
 | 回填 | content 域内 `ContentCountCache#backfillPlayCount`（**不经互动域**——键是自己的） |
 | 失效 | `content.event.PlayCountChangedListener` 订阅 `history.event.PlayCountChangedEvent`，**条件 `INCRBY 1`**（冷 key 不建，同 coin 的 `content:coinCount`） |
 | 不变量 | `content.play_count == COUNT(*) FROM watch_history WHERE content_id = ? AND play_counted = 1` |
 
-- **只在详情平铺**（`ContentDetailVO.playCount`），**不进列表**（T43 口径）、**不进 `ContentCacheDTO`**。
+- **只在详情平铺**（`ContentDetailVO.playCount`），**不进列表**、**不进 `ContentCacheDTO`**。
 - 图文帖 `play_count` 恒 0（没有 `/play` 路径能通过类型校验）。
 - 内容删除：详情 404 在聚合之前短路；`play_count` 与历史行都**不动**（失效占位要它）；
   `content:playCount:{id}` 在 `ContentCache#removeContent` 里**一并失效**（同 `commentCount` 的孤儿键口径
   —— 键删了也不会再回填，因为详情 404 在聚合之前）。
 - 不新增 `content → history` 边：详情不反查历史，播放量走"列 + 自己的 key"。
-
-> 📌 **交付状态（2026-10-21，T48 落地后）**：上表**全部已在代码里** ——
-> 写侧 = `content.play_count` 列 + `HistoryService#play` 的首播 `+1` + `PlayCountChangedEvent`（T47）；
-> 读侧 = 5 键聚合（`ContentCountColumns` 第 5 组件 `Long playCount`）+ 本域 `backfillPlayCount` +
-> `content.event.PlayCountChangedListener` 的条件 `INCRBY 1`（`AFTER_COMMIT`）+ 详情 `ContentDetailVO.playCount`
-> + `ContentCache#removeContent` 一并失效（T48）。**写路径没有为读面改过一行**。
-> 断言口径见 `ContentPlayCountTests`（含"冷 key 不写半套""回滚不污染""删除后 404 不回填"
-> 与 `UploadDurationTests` 的详情 19 键精确集）。
+- ★ **写路径没有为读面改过一行**：`/play` 只做列 `+1` + 发事件，读面（key / 聚合 / 监听器）自己接上。
 
 ---
 
@@ -265,27 +287,21 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
 | `POST /api/upload/replace`（`type=1`） | 换源时重解析并**同一事务**更新该媒体行的时长；`type=2/3` 传 null，**不能清空视频行的时长** |
 
 - 解析失败 ⇒ `null`，**不阻断发布**（内容仍可播，只是没有百分比）。
-- **存量 257 条不回填**：时长 null = 未知；进度按秒展示。
+- **存量不回填**：时长 null = 未知；进度按秒展示。
 - 归属：解析器在 **upload 域**（它持有"上传文件的形状"与 `FileUploadService#resolveAbsolutePath`）；
   content 只收 `durationSeconds` 参数，**不反向依赖 upload**。
 
 ### 6.3 载荷投影（**三个落点，漏一个就恒 null**）
 
-- `ContentCacheDTO` 加 `durationSeconds`（JSON 键同名，**所有内容响应新增一个键**，用户 2026-10-21 同意）。
+- `ContentCacheDTO` 加 `durationSeconds`（JSON 键同名，**所有内容响应新增一个键**）。
 - `ContentCache#buildContentMedia` 在 `type=1` 分支从**已有的视频行**取时长写入 DTO
   —— **零额外查询**（媒体行本来就要装配）。
-- ★ `ContentCache#copyCommon` **必须同步**：`toContentVO` / `toDetailVO` 都只走这一次手写字段拷贝
-  （`ContentCache.java` 的 `copyCommon`）。**只改 DTO 不改这里 ⇒ 详情/列表的 `durationSeconds` 恒 null**，
-  而 DB 行断言仍然全绿（最隐蔽的假绿）。
+- ★ `ContentCache#copyCommon` **必须同步**：`toContentVO` / `toDetailVO` 都只走这一次手写字段拷贝。
+  **只改 DTO 不改这里 ⇒ 详情/列表的 `durationSeconds` 恒 null**，而 DB 行断言仍然全绿（最隐蔽的假绿）。
 - ⚠️ 老缓存条目（部署前写入）缺该键 ⇒ TTL 内为 `null`，到期自愈；**不做批量刷缓存**。
 - 媒体行 = **1 个 resultMap + 5 条 select**（`findMediaByContentId` / `findMediaByContentIds` /
   `findMediaByContentTypeSort` / `findAllMedia` / `findMediaById`）+ 实体 + `addMedia` / `updateMediaUrl`；
-  **漏一条 select 就是静默 null**（§十一 的测试钉住）。
-- ★ 仓内**原本没有**内容 JSON 的精确键集断言 ⇒ 本域开工时要补一条：新响应**含** `durationSeconds`、
-  且不抖落既有键（`ContentReadTests` 的 `keysOf` 只用于 `interaction`，不能当整体键集证据）。
-  **已补（T46）**：`UploadDurationTests#详情键集含durationSeconds且不抖落既有键`（详情 18 键精确集会，
-  逐字列出）、`#列表也带时长`（列表面也带该键 —— 它是慢变字段，不受 T43"列表零计数"约束）。
-  反向验证实测：抽掉 `copyCommon` 那一行 ⇒ 回显 3 红而 **DB 断言仍绿**（就地看到这条假绿）。
+  **漏一条 select 就是静默 null**。
 
 ---
 
@@ -297,10 +313,10 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
 2. `ContentService#loadContentVOs` 一趟批量取展示字段；
 3. 取不到的条目构造**失效占位**（`total` 不变、页内条目不缩水）。
 
-**排序成本基线（T50，2026-10-21 实测；V8 前后对照）**：旧索引 `idx_user_update (user_id, update_time)`
-不含 tie-break 列 `content_id` ⇒ 每页对该用户**全部行** filesort；V8 的覆盖复合索引前三列即排序键：
+**排序成本基线（V8 前后对照，实测）**：旧索引不含 tie-break 列 `content_id` ⇒ 每页对该用户**全部行**
+filesort；新索引前三列即排序键（前向索引扫描）：
 
-| 场景（造数：scratch 库、单用户 N 行） | V6 旧索引 | V8 新索引 |
+| 场景（scratch 库、单用户 N 行） | V6 旧索引 | V8 新索引 |
 |---|---|---|
 | 页 1（`LIMIT 20 OFFSET 0`）@ 5 千行 | `Using filesort`，3.15 ms | `Using index`，**0.10 ms** |
 | 页 1 @ 5 万行 | 37.8 ms | **0.2 ms** |
@@ -310,39 +326,29 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
 
 - 复算：建同构表 → 单用户插 N 行（`update_time` 递减）→
   `EXPLAIN ANALYZE SELECT content_id, update_time, progress_seconds FROM watch_history WHERE user_id=1 ORDER BY update_time DESC, content_id DESC LIMIT 20 OFFSET 0;`
-- ★ 本仓**无流量**（`AGENTS.md`）：上表是"造数据放大机制"的**优化前后基线**（本仓跨期约定：
+- ★ 本仓**无流量**（`AGENTS.md`）：上表是"造数据放大机制"的**优化前后基线**（跨期约定：
   无基线不得宣称"优化生效"），不是线上问题。
 
 **不缓存**：私有 + 写多读少 + 每次上报都变 ⇒ 缓存必然"写后就废"。这是**刻意不做**；
-推翻 = 出现真实读放大（本仓无流量，见 `AGENTS.md`「项目定位与优化口径」）。
+推翻 = 出现真实读放大。
 
 ### 7.2 续播位置
 
 一条 `uk_user_content` 点查；无行 ⇒ `progress=0`。不校验内容、不返回 404
 （内容是死是活由详情的 404 负责；这里只回答"我的进度是多少"）。
 
-★ **`R-20`（2026-10-22）：只认已落库的值，不读上报缓冲**（推翻 `R-19` 契约④"读缓冲优先"）。
-两条依据：① `/flush` 成功后 `ACK_LUA` 的 `HLEN == 0` 分支会把该用户的 hash 整个 `DEL`
-⇒ **正常路径上本端点必然 miss**，读缓冲等于白付一趟 `HGET`；② 崩溃续播改由客户端本地
-`history:pending:{contentId}`（**每秒更新的当前进度**，不是上次上报值）承担 —— 初始化取
-`max(服务端值, 本地值)`，见 [history-客户端契约](./history-客户端契约.md) §6.2）⇒ 服务端不必再当"缓冲上游"。
-代价（多设备 + 双方都未正常退出时可能倒退）见 [history-上报缓冲](./history-上报缓冲.md) §七 #7。
-
-> 📌 **已交付（T49）**：§7.1 / §7.2 两条读路径均已落地（`HistoryService#list` / `#position`）。
-> 顺序与 `total` 由 `HistoryListTests` 用**独立 oracle** 复算（排序夹具让 `update_time` 序与
-> `content_id` 序**反向**、同秒用例让行 id 序与内容 id 序**反向**）；占位三字段、
-> "已删内容仍答进度"由同批用例钉住。列表**不缓存**（§7.1 的口径未变）。
-> ★ `R-20` 的判别力由 `HistoryPositionTests#缓冲里的新进度不参与续播` 单独承担
-> （库里 500、缓冲 900 ⇒ 必须答 500；本类其余用例在两种实现下都绿）。
+★ **只认已落库的值，不读上报缓冲**。两条依据：① `/flush` 成功后缓冲的确认脚本在
+`HLEN == 0` 分支会把该用户的 hash 整个 `DEL` ⇒ **正常路径上读缓冲必然 miss**，等于白付一趟 `HGET`；
+② 崩溃续播改由客户端本地 `history:pending:{contentId}`（**每秒更新的当前进度**，不是上次上报值）承担
+—— 初始化取 `max(服务端值, 本地值)`（见 [history-客户端契约](./history-客户端契约.md) §6.2）
+⇒ 服务端不必再当"缓冲上游"。代价（多设备 + 双方都未正常退出时可能倒退）见
+[上报缓冲](./history-上报缓冲.md) §七 #7。
 
 ### 7.3 详情
 
 `ContentDetailVO` 加 `playCount`（第 5 个公共计数），由 `ContentCountAggregate` 一趟提供；
 `durationSeconds` 随父类 `ContentCacheDTO` 返回。详情路径的 Redis / DB 趟数不变
-（仍是 2 趟 Redis + 冷内容 1 条列查）。
-
-**已交付（T48）**：`playCount` 与赞/评/藏/币同批从聚合层返回，**列表不带**（T43 口径）；
-详情 JSON 的精确键集由 `UploadDurationTests#详情键集含durationSeconds且不抖落既有键` 钉住（19 键）。
+（仍是 2 趟 Redis + 冷内容 1 条列查）。**列表不带 `playCount`**（§五）。
 
 ---
 
@@ -354,6 +360,8 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
 | 400 | 图文帖上报 / 播放 | 只能记录视频的播放进度 |
 | 404 | 内容不存在 / 已软删 / 媒体损坏 | 内容不存在 |
 | 401 | 未登录 | （鉴权链兜底） |
+| 429 | 上报过密 | （限流，见 [限流](../../tech/rate-limit/限流.md)） |
+| 503 | Redis 不可用（`/report`） | 服务繁忙 + `Retry-After` |
 | 200 | `/play` 重复上报 | 幂等，不报错、不重复计数 |
 
 ★ **"媒体损坏"只有一个判据**：`type=1` **视频媒体行缺失**（`ContentCache#buildContentMedia` 返回 false）。
@@ -372,9 +380,8 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
 | `history.dao.WatchHistoryDao` | 自有表 | — |
 
 - **没有 `content → history` 边** ⇒ 不新增装配期环、不需要 `@Lazy`。
-- **开工时须同步登记**：`ArchitectureTests.DOMAINS` 加 `"history"`；
-  《模块边界与依赖》§一 域名清单 + §六 补 `content ⇄ history` 一行（只有单向）。
-  不登记 = 新域是规则空洞 / 无声绕开判据。
+- **新域开工必须同步登记**：`ArchitectureTests.DOMAINS` 加域名；《模块边界与依赖》§一 域名清单 +
+  §六 补该域与其他域的边。不登记 = 新域是规则空洞 / 无声绕开判据。
 
 ---
 
@@ -382,7 +389,7 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
 
 | # | 代价 | 边界 / 推翻条件 |
 |---|---|---|
-| 1 | **重看从头会把进度改回 0**；客户端重试的旧包后到会倒退 | 用户 2026-10-21 拍板"先到即旧、后到即新"（LWW）。B站 不会丢更靠后的进度 ⇒ **刻意偏离**。推翻 = 客户端带单调序号，或服务端加"只增"守卫 |
+| 1 | **重看从头会把进度改回 0**；客户端重试的旧包后到会倒退 | 拍板"先到即旧、后到即新"（LWW）。B站 不会丢更靠后的进度 ⇒ **刻意偏离**。推翻 = 客户端带单调序号，或服务端加"只增"守卫 |
 | 2 | **播放事件丢失 ⇒ 本次不计；只看一次且丢包 ⇒ 永久少计** | 一人一次口径下无法区分"没播过"与"事件丢了"。推翻 = 让 `/report` 在 `play_counted=0` 时补计（代价：每次上报多一条条件 UPDATE） |
 | 3 | **`/play` 与 `/report` 解耦**：只发 play 不报进度 ⇒ 行停在 0 秒；只报进度不发 play ⇒ 不计播放量 | 前端必须两个都发；无前端期由测试与文档保证。推翻 = 合并端点为单入口 |
 | 4 | 换源后 `duration_seconds` 变化 ⇒ 旧进度可能大于新时长，比例失真 | 写入时 clamp；**读时不 clamp**（不改存储值）。下次上报即修正。推翻 = 出现大量换源 |
@@ -391,66 +398,53 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
 | 7 | 历史**不可删** ⇒ 行无界增长 | 一人一内容一行，增长上限 = 用户 × 看过的内容；无清理任务。推翻 = 需要删除时先重定播放量口径（B站 删历史不减播放量） |
 | 8 | 失效占位保留 `progress`（页面仍显示"看到 X 秒"） | 历史数据是真实的；前端可选择不渲染。推翻 = 产品要求占位一律置空 |
 | 9 | 首播的理论 1213 死锁窗口（`INSERT IGNORE` → 条件 `UPDATE`） | 与 coin 同族，未复现；真实并发出现 ⇒ 改 ODKU 或重试 |
-| 10 | 列表 offset 翻页在上报并发下会重复/漏 | 排序键 `update_time` 会被上报改写；B站 用游标。本仓沿用 `PageResult`（跟随主流）。推翻 = 历史翻页成为主路径 |
-| 11 | 播放量**只在详情**，列表卡片没有 | T43「列表零计数」口径；B站 卡片有播放量 ⇒ 这是**本仓口径**，不是遗漏 |
-| 12 | ★ `INSERT IGNORE` 会把**非唯一键的错误**（列截断 / 未来的 CHECK 或第二条唯一键）也降级成 warning ⇒ `affected=0` 被一律读作"已计过"，那一次播放量被**静默丢弃** | 前提：`watch_history` **只有 `uk_user_content` 一个唯一键**、且 `user_id` / `content_id` 是 `bigint`、`progress_seconds` 恒 0 ⇒ 当前不可能触发（T47 代码复核结论）。推翻 = 给本表加约束 / 加第二个唯一键 / 改写入列宽 ⇒ 届时应改成"先查后插"或 `ON DUPLICATE KEY` + 显式判别，别继续靠 `IGNORE` 的 0 |
+| 10 | 列表 offset 翻页在上报并发下会重复 / 漏 | 排序键 `update_time` 会被上报改写；B站 用游标。本仓沿用 `PageResult`。推翻 = 历史翻页成为主路径 |
+| 11 | 播放量**只在详情**，列表卡片没有 | 「列表零计数」是本仓口径；B站 卡片有 ⇒ 这是**有意不同**，不是遗漏 |
+| 12 | ★ `INSERT IGNORE` 会把**非唯一键的错误**（列截断 / 未来的 CHECK 或第二条唯一键）也降级成 warning ⇒ `affected=0` 被一律读作"已计过"，那次播放量被**静默丢弃** | 前提：本表**只有 `uk_user_content` 一个唯一键**、`user_id` / `content_id` 是 `bigint`、`progress_seconds` 恒 0 ⇒ 当前不可能触发。推翻 = 给本表加约束 / 加第二个唯一键 / 改写入列宽 ⇒ 届时应改成"先查后插"或 ODKU + 显式判别，别再靠 `IGNORE` 的 0 |
 
 ---
 
 ## 十一、测试口径（钉住什么）
 
-**契约（HTTP）**（落点：`history/HistoryWriteTests`，2026-10-21 交付 10 例）：
-- `/report`：首次建行；低进度覆盖高进度（**LWW 的判别力**，不是"只增"）；超过时长被 clamp；
-  图文 400、已删 404、匿名 401；`progress=-1` 400；★ **重复上报同一进度仍刷新 `update_time`**
-  （把该行拨回 2020 再上报 —— 不显式 `SET` 时列上的 `ON UPDATE` 不触发，这条是唯一能钉住口径 5 的断言）。
-- `/play`：首播 `play_count + 1`；重复 play 不变；**并发两次恰 +1**（`INSERT IGNORE` + 条件 UPDATE
-  的判别力）；行不存在时建行（progress=0）；★ **被拒请求一行都不许落**（不是"先写再校验"）。
-- `/list`、`/position`（T49 交付，`HistoryListTests` 15 例 + `HistoryPositionTests` 6 例）：
-  列表顺序 / `total` 用**独立 oracle** 复算；占位三字段 + `progress` 保留 + 页内条数不缩水；
-  续播"有内容但无记录 ⇒ 0 / 已删仍答 / 不存在 ⇒ 0"。两个读端点已补进
-  `SecurityContractTests#history写端点需登录`（`I-23` 核销）。
-- ★ **失效判据的可判性**（T48–T49 审查后补）：`HistoryListTests#时长未知或未落盘不算失效` 用
-  **时长恒 null 的存活视频**与 `file_exists=0` 的存活视频各一条，钉住"判据只有装载契约取不到"。
-  没有这条时，把判据写成 `content == null || durationSeconds == null` 仍然全绿（夹具视频默认不写时长）。
-- ⚠️ **占位字段的注入形式**：`toItemVO` 里的三次置空对本域 Mapper **是 no-op**（那三列根本没被映射
+| 面 | 断言要点 | 落点 |
+|---|---|---|
+| 上报契约 | 建行 / 低进度覆盖高进度（LWW，不是"只增"）/ 超时长被 clamp / 重复上报**仍刷新 `update_time`** / 图文 400 / 已删 404 / 匿名 401 | `HistoryWriteTests` |
+| 播放契约 | 首播 `+1` / 重复不变 / **并发两次恰 +1** / 行不存在时建行 / **被拒请求一行都不落** | `HistoryWriteTests` |
+| 缓冲与落库 | 上报不进库 / `/flush` 进库 / 轮询兜底 / 503 一次 DAO 都不调 / 落库失败留缓冲 / 毒批逐条降级 / 并发上报新值优先 | `HistoryFlushTests` · `HistoryReportBusyTests` · `HistoryReportBufferTests` · `HistoryBufferPropertiesTests` |
+| 读面 | 列表顺序与 `total`（**独立 oracle**）/ 占位三字段 + `progress` 保留 + 页内条数不缩水 / 续播"无记录 0 / 已删仍答" / 缓冲不参与续播 | `HistoryListTests` · `HistoryPositionTests` |
+| 时长 | 手搓 mp4（moov 前/后、v0/v1、`size==1`、`timescale=0`、截断、非 mp4）/ 落库 + 详情回显 / 换源刷新 / 换成坏文件回 null | `Mp4DurationReaderTests` · `UploadDurationTests` |
+| 结构 | 唯一键**真插两行**看拦不拦 / 索引全集 / 版本行 | `HistorySchemaTests` · `WatchLaterSchemaTests` |
+| 鉴权 | **五条路由**（`/report` `/flush` `/play` `/list` `/position`）落到 `@Controller` 处理器上 | `SecurityContractTests#history写端点需登录` |
+
+**独立 oracle**：`content.play_count == SELECT COUNT(*) FROM watch_history WHERE content_id=? AND play_counted=1`；
+`(user_id, content_id)` 唯一。
+
+**迁移锚点（加迁移 / 加非 GET 端点时各改各的，同 commit）**：
+`InfrastructureConnectivityTests`（表数 **19**、版本 `1..8`）、
+`WatchLaterSchemaTests#全部迁移版本都被应用`（`endsWith("8")`）、
+`RateLimitWeightTableTests.EXPECTED_NON_GET_AT_LEAST`（**39**）。
+
+**几条"看着全绿其实没测到"的边界**（写新用例前先读）：
+
+- **失效判据**只有"装载契约取不到"：`durationSeconds == null`、`file_exists = 0` 都**不是**失效。
+  `HistoryListTests#时长未知或未落盘不算失效` 用两条存活视频钉住 —— 夹具默认**不写时长**，
+  没有这条时把判据写成 `content == null || durationSeconds == null` 仍然全绿。
+- **占位字段的注入形式**：`toItemVO` 里的三次置空对本域 Mapper **是 no-op**（那三列根本没被映射
   ⇒ 恒 null）⇒ 单删 `setAuthorName(null)` **不会红**；要证明"占位不泄露展示字段"，注入必须
-  **同时**给 SQL 加越界 join 取作者。这条如实写在这里，避免把它当成"单点注入即红"的证据。
-- `@RequiresLogin` 的判别力**只在** `SecurityContractTests`（HTTP 侧 401 是假绿）。
-
-**DB 终态 / 独立 oracle**：
-`content.play_count == SELECT COUNT(*) FROM watch_history WHERE content_id=? AND play_counted=1`；
-`watch_history` 的 `(user_id, content_id)` 唯一（`HistorySchemaTests#同一用户同一内容撞唯一键`，
-**真插两行**看它拦不拦）。
-
-**时长**（`Mp4DurationReaderTests` 15 例 + `UploadDurationTests` 8 例）：
-`Mp4DurationReaderTests` 用**手搓字节**（moov 在前 / 在尾、v0 / v1 64 位、`size==1`、`timescale=0`、
-截断、非 mp4）；`UploadDurationTests` 上传一个手搓 mp4 ⇒ `content_media.duration_seconds` 落库 + 详情回显
-（**两段都断**：只断 DB 会漏掉 `copyCommon` 漏搬的假绿）；
-换源 type=1 刷新时长（含"换成坏文件 ⇒ 回到 null"）、type=3 不清空视频时长；解析失败仍 200。
-★ **内容 JSON 键集**：`UploadDurationTests#详情键集含durationSeconds且不抖落既有键`（**19 键**精确集；
-T48 加 `playCount` —— 契约跟随本篇 §五「第 5 个公共计数」，不是迎合）。
-
-**迁移锚点**：表数 20→19、版本 `1..8`、`endsWith("8")`、非 GET 端点 36→38（**迁移 / 加端点时各自同步**）。
-
-**计数聚合**：5 键 MGET / 有选择回填 / 冷 key 不建（`content:playCount`）/ Redis 降级。
-⚠️ 跨域缓存断言用 `StringRedisTemplate` + `CacheKeys`，**不要 import `content.cache`**
-（`ArchUnit` 规则 2 会让测试红；本仓既有测试同款手法）。
-
-**反向验证（2026-10-21 逐条实测登记）**：
-- `addMedia`/select 不带 `duration_seconds` ⇒ `UploadDurationTests` 4 红；
-- 抽掉 `copyCommon` 的 `setDurationSeconds` ⇒ **3 红（回显/列表），而 DB 断言仍绿** ⇒ 证明"只断 DB"确实是假绿；
-- `replaceMedia` 不调 `updateMediaDuration` ⇒ 2 红（换源刷新 / 换源成坏文件）；
-- `/report` 的 ODKU 改 `GREATEST` ⇒ LWW 红；去掉显式 `update_time` ⇒ "重复上报刷新时间"红；
-- 去掉 clamp ⇒ 截断红；去掉 `play_counted = 0` 条件 ⇒ 重复 / 并发 / 不变量 4 红；
-- 抽走 V7 迁移 ⇒ `HistorySchemaTests` 2 红（⚠️ 必须同时清 `target/classes` 副本，否则读到旧资源、假绿）；
-- **抽走 V8 迁移** ⇒ 3 红（`HistorySchemaTests` 索引全集 + 版本行、`WatchLaterSchemaTests` 版本行；2026-10-21 实测）；
-- 去掉 V6 的 `uk_user_content` ⇒ 唯一键 + 索引全集 2 红。
+  **同时**给 SQL 加越界 join 取作者。
+- **`@RequiresLogin` 的判别力只在 `SecurityContractTests`**：HTTP 侧未登录 401 由 `@CurrentUserId`
+  参数解析器兜出 ⇒ 去掉注解 HTTP 用例仍绿。
+- **续播口径的判别力只由一条承担**：`HistoryPositionTests#缓冲里的新进度不参与续播`（库里 500、缓冲 900
+  ⇒ 必须答 500）；该类其余用例在两种实现下都绿。
+- **反向验证**（改实现前先 commit 基线）：抽掉 `copyCommon` 的 `setDurationSeconds` ⇒ 回显 3 红而
+  **DB 断言仍绿**（就地看到"只断 DB"的假绿）；抽走迁移文件必须**同时清 `target/classes/db/migration/`
+  同名副本**，否则读到旧资源、假绿；`/report` 的 ODKU 改 `GREATEST` ⇒ LWW 红。
 
 ---
 
-## 十二、上报缓冲（`R-19`）→ **已独立成篇**
+## 十二、上报缓冲 → 已独立成篇
 
-`/report` 只写 Redis、`/flush` 同步落库、轮询只兜"没正常上报退出"的用户。**机制全貌**
+`/report` 只写 Redis、`/flush` 同步落库、轮询只兜"没正常上报退出"的会话。**机制全貌**
 （为什么放 Redis / 两个 key / 三条写路径 / 落库与条件删 / 剪枝 / 失败姿态 / 读路径新鲜度 / 已知代价）
 见 [history-上报缓冲](./history-上报缓冲.md)。
 
@@ -463,25 +457,26 @@ T48 加 `playCount` —— 契约跟随本篇 §五「第 5 个公共计数」�
 
 ## 附录：编号速查（**活**的查证入口）
 
-> 本表**每号一行**；未完成任务不收编（滚动见 `task/CURRENT_TASKS.md`）。逐条论证走 git。
-> ★ **本专项第一轮已收口（2026-10-21）**：`T45`–`T49` 全部交付（执行态已从登记台清出，过程在 git
-> `6f895f5..3ea45f1`）；`T50`（V8 列表索引）为 2026-10-21 性能调研后的独立优化，已交付；
-> 裁剪项见 [需求篇](./history-需求.md) §六（每条带推翻条件）。
-> ★ **第二轮（上报缓冲）开工（2026-10-22，`R-19`）**：`T51-1`–`T51-3`，设计 = [history-上报缓冲](./history-上报缓冲.md)。
+> 追溯用，**读文档不必读本表**。每号一行结论；未完成的任务不收编（滚动见 `task/CURRENT_TASKS.md`）；
+> 逐条论证与失败尝试走 git。`T45`–`T53` 的结论 = 下面各行 + 本篇正文；过程 commit 见
+> `CURRENT_TASKS.md` 周期头的区间。
 
 | 编号 | 一句话 | 详见 |
 |---|---|---|
 | R-18 | 播放记录专项拍板：**做播放量**（一人一次，冗余列 + 独立 key + 详情第 5 计数）/ **进度与播放事件拆两端点** / 历史**不可删** / 失效占位 / 时长存 `content_media` + `ContentCacheDTO` 投影 / V7 删遗留 `video`·`videoinfo` | 本篇 · [需求篇](./history-需求.md) |
-| T45 | **V6/V7 迁移 + 结构契约**：`content_media.duration_seconds` / `content.play_count` / `watch_history`（唯一键 `uk_user_content` + 两个索引）；删遗留 `video`·`videoinfo`（`grep` 零引用证据）。锚点同 commit：19 行 = 18 业务表 + flyway、版本 `1..7` | 本篇 §二 · `HistorySchemaTests` |
-| T46 | **mp4 时长**：`Mp4DurationReader` 用 `RandomAccessFile` 只读 box 头（moov 任意位置 / v0·v1 / `size==1` / 全 F / 截断 ⇒ null），发布与换源两处调用；落 `content_media` 并经 **`ContentCacheDTO` + `copyCommon`** 投影到所有内容响应；解析失败不阻断发布、存量不回填 | 本篇 §六 · `UploadDurationTests` |
-| T47 | **写路径**：`/report`（一条 ODKU、**无事务**、LWW、按当前时长 clamp、**不写 play_count**）/ `/play`（`INSERT IGNORE` → 条件 `UPDATE ... play_counted=0` 判首播 → `play_count+1` → 发事件，**单事务**）；`history` 进 `DOMAINS`、两端点权重各 1（36→38） | 本篇 §四 · `HistoryWriteTests` |
-| T48 | **播放量读面（第 5 个公共计数）**：`content:playCount`（content 域自持）+ 详情计数聚合**四→五键** + `PlayCountChangedListener`（`AFTER_COMMIT` 条件 `INCRBY`，冷 key 不建）+ `ContentDetailVO.playCount` + `removeContent` 一并失效；详情精确键集 **19** | 本篇 §五 · §7.3 · `ContentPlayCountTests` |
-| T49 | **读面**：`/history/list`（本域三列 → 一趟 `loadContentVOs`，失效占位保留 `progress`、`total` 含失效行、整页失效整页返回、`pageSize` 20/100；**不缓存**）+ `/history/position`（点查、不校验内容、无记录 0）；`SecurityContractTests` 补两路由 ⇒ **I-23 核销** | 本篇 §三 · §七.1/§7.2 · `HistoryListTests` / `HistoryPositionTests` |
-| T50 | **V8 列表索引（覆盖复合索引替换）**：`idx_user_update` → `idx_user_update_content (user_id, update_time DESC, content_id DESC, progress_seconds)` —— 前三列即列表 `ORDER BY`（消灭每页全量 filesort），第四列让三列 SELECT 免回表；**替换**而非新增（索引数不变）。实测：5k 行 3.15ms→0.10ms、50k 行 37.8ms→0.2ms；写路径无回归 | 本篇 §二 · §7.1 · `HistorySchemaTests` |
-| T51-1 | **缓冲内核**（不接端点）：`CacheKeys` 两个 key + `video.history.buffer.*` 配置 + `HistoryBufferRedisOps`（写入 / 条件删 / HGET 三条 Lua）+ `HistoryReportBuffer`（语义层）+ `maxmemory-policy` 启动自检；**纯 Redis，不碰 Service / Controller** | [上报缓冲](./history-上报缓冲.md) §2–§5 · `HistoryReportBufferTests` |
-| T51-2 | **写路径接管**：`/report` 改走缓冲、新增 `/flush`（批粒度 = userId 全量）、轮询兜底（`ZRANGEBYSCORE` + 同一段落库）、503 + `Retry-After`（熔断先于校验）；权重 38→39、`SecurityContractTests` 补路由；★ `HistoryWriteTests` 由"上报即落库"改为"上报进缓冲、flush 后落库"（契约跟随 `R-19`，见 G8 例外条） | [上报缓冲](./history-上报缓冲.md) §3–§5 · `HistoryWriteTests` / `HistoryFlushTests` |
-| T51-3 | **读路径 + 客户端契约**：`/position` 读缓冲优先（miss 才查 DB）、`/list` 不合并的口径钉进测试；客户端契约**独立成篇**（[history-客户端契约](./history-客户端契约.md)，本期不实现） | [上报缓冲](./history-上报缓冲.md) §6 · [客户端契约](./history-客户端契约.md) · `HistoryPositionTests` |
-| T52 | ★ **推翻 `R-19` 契约④**（`R-20`）：`/position` 改回**只点查 DB**，省掉正常路径上必然 miss 的一趟 `HGET`；崩溃续播改由客户端 `history:pending` + `max(服务端, 本地)` 承担（客户端契约 §6.2 重写）。`R-19` 的写路径（缓冲 / flush / 轮询）**一字未动** | 本篇 §7.2 · [上报缓冲](./history-上报缓冲.md) §六/§七 · [客户端契约](./history-客户端契约.md) §6.2 · `HistoryPositionTests` |
+| R-19 | `/report` 改**写 Redis 缓冲**、`/flush` 同步落库、空闲轮询只兜"停止上报"的会话；503 + `Retry-After`（**不是降频手段**，挡的是 DB 写） | [上报缓冲](./history-上报缓冲.md) |
+| R-20 | `/position` **只点查 DB**（推翻 `R-19` 契约④"读缓冲优先"）：正常路径读缓冲必然 miss；崩溃续播改由客户端本地 pending 承担 | 本篇 §7.2 · [客户端契约](./history-客户端契约.md) §6.2 |
+| T45 | V6/V7 迁移 + 结构契约：`duration_seconds` / `play_count` / `watch_history`（唯一键 + 索引）；删遗留 `video`·`videoinfo` | §二 · `HistorySchemaTests` |
+| T46 | mp4 时长：只读 box 头解析 `mvhd`；发布与换源两处调用；经 `ContentCacheDTO` + `copyCommon` 投影到所有内容响应；失败不阻断、存量不回填 | §六 · `UploadDurationTests` |
+| T47 | 写路径：`/report`（ODKU、无事务、LWW、clamp、**不写 play_count**）+ `/play`（`INSERT IGNORE` → 条件 UPDATE 判首播 → `+1` → 发事件，单事务）；`history` 进 `DOMAINS` | §四 · `HistoryWriteTests` |
+| T48 | 播放量读面：`content:playCount`（content 自持）+ 详情计数聚合**四→五键** + `AFTER_COMMIT` 条件 `INCRBY`（冷 key 不建）+ `removeContent` 一并失效；详情精确键集 **19** | §五 · §7.3 · `ContentPlayCountTests` |
+| T49 | 读面：`/list`（失效占位、`total` 含失效行、整页失效整页返回；**不缓存**）+ `/position`；四个路由进鉴权契约 | §三 · §7.1/§7.2 · `HistoryListTests` / `HistoryPositionTests` |
+| T50 | V8 列表**覆盖复合索引**（替换而非新增）：前三列即 `ORDER BY`、第四列免回表；5k 行 3.15→0.10 ms、50k 行 37.8→0.2 ms；写路径无回归 | §二 · §7.1 · `HistorySchemaTests` |
+| T51-1 | 缓冲内核（纯 Redis）：`CacheKeys` 两键 + `video.history.buffer.*` 配置 + 三条 Lua + `maxmemory-policy` 启动自检 | [上报缓冲](./history-上报缓冲.md) §二–§五 · `HistoryReportBufferTests` |
+| T51-2 | 写路径接管：`/report` 改走缓冲、新增 `/flush`、轮询兜底、503 + `Retry-After`（熔断先于校验）；权重 38→39 | [上报缓冲](./history-上报缓冲.md) §三–§五 · `HistoryFlushTests` |
+| T51-3 | 读路径（当时为读缓冲优先，已被 `T52` 推翻）+ 客户端契约**独立成篇**（本期只登记、不实现） | [客户端契约](./history-客户端契约.md) |
+| T52 | `/position` 改回只点查 DB（`R-20`）；写路径一字未动；客户端 `resume()` 取 `max(服务端, 本地)` | 本篇 §7.2 · [上报缓冲](./history-上报缓冲.md) §六/§七 |
+| T53 | **文档收口**：四篇改为读者顺序（§〇 上手 + 术语先行）、删除正文里的任务号 / 交付状态记录（追溯收进本表）、新增 [history-术语表](./history-术语表.md) 作为域内术语试点 | 本篇 §〇 · [术语表](./history-术语表.md) |
 
 ---
 
@@ -490,6 +485,7 @@ T48 加 `playCount` —— 契约跟随本篇 §五「第 5 个公共计数」�
 | 不在本篇的内容 | 去向 |
 |---|---|
 | **用户可见规则**（看到什么 / 重看怎么算 / 播放量口径） | 同目录 [history-需求](./history-需求.md) |
+| **术语与页面对照**（播放页 / 历史记录页 / 会话 / 标签页） | 同目录 [history-术语表](./history-术语表.md) |
 | **客户端行为契约**（上报节奏 / 退出顺序 / 503 退避 / 崩溃补偿 / 自测清单） | 同目录 [history-客户端契约](./history-客户端契约.md) |
 | **上报缓冲机制**（键 / 原子性 / 落库与条件删 / 剪枝 / 失败姿态 / 已知代价） | 同目录 [history-上报缓冲](./history-上报缓冲.md) |
 | 缓存三态 / 空标记 / 写后失效 / 单飞 | [缓存与数据一致性](../../tech/cache/缓存与数据一致性.md) |

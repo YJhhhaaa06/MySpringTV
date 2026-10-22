@@ -28,7 +28,7 @@
 |---|---|
 | 分类 | 偏差（清单内部矛盾，非实现缺陷） |
 | 现象 | `CURRENT_TASKS.md` T47 的**目标**只含 `/history/report` + `/history/play`，但**验收**写「`SecurityContractTests` 四端点」；而 `/history/list`、`/history/position` 被明确划给**下一批**读面（同段"本任务不碰详情读面"）。两者不可能同时满足。 |
-| 证据 | `CURRENT_TASKS.md` T47 验收行 vs 目标行；`architecture/domain/history/history.md` §三（四端点）+ §七（读路径属下一批） |
+| 证据 | `CURRENT_TASKS.md` T47 验收行 vs 目标行；`architecture/domain/history/history.md` §三（**当时**四端点；`/flush` 加入后现为五个）+ §七（读路径属下一批） |
 | 影响 | 若照验收硬做四端点，就得先落地读面（超出 T47 范围）；若只做两端点，则"四端点"这条验收本批无法兑现。 |
 | 处置（G13 自行决断） | T47 只落写路径两端点；`SecurityContractTests#history写端点需登录` 钉 `/report` 与 `/play` 两条路由，并在用例注释里**显式写明**"`/list`、`/position` 属下一批，必须在那批补进本用例" ⇒ 缺口留在代码里可见，不靠记忆。实测：`SecurityContractTests` 30 例全绿（含新用例）。 |
 | 去向 | **已核销（T49）**：`/history/list`、`/history/position` 两条 `GET` 已补进同名用例（四路由齐）；类级 `@RequiresLogin` 自动覆盖，无需逐端点加注解。 |

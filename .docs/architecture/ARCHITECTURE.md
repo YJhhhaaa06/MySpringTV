@@ -81,7 +81,7 @@ io.github.yjhhhaaa06.videoweb
 | 了解**关注动态流**整体数据流 | [domain/feed](domain/feed/feed.md) | feed 编排变更 |
 | 了解**收藏 / 收藏夹 / 稍后再看**的数据模型与口径 | [domain/favorite](domain/favorite/favorite.md)（用户可见规则见 [favorite-需求](domain/favorite/favorite-需求.md)；已拍板接受的代价见 [favorite-已知代价](domain/favorite/favorite-已知代价.md)） | 收藏域口径变更 |
 | 了解**投币 / 硬币**的数据模型与口径 | [domain/coin](domain/coin/coin.md)（用户可见规则见 [coin-需求](domain/coin/coin-需求.md)） | 投币域口径变更 |
-| 了解**播放记录 / 播放量 / 视频时长**的数据模型与口径 | [domain/history](domain/history/history.md)（用户可见规则见 [history-需求](domain/history/history-需求.md)） | 播放记录域口径变更 |
+| 了解**播放记录 / 播放量 / 视频时长**的数据模型与口径 | [domain/history](domain/history/history.md)（用户可见规则见 [history-需求](domain/history/history-需求.md)；上报缓冲见 [history-上报缓冲](domain/history/history-上报缓冲.md)；客户端接入见 [history-客户端契约](domain/history/history-客户端契约.md)；**词的准确说法**见 [history-术语表](domain/history/history-术语表.md)） | 播放记录域口径变更 |
 
 ---
 
@@ -118,6 +118,11 @@ io.github.yjhhhaaa06.videoweb
 | [domain/favorite-已知代价](domain/favorite/favorite-已知代价.md) | 收藏域**已拍板接受**的代价台账（牺牲了什么 / 影响多大 / 何时疼 / 为何接受 + 重开信号） | 设计论证与机制 → favorite；未处置的问题 → `task/FURTHER_ISSUES.md` |
 | [domain/coin](domain/coin/coin.md) | 投币域：数据模型、端点、**硬币经济的单位约定**、写路径并发口径、缓存形态（两个 key）、互动态表达、依赖边与 F-18 复核、已知代价 | 横切机制 → 上述各篇；用户可见规则 → coin-需求 |
 | [domain/coin-需求](domain/coin/coin-需求.md) | 投币 / 硬币的**用户可见行为与规则**（唯一事实源；含三处**刻意偏离 B站**的说明） | 骨架设计 → coin；横切机制 → 上述各篇 |
+| [domain/history](domain/history/history.md) | 播放记录域：数据模型、**五个端点**、写读路径、播放量、时长解析与投影、依赖边、已知代价、编号速查 | 横切机制 → 上述各篇；用户可见规则 → history-需求；上报缓冲 → history-上报缓冲；客户端 → history-客户端契约 |
+| [domain/history-需求](domain/history/history-需求.md) | 播放记录的**用户可见行为与规则**（唯一事实源；三处**刻意偏离 B站**） | 骨架设计 → history；横切机制 → 上述各篇 |
+| [domain/history-上报缓冲](domain/history/history-上报缓冲.md) | `/report` 只写 Redis 的**缓冲机制**（两个 key / 三条写路径 / 落库与条件删 / 剪枝 / 失败姿态 / 已知代价） | 域结构 → history；客户端配合 → history-客户端契约 |
+| [domain/history-客户端契约](domain/history/history-客户端契约.md) | 播放器**必须怎么做**（上报节奏 / 退出信号 `fetch keepalive` / 503 退避 / 崩溃补偿 / 自测清单） | 服务端实现 → history-上报缓冲；用户可见 → history-需求 |
+| [domain/history-术语表](domain/history/history-术语表.md) | ★ **术语表试点**：页面 ↔ 端点矩阵、一物一名、**错→对**四句、三条写作硬规则、推广判据 | 本域机制 → history 各篇；不做概念全景 |
 
 ---
 
@@ -142,6 +147,10 @@ io.github.yjhhhaaa06.videoweb
     `doc_refs.py` 按基名解析），**通用模板 = [已知代价-模板](已知代价-模板.md)（复制即用）**，填好的范例见
     [favorite 的台账](domain/favorite/favorite-已知代价.md)。条目正文**读者视角**——先说人话、再给机制细节，
     新接手的人**不翻源码**就能读懂 What / Impact；只登记**已拍板接受**的，还在评审的进 `task/FURTHER_ISSUES.md`。
+11. ★ **术语表（按需，不做标配）**：一个域**已发生 ≥2 次**"同一个东西两种叫法"造成的返工，
+    且术语**跨文档在用**时，才配 `domain/<域>/<域>-术语表.md`（试点 = [history-术语表](domain/history/history-术语表.md)）。
+    内容只有三样：**页面 / 角色 ↔ 端点矩阵**、**一物一名（含"不要叫"）**、**错 → 对**。
+    **不做概念全景**，没有歧义的词不收；只满足一条 ⇒ 在该文档里加一节"口径"即可。
 
 ---
 

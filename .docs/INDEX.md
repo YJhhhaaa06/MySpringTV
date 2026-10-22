@@ -42,7 +42,7 @@ Flyway + Testcontainers。由 `old-project/TVhomework1`（Servlet + 手写连接
 .docs/
 ├── INDEX.md              ← 本文件（唯一入口）
 ├── architecture/         ← ★ **活的事实源**（域设计 + 横切机制）—— 功能"沉淀"的落点；主索引 = `architecture/ARCHITECTURE.md`
-│   ├── domain/           ← 业务域（**按域分目录**）：`favorite/` · `feed/`（每域 = `<域>.md` 设计 + 可选 `<域>-需求.md` / `<域>-已知代价.md`）
+│   ├── domain/           ← 业务域（**按域分目录**）：`favorite/` · `feed/`（每域 = `<域>.md` 设计 + 可选 `<域>-需求.md` / `<域>-已知代价.md` / `<域>-术语表.md`）
 │   ├── tech/             ← 横切机制（**按面分目录**）：`security/` · `rate-limit/` · `observability/` · `cache/` ·
 │   │                        `resilience/` · `mq/` · `events/` · `transaction/` · `module-boundary/` · `data-evolution/`
 │   └── 已知代价-模板.md   ← 代价台账**通用模板**（新建域 / 横切面复制即用；登记纪律与标签定义内嵌）
@@ -63,6 +63,7 @@ Flyway + Testcontainers。由 `old-project/TVhomework1`（Servlet + 手写连接
 | ★ **执行中登记（任务 / 需求 / 问题）** | `task/CURRENT_NEEDS.md`（当期需求，决策源 `N#` / `R-##`）+ `CURRENT_TASKS.md`（四要素 + 回写）+ `CURRENT_ISSUES.md`（**本期**问题）+ `FURTHER_ISSUES.md`（结转池） | 每窗开 / 收时 |
 | ★ **查某个编号是什么**（`T#` / `R-##` / `I-##` / `G#` / `F-##`） | **活速查**（每号**只许一行结论**）：`favorite.md` / `coin.md` / **`history.md`** 各篇 **附录「编号速查」**；限流的在 `architecture/tech/rate-limit/限流.md` 附录。★ **按专项找**，别在一个附录里找别的域的号 | 每期收尾把已终结的编号收编进速查 |
 | ★ **加新功能 / 看设计** | `architecture/domain/favorite/`（`favorite.md` 设计 + `favorite-需求.md` 用户可见规则 + `favorite-已知代价.md` 台账）、`feed/feed.md`（域文档样板）、`history/history.md`（播放记录：写读路径 + 时长 + 编号速查）。本期做哪些 ⇒ `task/CURRENT_NEEDS.md` | 开工前登记 / 设计变更时 |
+| ★ **某个词到底指什么**（页面名 / 会话 / 标签页这类指代） | 试点 = [history-术语表](architecture/domain/history/history-术语表.md)（页面↔端点矩阵 + 一物一名 + 错→对）。★ **只此一域**，推广判据见该篇 §五 | 该域发生新的术语歧义时 |
 | **知道下一步做什么** | `task/CURRENT_NEEDS.md` §三 / §四 + `task/CURRENT_ISSUES.md` + `task/FURTHER_ISSUES.md` | 排期 / 收尾时 |
 | **知道当初为什么这么定** | 结论在 `architecture/**`（域文档的「编号速查」+ `*-已知代价.md` 的四要素）；过程与逐条论证只留 git 历史（归档**非必要勿读**） | 新决策进活文档 |
 | **改 schema / 加迁移** | `architecture/tech/data-evolution/数据与Schema演进.md`（V1 冻结、当前 **V8**、下次 **V9**、§2.4 冻结纪律） | 每次演进 |
