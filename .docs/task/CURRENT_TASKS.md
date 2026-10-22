@@ -16,17 +16,19 @@
 
 ## 周期头（每窗开读）
 
-* **方向**：★ **播放记录（history）专项 —— 已收口**（2026-10-21，需求源 = `CURRENT_NEEDS.md` §四 `R-18`）。
-  进度上报 / 播放事件（去重计播放量）/ 历史列表（失效占位）/ 续播 / mp4 时长解析，五件事全部交付。
+* **方向**：★ **播放记录（history）第二轮 —— 上报缓冲**（2026-10-22，需求源 = `CURRENT_NEEDS.md` §三 `R-19`）。
+  `/report` 只写 Redis、退出信号 `/flush` 同步落库、轮询只兜"没正常上报退出"的用户。
+  设计 = [history.md §十二](../architecture/domain/history/history.md)（缓冲内核 / 五条契约 / 失败姿态 / 客户端契约）。
+  ★ **第一轮已收口**（2026-10-21，`R-18`）：进度上报 / 播放事件 / 列表 / 续播 / mp4 时长，`T45`–`T49` 交付。
   **用户 2026-10-21 拍板**：做播放量（B 方案：冗余列 + 独立 key + 详情第 5 计数）；进度与播放事件
   **拆两端点**（`/report` 纯进度、`/play` 唯一计数入口）；历史**不可删**；失效内容**做占位**；
   时长存 `content_media` + `ContentCacheDTO` 投影；V7 删遗留 `video` / `videoinfo`。
 * **活事实源 / 设计落点**：[history.md](../architecture/domain/history/history.md)（设计 + 编号速查）+
   [history-需求.md](../architecture/domain/history/history-需求.md)（用户可见规则）。
   ★ **代码注释只引这两篇 + `类#方法`**；不得引用任何草稿 / 本登记台。
-* ★ **编号**：本期 `T45`–`T49` **全部交付并已清出本文件**（结论见 history.md 附录速查；过程 `git log 6f895f5..3ea45f1`）；
-  `T50`（V8 列表索引）**已交付**（2026-10-21）。
-  **下一编号从 `T51` 起**（`T43` 占位说明、`T44` 收口结论均见 git）。
+* ★ **编号**：第一轮 `T45`–`T49` **全部交付并已清出本文件**（结论见 history.md 附录速查；过程 `git log 6f895f5..3ea45f1`）；
+  `T50`（V8 列表索引）**已交付**（2026-10-21）。**本轮 `T51-1`–`T51-3` 执行中**；
+  **下一编号从 `T52` 起**（`T43` 占位说明、`T44` 收口结论均见 git）。
 * ★ **执行约定**：一任务一 commit（G1）；每 commit 可编译且自带验收测试 + 反向验证。
   清单只给**目标 / 红线 / 验收入口**，**不写实现步骤**（G13）——执行者自行决定拆法；
   遇到清单前提不成立先登记 `CURRENT_ISSUES.md`，不擅自扩范围。
@@ -69,11 +71,12 @@
 
 **（`T44-1`–`T44-3` 已收口：`34fe36f` / `88cb8b3` / `aadbf7c`；T43 占位编号的裁定见 git）**
 
-### 本期任务：T45–T49 已收口（2026-10-21）；T50 性能优化已交付（2026-10-21）
+### 第一轮已收口（`T45`–`T50`）；第二轮执行中（`T51-1`–`T51-3`）
 
 > **`T45`–`T49` 全部交付**，执行态已按「膨胀控制」清出本文件；**结论的唯一活查证入口**
 > = [history.md 附录「编号速查」](../architecture/domain/history/history.md#附录编号速查活的查证入口)（每号一行）。
-> 过程 / 论证 / 失败尝试 = git（`6f895f5..3ea45f1`，10 个 commit）。`T50`（V8 列表索引）已交付，**下一编号从 `T51` 起**。
+> 过程 / 论证 / 失败尝试 = git（`6f895f5..3ea45f1`，10 个 commit）。`T50`（V8 列表索引）已交付。
+> ★ **第二轮 `T51` 开局（2026-10-22，`R-19`）** —— 服务端上报缓冲；设计见 history.md §十二。
 
 | 号 | 一句话 | 交付形态 |
 |---|---|---|
@@ -84,10 +87,78 @@
 | T49 | 历史读面：`/list`（失效占位）+ `/position`（续播）；`I-23` 核销 | `HistoryListTests` 15 + `HistoryPositionTests` 6 |
 | T50 | **V8 列表索引**：`idx_user_update` → `idx_user_update_content`（前三列即 `ORDER BY`、第四列覆盖），消灭每页全量 filesort；替换而非新增 | `HistorySchemaTests` 索引全集；版本 `1..8`；基线见 history.md §7.1 |
 
-> ⚠️ **下一期开工提醒**：`history` 域**没有**缓存与删除能力（刻意不做，推翻条件在需求篇 §六）；
+> ⚠️ **本轮提醒**：`history` 域**没有**历史缓存与删除能力（刻意不做，推翻条件在需求篇 §六）；
 > 前端接入 / 时长回填 / 容量上限仍未做 —— 都等着"推翻条件"成立，不要当遗漏补。
-> 服务端心跳缓冲已在 `FURTHER_ISSUES.md` **F-27** 记为"想过但否决"（推翻条件 = 真实 QPS 基线
-> + 客户端节流不可行）。
+> ★ 服务端心跳缓冲**已由 `R-19` 拍板改为做**（`F-27` 原"想过但否决"的理由前提已被推翻，行保留作留痕）。
+
+### T51-1 缓冲内核（来源 R-19 / 设计 §12.2–12.5）【待执行】
+
+> ⚠️ **先质疑（G14）**：
+> - **任务**：缓冲的键与原子性是否可以先于端点独立落地？——可以：它只碰 Redis，**不接 Service / Controller**，
+>   所以本任务不改变任何既有契约（`/report` 仍同步落库），可独立编译、独立验收。
+> - **设计**：`HSET`+`ZADD` 是否真需要 Lua？——需要。两次往返之间断连 ⇒ 数据在 hash、标记不在 dirty ⇒
+>   永不被轮询捡到，只能等 TTL 静默消失（见 §12.3）。
+
+* **入口线索**：`common/cache/{RedisOps,RateLimitRedisOps}.java`（`*RedisOps` 子类形态 + Lua 常量写法）、
+  `common/cache/CacheKeys.java`（键工厂）、`common/config/CoinCacheProperties.java`（配置类形态）、
+  `feed/mq/FeedDeliveryBuffer.java`（有界缓冲 / 关停 / 告警节流的先例）。
+* **目标**：`history` 域拥有一套**纯 Redis** 的上报缓冲内核：写入（原子）、按用户取全量、按"值未变"条件删、
+  单 field 读取；带 `video.history.buffer.*` 配置与 `maxmemory-policy` 启动自检。
+* **红线边界**：
+  - **不改** `HistoryService` / `HistoryController` / 任何既有测试 —— 本任务结束时 `/report` 行为**逐字不变**；
+  - 键字符串进 `CacheKeys`（唯一源），`history:report:{id}` / `history:dirty` **一经写入即冻结**；
+  - 所有 Redis 访问经 `RedisOps.guarded`（继承 `*RedisOps`），**不得裸用** `StringRedisTemplate`；
+  - `maxmemory-policy` 自检**不得阻断启动**（命令被托管 Redis 禁用是合法情形）。
+* **强制探索**：`ZADD` score 与 hash 内 ts 的**时钟同源**（都取 App 侧传入的 `serverReceiveTs`），
+  写一个用例证明"用两个时钟会判错空闲"。
+* **验收**：`HistoryReportBufferTests`（Redis-only，无 DB 断言）——原子写 / 幂等重写 / 条件删只删未变的 /
+  HGET / 脏集合按 score 取 / TTL / 自检不阻断启动；★ **注入"拆成两次命令" ⇒ 原子性用例必红**。
+* **回写**：（完成后三句内写清改了什么、验证结果；探索过程不写）
+
+### T51-2 写路径接管（来源 R-19 / 设计 §12.3–12.5）【待执行】
+
+> ⚠️ **先质疑（G14）**：
+> - **任务**：`/report` 从"同步 ODKU"改成"写缓冲"是**契约变更**（接口仍是 200，但落库时机变了）。
+>   `HistoryWriteTests` 现有 10 例里"上报后查 DB"的断言会红 —— 这是**契约跟随**（G8 例外条），
+>   不是迎合；改测试必须在用例注释里写明依据 `R-19`。
+> - **设计**：`/flush` 是否可复用 `/report`？——不可：`/report` 带 `contentId`+`progress`，`/flush` 只要 userId，
+>   语义与权重都不同（§三）。
+
+* **入口线索**：`history/service/HistoryService.java`（`report` / `play`）、`history/controller/HistoryController.java`、
+  `history/dao/{WatchHistoryDao,WatchHistoryMapper.xml}`（批量 ODKU 要**新写**一条，语义与 `upsertProgress` 逐字一致，
+  只是显式 `SET update_time = ?`）、`common/web/RateLimitFilter.java` + `common/config`（权重表）、
+  `support/AbstractHttpIntegrationTest`（HTTP 侧用例）、`Resilience4j` 熔断（`RedisCircuitBreaker#tryAcquire`）。
+* **目标**：`/report` 校验（`loadContentVOs` + clamp）后写缓冲；`/flush` 把该用户全部脏数据**同步**落库；
+  轮询线程按 `ZRANGEBYSCORE -inf now-60s` 兜底；Redis 不可用 ⇒ `/report` 503 + `Retry-After`，
+  **且一次 DAO 都不调用**。
+* **红线边界**：
+  - 熔断判定**先于** `loadContentVOs`（否则 503 前先付一次降级查库，正好违反"不碰 DB"）；
+  - 落库 SQL **只改** `progress_seconds` + `update_time`，**绝不碰** `play_counted`；
+  - 落库失败**不删缓冲**；批量失败后**逐条重试**（禁止用 `INSERT IGNORE` 吞错误，§十 #12）；
+  - `/flush` 落库失败仍 **200**；`/play` **不进缓冲**（一行不改）；
+  - 锚点同 commit：`RateLimitWeightTableTests.EXPECTED_NON_GET_AT_LEAST` 38→39、`SecurityContractTests` 补 `/flush`。
+* **强制探索**：轮询必须**可被单测直接驱动**（包级方法），不许靠真实计时；`ZRANGEBYSCORE` 的 W 与
+  buffer TTL 的关系（TTL 必须 > W + 最大滞留）。
+* **验收**：`HistoryFlushTests` + 改后的 `HistoryWriteTests` —— 上报不进库 / flush 进库 / 轮询兜底 /
+  503 不碰 DB（spy `never()`）/ 落库失败留缓冲 / 毒批逐条降级 / 并发上报不丢（新值优先）。
+* **回写**：（完成后三句内写清改了什么、验证结果；探索过程不写）
+
+### T51-3 读路径 + 客户端契约（来源 R-19 / 设计 §12.6、§12.8）【待执行】
+
+> ⚠️ **先质疑（G14）**：
+> - **任务**：`/position` 读缓冲优先会让它**依赖 Redis**（Redis 挂 ⇒ 降级 DB 旧值）。这是可接受的：
+>   现状 Redis 挂时详情/列表也全部降级，且"续播拿旧值"劣化有限。
+> - **设计**：`/list` 不合并缓冲是否会让用户"刚看的没出现"？——是（≤60s）。合并的代价是分页语义崩
+>   （`total`/排序键），不划算（§12.6）。
+
+* **入口线索**：`history/service/HistoryService.java#position`、`HistoryPositionTests`（既有 6 例）、
+  `HistoryListTests`（`/list` 口径）。
+* **目标**：`/position` 先 `HGET` 缓冲、命中即返回、miss 查 DB；把 `/list` 不合并缓冲写成**可判别的断言**；
+  §12.8 客户端契约落成文档（退避 / 恢复 / 退出信号 / `fetch keepalive` / 本地 flush 标记）。
+* **红线边界**：不改 `/list` 的排序、`total`、占位口径；`/position` 仍**不校验内容**、无记录仍返回 `0`。
+* **强制探索**：证明"缓冲有 900、DB 有 500 ⇒ 返回 900"与"Redis 不可用 ⇒ 降级返回 DB 的 500"两条都要在。
+* **验收**：`HistoryPositionTests` 新增 2 例（缓冲优先 / 降级）；`HistoryListTests` 新增"缓冲不影响列表"1 例。
+* **回写**：（完成后三句内写清改了什么、验证结果；探索过程不写）
 
 ```
 ### T# <任务名>（来源 R-## / 设计 §x）【待执行】
