@@ -434,7 +434,7 @@ class HistoryListTests extends AbstractContentIntegrationTest {
      *
      * <p>为什么不做：合并会打崩分页语义 —— {@code total} 算不算缓冲里的条目？
      * 排序键要拿 {@code serverReceiveTs} 和 {@code update_time} 混着比？两样都会让这一页的
-     * 边界变得无法解释。代价是"崩溃用户刚看的新视频最多滞后一个兜底窗口才进列表"（§12.6/§12.7 #2）。
+     * 边界变得无法解释。代价是"崩溃用户刚看的新视频最多滞后一个兜底窗口才进列表"（history-上报缓冲.md §6/§7 #2）。
      *
      * <p>判别力：若把缓冲合并进列表，第二条断言（未 flush 时 {@code total=0}）会红。
      */

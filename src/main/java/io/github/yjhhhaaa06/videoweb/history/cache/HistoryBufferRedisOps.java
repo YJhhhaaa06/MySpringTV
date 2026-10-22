@@ -21,7 +21,7 @@ import java.util.Properties;
  * 播放记录**上报缓冲的 Redis 命令层**（`R-19` / `T51-1`）——只负责"把命令 / 脚本发出去"，
  * 不含业务语义（闲置阈值 / 落库 / 失败分流在 {@code HistoryFlushService}）。
  *
- * <p>口径唯一事实源 = {@code architecture/domain/history/history.md} §12.2–12.3。
+ * <p>口径唯一事实源 = {@code history-上报缓冲.md} §2–§3。
  *
  * <h2>两个 key</h2>
  * <ul>
@@ -242,7 +242,7 @@ public class HistoryBufferRedisOps extends RedisOps {
      *
      * <p>★ 存在的理由：`/report` 要"**先判熔断、再做内容校验**"。反过来的话，
      * Redis 挂掉时每个请求都会先付一次 `loadContentVOs` 的**降级查库**——正好违反
-     * "故障期不要往 DB 加压"这个方案的前提（{@code history.md} §12.5）。
+     * "故障期不要往 DB 加压"这个方案的前提（history-上报缓冲.md} §5）。
      */
     public boolean isCacheAvailable() {
         return breaker.tryAcquire();

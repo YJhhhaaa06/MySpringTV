@@ -18,11 +18,11 @@
 
 | 做 | 不做 |
 |---|---|
-| 进度上报（`/history/report`，**先进 Redis 缓冲**，§十二） | 历史删除 / 清空 |
+| 进度上报（`/history/report`，**先进 Redis 缓冲**，见 [上报缓冲](./history-上报缓冲.md)） | 历史删除 / 清空 |
 | 播放事件（`/history/play`，去重计播放量；**不进缓冲**） | 前端页面（`static/` 本期不动；播放历史后续一次性重制） |
 | 历史列表（`/history/list`，失效占位；**不合并缓冲**） | 历史列表缓存 |
 | 续播位置（`/history/position`，**读缓冲优先**） | 服务端**降频**（节流由客户端负责；缓冲只挡写库，不挡请求） |
-| 退出 flush（`/history/flush`）+ 空闲轮询兜底（§十二） | 客户端节流（本期不做；见 [客户端契约](./history-客户端契约.md) §三） |
+| 退出 flush（`/history/flush`）+ 空闲轮询兜底（[上报缓冲](./history-上报缓冲.md)） | 客户端节流（本期不做；见 [客户端契约](./history-客户端契约.md) §三） |
 | mp4 时长解析（发布 / 换源） | 「已看完」标记（由前端按 `progress / duration` 推导） |
 | 详情播放量（第 5 个公共计数） | 历史容量上限 / 旧行清理 |
 | 失效内容占位（抄收藏域形态） | 存量内容时长回填 |
@@ -107,7 +107,7 @@ ALTER TABLE `watch_history`
 
 | 端点 | 入参 | 出参（`data`） | 说明 |
 |---|---|---|---|
-| `POST /history/report` | `contentId`、`progress`（秒，整数） | 无（`msg="success"`） | **只写 Redis 缓冲、不落库**（§十二）；后到即新（LWW）；按当前时长 clamp；Redis 不可用 ⇒ **503** |
+| `POST /history/report` | `contentId`、`progress`（秒，整数） | 无（`msg="success"`） | **只写 Redis 缓冲、不落库**（[上报缓冲](./history-上报缓冲.md)）；后到即新（LWW）；按当前时长 clamp；Redis 不可用 ⇒ **503** |
 | `POST /history/flush` | 无（`userId` 取自登录态） | 无（`msg="success"`） | 把**该用户全部**脏缓冲**同步**落库（退出信号）；落库失败仍 **200**（数据留在缓冲等兜底） |
 | `POST /history/play` | `contentId` | 无（`msg="success"`） | 首播去重后 `play_count + 1`；行不存在则建行（progress=0） |
 | `GET /history/list` | `page`、`pageSize` | `PageResult<HistoryItemVO>` | 按 `update_time DESC, content_id DESC`；缺省 20 / 上限 100 |
@@ -145,7 +145,7 @@ ALTER TABLE `watch_history`
 
 ### 4.1 `/history/report`：校验 → **写缓冲**；落库在 flush（一条 ODKU，**不加事务**）
 
-> ★ **2026-10-22（`R-19`）起**：本端点**不再同步落库**，改为写 Redis 缓冲（§十二）。下方 SQL 是
+> ★ **2026-10-22（`R-19`）起**：本端点**不再同步落库**，改为写 Redis 缓冲（[上报缓冲](./history-上报缓冲.md)）。下方 SQL 是
 > **flush / 轮询兜底**时执行的语句，语义（LWW、`update_time` 显式 SET、clamp）**逐字未变**。
 > ⚠️ `progress` 的 clamp 仍在请求线程做（需要 `durationSeconds`）；**Redis 里的值已是 clamp 后的**。
 
@@ -207,8 +207,8 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
 
 | 端点 / 路径 | 事务 | 理由 |
 |---|---|---|
-| `/report` | **不加** | 只写 Redis：单条 Lua（`HSET` + `ZADD`）本身原子（§十二） |
-| `/flush` / 轮询兜底 | **一批一事务**；失败后**逐条重试** | 批量 ODKU 必须同进同退；一次数据异常若整批回滚会"毒死全批"⇒ 失败降级逐条，把坏行摘出去（§十二.4） |
+| `/report` | **不加** | 只写 Redis：单条 Lua（`HSET` + `ZADD`）本身原子（[上报缓冲](./history-上报缓冲.md)） |
+| `/flush` / 轮询兜底 | **一批一事务**；失败后**逐条重试** | 批量 ODKU 必须同进同退；一次数据异常若整批回滚会"毒死全批"⇒ 失败降级逐条，把坏行摘出去（[上报缓冲](./history-上报缓冲.md) §4） |
 | `/play` | **加** | 标记位 + `content.play_count` 必须同进同退；否则不变量没有自愈路径 |
 
 ---
@@ -439,130 +439,16 @@ T48 加 `playCount` —— 契约跟随本篇 §五「第 5 个公共计数」�
 
 ---
 
-## 十二、上报缓冲（`R-19`，2026-10-22 拍板）
+## 十二、上报缓冲（`R-19`）→ **已独立成篇**
 
-> **一句话**：`/report` 只写 Redis；**正常退出**（`/flush`）立即落库；**轮询只兜"没正常上报退出"的用户**。
-> ★ **它不是降频手段** —— 请求数一条不减（鉴权 / 限流 / 内容校验照旧），挡掉的是 **DB 写**。
-> 收益的准确表述 = **每次观看会话 1 次写库**（而不是每条心跳 1 次）。
-> ★ 原 `F-27` 的否决前提是"所有用户都走轮询"；语义改为"轮询只兜崩溃"后该前提消失，故改做。
+`/report` 只写 Redis、`/flush` 同步落库、轮询只兜"没正常上报退出"的用户。**机制全貌**
+（为什么放 Redis / 两个 key / 三条写路径 / 落库与条件删 / 剪枝 / 失败姿态 / 读路径新鲜度 / 已知代价）
+见 [history-上报缓冲](./history-上报缓冲.md)。
 
-### 12.1 为什么缓冲在 Redis 而不是内存
-
-`feed/mq/FeedDeliveryBuffer` 是**内存**态，应用重启即丢（其残余①）。本方案的缓冲必须跨"用户退出"活到
-"轮询捡起"，用内存会让**每次重启丢掉全部崩溃用户进度** ⇒ Redis。副产品：**应用重启不丢缓冲**。
-
-### 12.2 两个 key（`CacheKeys` 自持，字符串冻结）
-
-| key | 类型 | 内容 |
-|---|---|---|
-| `history:report:{userId}` | HASH | field = `contentId`，value = `"{progress}:{serverReceiveTs}"`（秒:毫秒） |
-| `history:dirty` | ZSET | member = `userId`，score = 该用户**最后一次上报**的 `serverReceiveTs` |
-
-- **`ZADD` 的 score 与 hash 里的 ts 必须同一时钟**（都取 App 侧 `serverReceiveTs`）；用 Redis `TIME` 去比
-  App 时间戳会因漂移把"刚上报"判成"空闲"⇒ 提前落库（不致命）或永不落库（致命）。
-- `history:report:{userId}` 的 **TTL = 30 分钟**（> 闲置阈值 60s + 轮询周期 15s + 最大滞留 10min）。
-- ★ **为什么 ZSET 而不是"扫 hash 判 mtime"**：`HTTL` 拿不到"最后一次写"，`HGETALL` 全库扫是 O(用户数)。
-  ZSET 一条 `ZRANGEBYSCORE ... -inf now-W LIMIT n` 就同时回答了"谁脏"和"谁够闲"。
-
-### 12.3 三条写路径
-
-```
-① /report  ──(一次 Lua: HSET + EXPIRE + ZADD)──> Redis
-② /flush   ──(HGETALL)──> 批量 ODKU ──> 条件删（Lua）   ← 退出信号，同步
-③ 轮询     ──(ZRANGEBYSCORE now-W)──> 同一段②，但按批处理 ← 兜底，W=60s
-```
-
-- ★ **① 必须一条 Lua**：`HSET` 成功而 `ZADD` 失败（连接中途断）⇒ 数据在 hash 里但**不在 dirty 里**
-  ⇒ 永远不会被轮询捡到，只能等 TTL 静默消失。反向（dirty 有、hash 空）是良性的（轮询空跑一次）。
-- **②③ 共用同一段落库逻辑**（同一个方法），只是触发者不同 —— 否则两条路径的语义会漂移。
-
-### 12.4 落库：**读 → 写 → 条件删**（不是"弹出 + 失败放回"）
-
-```
-1. HGETALL history:report:{uid}          // 不删
-2. 批量 ODKU（显式 SET update_time = 缓冲里的 ts） // 一批一事务
-3. 条件删（一次 Lua）：对每个 field，值**仍是**我们写出去的那个 ⇒ HDEL；hash 空 ⇒ DEL key + ZREM dirty
-```
-
-★ **为什么不"原子弹出 + 失败放回"**（`R-19` 初稿曾这么写，实现期改）：
-弹出后到写库之间崩溃 ⇒ 数据**已经没了**，放回代码根本执行不到。条件删则是**至少一次 + 幂等**
-（重复写的 ODKU 结果完全相同，因为 `update_time` 来自缓冲而非 `CURRENT_TIMESTAMP`）⇒ **崩溃只会重写，不会丢**。
-它还顺带解决了"放回覆盖新值"的问题：期间有新上报 ⇒ 值已变 ⇒ **不删**，下一轮写新值。
-
-**失败分流**（照 `DeliveryOutcome` 三态的形状，不按失败次数判）：
-
-| 类型 | 处置 |
-|---|---|
-| `TransientDataAccessException` / 超时 / 死锁 1213 / 连接类 | **不删**（自然留缓冲），下一轮重试 |
-| `DataIntegrityViolationException` / `BadSqlGrammarException` | 整批失败后**逐条重试**，把该条摘出、记 ERROR 丢弃（真脏） |
-| 滞留超过"最大滞留时长" | 丢弃 + WARN（防永久占内存） |
-
-⚠️ **不许用批量 `INSERT IGNORE` 绕过整批失败**：§十 #12 已为单条 `IGNORE` 记过这个坑（把列截断 / CHECK
-失败也降级成 warning ⇒ 静默丢弃）—— 批量里用只是把坑放大 N 倍。
-⚠️ **flush 的 SQL 只能改 `progress_seconds` + `update_time`，绝对不碰 `play_counted`**（`/play` 的唯一职责）。
-
-### 12.4.1 剪枝：成员级 TTL（**不是**给 ZSET 加 EXPIRE）
-
-轮询每轮先执行：
-
-```sql
-ZREMRANGEBYSCORE history:dirty -inf (now - bufferTtl)
-```
-
-★ **阈值可证，不是拍脑袋**：写入时 hash 的 `EXPIRE bufferTtl` 与 `score = ts` 是**同一次 Lua、同一个 ts**
-⇒ **hash 的过期时刻 = score + bufferTtl**。所以"score 早于 `now - bufferTtl`"严格等价于"这条 hash 已经过期"
-⇒ 剪掉的一定是**值已不在**的成员，不会误删还活着的进度。
-
-★ **为什么不能改成"给 `history:dirty` 加 TTL"**（用户 2026-10-22 提议，评估后否决）：它是**全局单键** ——
-① 每次 `ZADD` 续期 ⇒ 只要有一个活跃用户，key 就永不过期，僵尸成员照样留着（"看起来有 TTL"的假象比没有更糟）；
-② 固定不续期 ⇒ 到期删掉**整个集合**，连活跃成员一起，周期性大面积丢数据。
-"成员过期"与"key 过期"不是一回事，全局集合表达不了前者。
-
-★ 它与 12.4 的"条件删"是**两道防线**，不是重复：
-- 条件删（正面）：僵尸被轮询**取到**时清掉；
-- 剪枝（时间兜底）：不等被取到，按时间清掉 —— 防"轮询线程没起来 / 名额被挤占"，并省掉无用的 `HGETALL`。
-
-### 12.5 失败姿态
-
-| 场景 | 行为 |
-|---|---|
-| Redis 熔断打开 / 不可达 | `/report` ⇒ **503 + `Retry-After`**；★ **熔断判定先于内容校验**（否则每个 503 先付一次 `loadContentVOs` 降级查库，正好违反"不碰 DB"） |
-| `/flush` 落库失败 | **200**（数据还在缓冲，轮询兜底）；不返 5xx —— 客户端重试无益且放大流量 |
-| 应用重启 | 缓冲在 Redis、不丢；轮询线程起来后照常接手 |
-| Redis 进程重启（无持久化） | 缓冲全丢 = 这些会话回退到上次落库的进度（§12.7 #3） |
-
-★ **部署前提**：缓冲与缓存**共用同一 Redis**，且该实例**不得设 `maxmemory` / 必须 `noeviction`**。
-淘汰策略会**静默**杀掉缓冲（缓存丢了能重建，缓冲丢了是数据丢失）。代码看不见这件事，故启动时
-`CONFIG GET maxmemory-policy` 自检：非 `noeviction` ⇒ WARN + 把策略打进启动日志（托管 Redis 可能禁用该命令，容忍失败）。
-
-### 12.6 读路径
-
-| 端点 | 口径 |
-|---|---|
-| `/position` | ★ **先 `HGET` 缓冲，命中即返回；miss 再点查 DB**。缓冲一定是 DB 的上游（更新）；崩溃用户重开时拿到的是 Redis 里的值而不是库里的旧值。Redis 不可用 ⇒ 降级 DB（接受旧值） |
-| `/list` | **不合并缓冲**。合并会打崩分页语义（`total` 算不算？排序键混用 ts 与 `update_time`）⇒ 接受"崩溃用户刚看的新视频最多滞后 W 才进列表" |
-
-### 12.7 已知代价
-
-| # | 代价 | 边界 / 推翻条件 |
-|---|---|---|
-| 1 | **崩溃 / 断网的会话**最多回退"闲置阈值 + 一次心跳间隔"的进度 | 只有这一条用户可见；正常退出延迟为 0。推翻 = 客户端能在本地持久化进度并重进补报 |
-| 2 | 列表对崩溃会话最多滞后 W（60s） | `/position` 已用"读缓冲"覆盖续播这条主路径 |
-| 3 | **Redis 停机（无持久化）⇒ 缓冲全丢**；而**不做缓冲时同样故障下进度是落库的** ⇒ 故障期数据安全性**变差** | 这是本方案最硬的代价。缓解：`/flush` 已把"正常退出"摘出缓冲；只有"崩溃 + 同时 Redis 停机"才丢。推翻 = 换 Redis 持久化 / 独立实例 |
-| 4 | 缓冲与缓存同实例，若配 `maxmemory` + `allkeys-lru` ⇒ 静默淘汰 | 启动自检只能告警，不能阻止；真要保证需独立实例 |
-| 5 | DB 与缓冲存在**落后窗口**（除 `/position` 外的读路径看不到） | 现状读路径只有 `/list`，已登记 #2 |
-| 6 | `/flush` 是新非 GET 端点 ⇒ 限流权重表 +1、`SecurityContractTests` +1 | 加端点时必须同 commit 改（§十一 迁移锚点段） |
-
-### 12.8 客户端契约 → **已独立成篇**
-
-本篇**不再复述**客户端该怎么写，唯一事实源换到
-[history-客户端契约](./history-客户端契约.md)：上报节奏 / 退出信号（`fetch keepalive`，**不是** `sendBeacon`）/
-503 退避与恢复 / 崩溃补偿 / 读路径预期 / 错误码表 / 自测清单。
-
-> ★ **为什么独立**：这一域客户端要配合的东西比服务端还多（**顺序**、退避状态机、本地 pending 标记），
-> 塞在服务端设计篇里两边都读不下去；而且它要当作"未来那次播放器重制"的接口文档用（`R-19` 只落服务端）。
-> ⚠️ 本篇只保留一条**服务端必须记住的约束**：`/flush` **没有** `contentId` 参数 ⇒ 客户端要落库"最后一段进度"
-> 必须先 `/report` 再 `/flush`（顺序细节见客户端契约 §四.2）。
+> ★ **为什么独立**：它自成一套机制（缓冲 / 落库 / 剪枝 / 故障姿态），与域的静态结构（表、端点、时长）
+> 耦合很松，却又是**被代码引用最密**的一节 —— 独立后引用能一指到底。
+> ⚠️ 本节只保留**域文档必须记住**的两条：① `/report` **不再同步落库**（§4.1 那条 ODKU 现在只在 flush 时执行）；
+> ② `/flush` 是本域**第五个端点**、限流权重 3（§三）。
 
 ---
 
@@ -572,7 +458,7 @@ ZREMRANGEBYSCORE history:dirty -inf (now - bufferTtl)
 > ★ **本专项第一轮已收口（2026-10-21）**：`T45`–`T49` 全部交付（执行态已从登记台清出，过程在 git
 > `6f895f5..3ea45f1`）；`T50`（V8 列表索引）为 2026-10-21 性能调研后的独立优化，已交付；
 > 裁剪项见 [需求篇](./history-需求.md) §六（每条带推翻条件）。
-> ★ **第二轮（上报缓冲）开工（2026-10-22，`R-19`）**：`T51-1`–`T51-3`，设计 = 本篇 §十二。
+> ★ **第二轮（上报缓冲）开工（2026-10-22，`R-19`）**：`T51-1`–`T51-3`，设计 = [history-上报缓冲](./history-上报缓冲.md)。
 
 | 编号 | 一句话 | 详见 |
 |---|---|---|
@@ -583,9 +469,9 @@ ZREMRANGEBYSCORE history:dirty -inf (now - bufferTtl)
 | T48 | **播放量读面（第 5 个公共计数）**：`content:playCount`（content 域自持）+ 详情计数聚合**四→五键** + `PlayCountChangedListener`（`AFTER_COMMIT` 条件 `INCRBY`，冷 key 不建）+ `ContentDetailVO.playCount` + `removeContent` 一并失效；详情精确键集 **19** | 本篇 §五 · §7.3 · `ContentPlayCountTests` |
 | T49 | **读面**：`/history/list`（本域三列 → 一趟 `loadContentVOs`，失效占位保留 `progress`、`total` 含失效行、整页失效整页返回、`pageSize` 20/100；**不缓存**）+ `/history/position`（点查、不校验内容、无记录 0）；`SecurityContractTests` 补两路由 ⇒ **I-23 核销** | 本篇 §三 · §七.1/§7.2 · `HistoryListTests` / `HistoryPositionTests` |
 | T50 | **V8 列表索引（覆盖复合索引替换）**：`idx_user_update` → `idx_user_update_content (user_id, update_time DESC, content_id DESC, progress_seconds)` —— 前三列即列表 `ORDER BY`（消灭每页全量 filesort），第四列让三列 SELECT 免回表；**替换**而非新增（索引数不变）。实测：5k 行 3.15ms→0.10ms、50k 行 37.8ms→0.2ms；写路径无回归 | 本篇 §二 · §7.1 · `HistorySchemaTests` |
-| T51-1 | **缓冲内核**（不接端点）：`CacheKeys` 两个 key + `video.history.buffer.*` 配置 + `HistoryBufferRedisOps`（写入 / 条件删 / HGET 三条 Lua）+ `HistoryReportBuffer`（语义层）+ `maxmemory-policy` 启动自检；**纯 Redis，不碰 Service / Controller** | 本篇 §12.2–12.5 · `HistoryReportBufferTests` |
-| T51-2 | **写路径接管**：`/report` 改走缓冲、新增 `/flush`（批粒度 = userId 全量）、轮询兜底（`ZRANGEBYSCORE` + 同一段落库）、503 + `Retry-After`（熔断先于校验）；权重 38→39、`SecurityContractTests` 补路由；★ `HistoryWriteTests` 由"上报即落库"改为"上报进缓冲、flush 后落库"（契约跟随 `R-19`，见 G8 例外条） | 本篇 §12.3–12.5 · `HistoryWriteTests` / `HistoryFlushTests` |
-| T51-3 | **读路径 + 客户端契约**：`/position` 读缓冲优先（miss 才查 DB）、`/list` 不合并的口径钉进测试；客户端契约**独立成篇**（[history-客户端契约](./history-客户端契约.md)，本期不实现） | 本篇 §12.6/§12.8 · `HistoryPositionTests` |
+| T51-1 | **缓冲内核**（不接端点）：`CacheKeys` 两个 key + `video.history.buffer.*` 配置 + `HistoryBufferRedisOps`（写入 / 条件删 / HGET 三条 Lua）+ `HistoryReportBuffer`（语义层）+ `maxmemory-policy` 启动自检；**纯 Redis，不碰 Service / Controller** | [上报缓冲](./history-上报缓冲.md) §2–§5 · `HistoryReportBufferTests` |
+| T51-2 | **写路径接管**：`/report` 改走缓冲、新增 `/flush`（批粒度 = userId 全量）、轮询兜底（`ZRANGEBYSCORE` + 同一段落库）、503 + `Retry-After`（熔断先于校验）；权重 38→39、`SecurityContractTests` 补路由；★ `HistoryWriteTests` 由"上报即落库"改为"上报进缓冲、flush 后落库"（契约跟随 `R-19`，见 G8 例外条） | [上报缓冲](./history-上报缓冲.md) §3–§5 · `HistoryWriteTests` / `HistoryFlushTests` |
+| T51-3 | **读路径 + 客户端契约**：`/position` 读缓冲优先（miss 才查 DB）、`/list` 不合并的口径钉进测试；客户端契约**独立成篇**（[history-客户端契约](./history-客户端契约.md)，本期不实现） | [上报缓冲](./history-上报缓冲.md) §6 · [客户端契约](./history-客户端契约.md) · `HistoryPositionTests` |
 
 ---
 
@@ -595,6 +481,7 @@ ZREMRANGEBYSCORE history:dirty -inf (now - bufferTtl)
 |---|---|
 | **用户可见规则**（看到什么 / 重看怎么算 / 播放量口径） | 同目录 [history-需求](./history-需求.md) |
 | **客户端行为契约**（上报节奏 / 退出顺序 / 503 退避 / 崩溃补偿 / 自测清单） | 同目录 [history-客户端契约](./history-客户端契约.md) |
+| **上报缓冲机制**（键 / 原子性 / 落库与条件删 / 剪枝 / 失败姿态 / 已知代价） | 同目录 [history-上报缓冲](./history-上报缓冲.md) |
 | 缓存三态 / 空标记 / 写后失效 / 单飞 | [缓存与数据一致性](../../tech/cache/缓存与数据一致性.md) |
 | 事务切分、载体独立 bean、`AFTER_COMMIT` | [事务边界](../../tech/transaction/事务边界.md) · [领域事件与解耦](../../tech/events/领域事件与解耦.md) |
 | 鉴权链（`@RequiresLogin` / 默认拒绝） | [安全与鉴权](../../tech/security/安全与鉴权.md) |

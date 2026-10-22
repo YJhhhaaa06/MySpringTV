@@ -24,7 +24,7 @@ import static org.mockito.Mockito.verify;
  * `T51-2` 的**故障姿态**：Redis 熔断打开时，`/history/report` 返回 503 + `Retry-After`，
  * **且一次内容校验都不做**。
  *
- * <p>口径唯一事实源 = {@code architecture/domain/history/history.md} §12.5。
+ * <p>口径唯一事实源 = {@code history-上报缓冲.md} §5。
  *
  * <h2>★ 为什么单独一个类</h2>
  * 本类用 {@code @MockitoSpyBean} 把**整个上下文**里的 {@link RedisCircuitBreaker} 换成 spy。

@@ -345,7 +345,7 @@ public final class CacheKeys {
      *
      * <p>★ 选 ZSET 而不是"扫 hash 判 mtime"：{@code HTTL} 拿不到"最后一次写"，{@code HGETALL}
      * 全库扫是 O(用户数)；ZSET 一条 {@code ZRANGEBYSCORE -inf (now-W) LIMIT n} 同时回答
-     * "谁脏"与"谁够闲"（{@code architecture/domain/history/history.md} §12.2）。
+     * "谁脏"与"谁够闲"（{@code history-上报缓冲.md} §2）。
      */
     public static final String HISTORY_DIRTY = "history:dirty";
 

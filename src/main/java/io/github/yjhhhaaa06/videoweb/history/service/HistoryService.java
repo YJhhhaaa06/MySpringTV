@@ -127,7 +127,7 @@ public class HistoryService {
      * <p>★ 粒度是 **userId 全量**（不是 contentId）：客户端退出时本来就该全 flush，
      * 不用它记住"这次看了哪些"；多标签下任一标签退出全写一遍，比"各管各的"简单且不漏。
      *
-     * <p>★ 落库失败**仍返回成功**（200）：数据还留在缓冲里，轮询会兜底（{@code history.md} §12.5）。
+     * <p>★ 落库失败**仍返回成功**（200）：数据还留在缓冲里，轮询会兜底（history-上报缓冲.md} §5）。
      * 返回 5xx 只会让客户端重试、放大流量，而重试并不能让 DB 恢复。
      */
     public void flush(long userId) {

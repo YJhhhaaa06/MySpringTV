@@ -19,9 +19,9 @@ import java.util.Map;
 /**
  * 播放记录缓冲的**落库编排**（`T51-2`）：`/flush`（退出信号）与轮询兜底**共用同一段逻辑**。
  *
- * <p>口径唯一事实源 = {@code architecture/domain/history/history.md} §12.3–12.5。
+ * <p>口径唯一事实源 = {@code history-上报缓冲.md} §3–§5。
  *
- * <h2>一次落库的四步（§12.4）</h2>
+ * <h2>一次落库的四步（§4）</h2>
  * <ol>
  *   <li>{@code snapshot} 读全量（**原始 field → 原始值**，不解析、不筛选）；</li>
  *   <li>解析：{@code contentId} 与 {@code "progress:ts"} 任一不合法 ⇒ **记 WARN 并丢弃该条**，

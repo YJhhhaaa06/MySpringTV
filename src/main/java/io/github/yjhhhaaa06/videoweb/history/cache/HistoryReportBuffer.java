@@ -16,7 +16,7 @@ import java.util.OptionalInt;
  * 播放记录**上报缓冲的语义层**（`R-19` / `T51-1`）：负责"此刻"与"业务含义"，
  * 命令细节全部委托 {@link HistoryBufferRedisOps}。
  *
- * <p>口径唯一事实源 = {@code architecture/domain/history/history.md} §十二。
+ * <p>口径唯一事实源 = {@code history-上报缓冲.md}。
  *
  * <h2>它在整条链路里的位置</h2>
  * <pre>
@@ -32,7 +32,7 @@ import java.util.OptionalInt;
  * {@code Thread.sleep} —— 那既慢又抖（{@code 60s} 级阈值根本没法测）。故持有 {@link Clock}：
  * 生产用 {@link Clock#systemUTC()}，用例传固定 / 可推进的时钟。
  * ⚠️ **同一个 ts 必须同时用于 hash 值与 dirty score**（写入是一条 Lua，只传一个 ts）——
- * 用两个时钟会让"刚上报"被判成"已闲置"（{@code history.md} §12.2）。
+ * 用两个时钟会让"刚上报"被判成"已闲置"（history-上报缓冲.md} §2）。
  */
 @Slf4j
 @Component
@@ -87,7 +87,7 @@ public class HistoryReportBuffer {
      * `/report` 的前置探测：缓冲后端此刻是否可用。
      *
      * <p>★ 必须**先判它、再做内容校验**：Redis 熔断时 `loadContentVOs` 会降级查库，
-     * 先校验就等于给数据库白白加一次压力，与"故障期别碰 DB"直接冲突（{@code history.md} §12.5）。
+     * 先校验就等于给数据库白白加一次压力，与"故障期别碰 DB"直接冲突（history-上报缓冲.md} §5）。
      */
     public boolean isBackingStoreAvailable() {
         return ops.isCacheAvailable();

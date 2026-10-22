@@ -7,7 +7,7 @@ import java.sql.Timestamp;
  *
  * <p>★ 为什么 `update_time` 由缓冲携带、而不是 SQL 里写 `CURRENT_TIMESTAMP`：
  * 一批里各条的接收时刻不同，用 `CURRENT_TIMESTAMP` 会把它们压成同一秒 ⇒ 历史列表的
- * "最后观看倒序"退化成"批内 contentId 倒序"（`history.md` §12.4）。
+ * "最后观看倒序"退化成"批内 contentId 倒序"（`history-上报缓冲.md` §4）。
  *
  * <p>★ 为什么是 POJO 而不是 record：本类出现在 **Mapper 参数位**（`<foreach>` 里取
  * {@code it.contentId} 等），本仓已实测 MyBatis 的 record **参数位**不可靠

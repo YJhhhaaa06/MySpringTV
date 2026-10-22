@@ -7,7 +7,7 @@ import java.time.Duration;
 /**
  * 播放记录**上报缓冲**配置（`R-19` / `T51-1`）。
  *
- * <p>口径唯一事实源 = {@code architecture/domain/history/history.md} §十二。本类只承载"可调的时间与批量"，
+ * <p>口径唯一事实源 = {@code history-上报缓冲.md}。本类只承载"可调的时间与批量"，
  * 语义（何时算闲、何时落库、失败怎么办）在 {@code HistoryReportBuffer} 与 {@code HistoryFlushService}。
  *
  * <p>★ 为什么单独一段 {@code video.history.buffer.*} 而不是塞进 {@code video.cache.*}：

@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * 缓冲落库编排（`T51-2`）：`/flush` 与轮询兜底共用的那段逻辑。
  *
- * <p>口径唯一事实源 = {@code architecture/domain/history/history.md} §12.3–12.5。
+ * <p>口径唯一事实源 = {@code history-上报缓冲.md} §3–§5。
  *
  * <p>★ <b>为什么把轮询周期调到 1h</b>：本类会**手动驱动** {@code pollOnce()}，
  * 而 {@code HistoryFlushScheduler} 在真实上下文里也会按周期跑 —— 两边同时动同一批键，

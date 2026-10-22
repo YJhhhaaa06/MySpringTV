@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 /**
  * 上报缓冲内核（`T51-1`）——**纯 Redis 断言，不碰 DB**。
  *
- * <p>口径唯一事实源 = {@code architecture/domain/history/history.md} §12.2–12.4。
+ * <p>口径唯一事实源 = {@code history-上报缓冲.md} §2–§4。
  * 本类只验证"缓冲这一层"的性质：原子写、原始串保真、条件删、够闲筛选、TTL。
  * 落库 / 503 / 轮询编排在 `T51-2`（`HistoryFlushTests`）。
  *

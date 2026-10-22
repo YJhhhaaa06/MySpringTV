@@ -55,7 +55,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <h2>★ `R-19`（T51-2）的契约变更，以及为什么改这些断言</h2>
  * {@code /report} 从"同步落库"改成"写 Redis 缓冲"，落库由 {@code /flush} 触发。因此凡"上报后直查 DB"
  * 的断言都必须先 flush —— 这是**契约跟随**（G8 的例外条：口径变了，oracle 必须跟），不是迎合实现。
- * 依据：{@code architecture/domain/history/history.md} §12.3。
+ * 依据：{@code history-上报缓冲.md} §3。
  *
  * <p>★ 轮询周期推到 1h：本类会手动 flush，而 {@code HistoryFlushScheduler} 也会按周期兜底 ——
  * 两边同时动同一批键会让"上报后 DB 仍为空"这类断言偶发红。

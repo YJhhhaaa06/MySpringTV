@@ -97,7 +97,7 @@ public class HistoryController {
      * 比"各管各的"简单且不漏。
      *
      * <p>★ 落库失败**仍返回 200**：数据还在缓冲里，轮询会兜底。返回 5xx 只会让客户端重试、
-     * 放大流量，而重试并不能让数据库恢复（{@code history.md} §12.5）。
+     * 放大流量，而重试并不能让数据库恢复（history-上报缓冲.md} §5）。
      */
     @PostMapping("/flush")
     public ApiResponse<Void> flush(@CurrentUserId long userId) {

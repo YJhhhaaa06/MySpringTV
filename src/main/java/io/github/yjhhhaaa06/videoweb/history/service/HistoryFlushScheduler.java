@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 播放记录缓冲的**兜底轮询**（`T51-2`）：每 {@code video.history.buffer.poll-interval} 跑一次
  * {@link HistoryFlushService#pollOnce()}（剪枝 + 落"够闲"的用户）。
  *
- * <p>口径唯一事实源 = {@code architecture/domain/history/history.md} §12.3。
+ * <p>口径唯一事实源 = {@code history-上报缓冲.md} §3。
  *
  * <h2>★ 它只兜"没正常上报退出"的用户</h2>
  * 正常退出的用户走 {@code /history/flush}（同步、延迟 0），**不经过这里**。
