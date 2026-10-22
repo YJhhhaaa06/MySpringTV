@@ -183,6 +183,22 @@ video:
     #    ⇒ "已在池中的内容再次加入（移到最前）"在**已满时仍成功**，只有"加新内容且已满"才 400。
     watch-later-max-items: ${FAVORITE_WATCH_LATER_MAX_ITEMS:100}
 
+  # 播放记录上报缓冲（R-19 / T51-1；口径的唯一事实源 = architecture/domain/history/history.md §十二）
+  # ⚠️ Duration 必须带单位后缀（60s / 15s / 30m / 10m）——裸数字会被当成**毫秒**。
+  # ⚠️ 构造期校验：buffer-ttl 必须 **大于** idle-threshold + max-retention，否则缓冲会在
+  #    "轮到轮询"或"重试窗口内"就自己过期 ⇒ 静默丢数据，且外部只看到"进度偶尔回退"、无法归因。
+  # ★ idle-threshold 是"多久算用户已离开"（**兜底判据**），不是降频参数：
+  #    正常退出走 /history/flush（同步、延迟 0），只有崩溃 / 断网的用户才等这个窗口。
+  # ★ poll-interval 只影响兜底延迟，不影响正常退出的可见性（所以它可以比 idle-threshold 短很多）。
+  history:
+    buffer:
+      idle-threshold: ${HISTORY_BUFFER_IDLE_THRESHOLD:60s}
+      poll-interval: ${HISTORY_BUFFER_POLL_INTERVAL:15s}
+      buffer-ttl: ${HISTORY_BUFFER_TTL:30m}
+      max-retention: ${HISTORY_BUFFER_MAX_RETENTION:10m}
+      flush-batch-size: ${HISTORY_BUFFER_FLUSH_BATCH_SIZE:200}
+      idle-batch-size: ${HISTORY_BUFFER_IDLE_BATCH_SIZE:50}
+
   # 缓存（决策⑤：显式封装层，不用 @Cacheable）
   # 口径对齐 TV AppConfig.getLikeTtlSeconds() ← app.properties 的 cache.like.ttlMinutes=15。
   # ⚠️ 同上：Duration 属性**必须带单位后缀**。写裸数字 15 会解析成 PT0.015S（15 毫秒），

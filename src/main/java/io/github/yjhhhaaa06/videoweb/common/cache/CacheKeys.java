@@ -336,4 +336,27 @@ public final class CacheKeys {
     public static String rateLimitServer() {
         return "ratelimit:server";
     }
+
+    // ==================== 播放记录上报缓冲（HistoryReportBuffer，R-19 / T51-1） ====================
+
+    /**
+     * 脏用户集合：{@code history:dirty}（ZSET，member = userId，score = 最后一次上报的
+     * {@code serverReceiveTs} 毫秒）。
+     *
+     * <p>★ 选 ZSET 而不是"扫 hash 判 mtime"：{@code HTTL} 拿不到"最后一次写"，{@code HGETALL}
+     * 全库扫是 O(用户数)；ZSET 一条 {@code ZRANGEBYSCORE -inf (now-W) LIMIT n} 同时回答
+     * "谁脏"与"谁够闲"（{@code architecture/domain/history/history.md} §12.2）。
+     */
+    public static final String HISTORY_DIRTY = "history:dirty";
+
+    /**
+     * 单个用户的上报缓冲：{@code history:report:{userId}}（HASH，field = contentId，
+     * value = {@code "{progress}:{serverReceiveTs}"}）。
+     *
+     * <p>★ 键字符串同 {@code content:*} 一样是**冻结契约**：测试里硬编码形状，
+     * 让"改名导致缓冲失联"无法静默发生。
+     */
+    public static String historyReport(long userId) {
+        return "history:report:" + userId;
+    }
 }
