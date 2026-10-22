@@ -19,7 +19,8 @@
 * **方向**：★ **播放记录（history）第二轮 —— 上报缓冲**（2026-10-22，需求源 = `CURRENT_NEEDS.md` §三 `R-19`）
   —— **已交付**（`T51-1`–`T51-3`）。`/report` 只写 Redis、退出信号 `/flush` 同步落库、
   轮询只兜"没正常上报退出"的用户；`/position` 读缓冲优先；Redis 不可用 ⇒ `/report` 503 + `Retry-After`。
-  设计 = [history.md §十二](../architecture/domain/history/history.md)（缓冲内核 / 五条契约 / 失败姿态 / 客户端契约）。
+  设计 = [history.md §十二](../architecture/domain/history/history.md)（缓冲内核 / 五条契约 / 失败姿态）；
+  客户端那份见 [history-客户端契约.md](../architecture/domain/history/history-客户端契约.md)（独立成篇）。
   ★ **第一轮已收口**（2026-10-21，`R-18`）：进度上报 / 播放事件 / 列表 / 续播 / mp4 时长，`T45`–`T49` 交付。
   **用户 2026-10-21 拍板**：做播放量（B 方案：冗余列 + 独立 key + 详情第 5 计数）；进度与播放事件
   **拆两端点**（`/report` 纯进度、`/play` 唯一计数入口）；历史**不可删**；失效内容**做占位**；
@@ -175,13 +176,13 @@
 * **入口线索**：`history/service/HistoryService.java#position`、`HistoryPositionTests`（既有 6 例）、
   `HistoryListTests`（`/list` 口径）。
 * **目标**：`/position` 先 `HGET` 缓冲、命中即返回、miss 查 DB；把 `/list` 不合并缓冲写成**可判别的断言**；
-  §12.8 客户端契约落成文档（退避 / 恢复 / 退出信号 / `fetch keepalive` / 本地 flush 标记）。
+  §12.8 客户端契约**独立成篇**（退避 / 恢复 / 退出顺序 / `fetch keepalive` / 本地 pending 标记）。
 * **红线边界**：不改 `/list` 的排序、`total`、占位口径；`/position` 仍**不校验内容**、无记录仍返回 `0`。
 * **强制探索**：证明"缓冲有 900、DB 有 500 ⇒ 返回 900"与"Redis 不可用 ⇒ 降级返回 DB 的 500"两条都要在。
 * **验收**：`HistoryPositionTests` 新增 2 例（缓冲优先 / 降级）；`HistoryListTests` 新增"缓冲不影响列表"1 例。
 * **回写**：`/position` 改为**先 `HGET` 缓冲、未命中才点查 DB**（`CacheUnavailableException` ⇒ 降级查库，
   返回落库旧值，不 500）；`/list` **不合并缓冲**的口径写成可判别用例（未 flush ⇒ `total=0` 且列表无该条，
-  flush 后才出现）。客户端契约已在 `history.md` §12.8 成文（本期只登记、不实现）。
+  flush 后才出现）。客户端契约已独立成篇（`history-客户端契约.md`，本期只登记、不实现）。
   验证：`HistoryPositionTests` 6→8、`HistoryListTests` 15→16；**全量 800/800 绿**；
   反向验证一条（去掉读缓冲优先 ⇒ `缓冲优先于已落库的值` 红，降级用例仍绿 ⇒ 两条判别力互不覆盖）。
 

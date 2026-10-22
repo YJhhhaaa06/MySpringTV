@@ -1,0 +1,233 @@
+# 播放记录 —— 客户端契约
+
+> 定位（先读这一句）：本篇只规定**客户端（播放器）必须怎么做**，是前端接入播放历史时的**唯一事实源**。
+> **不写**服务端怎么实现（→ [history](./history.md)）、**不写**用户看到什么（→ [history-需求](./history-需求.md)）。
+> ★ **状态：契约已定、前端未实现** —— 播放历史随播放器一次性重制（`history.md` §一）。
+> 因此本篇的每一条都是**给未来那次重制的接口**，不是对现有代码的描述。
+
+---
+
+## 一、为什么需要一份独立的客户端契约
+
+服务端把"上报"与"落库"拆成了两条路径（`/report` 只进 Redis 缓冲、`/flush` 才落库、轮询兜崩溃用户）。
+这个设计的成立**依赖客户端做对两件事**：什么时候上报、什么时候 flush。做错的后果是**不对称的**：
+
+| 客户端少做了什么 | 后果 |
+|---|---|
+| 不发 `/flush` | 进度**不丢**，但要等兜底窗口（默认 60s）才落库 |
+| 只发 `/flush`、从不发 `/report` | `/flush` 空转，**进度直接丢**（缓冲里什么都没有） |
+| 用 `sendBeacon` 发退出信号 | **401**（带不了 `Authorization`）⇒ 静默丢 |
+| 在 `timeupdate` 里上报 | 每秒几十次请求，被限流（权重 1，但仍会 429） |
+| 503 不退避 | 服务端已经判定后端不可用，客户端还按原频率打 ⇒ 放大故障 |
+
+**结论**：这些不是"实现细节"，是契约。所以本篇独立成文，并对每条给出**判据**（怎么判断做对了）。
+
+---
+
+## 二、客户端只用五个端点
+
+| 端点 | 何时调 | 语义（对客户端） |
+|---|---|---|
+| `POST /history/play` | **开始播放时一次** | 播放量去重计数；幂等，重复调不报错 |
+| `POST /history/report?contentId=&progress=` | **播放中定期**（§三） | 只进缓冲；`progress` 单位**秒**，整数 |
+| `POST /history/flush` | **暂停 / 退出 / 切页**（§四） | 把**本用户全部**缓冲同步落库；无参数 |
+| `GET /history/position?contentId=` | **播放器初始化** | `{progress}`；无记录返回 `0`，不 404 |
+| `GET /history/list?page=&pageSize=` | 历史页 | 分页；`pageSize` 默认 20、上限 100 |
+
+- 写端点收 `x-www-form-urlencoded`（`@RequestParam`），token 一律走 `Authorization` 头。
+- 全部端点**需要登录**（类级 `@RequiresLogin`）；未登录 ⇒ 401，不要拿 401 当"没有记录"。
+- ⚠️ `/flush` **没有 `contentId` 参数**：它写的是该用户缓冲里的**全部**内容。所以"退出时要落库最后一段进度"
+  必须先 `/report` 再 `/flush`（§四.2 的顺序问题）。
+
+---
+
+## 三、上报节奏
+
+| 项 | 取值 | 依据 |
+|---|---|---|
+| 间隔 | **30~60s** | 与缓冲的兜底窗口（默认 60s）同量级；更密没有收益（DB 写已被缓冲挡住），更疏则崩溃丢得更多 |
+| 触发点 | 定时 + **暂停** + **进度跳变**（拖动进度条） | 暂停与拖动是"用户主动停在这里"，值得立刻报 |
+| 单位 | 秒（整数） | 服务端 `progress_seconds` |
+| 上限 | 超过时长会被服务端 clamp，**不报错** | 客户端不必自己做边界判断 |
+
+★ **不要**在 `timeupdate` 里逐帧上报 —— 那是每秒几十次。`timeupdate` 只用来更新 UI 与本地缓存。
+
+★ **与服务端缓冲是叠乘关系**：客户端每 60s 一条 ⇒ 服务端 60s 内 N 个用户各 1 条（Redis 写），
+DB 只在 flush / 兜底时写一次。所以客户端**不需要**为了"省数据库"而调更稀。
+
+---
+
+## 四、退出信号（最容易写错的一段）
+
+### 4.1 用 `fetch keepalive`，**不是** `sendBeacon`
+
+```js
+fetch('/history/flush', {
+  method: 'POST',
+  keepalive: true,                        // ★ 页面卸载后仍会把请求发完
+  headers: { 'Authorization': 'Bearer ' + token }
+});
+```
+
+- ⚠️ **`navigator.sendBeacon` 带不了 `Authorization` 头**（它只支持简单请求），而本仓 token 只走该头
+  ⇒ 用它必然 401 ⇒ 退出信号静默丢失。这是本篇最重要的一条。
+- `keepalive` 的约束：请求体 ≤ 64KB（本端点无 body，无所谓）、必须 `POST`。
+
+### 4.2 顺序：先 `report` 再 `flush`（否则最后一段进度要等兜底）
+
+`/flush` 只写"缓冲里已有的值"。若最后 30s 的进度只在客户端、还没 `/report`，直接 flush 会漏掉它。
+
+```js
+// 推荐：在页面还活着的时候做（visibilitychange → hidden）
+async function onHidden(finalProgress) {
+  try { await report(finalProgress); } catch (e) { /* 忽略：下面 flush 仍会写缓冲里的旧值 */ }
+  fetch('/history/flush', { method: 'POST', keepalive: true, headers: authHeader });
+}
+```
+
+- **为什么用 `visibilitychange(hidden)` 而不是 `pagehide`/`beforeunload`**：`await` 在页面真正卸载时不可靠；
+  `visibilitychange → hidden` 时页面还在，第一次请求通常能完成，第二次用 `keepalive` 兜底。
+- ⚠️ **两个 `keepalive` 请求之间的顺序没有保证**。若 flush 先到、report 后到：
+  flush 写的是旧值，report 留下一条新脏数据 ⇒ 该用户被重新标脏 ⇒ **兜底窗口后落库**。
+  **最终一致，但"退出即落库"退化成"最多延迟一个兜底窗口"**（§八 #2）。
+- ★ 若将来要消除这个竞态，最小改动是让 `/flush` 接受可选的 `contentId` + `progress`（先写缓冲再 flush）。
+  **当前契约没有这个参数**，所以客户端应按 4.2 的顺序发、并接受上述退化。
+
+---
+
+## 五、503 退避与恢复
+
+服务端在 Redis 不可用时对 `/report` 返回 **503 + `Retry-After: <秒>`**（不降级直写库）。
+
+```js
+// 建议的客户端状态机
+let interval = 45_000;          // 正常节奏
+let degraded = false;
+
+async function tick() {
+  const resp = await report(progress);
+  if (resp.status === 503) {
+    degraded = true;
+    const wait = Number(resp.headers.get('Retry-After') || 30) * 1000;
+    interval = Math.max(wait, 30_000);       // 按服务端给的节奏退避
+  } else if (resp.ok && degraded) {
+    degraded = false;
+    interval = 45_000;                       // ★ 必须有恢复条件
+  }
+}
+```
+
+- ★ **必须有恢复条件**：只降不升 ⇒ 后端恢复了客户端还在按 5 分钟一次上报，进度长期落后。
+- **不要自己叠指数退避**：`Retry-After` 已经是服务端"自己多久重试一次"的节奏，客户端跟随它即可。
+- **不要放弃上报**：503 期间的进度仍在本地；恢复后正常上报会覆盖。放弃 = 永久丢失（§八 #3）。
+- 503 **不是**"内容不存在"：不要跳转到错误页，静默降级即可。
+
+---
+
+## 六、崩溃补偿（本地标记）
+
+进程被强杀 / 断电时，`visibilitychange` 来不及执行 ⇒ 最后一段进度只在本地。
+
+### 6.1 写什么
+
+```js
+// per-content，不是一个全局 flag：多标签、多视频并存
+localStorage.setItem(`history:pending:${contentId}`, JSON.stringify({ progress, ts: Date.now() }));
+```
+
+- 每次 `/report` 成功后**不要**立即删除 —— 它代表"本地还有未确认落库的进度"；
+  在 `/flush` 返回 200 后删除。兜底窗口内的崩溃才有意义，所以 `ts` 过期（> `bufferTtl`，默认 30m）可忽略。
+
+### 6.2 重进时怎么补
+
+```js
+async function compensate(contentId) {
+  const raw = localStorage.getItem(`history:pending:${contentId}`);
+  if (!raw) return;
+  const { progress, ts } = JSON.parse(raw);
+  if (Date.now() - ts > 30 * 60_000) { localStorage.removeItem(...); return; }   // 太旧，放弃
+
+  const server = await position(contentId);        // ★ 先读服务端
+  if (progress > server) {                          // ★ 只补"本地更新"的情况
+    await report(progress);
+    await flush();
+  }
+  localStorage.removeItem(`history:pending:${contentId}`);
+}
+```
+
+★ **为什么要先读 `/position`**：多设备场景下，本地可能是旧值（在另一台设备看到更后面）。
+不判断就补报会**把别处的新进度覆盖成旧的**（服务端是"后到即新"，不做进度单调守卫）。
+这是本仓刻意的 LWW 口径（`history-需求.md` §六），客户端必须自己让路。
+
+★ **为什么补 `report + flush` 而不是只补 `flush`**：缓冲的 TTL 是 30 分钟。超过后服务端缓冲已经没了，
+只发 flush 是空转；而"用本地进度重报 + flush"两种情况下都正确，且幂等。
+
+---
+
+## 七、读路径预期（客户端可以假设什么）
+
+| 场景 | 客户端能期望的 |
+|---|---|
+| 打开播放器读 `/position` | **实时** —— 它读缓冲，比库里新（`history.md` §12.6） |
+| 刚上报的条目出现在 `/list` | **最多滞后一个兜底窗口（默认 60s）** —— 列表不合并缓冲 |
+| 崩溃后重进同一个浏览器 | 若做了 §六 的补偿 ⇒ 立即；否则等兜底窗口 |
+| 崩溃 + Redis 停机 | 该会话进度**可能回退**到上次落库的位置（`history.md` §12.7 #3） |
+| 两个标签页同看一个视频 | 列表里**只有一行**；进度以**最后上报的那个标签**为准（LWW） |
+
+★ **初始化顺序建议**：`position` → 定位播放头 → `play`（首播计数）→ 开始定时 `report`。
+`play` 与 `position` 谁先都行，但 `play` **不要**放在"播放了几秒之后"（那会漏计只看一眼就退出的播放量）。
+
+---
+
+## 八、错误码处理表
+
+| 状态 | 客户端应该做什么 | **不要**做什么 |
+|---|---|---|
+| 200 | 正常路径；清除本地 pending 标记（`/flush` 时） | — |
+| 400「播放进度不能为负数」 | 修 bug（进度计算错误） | 重试 |
+| 400「只能记录视频的播放进度」 | 停止对该内容上报（图文没有进度） | 循环重试 |
+| 401 | 视为未登录（token 过期 ⇒ 走刷新/登录） | 当成"没有记录" |
+| 404「内容不存在」 | 停止上报该内容 | 重试 |
+| 429 | 按常规退避（限流，见 `限流.md`） | 立即重试 |
+| 503 | 按 `Retry-After` 降频（§五），**恢复条件 = 收到 200** | 降级成"不再上报" / 跳错误页 |
+
+★ 400 / 404 都是**不该重试**的（重试必然同样失败）；503 / 429 才是可重试的。
+
+---
+
+## 九、做错会怎样（不对称后果，按严重度）
+
+| # | 错误 | 可见后果 | 是否可自愈 |
+|---|---|---|---|
+| 1 | `sendBeacon` 当退出信号 | 401 静默丢 ⇒ 只剩兜底窗口（60s） | 部分（兜底） |
+| 2 | 只发 `flush` 不发 `report` | 退出时缓冲为空 ⇒ **最后一段进度丢** | 否 |
+| 3 | 503 后放弃上报 | 故障期进度**永久丢** | 否 |
+| 4 | 崩溃补报不看 `position` | 覆盖别处更新的进度 | 否（用户会看到"进度跳回"） |
+| 5 | `timeupdate` 逐帧上报 | 请求风暴 + 429 | 是（改代码） |
+| 6 | 不发 `flush` | 进度要等兜底窗口才进列表 | 是（兜底） |
+
+★ **#2 / #3 / #4 是"永久丢"**，其余都是延迟或可修。排在前面的三个值得在实现时专门测。
+
+---
+
+## 十、前端自测清单（实现后逐条跑）
+
+1. 播放 5 分钟：`/report` 约 5~10 次，**DB 里 0 行**（缓冲生效）。
+2. 点暂停 / 关标签：一次 `/flush`，DB 有行，`progress` 等于最后看到的秒数。
+3. 强杀进程（任务管理器）：等待一个兜底窗口后 DB 有行。
+4. 关掉本机 Redis：`/report` 连续 503 且带 `Retry-After`；客户端间隔变大；Redis 起来后**回到原间隔**。
+5. 两个标签页同看一个视频：`/list` 只有一行。
+6. 断网 2 分钟再恢复：进度不倒退（本地 pending 生效）。
+7. 换一台设备看到更后面，再回到旧设备：**旧设备的补报不能覆盖新进度**（§6.2 的 `position` 判断）。
+
+---
+
+## 十一、与其它文档的关系
+
+| 内容 | 去向 |
+|---|---|
+| 服务端怎么实现（缓冲 / 落库 / 轮询 / 剪枝 / 失败分流） | [history](./history.md) §十二 |
+| 用户看到什么（可见规则、刻意偏离） | [history-需求](./history-需求.md) |
+| 限流与 429 的常规退避 | [限流](../../tech/rate-limit/限流.md) |
+| 鉴权链（`Authorization` / 401 从哪来） | [安全与鉴权](../../tech/security/安全与鉴权.md) |

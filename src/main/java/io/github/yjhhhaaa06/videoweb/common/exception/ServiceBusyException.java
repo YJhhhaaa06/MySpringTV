@@ -9,7 +9,8 @@ package io.github.yjhhhaaa06.videoweb.common.exception;
  *
  * <p>首个使用者是播放记录上报缓冲（`T51-2`）：Redis 熔断打开时 `/history/report` 返回它，
  * 让客户端按 {@code Retry-After} 线性退避；收到 200 再恢复原频率。
- * 口径见 {@code architecture/domain/history/history.md} §12.5/§12.8。
+ * 服务端口径见 {@code architecture/domain/history/history.md} §12.5；
+ * 客户端该怎么做见 {@code history-客户端契约.md} §五。
  */
 public class ServiceBusyException extends BusinessException {
 

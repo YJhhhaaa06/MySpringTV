@@ -22,7 +22,7 @@
 | 播放事件（`/history/play`，去重计播放量；**不进缓冲**） | 前端页面（`static/` 本期不动；播放历史后续一次性重制） |
 | 历史列表（`/history/list`，失效占位；**不合并缓冲**） | 历史列表缓存 |
 | 续播位置（`/history/position`，**读缓冲优先**） | 服务端**降频**（节流由客户端负责；缓冲只挡写库，不挡请求） |
-| 退出 flush（`/history/flush`）+ 空闲轮询兜底（§十二） | 客户端节流（本期不做；见 §十二「客户端契约」） |
+| 退出 flush（`/history/flush`）+ 空闲轮询兜底（§十二） | 客户端节流（本期不做；见 [客户端契约](./history-客户端契约.md) §三） |
 | mp4 时长解析（发布 / 换源） | 「已看完」标记（由前端按 `progress / duration` 推导） |
 | 详情播放量（第 5 个公共计数） | 历史容量上限 / 旧行清理 |
 | 失效内容占位（抄收藏域形态） | 存量内容时长回填 |
@@ -553,15 +553,16 @@ ZREMRANGEBYSCORE history:dirty -inf (now - bufferTtl)
 | 5 | DB 与缓冲存在**落后窗口**（除 `/position` 外的读路径看不到） | 现状读路径只有 `/list`，已登记 #2 |
 | 6 | `/flush` 是新非 GET 端点 ⇒ 限流权重表 +1、`SecurityContractTests` +1 | 加端点时必须同 commit 改（§十一 迁移锚点段） |
 
-### 12.8 客户端契约（**本期只登记、不实现**；播放历史后续一次性重制）
+### 12.8 客户端契约 → **已独立成篇**
 
-1. **上报**：播放中每 30~60s 一次 `/report`（这是客户端的节流，与本缓冲叠乘）。
-2. **退出**：`fetch(url, {method:'POST', keepalive:true, headers:{Authorization}})` 调 `/flush`
-   —— ⚠️ **不是 `navigator.sendBeacon`**：它带不了 `Authorization` 头，而本仓 token 只走该头。
-3. **退避**：收到 **503** ⇒ 按 `Retry-After` 降频；收到 **200** ⇒ 恢复正常频率（**必须有恢复条件**，
-   否则降下去就再也不回来）。
-4. **崩溃补偿**：本地（`localStorage`）置"有未 flush 的进度"标记，`/flush` 成功后清除；
-   重进页面时若标记还在 ⇒ **主动补发一次 `/flush`**。这是"崩溃用户"从"等 W"变成"重进即落库"的唯一途径。
+本篇**不再复述**客户端该怎么写，唯一事实源换到
+[history-客户端契约](./history-客户端契约.md)：上报节奏 / 退出信号（`fetch keepalive`，**不是** `sendBeacon`）/
+503 退避与恢复 / 崩溃补偿 / 读路径预期 / 错误码表 / 自测清单。
+
+> ★ **为什么独立**：这一域客户端要配合的东西比服务端还多（**顺序**、退避状态机、本地 pending 标记），
+> 塞在服务端设计篇里两边都读不下去；而且它要当作"未来那次播放器重制"的接口文档用（`R-19` 只落服务端）。
+> ⚠️ 本篇只保留一条**服务端必须记住的约束**：`/flush` **没有** `contentId` 参数 ⇒ 客户端要落库"最后一段进度"
+> 必须先 `/report` 再 `/flush`（顺序细节见客户端契约 §四.2）。
 
 ---
 
@@ -584,7 +585,7 @@ ZREMRANGEBYSCORE history:dirty -inf (now - bufferTtl)
 | T50 | **V8 列表索引（覆盖复合索引替换）**：`idx_user_update` → `idx_user_update_content (user_id, update_time DESC, content_id DESC, progress_seconds)` —— 前三列即列表 `ORDER BY`（消灭每页全量 filesort），第四列让三列 SELECT 免回表；**替换**而非新增（索引数不变）。实测：5k 行 3.15ms→0.10ms、50k 行 37.8ms→0.2ms；写路径无回归 | 本篇 §二 · §7.1 · `HistorySchemaTests` |
 | T51-1 | **缓冲内核**（不接端点）：`CacheKeys` 两个 key + `video.history.buffer.*` 配置 + `HistoryBufferRedisOps`（写入 / 条件删 / HGET 三条 Lua）+ `HistoryReportBuffer`（语义层）+ `maxmemory-policy` 启动自检；**纯 Redis，不碰 Service / Controller** | 本篇 §12.2–12.5 · `HistoryReportBufferTests` |
 | T51-2 | **写路径接管**：`/report` 改走缓冲、新增 `/flush`（批粒度 = userId 全量）、轮询兜底（`ZRANGEBYSCORE` + 同一段落库）、503 + `Retry-After`（熔断先于校验）；权重 38→39、`SecurityContractTests` 补路由；★ `HistoryWriteTests` 由"上报即落库"改为"上报进缓冲、flush 后落库"（契约跟随 `R-19`，见 G8 例外条） | 本篇 §12.3–12.5 · `HistoryWriteTests` / `HistoryFlushTests` |
-| T51-3 | **读路径 + 客户端契约**：`/position` 读缓冲优先（miss 才查 DB）、`/list` 不合并的口径钉进测试；§12.8 客户端契约文档（本期不实现） | 本篇 §12.6/§12.8 · `HistoryPositionTests` |
+| T51-3 | **读路径 + 客户端契约**：`/position` 读缓冲优先（miss 才查 DB）、`/list` 不合并的口径钉进测试；客户端契约**独立成篇**（[history-客户端契约](./history-客户端契约.md)，本期不实现） | 本篇 §12.6/§12.8 · `HistoryPositionTests` |
 
 ---
 
@@ -593,6 +594,7 @@ ZREMRANGEBYSCORE history:dirty -inf (now - bufferTtl)
 | 不在本篇的内容 | 去向 |
 |---|---|
 | **用户可见规则**（看到什么 / 重看怎么算 / 播放量口径） | 同目录 [history-需求](./history-需求.md) |
+| **客户端行为契约**（上报节奏 / 退出顺序 / 503 退避 / 崩溃补偿 / 自测清单） | 同目录 [history-客户端契约](./history-客户端契约.md) |
 | 缓存三态 / 空标记 / 写后失效 / 单飞 | [缓存与数据一致性](../../tech/cache/缓存与数据一致性.md) |
 | 事务切分、载体独立 bean、`AFTER_COMMIT` | [事务边界](../../tech/transaction/事务边界.md) · [领域事件与解耦](../../tech/events/领域事件与解耦.md) |
 | 鉴权链（`@RequiresLogin` / 默认拒绝） | [安全与鉴权](../../tech/security/安全与鉴权.md) |
