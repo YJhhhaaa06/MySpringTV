@@ -55,7 +55,29 @@
 | 处置 | `T55` **不自行推翻 C-1**：出口拿到 `DuplicateKeyException` 时分不清撞的是 `uk_coupon_user` 还是 `uk_coupon_code`，硬猜会把两种原因报反；在 Service 里 catch 再翻译 = 恢复 C-1 删掉的 1062 判断，属决策变更。⇒ 如实登记，测试按实际行为钉住。 |
 | 去向 | **待裁决**。三个选项：① 维持现状（泛码 + 通用文案）；② 在 `CouponService` catch 唯一键异常并翻译成 `COUPON_ALREADY_GRABBED`（推翻 C-1，需重新登记 R-##）；③ 改成"先查后插"（引入竞态，C-1 已否决）。建议在 `T58`/`T59` 收口时与 `I-24` 一起裁决。 |
 
-**本期其余暂无在办问题** —— 编号从 **`I-26`** 起顺延；已终结问题的**一行摘要**见文末「已解决」。
+### I-26 手写校验（含发布/编辑表单）仍只有 msg、不产 `errors[]`（T57 暴露）【待处理】
+
+| 项 | 内容 |
+|---|---|
+| 分类 | 决策 / 债务（范围边界，**不是漏改**） |
+| 现象 | `T57` 只为**校验族**（`@Valid` / 缺参 / 类型 / 不可解析 / 方法校验）产出 `errors[]`。而真正"表单多字段"的发布与编辑仍走手写校验：`UploadController#requireTitle`（标题空/超 50 字）、`normalizeDescription`（简介超长）、`ContentService#updateContentInfo`（标题/简介）、`SearchController#keywordSearch`（关键词空）——它们抛 `ParamException`，对外只有一条 `msg`。 |
+| 证据 | `UploadController:236/239/250`、`ContentController#update` → `ContentService#updateContentInfo`、`SearchController:104`；逐字文案断言见 `UploadFlowTests:208`、`ContentReadTests:521/566/274` |
+| 影响 | 前端重制时，**发布 / 编辑作品**这类多字段表单拿不到字段级定位（仍要靠匹配中文）。与 §2.5.1"校验失败必有 `errors[]`"看起来矛盾（实际是范围边界，已在 §2.5.1 明确写出）。 |
+| 处置（`T57` 自行决断，G13 不擅自扩范围） | 本任务**有意不做**，三条理由：① 这些校验是 **fail-fast 单条**（一次只报一条），"多字段同时错"的需求本就不成立；② 发布是 **multipart**，`@Valid` 绑不到表单字段，要迁得先设计"表单绑定 + 字段名"机制；③ 迁移会改动 5 处以上**逐字冻结文案**与业务校验顺序，属载荷面（`T59`）与域文档的范围。 |
+| 去向 | **待裁决**，建议在 `T59` 收口时定：① 维持现状（`msg` 够用，发布表单逐条提示）；② 引入"可携带 `errors[]` 的参数异常"（如 `ParamErrorsException`）并把 upload / content 的手写校验迁过去 —— 需同时改域文档与上述逐字断言。 |
+
+### I-27 上传超限 / 畸形 multipart 仍是 500（T57 复核时发现）【待处理】
+
+| 项 | 内容 |
+|---|---|
+| 分类 | 缺陷 / 决策（要修就得动 §2.1 的状态表） |
+| 现象 | 用户上传超过限额的文件（`spring.servlet.multipart.max-file-size=50MB` / `max-request-size=100MB`）⇒ `MaxUploadSizeExceededException`；multipart 报文畸形 ⇒ `MultipartException`。两者都**没有**专属 handler ⇒ 落 `GlobalExceptionHandler#handleUnexpected` ⇒ **500 `SYSTEM_INTERNAL`「服务器内部错误」**。 |
+| 证据 | `application.yaml`（multipart 限额段）+ `UploadController#uploadVideo`（`@RequestPart`）→ `GlobalExceptionHandler#handleUnexpected`；`接口契约.md` §2.1 状态表**没有 413 这一行**，§2.5.1 也没登记这一情形 |
+| 影响 | 与 `T57-3` 修掉的那条（`@RequestParam` 约束 → 500）是**同一类**：**用户输入问题报成服务器事故**。超限还很常见（手机拍的 4K 视频轻松过 50MB），且 500 会让前端提示"服务器错误"、监控也会误判成故障。 |
+| 处置 | `T57` **不自行放宽 §2.1**（本专项红线：规则不得执行期"顺手放宽"，要改先登记）。故只登记、不实现：正确形状应是 **413**（`Payload Too Large`）+ `errors[field=<part 名>]`，但那是给 §2.1 加一个新状态类别。 |
+| 去向 | **待裁决**（建议在 `T58` 或 `T62` 收口时定）：① 加 413 类别 + `UPLOAD_TOO_LARGE` 码（语义最准，需同步 §2.1 / §2.2 / 前端字典）；② 归入既有 400 + `PARAM_INVALID`（不加类别，代价是"文件太大"与"参数不合法"同状态）；③ 维持 500（不推荐：等于承认"用户输入可触发服务器错误"）。 |
+
+**本期其余暂无在办问题** —— 编号从 **`I-28`** 起顺延；已终结问题的**一行摘要**见文末「已解决」。
 
 ---
 

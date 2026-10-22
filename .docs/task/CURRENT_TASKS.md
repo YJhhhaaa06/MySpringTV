@@ -24,8 +24,8 @@
   [安全与鉴权.md](../architecture/tech/security/安全与鉴权.md)（鉴权链）·
   [限流.md](../architecture/tech/rate-limit/限流.md)（`cost.base` 权重表口径）。
   ★ **代码注释只引这些篇 + `类#方法`**；不得引用任何草稿 / 本登记台。
-* ★ **编号**：`T54`–`T62`（9 项，可自拆子任务）。**`T54` ✅ / `T55` ✅ / `T56` ✅（均 2026-10-22）**（结论见
-  [接口契约 §2.9 / §2.1–2.2](../architecture/tech/api/接口契约.md) 与附录速查）；**下一编号从 `T63` 起**，
+* ★ **编号**：`T54`–`T62`（9 项，可自拆子任务）。**`T54` ✅ / `T55` ✅ / `T56` ✅ / `T57` ✅（均 2026-10-22）**（结论见
+  [接口契约 §2.9 / §2.1–2.2 / §2.5.1](../architecture/tech/api/接口契约.md) 与附录速查）；**下一编号从 `T63` 起**，
   `R-21`/`R-22` 之后的决策从 `R-23` 起。
 * ★ **执行约定**：一任务一 commit（G1）；每 commit 可编译且自带验收测试 + 反向验证。
   清单只给**目标 / 红线 / 验收入口**，**不写实现步骤**（G13）——执行者自行决定拆法；
@@ -33,8 +33,9 @@
 * ★ **顺序纪律（本专项特有）**：`T54` → `T55`/`T56`/`T57`（错误面）→ `T58`/`T59`（路由面 / 载荷面）→
   `T60` → `T61` → `T62`。**码表不定就改码 = 改两遍；路径不定就改形状 = 前端映射表重写两次。**
   路由一改，限流权重表（键是 `"[POST /x]"`）、安全契约测试、前端调用点**必须同一 commit 跟上**。
-* **回归基线**（2026-10-22，**`T56` 后复跑** `mvnw -o test`）：全量 **818/818 绿**（808 + `T56` 新增 10 例：
-  `ApiErrorExitContractTests` 5 + `FrameworkErrorContractTests` 5）。
+* **回归基线**（2026-10-22，**`T57` 后复跑**）：默认集 **788/788 绿**（`--excludedGroups=resilience`），
+  `resilience` 组另跑 **41/41 绿** ⇒ 合计 **829/829**（`T56` 后是 818，`T57` 新增 11 例：
+  `ValidationErrorContractTests`；`UploadFlowTests#缺必填part为400` 在原用例上补断言，不增条数）。
   ⚠️ 本环境跑全量需 `DB_POOL_MAX_SIZE=4`（否则 Testcontainers MySQL 报 `Too many connections`）。
 * ★ **本专项不动 schema**（纯 HTTP 层）⇒ 不产生 Flyway 迁移；若执行中发现必须动表，先停下登记 `I-##`。
 
@@ -213,7 +214,7 @@
   ⚠️ **未做（归后任务）**：`static/js/api.js` 顶部注释"唯一无信封的错误：未识别路径…"**已过时**
   （现在未映射有信封、无信封的只剩静态/媒体 404）—— 属 `T61` 的前端适配面，本任务不动前端。
 
-#### T57 校验错误结构化（来源 `R-21` §1.1 / 设计 §2.5）【待执行】
+#### T57 校验错误结构化（来源 `R-21` §1.1 / 设计 §2.5）【已完成】
 
 > ⚠️ **先质疑（G14）**：
 > - **任务**：前端重制期真的需要 `errors[]`？—— 需要：表单（发布 / 注册 / 改密）多字段同时错时，
@@ -229,7 +230,21 @@
 * **强制探索**：`@RequestParam` 校验（`@NotBlank` 在参数上）现在是否真的生效（既有注释说需要类级 `@Validated`）；
   `MissingServletRequestPartException`（文件缺 part）该不该走 400 + `errors[]`。
 * **验收**：两字段同时错 ⇒ 两条 `errors` 且 `field` 准确；非法枚举值 ⇒ 能指出是哪一字段；缺 multipart part ⇒ 400 同形。
-* **回写**：
+* **回写**：`errors:[{field,code,message}]` 落地（`common/web/ApiFieldError` + `ApiResponse#errors` +
+  `ApiErrorWriter#summary`，元素构造即校验三条不变量），覆盖**六类**：`@Valid` / 缺 `@RequestParam` /
+  缺 part / 类型或取值不可转换 / 请求体整体不可解析 / 控制器参数约束（`HandlerMethodValidationException`）。
+  `field` = 请求里的名字（方法校验走注解别名优先），定位不到时**省略**（不编名）；`errors[].code` 恒 `PARAM_INVALID`
+  （粒度判据：定位靠 `field`，`code` 只做形状守恒）；`message` = 注解文案或固定文案表，**异常 message 一律不进 body**
+  （`for value [xxx]` / `RegisterRequest[password=…]` 都是回显）；顶层 `msg` 由 errors 同源生成（摘要）。
+  契约钉在 `ValidationErrorContractTests`（11 例）+ `ApiErrorExitContractTests`（两种合法骨架 + 元素形状）。
+  **执行期发现的真实缺陷**：`@RequestParam @NotBlank` 确实生效（Spring 6.1+ 内置方法校验，不需要类级 `@Validated`），
+  但 `HandlerMethodValidationException` 无处理器 ⇒ 落 catch-all **500「服务器内部错误」** —— 已在本任务内收口成 400 + `errors[]`。
+  反向验证 7 次全部真红：① errors 只取第一条 ⇒ 两字段/摘要两例红；② 用 `ex.getMessage()` 当 message ⇒ 回显例红；
+  ③ 一切当"整体不可解析" ⇒ 缺参/类型/取值三例红；④ 摘 `HandlerMethodValidationException` 处理器 ⇒ 方法校验例红；
+  ⑤ 给整体不可解析伪造 `field:"body"` ⇒ 该例红；⑥ 业务拒绝也塞 `errors` ⇒ 对照例红；⑦ 按 `field` 去重 ⇒ 不合并例红。
+  ⚠️ **未做（有意）**：手写校验（`upload` 发布表单 / `content` 编辑 / `search` 关键词）仍只回 `msg`，
+  不产 `errors[]` —— 已登记 `I-26`（fail-fast 单条 + multipart 表单绑定，时机归 `T59`）；
+  上传超限 / 畸形 multipart 仍 500 —— 登记 `I-27`（补它要新增 413 类别，属规则变更，不在本任务内放宽）。
 
 ### 接口契约专项：路由面（`T58`）
 
