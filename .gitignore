@@ -77,4 +77,11 @@ __pycache__/
 # 的文件、归档只活在一台机器上"的状态——与 SOP §七.5「归档不等于删除，仍可 grep / git log」
 # 直接冲突（S7 归档切分时实际踩到一次）。
 # 归档是**知识资产**（约 2.5k 行），纳入仓库；真正该忽略的是 /.docs/temp（草稿）。
-/src/test/resources
+/src/test/resources/*
+
+# ★ 例外（T54）：端点登记簿是**契约快照**，必须入库 ——
+# 它是"新增/删除端点必须同批登记"的判据（`ApiContractInventoryTests` 拿真实 handler 与它比对）。
+# 不入库 ⇒ 新克隆上测试直接红（登记簿不存在），且"漏登记"根本无从比对。
+# ⚠️ 必须写成 `/src/test/resources/*`（不能是 `/src/test/resources`）：gitignore 的父目录一旦被排除，
+#    子项就无法再 `!` 回来。
+!/src/test/resources/api/

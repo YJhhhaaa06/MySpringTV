@@ -1,0 +1,76 @@
+# MySpringTV 对外端点登记簿（T54 起；唯一事实源 = 真实 handler，本文件是契约快照）
+#
+# 校验：ApiContractInventoryTests（真实 handler 扫描 ↔ 本文件逐条一致；不一致即红）
+# 更新：./mvnw.cmd -o test -Dtest=ApiContractInventoryTests -Dapi.contract.write=true
+#       ⚠️ 生成后必须 review diff 再与代码同批提交；跑生成命令"把红变绿"属迎合。
+#
+# 列：METHOD <TAB> PATH <TAB> AUTH <TAB> RETURN
+# AUTH = PUBLIC（匿名可达） | LOGIN（需有效身份） | ADMIN（需管理员角色，蕴含登录）
+# 排序：PATH 升序，其次 METHOD 升序（保证 diff 可读）
+POST	/api/admin/comment/delete	ADMIN	ApiResponse<String>
+POST	/api/admin/content/hide	ADMIN	ApiResponse<String>
+GET	/api/admin/content/list	ADMIN	ApiResponse<List<AdminContentVO>>
+POST	/api/admin/content/unhide	ADMIN	ApiResponse<String>
+GET	/api/admin/media/list	ADMIN	ApiResponse<MediaAuditResult>
+GET	/api/admin/media/me	ADMIN	ApiResponse<Boolean>
+POST	/api/admin/media/restore	ADMIN	ApiResponse<RestoreResult>
+POST	/api/admin/media/scan	ADMIN	ApiResponse<MediaAuditResult>
+POST	/api/upload/post	LOGIN	ApiResponse<Map<String, Object>>
+POST	/api/upload/replace	LOGIN	ApiResponse<Map<String, Object>>
+POST	/api/upload/video	LOGIN	ApiResponse<Map<String, Object>>
+POST	/coin/add	LOGIN	ApiResponse<CoinBalanceVO>
+POST	/coin/signIn	LOGIN	ApiResponse<SignInVO>
+POST	/comment/add	LOGIN	ApiResponse<String>
+POST	/comment/delete	LOGIN	ApiResponse<String>
+GET	/comment/replies	PUBLIC	ApiResponse<CursorResult<CommentVO>>
+GET	/comment/show	PUBLIC	ApiResponse<?>
+POST	/content/commentEnabled	LOGIN	ApiResponse<String>
+POST	/content/delete	LOGIN	ApiResponse<String>
+POST	/content/mediaDelete	LOGIN	ApiResponse<String>
+POST	/content/update	LOGIN	ApiResponse<String>
+POST	/coupon/grab	LOGIN	ApiResponse<String>
+GET	/coupon/list	PUBLIC	ApiResponse<List<CouponVO>>
+GET	/coupon/my	LOGIN	ApiResponse<List<CouponOrderVO>>
+POST	/favorite/add	LOGIN	ApiResponse<String>
+GET	/favorite/count	PUBLIC	ApiResponse<Long>
+POST	/favorite/folder/add	LOGIN	ApiResponse<String>
+GET	/favorite/folder/items	PUBLIC	ApiResponse<PageResult<FavoriteItemVO>>
+GET	/favorite/folder/list	LOGIN	ApiResponse<List<FavoriteFolderVO>>
+GET	/favorite/folder/public	PUBLIC	ApiResponse<List<PublicFavoriteFolderVO>>
+POST	/favorite/folder/remove	LOGIN	ApiResponse<String>
+POST	/favorite/folder/update	LOGIN	ApiResponse<String>
+GET	/favorite/list	LOGIN	ApiResponse<PageResult<FavoriteItemVO>>
+POST	/favorite/move	LOGIN	ApiResponse<String>
+POST	/favorite/remove	LOGIN	ApiResponse<String>
+GET	/favorite/status	LOGIN	ApiResponse<FavoriteStatusVO>
+GET	/feed	LOGIN	ApiResponse<PageResult<ContentVO>>
+POST	/follow/add	LOGIN	ApiResponse<String>
+GET	/follow/followers	LOGIN	ApiResponse<PageResult<FollowUserVO>>
+GET	/follow/following	LOGIN	ApiResponse<PageResult<FollowUserVO>>
+POST	/follow/remove	LOGIN	ApiResponse<String>
+POST	/history/flush	LOGIN	ApiResponse<Void>
+GET	/history/list	LOGIN	ApiResponse<PageResult<HistoryItemVO>>
+POST	/history/play	LOGIN	ApiResponse<Void>
+GET	/history/position	LOGIN	ApiResponse<HistoryPositionVO>
+POST	/history/report	LOGIN	ApiResponse<Void>
+POST	/like/comment/add	LOGIN	ApiResponse<String>
+GET	/like/comment/count	LOGIN	ApiResponse<Integer>
+POST	/like/comment/remove	LOGIN	ApiResponse<String>
+GET	/like/comment/status	LOGIN	ApiResponse<Boolean>
+POST	/like/content/add	LOGIN	ApiResponse<String>
+GET	/like/content/count	LOGIN	ApiResponse<Integer>
+POST	/like/content/remove	LOGIN	ApiResponse<String>
+GET	/like/content/status	LOGIN	ApiResponse<Boolean>
+GET	/profile	PUBLIC	ApiResponse<ProfileVO>
+GET	/search/IdSearch	PUBLIC	ApiResponse<ContentDetailVO>
+GET	/search/keywordSearch	PUBLIC	ApiResponse<PageResult<ContentVO>>
+GET	/start	PUBLIC	ApiResponse<List<ContentVO>>
+POST	/user/changePassword	LOGIN	ApiResponse<Void>
+POST	/user/changeUserName	LOGIN	ApiResponse<Void>
+POST	/user/login	PUBLIC	ApiResponse<LoginVO>
+GET	/user/me	LOGIN	ApiResponse<UserInfoVO>
+POST	/user/register	PUBLIC	ApiResponse<LoginVO>
+POST	/watchlater/add	LOGIN	ApiResponse<String>
+GET	/watchlater/list	LOGIN	ApiResponse<PageResult<WatchLaterItemVO>>
+POST	/watchlater/move	LOGIN	ApiResponse<String>
+POST	/watchlater/remove	LOGIN	ApiResponse<String>
