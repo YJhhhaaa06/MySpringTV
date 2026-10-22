@@ -91,7 +91,7 @@
 > 前端接入 / 时长回填 / 容量上限仍未做 —— 都等着"推翻条件"成立，不要当遗漏补。
 > ★ 服务端心跳缓冲**已由 `R-19` 拍板改为做**（`F-27` 原"想过但否决"的理由前提已被推翻，行保留作留痕）。
 
-### T51-1 缓冲内核（来源 R-19 / 设计 §12.2–12.5）【待执行】
+### T51-1 缓冲内核（来源 R-19 / 设计 §12.2–12.5）【已完成】
 
 > ⚠️ **先质疑（G14）**：
 > - **任务**：缓冲的键与原子性是否可以先于端点独立落地？——可以：它只碰 Redis，**不接 Service / Controller**，
@@ -112,8 +112,16 @@
 * **强制探索**：`ZADD` score 与 hash 内 ts 的**时钟同源**（都取 App 侧传入的 `serverReceiveTs`），
   写一个用例证明"用两个时钟会判错空闲"。
 * **验收**：`HistoryReportBufferTests`（Redis-only，无 DB 断言）——原子写 / 幂等重写 / 条件删只删未变的 /
-  HGET / 脏集合按 score 取 / TTL / 自检不阻断启动；★ **注入"拆成两次命令" ⇒ 原子性用例必红**。
-* **回写**：（完成后三句内写清改了什么、验证结果；探索过程不写）
+  HGET / 脏集合按 score 取 / TTL 续期 / 僵尸成员清理 / 自检不阻断启动。
+  ⚠️ **判别力边界（如实登记）**：能拦"漏掉 `ZADD`"（实测 4 红），**拦不住**"改成两次往返且两条都成功"
+  —— 末态相同，只有第二条命令失败才暴露，需给 `RedisConnectionFactory` 注入故障（T51-2 再评估）。
+* **回写**：交付 `CacheKeys.{HISTORY_DIRTY,historyReport}` / `HistoryBufferProperties`（构造期不变式
+  `ttl > idle + poll + retention`）/ `HistoryBufferRedisOps`（3 段 Lua + `maxmemoryPolicy`）/ `HistoryReportBuffer`
+  （Clock 可注入 + 启动自检）。**未碰任何 Service / Controller / 既有测试**，`/report` 行为逐字未变。
+  验证：`HistoryReportBufferTests` 13 + `HistoryBufferPropertiesTests` 3 + `ArchitectureTests` 5 全绿；
+  反向验证两条（删 `ZADD` ⇒ 4 红；恢复"空快照早退" + 不变量漏 `pollInterval` ⇒ 各红 1）。
+  ★ 审查修正三处：**僵尸脏成员必须清**（空快照也走确认，否则 hash 过期后成员永占每轮名额 ⇒ 兜底失效）、
+  **亚秒 TTL 不能变 `EXPIRE 0`**（Redis 会立刻删键）、**不变量补 `pollInterval`**。
 
 ### T51-2 写路径接管（来源 R-19 / 设计 §12.3–12.5）【待执行】
 
@@ -136,7 +144,10 @@
   - 落库 SQL **只改** `progress_seconds` + `update_time`，**绝不碰** `play_counted`；
   - 落库失败**不删缓冲**；批量失败后**逐条重试**（禁止用 `INSERT IGNORE` 吞错误，§十 #12）；
   - `/flush` 落库失败仍 **200**；`/play` **不进缓冲**（一行不改）；
-  - 锚点同 commit：`RateLimitWeightTableTests.EXPECTED_NON_GET_AT_LEAST` 38→39、`SecurityContractTests` 补 `/flush`。
+  - 锚点同 commit：`RateLimitWeightTableTests.EXPECTED_NON_GET_AT_LEAST` 38→39、`SecurityContractTests` 补 `/flush`；
+  - ★ **解析不了的值也必须进 `acknowledge`**（写不进库就直接丢弃 + ERROR，但**必须**让条件删把它 HDEL）：
+    只写能解析的、把坏 field 留在 hash ⇒ `HLEN > 0` ⇒ 脏成员永远摘不掉，与"僵尸成员"同族
+    （T51-1 已在 hash 侧清零补了这个洞，这里是 field 侧）。
 * **强制探索**：轮询必须**可被单测直接驱动**（包级方法），不许靠真实计时；`ZRANGEBYSCORE` 的 W 与
   buffer TTL 的关系（TTL 必须 > W + 最大滞留）。
 * **验收**：`HistoryFlushTests` + 改后的 `HistoryWriteTests` —— 上报不进库 / flush 进库 / 轮询兜底 /

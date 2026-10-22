@@ -58,10 +58,12 @@ class HistoryReportBufferTests extends AbstractIntegrationTest {
     }
 
     /**
-     * ★ 本用例钉住"写是**一条** Lua"这个前提：hash 与 dirty 必须**同时**出现。
+     * ★ 本用例钉住"写完之后 hash 与 dirty **同时**就位"。
      *
-     * <p>判别力：把写入拆成两次命令（先 HSET 后 ZADD），并让第二段不执行 ⇒
-     * 本用例的 {@code score} 断言红（数据成了永远不会被轮询的孤儿）。
+     * <p>判别力边界（如实登记）：它拦得住**漏掉 {@code ZADD}** 这一类缺陷（实测：删除该行 ⇒ 本类 4 红），
+     * 但**拦不住**"改成两次往返、两条命令都成功"——那种实现的末态完全相同，只有"第二条命令失败"时才暴露，
+     * 需要给 `RedisConnectionFactory` 注入故障才能测（T51-2 再评估是否值得做）。
+     * 本仓纪律要求"去掉那行实现会红"，这一条满足；但别把它当成"原子性已被完整证明"。
      */
     @Test
     @DisplayName("一次写入：hash 的值与脏集合的 score 同时就位，且时间戳同源")
@@ -158,15 +160,80 @@ class HistoryReportBufferTests extends AbstractIntegrationTest {
                 .doesNotContain(USER_ACTIVE);
     }
 
+    /**
+     * ★ 断言必须**贴着配置值**，不能只写 {@code isPositive()}：
+     * 把 Lua 里的 {@code EXPIRE KEYS[1] ARGV[5]} 改成常量 {@code EXPIRE KEYS[1] 60} 时，
+     * "正数且 ≤ 配置" 的弱断言照样绿 —— 而缓冲会比配置早 29 分钟消失。
+     */
     @Test
-    @DisplayName("缓冲带 TTL：活跃用户每次上报续期，且不超过配置值")
+    @DisplayName("缓冲 TTL 贴着配置值（不能被常量 / 截断悄悄改写）")
     void bufferHasConfiguredTtl() {
         buffer.recordAt(USER_WRITE, CONTENT_ID, 500, 1_000L);
 
-        Long ttl = redis.getExpire(CacheKeys.historyReport(USER_WRITE));
+        long expected = props.bufferTtl().toSeconds();
 
-        assertThat(ttl).isNotNull().isPositive();
-        assertThat(ttl).isLessThanOrEqualTo(props.bufferTtl().toSeconds());
+        assertThat(redis.getExpire(CacheKeys.historyReport(USER_WRITE)))
+                .isBetween(expected - 2, expected);
+    }
+
+    /** 活跃用户不能被 TTL 中途淘汰：每次上报都要把 TTL 拉回满值。 */
+    @Test
+    @DisplayName("每次上报都续期：被压短的 TTL 在下次上报后回到配置值")
+    void eachReportRenewsTtl() {
+        buffer.recordAt(USER_WRITE, CONTENT_ID, 500, 1_000L);
+        redis.expire(CacheKeys.historyReport(USER_WRITE), Duration.ofSeconds(5));
+
+        buffer.recordAt(USER_WRITE, CONTENT_ID, 600, 2_000L);
+
+        long expected = props.bufferTtl().toSeconds();
+        assertThat(redis.getExpire(CacheKeys.historyReport(USER_WRITE)))
+                .isBetween(expected - 2, expected);
+    }
+
+    /**
+     * ★ 亚秒 TTL 的坑：{@code Duration.toSeconds()} 向下取整 ⇒ {@code 300ms} 变成 {@code "0"}，
+     * 而 Redis 的 {@code EXPIRE key 0} 是**立即删除**（且返回 1、不报错）⇒ 刚写的值凭空消失。
+     */
+    @Test
+    @DisplayName("亚秒 TTL 不会变成 EXPIRE 0（否则写完即被删）")
+    void subSecondTtlDoesNotDeleteKey() {
+        ops.write(USER_WRITE, CONTENT_ID, 500, 1_000L, Duration.ofMillis(300));
+
+        assertThat(redis.hasKey(CacheKeys.historyReport(USER_WRITE))).isTrue();
+        assertThat(redis.getExpire(CacheKeys.historyReport(USER_WRITE))).isPositive();
+    }
+
+    /**
+     * ★ <b>僵尸脏成员</b>：hash 因 TTL 过期 / 被淘汰而消失，但 {@code history:dirty}（无 TTL）里
+     * 的成员还在。典型成因 = 应用停机超过 {@code buffer-ttl}。
+     *
+     * <p>这些成员 score 最老 ⇒ 每轮 {@code ZRANGEBYSCORE LIMIT 50} 都会**先占满名额**，
+     * 真正待落库的用户永远取不到 ⇒ 兜底整体失效。故"空快照也必须走一趟确认"。
+     */
+    @Test
+    @DisplayName("僵尸脏成员（hash 已没了）在确认后被摘掉")
+    void acknowledgeClearsZombieMemberWithoutHash() {
+        redis.opsForZSet().add(CacheKeys.HISTORY_DIRTY, String.valueOf(USER_IDLE), 1_000.0);
+
+        long removed = buffer.acknowledge(USER_IDLE, Map.of());
+
+        assertThat(removed).isZero();
+        assertThat(redis.opsForZSet().score(CacheKeys.HISTORY_DIRTY, String.valueOf(USER_IDLE)))
+                .as("不清掉就会被每轮兜底反复扫到并占满名额")
+                .isNull();
+    }
+
+    /**
+     * 键形状冻结（`CacheKeys` 类头承诺"测试里硬编码形状"）。
+     *
+     * <p>⚠️ 这条在今天的实现上是绿的 —— 它的价值是**改 key 字符串时变红**，
+     * 而不是证明当前行为。改名会让已部署实例里正在缓冲的数据变成永不落库的孤儿。
+     */
+    @Test
+    @DisplayName("键形状冻结：history:report:{id} / history:dirty")
+    void keyShapesAreFrozen() {
+        assertThat(CacheKeys.historyReport(7L)).isEqualTo("history:report:7");
+        assertThat(CacheKeys.HISTORY_DIRTY).isEqualTo("history:dirty");
     }
 
     @Test

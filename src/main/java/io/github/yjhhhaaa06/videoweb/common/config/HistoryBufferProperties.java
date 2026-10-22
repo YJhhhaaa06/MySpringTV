@@ -14,7 +14,8 @@ import java.time.Duration;
  * 这些参数**不是缓存参数**（TTL 只是兜底不作废机制、闲置阈值是业务语义），混进缓存段会让
  * "改缓存 TTL"波及到"多久算用户退出了"这类业务判断。
  *
- * <p>★ <b>唯一的不变式（构造期校验）</b>：{@code bufferTtl > idleThreshold + maxRetention}。
+ * <p>★ <b>唯一的不变式（构造期校验）</b>：{@code bufferTtl > idleThreshold + pollInterval + maxRetention}。
+ * 一条上报"变闲"后最坏还要再等一个轮询周期才被捡起，之后才进入重试窗口 —— 三项缺一不可。
  * 否则缓冲可能在"还没轮到轮询"或"还在重试窗口内"就自己过期 —— 那是**静默丢数据**，
  * 且外部只看得到"进度偶尔回退"，无法归因。故宁可启动即拒（对齐 {@code CoinCacheProperties} 的构造期校验）。
  *
@@ -44,12 +45,15 @@ public record HistoryBufferProperties(Duration idleThreshold,
         if (idleBatchSize <= 0) {
             throw new IllegalArgumentException("video.history.buffer.idle-batch-size 必须为正数: " + idleBatchSize);
         }
-        Duration earliestRemoval = idleThreshold.plus(maxRetention);
+        // ★ 必须把 pollInterval 也算进来：一条上报"变闲"后，最坏要再等**一个轮询周期**才被捡起
+        // （轮询是周期性的，不是精确在 idleThreshold 时刻触发），之后还有 maxRetention 的重试窗口。
+        // 漏掉 pollInterval ⇒ 可以配出 "ttl=71m / idle=60s / poll=6h" 这种"能启动但缓冲先过期"的组合。
+        Duration earliestRemoval = idleThreshold.plus(pollInterval).plus(maxRetention);
         if (bufferTtl.compareTo(earliestRemoval) <= 0) {
             throw new IllegalArgumentException(
-                    "video.history.buffer.buffer-ttl 必须大于 idle-threshold + max-retention（否则缓冲会在"
-                            + "轮到轮询 / 重试窗口内就过期 ⇒ 静默丢数据）: ttl=" + bufferTtl
-                            + ", idle-threshold+max-retention=" + earliestRemoval);
+                    "video.history.buffer.buffer-ttl 必须大于 idle-threshold + poll-interval + max-retention"
+                            + "（否则缓冲会在轮到轮询 / 重试窗口内就过期 ⇒ 静默丢数据）: ttl=" + bufferTtl
+                            + ", 三者之和=" + earliestRemoval);
         }
     }
 

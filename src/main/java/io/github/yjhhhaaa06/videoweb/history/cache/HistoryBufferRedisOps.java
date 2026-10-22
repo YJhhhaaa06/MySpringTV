@@ -135,7 +135,10 @@ public class HistoryBufferRedisOps extends RedisOps {
                 String.valueOf(contentId),
                 String.valueOf(progress),
                 String.valueOf(receiveTs),
-                String.valueOf(ttl.toSeconds()));
+                // ★ 不能直接 toSeconds()：Duration 向下取整 ⇒ 亚秒 TTL 会变成 "0"，
+                // 而 Redis 的 `EXPIRE key 0` 是**立即删除**（且返回 1、不报错）⇒ 刚写的值凭空消失。
+                // 这类配置在构造期合法（只要 ttl > idle + retention 即可），故必须在这里兜住。
+                String.valueOf(Math.max(1L, ttl.toSeconds())));
     }
 
     /**
@@ -167,13 +170,16 @@ public class HistoryBufferRedisOps extends RedisOps {
     /**
      * 落库成功后**条件删**（见 {@link #ACK_LUA}）。
      *
-     * @param written 落库时读到的原始 (contentId → raw) 快照
+     * <p>★ **空快照也必须走一趟脚本**（`written` 为空时不早退）：脏成员可能对应一个**已经过期 / 被淘汰**
+     * 的 hash（典型场景 = 应用停机超过 `buffer-ttl`，Redis 里的 TTL 照走，ZSET 却没有 TTL）。
+     * 这种"僵尸成员"如果不清掉，会因为 score 最老而**每一轮都占满 {@code ZRANGEBYSCORE LIMIT} 的名额**
+     * ⇒ 真正待落库的用户永远取不到，兜底整体失效。脚本里 `HLEN == 0` 分支正好完成这次清理
+     * （若期间有新上报，`HLEN > 0` ⇒ 不删，语义仍然正确）。
+     *
+     * @param written 落库时读到的原始 (contentId → raw) 快照；**空 map 合法**（清理僵尸成员）
      * @return 实际删掉的 field 数（诊断 / 测试断言用）
      */
     public long removeIfUnchanged(long userId, Map<Long, String> written) {
-        if (written.isEmpty()) {
-            return 0L;
-        }
         Object[] args = new Object[1 + written.size() * 2];
         args[0] = String.valueOf(userId);
         int i = 1;
