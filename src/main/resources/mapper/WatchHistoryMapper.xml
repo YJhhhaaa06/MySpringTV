@@ -20,6 +20,22 @@
           update_time = CURRENT_TIMESTAMP
     </insert>
 
+    <!-- 批量落库（T51-2）：语义与 upsertProgress 逐字一致（LWW、只改进度与时间）。
+         ★ update_time 取**每条自己的** serverReceiveTs（#{it.updateTime}），不能用 CURRENT_TIMESTAMP：
+           一批里各条的接收时刻不同，用数据库当前时间会把它们压成同一秒 ⇒ 历史列表倒序退化。
+         ★ 绝不写 play_counted（那是 /play 两条语句的职责）。
+         ⚠️ 一条语句 = 一个隐式事务：任一行失败整批回滚 ⇒ 调用方必须能降级逐条重试。 -->
+    <insert id="upsertProgressBatch">
+        INSERT INTO watch_history (user_id, content_id, progress_seconds, update_time)
+        VALUES
+        <foreach collection="items" item="it" separator=",">
+            (#{userId}, #{it.contentId}, #{it.progressSeconds}, #{it.updateTime})
+        </foreach>
+        ON DUPLICATE KEY UPDATE
+          progress_seconds = VALUES(progress_seconds),
+          update_time = VALUES(update_time)
+    </insert>
+
     <!-- /history/play ①：行不存在 ⇒ 建行并直接标记已计（affected = 1 即首播）。
          ★ 不用 ODKU：useAffectedRows=false 下"插入"与"值没变的更新"都返回 1
            ⇒ 会把重复播放误判成首播（history.md §四.2）。 -->

@@ -142,20 +142,18 @@ public class HistoryBufferRedisOps extends RedisOps {
     }
 
     /**
-     * 读一个用户的**全部**脏进度（原始串，保序）。
+     * 读一个用户的**全部** field（原始 field → 原始值，保序）。
      *
-     * <p>返回原始串而不是 {@link Entry}：条件删要比对"落库时读到的那个字符串"，若先解析再序列化回去，
-     * 任何格式归一（如前导零）都会让比对失效 ⇒ 该删的删不掉（重复落库，虽幂等但白跑）。
+     * <p>★ <b>一个都不许跳过</b>：返回的 map 就是 {@link #removeIfUnchanged} 的删除清单，
+     * 跳过任何 field（哪怕是"field 不是数字"这种脏键）都意味着它**永远删不掉** ⇒
+     * {@code HLEN > 0} ⇒ 脏成员永远摘不掉（与"僵尸成员"同族）。
+     * 解析 contentId / 判断值是否可信，是**落库层**的事；本层只负责"如实交出去"。
      */
-    public Map<Long, String> readRaw(long userId) {
+    public Map<String, String> readRaw(long userId) {
         Map<Object, Object> entries = guarded(() -> redis.opsForHash().entries(CacheKeys.historyReport(userId)));
-        Map<Long, String> result = new LinkedHashMap<>(entries.size());
+        Map<String, String> result = new LinkedHashMap<>(entries.size());
         for (Map.Entry<Object, Object> e : entries.entrySet()) {
-            try {
-                result.put(Long.parseLong(String.valueOf(e.getKey())), String.valueOf(e.getValue()));
-            } catch (NumberFormatException ignored) {
-                // field 不是 contentId（脏键 / 人工写入）⇒ 跳过，不阻断整批
-            }
+            result.put(String.valueOf(e.getKey()), String.valueOf(e.getValue()));
         }
         return result;
     }
@@ -176,18 +174,39 @@ public class HistoryBufferRedisOps extends RedisOps {
      * ⇒ 真正待落库的用户永远取不到，兜底整体失效。脚本里 `HLEN == 0` 分支正好完成这次清理
      * （若期间有新上报，`HLEN > 0` ⇒ 不删，语义仍然正确）。
      *
-     * @param written 落库时读到的原始 (contentId → raw) 快照；**空 map 合法**（清理僵尸成员）
+     * @param written 落库时读到的原始 (field → raw) 快照；**空 map 合法**（清理僵尸成员）
      * @return 实际删掉的 field 数（诊断 / 测试断言用）
      */
-    public long removeIfUnchanged(long userId, Map<Long, String> written) {
+    public long removeIfUnchanged(long userId, Map<String, String> written) {
         Object[] args = new Object[1 + written.size() * 2];
         args[0] = String.valueOf(userId);
         int i = 1;
-        for (Map.Entry<Long, String> e : written.entrySet()) {
-            args[i++] = String.valueOf(e.getKey());
+        for (Map.Entry<String, String> e : written.entrySet()) {
+            args[i++] = e.getKey();
             args[i++] = e.getValue();
         }
         Long removed = eval(ACK_SCRIPT, List.of(CacheKeys.historyReport(userId), CacheKeys.HISTORY_DIRTY), args);
+        return removed == null ? 0L : removed;
+    }
+
+    /**
+     * 剪枝：把 score 早于 {@code cutoffMillis} 的脏成员直接摘掉（**成员级 TTL**）。
+     *
+     * <p>★ <b>为什么这是正确的阈值而不是拍脑袋</b>：写入时 hash 的 {@code EXPIRE bufferTtl}
+     * 与 {@code score = ts} 是同一次 Lua、同一个 ts ⇒ <b>hash 的过期时刻 = score + bufferTtl</b>。
+     * 取 {@code cutoff = now - bufferTtl} 时，"score 更老"严格等价于"这条 hash 已经过期" ——
+     * 剪掉的一定是**值已经不在**的成员，不会误删还活着的进度。
+     *
+     * <p>★ 为什么不能改成"给 {@code history:dirty} 加 EXPIRE"：它是**全局单键**——
+     * 每次写续期 ⇒ 只要有活跃用户，key 就永不过期（僵尸照样留着，只是多了个假象）；
+     * 固定不续期 ⇒ 到期把**整个集合**删掉，连活跃成员一起，周期性大面积丢数据。
+     * "成员过期"只能按 score 表达。
+     *
+     * @return 摘掉的成员数
+     */
+    public long removeDirtyBefore(long cutoffMillis) {
+        Long removed = guarded(() -> redis.opsForZSet().removeRangeByScore(
+                CacheKeys.HISTORY_DIRTY, Double.NEGATIVE_INFINITY, cutoffMillis));
         return removed == null ? 0L : removed;
     }
 

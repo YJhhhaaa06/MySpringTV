@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.history.dao;
 
+import io.github.yjhhhaaa06.videoweb.history.model.dto.HistoryProgressRow;
 import io.github.yjhhhaaa06.videoweb.history.model.vo.HistoryItemVO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -47,6 +48,24 @@ public interface WatchHistoryDao {
     int upsertProgress(@Param("userId") long userId,
                        @Param("contentId") long contentId,
                        @Param("progressSeconds") int progressSeconds);
+
+    /**
+     * 批量落库（`T51-2`）：一条语句写一批，**`update_time` 来自每条自己的 {@code serverReceiveTs}**。
+     *
+     * <p>★ 与 {@link #upsertProgress} 的语义必须**逐字一致**（LWW、只改进度与时间），差别只有两点：
+     * ① 批量；② 时间由参数给，而不是 `CURRENT_TIMESTAMP`（一批里各条时刻不同，用数据库当前时间会把
+     * 它们压成同一秒 ⇒ 列表倒序退化）。
+     *
+     * <p>⚠️ 本方法**绝不写** {@code play_counted}（那是 `insertIgnoreCounted` /
+     * {@code markCountedIfNotCounted` 的唯一职责）。
+     *
+     * <p>⚠️ 一条语句 = 一个隐式事务：**任一行失败整批回滚**（如唯一键之外的约束、列截断）。
+     * 调用方必须能降级到逐条重试，把坏行摘出去（{@code HistoryFlushService}）。
+     *
+     * @param items 同一用户的若干行（每条含 contentId / progress / updateTime）
+     */
+    int upsertProgressBatch(@Param("userId") long userId,
+                            @Param("items") List<HistoryProgressRow> items);
 
     /**
      * 首次播放建行并**直接**标记已计（{@code progress_seconds = 0}）。

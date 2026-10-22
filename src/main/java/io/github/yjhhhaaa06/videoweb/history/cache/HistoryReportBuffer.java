@@ -98,11 +98,14 @@ public class HistoryReportBuffer {
     }
 
     /**
-     * 取一个用户的落库快照（**原始串**，条件删要用它比对）。
+     * 取一个用户的落库快照（**原始 field → 原始值**，条件删要用它比对）。
      *
-     * @return contentId → {@code "progress:ts"}；空 map = 无脏数据（`/flush` 直接成功返回）
+     * <p>★ 返回的是"全部 field"而不是"解析成功的那些"：跳过任何 field 就等于它永远删不掉
+     * （{@code HLEN > 0} ⇒ 脏成员摘不掉）。解析与丢弃判断在落库层。
+     *
+     * @return 空 map = 无脏数据（`/flush` 直接成功返回；轮询侧顺带清僵尸成员）
      */
-    public Map<Long, String> snapshot(long userId) {
+    public Map<String, String> snapshot(long userId) {
         return ops.readRaw(userId);
     }
 
@@ -111,7 +114,7 @@ public class HistoryReportBuffer {
      *
      * @return 实际删掉的 field 数
      */
-    public long acknowledge(long userId, Map<Long, String> written) {
+    public long acknowledge(long userId, Map<String, String> written) {
         return ops.removeIfUnchanged(userId, written);
     }
 

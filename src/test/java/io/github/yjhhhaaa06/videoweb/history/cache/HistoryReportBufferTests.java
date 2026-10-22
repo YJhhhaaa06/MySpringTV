@@ -8,6 +8,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.test.context.TestPropertySource;
 
 import java.time.Duration;
 import java.util.Map;
@@ -25,7 +26,17 @@ import static org.assertj.core.api.Assertions.assertThatCode;
  *
  * <p>★ 用固定用户 id（{@value #USER_IDLE} 起）而不是随机：{@code history:dirty} 是**全局**键，
  * 用固定 id 才能在每个用例前精确清理，不依赖"别的用例没写过它"。
+ *
+ * <p>★ <b>为什么把轮询周期推到 1h</b>（{@code T51-2} 引入 {@code HistoryFlushScheduler} 之后）：
+ * 本类故意用 {@code ts = 1000/2000}（1970 年）来测"条件删"，而兜底轮询会把这种 score
+ * 直接**剪枝**掉 —— 15s 的首轮触发会让断言随机看到"已被剪掉"的中间态。
+ * 推远首轮触发，测试期就只剩本类一个驱动者。⚠️ 同时 {@code buffer-ttl} 要调大，
+ * 否则构造期不变式（ttl &gt; idle + poll + retention）不成立。
  */
+@TestPropertySource(properties = {
+        "video.history.buffer.poll-interval=1h",
+        "video.history.buffer.buffer-ttl=3h"
+})
 class HistoryReportBufferTests extends AbstractIntegrationTest {
 
     /** 够闲用例用（写入时刻拨到 70s 前）。 */
@@ -94,20 +105,42 @@ class HistoryReportBufferTests extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("快照返回原始串（条件删要靠它比对，不能先解析再序列化）")
+    @DisplayName("快照返回原始串与全部 field（条件删要靠它比对，不能先解析再序列化）")
     void snapshotKeepsRawValues() {
         buffer.recordAt(USER_WRITE, CONTENT_ID, 500, 1_000L);
 
-        Map<Long, String> snapshot = buffer.snapshot(USER_WRITE);
+        Map<String, String> snapshot = buffer.snapshot(USER_WRITE);
 
-        assertThat(snapshot).containsExactly(Map.entry(CONTENT_ID, "500:1000"));
+        assertThat(snapshot).containsExactly(Map.entry(String.valueOf(CONTENT_ID), "500:1000"));
+    }
+
+    /**
+     * ★ 非数字 field（脏键 / 人工写入）**不能**在读取时被跳过：跳过的字段永远不会进
+     * {@code acknowledge} 的删除清单 ⇒ {@code HLEN > 0} ⇒ 脏成员永远摘不掉。
+     * 本用例钉住"读取如实、丢弃由落库层决定"这条分工。
+     */
+    @Test
+    @DisplayName("非数字 field 也出现在快照里，从而能被删掉")
+    void snapshotKeepsNonNumericFields() {
+        redis.delete(CacheKeys.historyReport(USER_WRITE));
+        redis.opsForHash().put(CacheKeys.historyReport(USER_WRITE), "not-a-content-id", "abc:bad");
+        redis.opsForHash().put(CacheKeys.historyReport(USER_WRITE), String.valueOf(CONTENT_ID), "500:1000");
+
+        Map<String, String> snapshot = buffer.snapshot(USER_WRITE);
+
+        assertThat(snapshot).containsKeys("not-a-content-id", String.valueOf(CONTENT_ID));
+
+        buffer.acknowledge(USER_WRITE, snapshot);
+        assertThat(redis.hasKey(CacheKeys.historyReport(USER_WRITE)))
+                .as("全部 field 都被确认掉后，hash 必须消失（否则脏成员永远留着）")
+                .isFalse();
     }
 
     @Test
     @DisplayName("确认后：hash 清空、脏成员被摘掉（否则轮询会一直空跑）")
     void acknowledgeRemovesHashAndDirtyMember() {
         buffer.recordAt(USER_WRITE, CONTENT_ID, 500, 1_000L);
-        Map<Long, String> snapshot = buffer.snapshot(USER_WRITE);
+        Map<String, String> snapshot = buffer.snapshot(USER_WRITE);
 
         long removed = buffer.acknowledge(USER_WRITE, snapshot);
 
@@ -126,7 +159,7 @@ class HistoryReportBufferTests extends AbstractIntegrationTest {
     @DisplayName("确认只删值未变的 field：窗口内到来的新上报必须留下")
     void acknowledgeOnlyRemovesUnchangedFields() {
         buffer.recordAt(USER_WRITE, CONTENT_ID, 500, 1_000L);
-        Map<Long, String> snapshot = buffer.snapshot(USER_WRITE);
+        Map<String, String> snapshot = buffer.snapshot(USER_WRITE);
 
         buffer.recordAt(USER_WRITE, CONTENT_ID, 900, 2_000L);
         long removed = buffer.acknowledge(USER_WRITE, snapshot);
