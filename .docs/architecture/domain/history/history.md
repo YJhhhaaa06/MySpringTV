@@ -324,8 +324,8 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
 ★ **`R-20`（2026-10-22）：只认已落库的值，不读上报缓冲**（推翻 `R-19` 契约④"读缓冲优先"）。
 两条依据：① `/flush` 成功后 `ACK_LUA` 的 `HLEN == 0` 分支会把该用户的 hash 整个 `DEL`
 ⇒ **正常路径上本端点必然 miss**，读缓冲等于白付一趟 `HGET`；② 崩溃续播改由客户端本地
-`history:pending:{contentId}` 承担（初始化取 `max(服务端值, 本地值)`，见
-[history-客户端契约](./history-客户端契约.md) §6.2）⇒ 服务端不必再当"缓冲上游"。
+`history:pending:{contentId}`（**每秒更新的当前进度**，不是上次上报值）承担 —— 初始化取
+`max(服务端值, 本地值)`，见 [history-客户端契约](./history-客户端契约.md) §6.2）⇒ 服务端不必再当"缓冲上游"。
 代价（多设备 + 双方都未正常退出时可能倒退）见 [history-上报缓冲](./history-上报缓冲.md) §七 #7。
 
 > 📌 **已交付（T49）**：§7.1 / §7.2 两条读路径均已落地（`HistoryService#list` / `#position`）。
