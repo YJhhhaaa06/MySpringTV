@@ -238,6 +238,17 @@ public class HistoryBufferRedisOps extends RedisOps {
     }
 
     /**
+     * 探测此刻能否访问 Redis（**不记成功/失败**，只是取一次熔断许可）。
+     *
+     * <p>★ 存在的理由：`/report` 要"**先判熔断、再做内容校验**"。反过来的话，
+     * Redis 挂掉时每个请求都会先付一次 `loadContentVOs` 的**降级查库**——正好违反
+     * "故障期不要往 DB 加压"这个方案的前提（{@code history.md} §12.5）。
+     */
+    public boolean isCacheAvailable() {
+        return breaker.tryAcquire();
+    }
+
+    /**
      * 读 Redis 的 `maxmemory-policy`（启动自检用；**不参与熔断**——它是诊断，不是业务路径）。
      *
      * <p>★ 返回 {@link Optional#empty()} 的三种合法情形：命令被托管 Redis 禁用、连接失败、

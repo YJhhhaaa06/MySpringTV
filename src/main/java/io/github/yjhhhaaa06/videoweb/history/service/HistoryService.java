@@ -1,15 +1,19 @@
 package io.github.yjhhhaaa06.videoweb.history.service;
 
+import io.github.yjhhhaaa06.videoweb.common.cache.CacheUnavailableException;
 import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
+import io.github.yjhhhaaa06.videoweb.common.exception.ServiceBusyException;
 import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentType;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentVO;
 import io.github.yjhhhaaa06.videoweb.content.service.ContentService;
+import io.github.yjhhhaaa06.videoweb.history.cache.HistoryReportBuffer;
 import io.github.yjhhhaaa06.videoweb.history.dao.WatchHistoryDao;
 import io.github.yjhhhaaa06.videoweb.history.event.PlayCountChangedEvent;
 import io.github.yjhhhaaa06.videoweb.history.model.vo.HistoryItemVO;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,6 +52,7 @@ import java.util.Map;
  *   <li><b>不删历史</b>：一删就与"播放量只增"打架，且不变量无法复算（{@code history-需求.md} §六）。</li>
  * </ul>
  */
+@Slf4j
 @Service
 public class HistoryService {
 
@@ -62,40 +67,78 @@ public class HistoryService {
     private final ContentService contentService;
     private final ContentDao contentDao;
     private final ApplicationEventPublisher events;
+    private final HistoryReportBuffer reportBuffer;
+    private final HistoryFlushService flushService;
 
     public HistoryService(WatchHistoryDao watchHistoryDao,
                           ContentService contentService,
                           ContentDao contentDao,
-                          ApplicationEventPublisher events) {
+                          ApplicationEventPublisher events,
+                          HistoryReportBuffer reportBuffer,
+                          HistoryFlushService flushService) {
         this.watchHistoryDao = watchHistoryDao;
         this.contentService = contentService;
         this.contentDao = contentDao;
         this.events = events;
+        this.reportBuffer = reportBuffer;
+        this.flushService = flushService;
     }
 
     /**
-     * 上报播放进度（{@code POST /history/report}）：**一条 ODKU，不加事务**。
+     * 上报播放进度（{@code POST /history/report}）：**校验后写 Redis 缓冲，不落库**。
      *
-     * <p>校验顺序（参数形态 → 存在性 → 类型，与设计 §四.1 一致）：
+     * <p>★ `R-19`（2026-10-22）起的契约变更：本方法不再写 `watch_history`，落库由
+     * {@code /history/flush}（退出信号）或空闲轮询完成。接口形态（200 / 400 / 404）未变。
+     *
+     * <p>校验顺序（**免费校验 → 熔断探测 → 需要 IO 的校验**）：
      * <ol>
-     *   <li>{@code progress < 0} ⇒ 400「播放进度不能为负数」；</li>
-     *   <li>取不到内容 ⇒ 404「内容不存在」；</li>
-     *   <li>图文 ⇒ 400「只能记录视频的播放进度」；</li>
+     *   <li>{@code progress < 0} ⇒ 400（纯内存判断，零成本，不因后端故障而改变语义）；</li>
+     *   <li>缓冲后端不可用 ⇒ **503 + Retry-After**（★ 必须在 {@code loadContentVOs} **之前**：
+     *       熔断时它会降级查库，先校验就等于替 DB 加了一次压，正好违反本方案的前提）；</li>
+     *   <li>取不到内容 ⇒ 404；图文 ⇒ 400；</li>
      *   <li>超过时长的进度按**当前**时长 clamp（时长未知则不 clamp）——
      *       不报错：客户端心跳/重试本来就会偶尔越过末尾。</li>
      * </ol>
      *
-     * <p>★ 本方法**不写 {@code play_count}**（{@code /play} 是唯一计数入口）——
-     * 这也是 {@link WatchHistoryDao#upsertProgress} 的返回值**不能**用来判首播的原因。
+     * <p>★ 本方法**不写 {@code play_count}**（{@code /play} 是唯一计数入口），也**不碰**
+     * {@code play_counted}（落库时同样不碰，见 {@code HistoryFlushService}）。
      */
     public void report(long userId, long contentId, int progressSeconds) {
         if (progressSeconds < 0) {
             throw new ParamException("播放进度不能为负数");
         }
+        if (!reportBuffer.isBackingStoreAvailable()) {
+            throw busy();
+        }
         ContentVO content = requireVideoContent(contentId);
-        Integer duration = content.getDurationSeconds();
-        int clamped = duration == null ? progressSeconds : Math.min(progressSeconds, duration);
-        watchHistoryDao.upsertProgress(userId, contentId, clamped);
+        Integer duration = content.getDurationSeconds();        int clamped = duration == null ? progressSeconds : Math.min(progressSeconds, duration);
+        try {
+            reportBuffer.record(userId, contentId, clamped);
+        } catch (CacheUnavailableException e) {
+            // 探测通过后 Redis 又掉了（窗口极窄）：仍按"可重试"出口，不降级直写库。
+            throw busy();
+        }
+    }
+
+    /**
+     * 退出信号（{@code POST /history/flush}）：把该用户**全部**脏缓冲同步落库。
+     *
+     * <p>★ 粒度是 **userId 全量**（不是 contentId）：客户端退出时本来就该全 flush，
+     * 不用它记住"这次看了哪些"；多标签下任一标签退出全写一遍，比"各管各的"简单且不漏。
+     *
+     * <p>★ 落库失败**仍返回成功**（200）：数据还留在缓冲里，轮询会兜底（{@code history.md} §12.5）。
+     * 返回 5xx 只会让客户端重试、放大流量，而重试并不能让 DB 恢复。
+     */
+    public void flush(long userId) {
+        try {
+            flushService.flushUser(userId);
+        } catch (CacheUnavailableException e) {
+            log.warn("播放记录 flush 时缓冲不可用，数据留在原处等兜底: userId={}", userId);
+        }
+    }
+
+    private ServiceBusyException busy() {
+        return new ServiceBusyException("服务繁忙，请稍后重试", reportBuffer.retryAfterSeconds());
     }
 
     /**

@@ -46,6 +46,14 @@ public enum ErrorCode {
     //    本项是**对外契约的声明**（429 这个业务码存在、且与 HTTP 对齐）与过滤器取值的唯一来源。
     RATE_LIMITED(429, "请求过于频繁"),
 
+    // ===== 服务不可用 (503) =====
+    // 播放记录上报缓冲（T51-2）新增。★ 与"缓存挂了就降级直查 DB"的常态**刻意不同**：
+    // `/history/report` 的缓冲是**写路径**，Redis 不可用时降级成"直写 DB"会在故障瞬间把
+    // 全部心跳压进数据库（正是这个方案要避免的事）⇒ 选择**快速失败 + 让客户端退避**。
+    // 语义与 HTTP 对齐（503 = Service Unavailable，可重试），由 GlobalExceptionHandler 加
+    // `Retry-After` 头把"多久后再来"告诉客户端（不猜）。
+    SERVICE_UNAVAILABLE(503, "服务繁忙，请稍后重试"),
+
     // ===== 服务器 (500) =====
     SERVER_ERROR(500, "服务器内部错误"),
     DATABASE_ERROR(500, "数据库操作失败"),

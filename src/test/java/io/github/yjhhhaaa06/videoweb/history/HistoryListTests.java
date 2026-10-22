@@ -144,6 +144,8 @@ class HistoryListTests extends AbstractContentIntegrationTest {
         ResponseEntity<String> report = post(
                 "/history/report?contentId=" + oldest + "&progress=30", null, viewerToken);
         assertThat(report.getStatusCode().value()).as("上报应 200：%s", report.getBody()).isEqualTo(200);
+        // ★ R-19：/report 只写缓冲 ⇒ 要看到 update_time 变化必须先落库
+        post("/history/flush", null, viewerToken);
 
         JsonNode data = Envelope.data(list(viewerToken, null, null));
         assertThat(contentIds(data.path("list")))

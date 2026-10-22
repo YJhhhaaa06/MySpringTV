@@ -84,6 +84,26 @@ public class HistoryReportBuffer {
     }
 
     /**
+     * `/report` 的前置探测：缓冲后端此刻是否可用。
+     *
+     * <p>★ 必须**先判它、再做内容校验**：Redis 熔断时 `loadContentVOs` 会降级查库，
+     * 先校验就等于给数据库白白加一次压力，与"故障期别碰 DB"直接冲突（{@code history.md} §12.5）。
+     */
+    public boolean isBackingStoreAvailable() {
+        return ops.isCacheAvailable();
+    }
+
+    /**
+     * 建议客户端等待的秒数（`Retry-After`）。
+     *
+     * <p>取轮询周期：它正好是"服务端自己会多久重试一次"的节奏，客户端按同一节奏退避即可；
+     * 恢复后下一次 200 就会把它拉回正常频率。
+     */
+    public long retryAfterSeconds() {
+        return Math.max(1L, props.pollInterval().toSeconds());
+    }
+
+    /**
      * 记录一条上报（`/report` 校验 + clamp 之后调用）。
      *
      * <p>★ 只写 Redis，**不落库**；落库由 `/flush`（退出信号）或空闲轮询兜底完成。

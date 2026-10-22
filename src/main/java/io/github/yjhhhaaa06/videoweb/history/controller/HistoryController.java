@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
  * 播放记录接口入口（路径前缀 {@code /history}，播放记录专项 T47）。
  *
  * <h2>★ 鉴权：**类级** {@code @RequiresLogin}（与 {@code /watchlater} 的逐端点刻意不同）</h2>
- * 本域**全部四个端点**（{@code /report}、{@code /play}、{@code /list}、{@code /position}）
+ * 本域**全部五个端点**（{@code /report}、{@code /flush}、{@code /play}、{@code /list}、{@code /position}）
  * 都只对"当前登录用户"有意义：没有公开面可言。类级注解的语义因此是准确的，也是**面向未来端点**的保护——
  * 将来往 {@code /history/**} 加端点会被自动保护。判别力由
  * {@code SecurityContractTests#history写端点需登录} 直接对 {@code RequestMappingLookup} 求值守着
@@ -89,13 +89,32 @@ public class HistoryController {
         return ApiResponse.success(new HistoryPositionVO(historyService.position(userId, contentId)));
     }
 
+    /**
+     * 退出信号（`R-19` / `T51-2`）：{@code POST /history/flush}，**无参数**（userId 取自登录态）。
+     *
+     * <p>★ 语义是"把这个用户的**全部**脏进度同步写进库"，粒度是 **userId 全量**而不是 contentId：
+     * 客户端退出时本来就该全 flush，不用它记住"这次看了哪些"；多标签下任一标签退出全写一遍，
+     * 比"各管各的"简单且不漏。
+     *
+     * <p>★ 落库失败**仍返回 200**：数据还在缓冲里，轮询会兜底。返回 5xx 只会让客户端重试、
+     * 放大流量，而重试并不能让数据库恢复（{@code history.md} §12.5）。
+     */
+    @PostMapping("/flush")
+    public ApiResponse<Void> flush(@CurrentUserId long userId) {
+        historyService.flush(userId);
+        return ApiResponse.success();
+    }
+
     // ==================== 写：report / play ====================
 
     /**
      * 上报播放进度：{@code POST /history/report?contentId=&progress=}（进度单位**秒**）。
      *
-     * <p>★ **不在这里计播放量**——{@code /play} 是唯一计数入口。重复上报同一进度是幂等的
-     * （但会把该条历史排到最前，见 {@code WatchHistoryDao#upsertProgress}）。
+     * <p>★ `R-19`（T51-2）起**只写 Redis 缓冲，不落库**：落库由 {@code /flush}（退出信号）
+     * 或空闲轮询完成。重复上报同一进度是幂等的（后到即新，LWW）。
+     *
+     * <p>Redis 熔断 / 不可用 ⇒ **503 + `Retry-After`**（不降级直写库：那会在故障瞬间把所有心跳
+     * 压进数据库，正是本方案要避免的）。客户端应按 `Retry-After` 退避、收到 200 再恢复频率。
      *
      * @param progress 已看到的秒数（整数）；负数 ⇒ 400；超过时长按当前时长截断（不报错）
      */

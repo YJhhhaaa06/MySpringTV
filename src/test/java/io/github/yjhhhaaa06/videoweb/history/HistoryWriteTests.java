@@ -6,6 +6,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.context.TestPropertySource;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -25,8 +26,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <table>
  *   <caption>断什么、为什么</caption>
  *   <tr><th>端点</th><th>本类钉住的口径</th></tr>
- *   <tr><td>{@code /report}</td><td><b>后到即新（LWW）</b>——低进度覆盖高进度；超过时长被 clamp；
- *       重复上报同一进度**仍然**刷新 {@code update_time}（否则历史列表不会移到最前）；**不写 play_count**</td></tr>
+ *   <tr><td>{@code /report}</td><td><b>只写缓冲、不落库</b>（`R-19` 起的契约变更）；落库后仍是
+ *       <b>后到即新（LWW）</b>、按时长 clamp、<b>不写 play_count</b></td></tr>
  *   <tr><td>{@code /play}</td><td>首播 {@code +1}；重复 play 不 +；**并发两次恰 +1**；
  *       行不存在时建行（{@code progress=0}）；DB 不变量 {@code play_count == COUNT(play_counted=1)}</td></tr>
  * </table>
@@ -50,7 +51,19 @@ import static org.assertj.core.api.Assertions.assertThat;
  * ③ ODKU 不显式 SET {@code update_time} ⇒ "重复上报仍刷新时间"红（值没变时列上的 ON UPDATE 不触发）；
  * ④ 去掉 {@code play_counted = 0} 条件 ⇒ 重复 play / 并发用例红；
  * ⑤ 首播判定换回 ODKU 的 affected rows ⇒ 重复 play 用例红（{@code useAffectedRows=false} 的歧义）。
+ *
+ * <h2>★ `R-19`（T51-2）的契约变更，以及为什么改这些断言</h2>
+ * {@code /report} 从"同步落库"改成"写 Redis 缓冲"，落库由 {@code /flush} 触发。因此凡"上报后直查 DB"
+ * 的断言都必须先 flush —— 这是**契约跟随**（G8 的例外条：口径变了，oracle 必须跟），不是迎合实现。
+ * 依据：{@code architecture/domain/history/history.md} §12.3、{@code CURRENT_NEEDS.md} `R-19`。
+ *
+ * <p>★ 轮询周期推到 1h：本类会手动 flush，而 {@code HistoryFlushScheduler} 也会按周期兜底 ——
+ * 两边同时动同一批键会让"上报后 DB 仍为空"这类断言偶发红。
  */
+@TestPropertySource(properties = {
+        "video.history.buffer.poll-interval=1h",
+        "video.history.buffer.buffer-ttl=3h"
+})
 class HistoryWriteTests extends AbstractContentIntegrationTest {
 
     private static final String AUTHOR_PHONE = "13900000001";
@@ -77,7 +90,7 @@ class HistoryWriteTests extends AbstractContentIntegrationTest {
     // ==================== /history/report ====================
 
     @Test
-    @DisplayName("上报：首次建行，进度落库；**不写 play_count**（/report 不是计数入口）")
+    @DisplayName("★上报只写缓冲、不落库；/flush 才落库（R-19 契约变更）")
     void 上报首次建行() {
         long contentId = insertVideoContent(authorId, "上报首次");
 
@@ -85,6 +98,12 @@ class HistoryWriteTests extends AbstractContentIntegrationTest {
 
         assertThat(resp.getStatusCode().value()).as("上报应 200：%s", resp.getBody()).isEqualTo(200);
         assertThat(Envelope.msg(resp)).isEqualTo("success");
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM watch_history", Long.class))
+                .as("★ R-19：上报不再同步落库（落库由 /flush 或空闲轮询完成）")
+                .isZero();
+
+        flush();
+
         assertThat(进度(contentId)).isEqualTo(42);
         assertThat(playCounted(contentId)).as("上报不判首播、不置标记").isZero();
         assertThat(播放量(contentId)).as("★ /report 不写 play_count（唯一计数入口是 /play）").isZero();
@@ -96,7 +115,9 @@ class HistoryWriteTests extends AbstractContentIntegrationTest {
         long contentId = insertVideoContent(authorId, "上报 LWW");
 
         post("/history/report?contentId=" + contentId + "&progress=100", null, viewerToken);
+        flush();
         post("/history/report?contentId=" + contentId + "&progress=10", null, viewerToken);
+        flush();
 
         assertThat(进度(contentId))
                 .as("★ 后到即新（用户 2026-10-21 拍板）：实现成 GREATEST 会是 100 ⇒ 本断言红")
@@ -112,11 +133,13 @@ class HistoryWriteTests extends AbstractContentIntegrationTest {
         ResponseEntity<String> exceeding = post(
                 "/history/report?contentId=" + contentId + "&progress=999", null, viewerToken);
         assertThat(exceeding.getStatusCode().value()).as("越界不报错").isEqualTo(200);
+        flush();
         assertThat(进度(contentId)).as("截到 10").isEqualTo(10);
 
         // 时长未知（存量 / 解析失败）⇒ 原样存，不 clamp 到 0
         long unknownDuration = insertVideoContent(authorId, "上报无时长");
         post("/history/report?contentId=" + unknownDuration + "&progress=777", null, viewerToken);
+        flush();
         assertThat(进度(unknownDuration)).as("null 时长 ≠ 0 ⇒ 不截断").isEqualTo(777);
     }
 
@@ -125,18 +148,20 @@ class HistoryWriteTests extends AbstractContentIntegrationTest {
     void 重复上报刷新更新时间() {
         long contentId = insertVideoContent(authorId, "上报时间");
         post("/history/report?contentId=" + contentId + "&progress=30", null, viewerToken);
+        flush();
 
         // 把 update_time 拨回 2020（模拟"这条记录很久没动过"）
         jdbcTemplate.update("UPDATE watch_history SET update_time = '2020-01-01 00:00:00' "
                 + "WHERE user_id = ? AND content_id = ?", viewerId, contentId);
 
         post("/history/report?contentId=" + contentId + "&progress=30", null, viewerToken);
+        flush();
 
         String updated = jdbcTemplate.queryForObject(
                 "SELECT update_time FROM watch_history WHERE user_id = ? AND content_id = ?",
                 String.class, viewerId, contentId);
         assertThat(updated)
-                .as("★ 值没变 ⇒ 列上的 ON UPDATE 不触发；必须显式 SET update_time = CURRENT_TIMESTAMP")
+                .as("★ 值没变 ⇒ 列上的 ON UPDATE 不触发；flush 必须显式 SET update_time = 缓冲里的接收时刻")
                 .startsWith("20").isNotEqualTo("2020-01-01 00:00:00");
     }
 
@@ -168,8 +193,10 @@ class HistoryWriteTests extends AbstractContentIntegrationTest {
         assertThat(post("/history/report?contentId=" + videoId + "&progress=1", null, null)
                 .getStatusCode().value()).as("匿名 ⇒ 401").isEqualTo(401);
 
+        flush();
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM watch_history", Long.class))
-                .as("★ 被拒的请求一行都不许落（不是'先写再校验'）").isZero();
+                .as("★ 被拒的请求**连缓冲都没进**（flush 之后仍然一行都没有，不是'先写再校验'）")
+                .isZero();
     }
 
     // ==================== /history/play ====================
@@ -274,6 +301,16 @@ class HistoryWriteTests extends AbstractContentIntegrationTest {
     }
 
     // ==================== 夹具 / oracle ====================
+
+    /**
+     * 退出信号：把该用户全部缓冲落库（`R-19` 起 {@code /report} 不再直接写库）。
+     *
+     * <p>方法名直白，不藏在 {@code post} 里 —— 每个用例该在**哪一步**断库，读起来一目了然。
+     */
+    private void flush() {
+        ResponseEntity<String> resp = post("/history/flush", null, viewerToken);
+        assertThat(resp.getStatusCode().value()).as("flush 应 200：%s", resp.getBody()).isEqualTo(200);
+    }
 
     /** 直查进度（独立 oracle，不信接口回显）。 */
     private Integer 进度(long contentId) {

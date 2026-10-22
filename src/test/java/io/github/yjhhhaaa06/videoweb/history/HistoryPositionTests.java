@@ -75,6 +75,8 @@ class HistoryPositionTests extends AbstractContentIntegrationTest {
         ResponseEntity<String> report = post(
                 "/history/report?contentId=" + contentId + "&progress=123", null, viewerToken);
         assertThat(report.getStatusCode().value()).as("前置写应 200：%s", report.getBody()).isEqualTo(200);
+        // ★ R-19：/report 只写缓冲；本类验的是"已落库的进度能被读回"，故先 flush
+        post("/history/flush", null, viewerToken);
 
         assertThat(Envelope.data(position(viewerToken, contentId)).path("progress").asInt())
                 .as("读回的就是写进去的秒数")
@@ -112,6 +114,7 @@ class HistoryPositionTests extends AbstractContentIntegrationTest {
         String otherToken = registerAndGetToken(OTHER_PHONE, OTHER);
         long contentId = insertVideoContent(authorId, "共享视频");
         post("/history/report?contentId=" + contentId + "&progress=55", null, viewerToken);
+        post("/history/flush", null, viewerToken);
 
         assertThat(Envelope.data(position(viewerToken, contentId)).path("progress").asInt())
                 .as("我自己：55").isEqualTo(55);

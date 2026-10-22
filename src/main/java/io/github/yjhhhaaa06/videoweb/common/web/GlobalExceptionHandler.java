@@ -2,10 +2,12 @@ package io.github.yjhhhaaa06.videoweb.common.web;
 
 import io.github.yjhhhaaa06.videoweb.common.exception.BusinessException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
+import io.github.yjhhhaaa06.videoweb.common.exception.ServiceBusyException;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -60,6 +62,24 @@ public class GlobalExceptionHandler {
         //    并把无需介入的输入错误报成运维事故。WARN 恰好是"业务层判断过、无需人工介入"的位置。
         log.warn("业务异常 {} {} -> code={}, msg={}", req.getMethod(), req.getRequestURI(), code, ex.getMessage());
         return ResponseEntity.status(status).body(ApiResponse.error(code, ex.getMessage()));
+    }
+
+    /**
+     * 503 服务繁忙：**带 {@code Retry-After}**（`T51-2`）。
+     *
+     * <p>★ 必须是比 {@link BusinessException} **更具体**的处理器，Spring 才会选中它——
+     * 否则父类那个 handler 会照常回 503 但**丢掉响应头**，客户端只能自己猜退避节奏。
+     *
+     * <p>级别 WARN（预期内的降级，不是运维事故）：Redis 挂了要报的是"缓存不可用"这件事本身，
+     * 不该因为每次上报都打 ERROR 把 error.log 刷爆。
+     */
+    @ExceptionHandler(ServiceBusyException.class)
+    public ResponseEntity<ApiResponse<Void>> handleBusy(ServiceBusyException ex, HttpServletRequest req) {
+        log.warn("服务繁忙 {} {} -> code={}, retryAfter={}s, msg={}",
+                req.getMethod(), req.getRequestURI(), ex.getCode(), ex.getRetryAfterSeconds(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()))
+                .body(ApiResponse.error(ex.getCode(), ex.getMessage()));
     }
 
     /** {@code @Valid} 校验失败：取第一条字段错误作为提示（对齐 TV 单条 message 的形状）。 */
