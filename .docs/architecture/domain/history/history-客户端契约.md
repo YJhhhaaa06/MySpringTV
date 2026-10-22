@@ -141,24 +141,34 @@ localStorage.setItem(`history:pending:${contentId}`, JSON.stringify({ progress, 
 ### 6.2 重进时怎么补
 
 ```js
-async function compensate(contentId) {
-  const raw = localStorage.getItem(`history:pending:${contentId}`);
-  if (!raw) return;
-  const { progress, ts } = JSON.parse(raw);
-  if (Date.now() - ts > 30 * 60_000) { localStorage.removeItem(...); return; }   // 太旧，放弃
+// 播放器初始化：先定位播放头，再补报（R-20：服务端只读库 ⇒ 必须由本地 pending 补齐）
+async function resume(contentId) {
+  const server = await position(contentId);               // 只认已落库的值
+  const local  = readPending(contentId);                  // 超过 30min 的标记直接丢弃（§6.1）
+  const start  = Math.max(server, local?.progress ?? 0);  // ★ 本地更新就用本地
 
-  const server = await position(contentId);        // ★ 先读服务端
-  if (progress > server) {                          // ★ 只补"本地更新"的情况
-    await report(progress);
+  if (local && local.progress > server) {                 // 本地更新 ⇒ 补报落库
+    await report(local.progress);
     await flush();
   }
-  localStorage.removeItem(`history:pending:${contentId}`);
+  if (local) localStorage.removeItem(`history:pending:${contentId}`);   // 补报失败会抛错跳过这行
+  return start;                                           // 播放头从这里定位，补报后不必再 seek
 }
 ```
 
-★ **为什么要先读 `/position`**：多设备场景下，本地可能是旧值（在另一台设备看到更后面）。
-不判断就补报会**把别处的新进度覆盖成旧的**（服务端是"后到即新"，不做进度单调守卫）。
+★ **为什么不能只用 `/position` 定位**：`R-20`（2026-10-22）起它**只读 DB**（不读上报缓冲）。
+崩溃 / 没发 flush 的会话，新进度还在缓冲与本地 ⇒ 直接拿 `position` 的返回值定位会**退到旧位置**。
+本地 `pending` 就是"最后一条成功上报的进度"，取 `max` 即可补齐，且不依赖服务端缓冲。
+
+★ **为什么 `start` 必须在补报之前算好**：补报**不会**回头改已经定位的播放头。
+顺序写成"补报完再定位"也能得到同样的 `start`，但多等两个请求；写成"定位后不再 seek"最省。
+
+★ **为什么要与服务端值比较**：多设备场景下本地可能是旧值（在另一台设备看到更后面）。
+不比较就补报会**把别处的新进度覆盖成旧的**（服务端是"后到即新"，不做进度单调守卫）。
 这是本仓刻意的 LWW 口径（`history-需求.md` §六），客户端必须自己让路。
+
+> ⚠️ `R-20` 之后这道比较的基线是**库值**（而不是缓冲值）⇒ "多设备 + 双方都未正常退出"时仍可能误判
+> （见 [history-上报缓冲](./history-上报缓冲.md) §七 #7）。单设备崩溃重开不受影响。
 
 ★ **为什么补 `report + flush` 而不是只补 `flush`**：缓冲的 TTL 是 30 分钟。超过后服务端缓冲已经没了，
 只发 flush 是空转；而"用本地进度重报 + flush"两种情况下都正确，且幂等。
@@ -169,9 +179,9 @@ async function compensate(contentId) {
 
 | 场景 | 客户端能期望的 |
 |---|---|
-| 打开播放器读 `/position` | **实时** —— 它读缓冲，比库里新（[history-上报缓冲](./history-上报缓冲.md) §六） |
+| 打开播放器读 `/position` | **已落库的值**（`R-20` 起不读缓冲）。崩溃 / 未 flush 的会话要靠 §6.2 的 `max(服务端, 本地)` 才拿得到最新进度 —— **这是客户端义务，不是服务端保证** |
 | 刚上报的条目出现在 `/list` | **最多滞后一个兜底窗口（默认 60s）** —— 列表不合并缓冲 |
-| 崩溃后重进同一个浏览器 | 若做了 §六 的补偿 ⇒ 立即；否则等兜底窗口 |
+| 崩溃后重进同一个浏览器 | 若做了 §6.2 的定位 + 补偿 ⇒ 立即；否则等兜底窗口 |
 | 崩溃 + Redis 停机 | 该会话进度**可能回退**到上次落库的位置（[history-上报缓冲](./history-上报缓冲.md) §七 #3） |
 | 两个标签页同看一个视频 | 列表里**只有一行**；进度以**最后上报的那个标签**为准（LWW） |
 

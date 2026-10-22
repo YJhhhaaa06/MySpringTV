@@ -21,7 +21,7 @@
 | 进度上报（`/history/report`，**先进 Redis 缓冲**，见 [上报缓冲](./history-上报缓冲.md)） | 历史删除 / 清空 |
 | 播放事件（`/history/play`，去重计播放量；**不进缓冲**） | 前端页面（`static/` 本期不动；播放历史后续一次性重制） |
 | 历史列表（`/history/list`，失效占位；**不合并缓冲**） | 历史列表缓存 |
-| 续播位置（`/history/position`，**读缓冲优先**） | 服务端**降频**（节流由客户端负责；缓冲只挡写库，不挡请求） |
+| 续播位置（`/history/position`，**只读已落库的值**，`R-20`） | 服务端**降频**（节流由客户端负责；缓冲只挡写库，不挡请求） |
 | 退出 flush（`/history/flush`）+ 空闲轮询兜底（[上报缓冲](./history-上报缓冲.md)） | 客户端节流（本期不做；见 [客户端契约](./history-客户端契约.md) §三） |
 | mp4 时长解析（发布 / 换源） | 「已看完」标记（由前端按 `progress / duration` 推导） |
 | 详情播放量（第 5 个公共计数） | 历史容量上限 / 旧行清理 |
@@ -321,10 +321,19 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
 一条 `uk_user_content` 点查；无行 ⇒ `progress=0`。不校验内容、不返回 404
 （内容是死是活由详情的 404 负责；这里只回答"我的进度是多少"）。
 
+★ **`R-20`（2026-10-22）：只认已落库的值，不读上报缓冲**（推翻 `R-19` 契约④"读缓冲优先"）。
+两条依据：① `/flush` 成功后 `ACK_LUA` 的 `HLEN == 0` 分支会把该用户的 hash 整个 `DEL`
+⇒ **正常路径上本端点必然 miss**，读缓冲等于白付一趟 `HGET`；② 崩溃续播改由客户端本地
+`history:pending:{contentId}` 承担（初始化取 `max(服务端值, 本地值)`，见
+[history-客户端契约](./history-客户端契约.md) §6.2）⇒ 服务端不必再当"缓冲上游"。
+代价（多设备 + 双方都未正常退出时可能倒退）见 [history-上报缓冲](./history-上报缓冲.md) §七 #7。
+
 > 📌 **已交付（T49）**：§7.1 / §7.2 两条读路径均已落地（`HistoryService#list` / `#position`）。
 > 顺序与 `total` 由 `HistoryListTests` 用**独立 oracle** 复算（排序夹具让 `update_time` 序与
 > `content_id` 序**反向**、同秒用例让行 id 序与内容 id 序**反向**）；占位三字段、
 > "已删内容仍答进度"由同批用例钉住。列表**不缓存**（§7.1 的口径未变）。
+> ★ `R-20` 的判别力由 `HistoryPositionTests#缓冲里的新进度不参与续播` 单独承担
+> （库里 500、缓冲 900 ⇒ 必须答 500；本类其余用例在两种实现下都绿）。
 
 ### 7.3 详情
 
@@ -472,6 +481,7 @@ T48 加 `playCount` —— 契约跟随本篇 §五「第 5 个公共计数」�
 | T51-1 | **缓冲内核**（不接端点）：`CacheKeys` 两个 key + `video.history.buffer.*` 配置 + `HistoryBufferRedisOps`（写入 / 条件删 / HGET 三条 Lua）+ `HistoryReportBuffer`（语义层）+ `maxmemory-policy` 启动自检；**纯 Redis，不碰 Service / Controller** | [上报缓冲](./history-上报缓冲.md) §2–§5 · `HistoryReportBufferTests` |
 | T51-2 | **写路径接管**：`/report` 改走缓冲、新增 `/flush`（批粒度 = userId 全量）、轮询兜底（`ZRANGEBYSCORE` + 同一段落库）、503 + `Retry-After`（熔断先于校验）；权重 38→39、`SecurityContractTests` 补路由；★ `HistoryWriteTests` 由"上报即落库"改为"上报进缓冲、flush 后落库"（契约跟随 `R-19`，见 G8 例外条） | [上报缓冲](./history-上报缓冲.md) §3–§5 · `HistoryWriteTests` / `HistoryFlushTests` |
 | T51-3 | **读路径 + 客户端契约**：`/position` 读缓冲优先（miss 才查 DB）、`/list` 不合并的口径钉进测试；客户端契约**独立成篇**（[history-客户端契约](./history-客户端契约.md)，本期不实现） | [上报缓冲](./history-上报缓冲.md) §6 · [客户端契约](./history-客户端契约.md) · `HistoryPositionTests` |
+| T52 | ★ **推翻 `R-19` 契约④**（`R-20`）：`/position` 改回**只点查 DB**，省掉正常路径上必然 miss 的一趟 `HGET`；崩溃续播改由客户端 `history:pending` + `max(服务端, 本地)` 承担（客户端契约 §6.2 重写）。`R-19` 的写路径（缓冲 / flush / 轮询）**一字未动** | 本篇 §7.2 · [上报缓冲](./history-上报缓冲.md) §六/§七 · [客户端契约](./history-客户端契约.md) §6.2 · `HistoryPositionTests` |
 
 ---
 
