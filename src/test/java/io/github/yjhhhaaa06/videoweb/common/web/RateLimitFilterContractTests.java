@@ -317,12 +317,14 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
         //    GlobalExceptionHandler 把未映射路径的 NoResourceFoundException 落进 system.log）。
         ResponseEntity<String> resp = get("/no-such-page-t25-probe", null);
 
-        // ⚠️ 状态码钉的是**既有行为**而非本任务的契约面：本仓未映射路径由
-        // NoResourceFoundException 落进 GlobalExceptionHandler 的 catch-all ⇒ 500。
-        // T25 的契约只有一条：这类请求**过闸**（"404 扫描流正是要防的对象之一"）。
+        // ★ **契约变更（T56，G8）**：本仓未映射路径的状态码从 500 改为 **404 信封**
+        //   （`architecture/tech/api/接口契约.md` §2.1 / §三 #6：NoResourceFoundException 不再落 catch-all）。
+        //   变更点 = 状态码与 body 形状，**不影响**本用例的契约面（这类请求必须**过闸**，
+        //   "404 扫描流正是要防的对象之一"）。原断言是 `isNotEqualTo(429)`（对 500 也成立，
+        //   即旧断言无法区分"过闸后 404"与"过闸后炸成 500"），现收紧到 404。
         // "过闸"的判定不能只看用户桶（被拒也扣询问费）——服务器桶**只在放行时扣**，
-        // 故两桶各扣 cost 才是"放行"的完整 oracle；再加一条"未被 429 拦下"。
-        assertThat(resp.getStatusCode().value()).as("未被闸门拦下").isNotEqualTo(429);
+        // 故两桶各扣 cost 才是"放行"的完整 oracle。
+        assertThat(resp.getStatusCode().value()).as("过闸后按新契约回 404（不是 429，也不是 500）").isEqualTo(404);
 
         String anonRaw = rawOf(ANON_KEY);
         assertThat(anonRaw).as("用户桶过闸被扣").isNotNull();

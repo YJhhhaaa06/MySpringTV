@@ -63,6 +63,29 @@ public enum ErrorCode {
      */
     PARAM_INVALID(HttpStatus.BAD_REQUEST, "参数错误"),
 
+    /**
+     * 请求方法不被该端点支持（405）。
+     *
+     * <p>由 Spring 的 {@code HttpRequestMethodNotSupportedException} 产出（{@code T56}）：
+     * 路径命中、方法不匹配。它**不是**参数错误（400），也不是路由不存在（404）——
+     * 前端若收到本码，说明调用方的 HTTP 方法写错了，属于**代码缺陷**而不是用户输入问题，
+     * 因此独立成码（判据③ 运维统计：出现本码就要改调用点）。
+     *
+     * <p>⚠️ 已知代价：本码**匿名可见**。{@code JwtAuthFilter} 用
+     * {@code RequestMappingLookup} 判定授权，而"路径命中但方法不匹配"在路由层就抛异常
+     * （lookup 按未映射处理）⇒ 鉴权先放行、405 后产生。泄露面仅"这条路径存在"，不含内容。
+     */
+    PARAM_METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "请求方法不支持"),
+
+    /**
+     * 请求的 {@code Content-Type} 不被该端点接受（415）。
+     *
+     * <p>由 Spring 的 {@code HttpMediaTypeNotSupportedException} 产出（{@code T56}）。典型场景：
+     * 该发 JSON 的地方发了 {@code text/plain} / 表单。★ 对外文案**不复述**客户端发的类型
+     * （异常 message 里带着它，那是客户端可控字符串，只进日志）。
+     */
+    PARAM_MEDIA_TYPE_UNSUPPORTED(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "不支持的 Content-Type"),
+
     // ========================================================================
     // 401 认证（未登录 / 凭证无效 / 凭证过期）
     // ========================================================================
@@ -118,6 +141,20 @@ public enum ErrorCode {
     COMMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "评论不存在"),
     FAVORITE_FOLDER_NOT_FOUND(HttpStatus.NOT_FOUND, "收藏夹不存在"),
     CONTENT_MEDIA_NOT_FOUND(HttpStatus.NOT_FOUND, "媒体资源不存在"),
+
+    /**
+     * 请求打到了**不存在的接口**（404，路径本身没被任何 handler 匹配）。
+     *
+     * <p>由 Spring 的 {@code NoResourceFoundException} 在"没有业务路由"时产出（{@code T56}）。
+     * 与上面几个 {@code *_NOT_FOUND} 的区别：那些是"资源没了"，本码是"**接口**没了"——
+     * 前者前端要重拉列表，后者是调用方拼错了路径（判据③：出现本码值得按路径统计，
+     * 能直接看出前端/扫描器在打哪些不存在的接口）。
+     *
+     * <p>⚠️ **静态资源与 {@code /upload/**} 不走本码**：那类请求缺文件时只回状态码 404、
+     * 不产信封（消费方是 {@code <img>} / {@code <video>}，不看 body）。判据在
+     * {@code GlobalExceptionHandler#handleNoResource}。
+     */
+    SYSTEM_ENDPOINT_NOT_FOUND(HttpStatus.NOT_FOUND, "接口不存在"),
 
     // ========================================================================
     // 409 状态冲突（参数合法，但当前状态不允许）

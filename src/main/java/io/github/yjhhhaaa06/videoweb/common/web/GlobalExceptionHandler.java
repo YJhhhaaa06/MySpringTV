@@ -7,16 +7,23 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
+import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -42,6 +49,16 @@ import java.util.stream.Collectors;
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    /** 根路径上的静态文件（精确匹配）：缺文件时只回 404 状态、不产信封。 */
+    private static final Set<String> STATIC_EXACT = Set.of("/", "/index.html", "/favicon.ico");
+
+    /**
+     * 静态媒体 / 样式脚本前缀：缺文件时同样不产信封。
+     *
+     * <p>⚠️ 与 {@code RateLimitFilter} 的跳过前缀**同集合但不是同一份**（见 {@link #handleNoResource}）。
+     */
+    private static final List<String> STATIC_PREFIXES = List.of("/static/", "/upload/");
 
     private final ApiErrorWriter errorWriter;
 
@@ -149,6 +166,104 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleUnexpected(Exception ex, HttpServletRequest req) {
         log.error("未预期异常 {} {}", req.getMethod(), req.getRequestURI(), ex);
         return errorWriter.toResponse(ErrorCode.SYSTEM_INTERNAL);
+    }
+
+    // ========================================================================
+    // 框架级：改造前它们全部被上面的 catch-all 吃成 500（§三 #6）
+    // ========================================================================
+
+    /**
+     * 路由不存在（`T56`）：Spring 6.1 起"没有任何 handler 匹配"由默认资源处理器抛
+     * {@link NoResourceFoundException}，而不是 404 —— 它原本落进 {@code handleUnexpected}
+     * 变成 **500**（契约与实现漂移的根源，见 {@code architecture/tech/api/接口契约.md} §三 #6）。
+     *
+     * <h2>为什么静态资源要"只回状态、不回信封"</h2>
+     * {@code /upload/**}（媒体）、{@code /static/**}（样式脚本）与三个根路径的缺失文件，
+     * 消费方是 {@code <img>} / {@code <video>} / 浏览器加载器 —— 它们**不看 body**，
+     * 给一段 JSON 只会让"看一眼响应体"的排查路径误以为那是业务错误。
+     * 这也是访问日志 {@code code=0}（"从未产生业务信封"哨兵）**仍然存在**的场景。
+     *
+     * <p>⚠️ 与 {@code RateLimitFilter#isSkipped} 是**两份清单、两种语义**（"不计成本" vs
+     * "不产信封"）：不合并，因为合并后改一处会静默改变另一处的行为。
+     * 离散风险由 {@code FrameworkErrorContractTests} 逐条路径覆盖。
+     *
+     * <p>{@code /actuator/**} **不在**本清单：它由独立的 {@code WebMvcEndpointHandlerMapping}
+     * 处理，不会抛本异常。
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoResource(NoResourceFoundException ex,
+                                                              HttpServletRequest req) {
+        String path = pathOf(req);
+        if (isStaticResource(path)) {
+            // DEBUG 而非 WARN：扫描器与过期媒体链接都会打到这里，日志量由访问行承担（status=404）。
+            log.debug("静态资源不存在 {} {}", req.getMethod(), path);
+            return errorWriter.toBodylessResponse(HttpStatus.NOT_FOUND);
+        }
+        // 同样是 DEBUG：访问行已记 status=404 + code=SYSTEM_ENDPOINT_NOT_FOUND，可复盘、可按码统计。
+        log.debug("未映射的接口路径 {} {}", req.getMethod(), path);
+        return errorWriter.toResponse(ErrorCode.SYSTEM_ENDPOINT_NOT_FOUND);
+    }
+
+    /**
+     * 方法不匹配（405，`T56`）：路径命中、HTTP 方法不支持。
+     *
+     * <p>★ 必须保住 {@code Allow} 头：它由异常携带
+     * （{@link HttpRequestMethodNotSupportedException#getSupportedHttpMethods}），
+     * 若在这里新建一个"干净"的 {@code ResponseEntity} 就会**丢掉**它——客户端因此无法知道
+     * 该用哪个方法，而这正是 405 与 404 的全部区别。{@code FrameworkErrorContractTests} 钉住这条。
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex,
+                                                                     HttpServletRequest req) {
+        log.warn("请求方法不支持 {} {} -> {}", req.getMethod(), req.getRequestURI(), ex.getMessage());
+        HttpHeaders headers = new HttpHeaders();
+        if (ex.getSupportedHttpMethods() != null) {
+            headers.setAllow(ex.getSupportedHttpMethods());
+        }
+        return errorWriter.toResponse(ErrorCode.PARAM_METHOD_NOT_ALLOWED,
+                ErrorCode.PARAM_METHOD_NOT_ALLOWED.getMessage(), headers);
+    }
+
+    /**
+     * 媒体类型不支持（415，`T56`）：Spring 在读取 {@code @RequestBody} 时发现没有匹配的转换器。
+     *
+     * <p>★ 对外只给稳定文案：异常 message 里带着**客户端发来的** {@code Content-Type}
+     * （客户端可控字符串），它只进日志（出口统一脱敏），不许回显进 body。
+     *
+     * <p>{@code Accept} 头同理由异常携带（可接受类型），保住它客户端才知道该发什么。
+     */
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMediaTypeNotSupported(HttpMediaTypeNotSupportedException ex,
+                                                                        HttpServletRequest req) {
+        log.warn("Content-Type 不支持 {} {} -> {}", req.getMethod(), req.getRequestURI(), ex.getMessage());
+        HttpHeaders headers = new HttpHeaders();
+        if (ex.getSupportedMediaTypes() != null && !ex.getSupportedMediaTypes().isEmpty()) {
+            headers.setAccept(ex.getSupportedMediaTypes());
+        }
+        return errorWriter.toResponse(ErrorCode.PARAM_MEDIA_TYPE_UNSUPPORTED,
+                ErrorCode.PARAM_MEDIA_TYPE_UNSUPPORTED.getMessage(), headers);
+    }
+
+    /** 上下文路径已剥的请求路径（**未解码**，与 {@code RateLimitFilter#pathOf} 同口径）。 */
+    private static String pathOf(HttpServletRequest request) {
+        return request.getRequestURI().substring(request.getContextPath().length());
+    }
+
+    /**
+     * 该路径的 404 是否**不产信封**（静态服务 / 媒体文件）。
+     *
+     * @see #handleNoResource 为什么是两份清单而不是复用限流的跳过清单
+     */
+    private static boolean isStaticResource(String path) {
+        if (STATIC_EXACT.contains(path)) {
+            return true;
+        }
+        for (String prefix : STATIC_PREFIXES) {
+            if (path.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String defaultMessage(FieldError fe) {

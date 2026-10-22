@@ -131,9 +131,10 @@ class RateLimitWeightTableTests extends AbstractHttpIntegrationTest {
         //    扫描误判为"明文手机号"（未映射路径的 ERROR 行会落进 system.log——2026-10-16 实测）。
         ResponseEntity<String> resp = get("/no-such-page-t26-probe", null);
 
-        // ⚠️ 未映射路径本仓响应 500（NoResourceFoundException 落 catch-all 的既有行为）——
-        //    本用例不钉状态码，只钉"过闸 + 按兜底权重扣"（T25 同款口径）。
-        assertThat(resp.getStatusCode().value()).as("未被闸门拦下").isNotEqualTo(429);
+        // ★ **契约变更（T56，G8）**：未映射路径从 500 改为 **404 信封**（§2.1 / §三 #6）。
+        //    本用例仍**不钉**状态码之外的东西（只钉"过闸 + 按兜底权重扣"），
+        //    只需保证它不再是 429（既是未被闸门拦下，也是"响应形状不归本类管"）。
+        assertThat(resp.getStatusCode().value()).as("未被闸门拦下（过闸后 404，见 T56）").isEqualTo(404);
         assertThat(tokensOf(redis.opsForValue().get(ANON_KEY)))
                 .as("未登记路由必须落 default-base = 1，而不是 0（0 = 变相不限）")
                 .isEqualTo(SEED - 1, within(1e-9));

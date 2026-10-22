@@ -98,7 +98,7 @@ public class ApiErrorWriter {
      * 副作用：这类响应不产业务信封 ⇒ 访问日志记 {@code code=0}（"从未产生业务信封"哨兵），
      * 这正是该哨兵存在的场景。
      */
-    public ResponseEntity<Void> toBodylessResponse(HttpStatus status) {
+    public <T> ResponseEntity<T> toBodylessResponse(HttpStatus status) {
         return ResponseEntity.status(status).build();
     }
 
