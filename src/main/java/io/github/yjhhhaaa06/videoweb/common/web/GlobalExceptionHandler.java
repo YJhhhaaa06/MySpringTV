@@ -185,7 +185,13 @@ public class GlobalExceptionHandler {
      *
      * <p>⚠️ 与 {@code RateLimitFilter#isSkipped} 是**两份清单、两种语义**（"不计成本" vs
      * "不产信封"）：不合并，因为合并后改一处会静默改变另一处的行为。
-     * 离散风险由 {@code FrameworkErrorContractTests} 逐条路径覆盖。
+     *
+     * <p>⚠️ 判据为什么只能是**路径清单**（而不是"这条异常来自资源处理器"）：静态缺文件与
+     * 未映射的业务路径走的是**同一个** {@code /**} 资源处理器（这正是未映射一度变 500 的原因），
+     * 异常层拿不到任何区分信息。代价：新增资产目录要同步本清单，**漂移不会自己变红**——
+     * {@code FrameworkErrorContractTests} 只覆盖能造出 404 的三个入口（{@code /favicon.ico}、
+     * {@code /static/}、{@code /upload/}）；{@code /} 与 {@code /index.html} 在当前工程里存在（回 200），
+     * 无法用 404 覆盖。
      *
      * <p>{@code /actuator/**} **不在**本清单：它由独立的 {@code WebMvcEndpointHandlerMapping}
      * 处理，不会抛本异常。

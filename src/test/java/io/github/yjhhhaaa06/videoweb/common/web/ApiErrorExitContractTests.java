@@ -94,7 +94,8 @@ class ApiErrorExitContractTests extends AbstractHttpIntegrationTest {
         ResponseEntity<String> resp = post("/user/register",
                 Map.of("phone", "1", "username", "x", "password", "1"), null);
 
-        assertFailureEnvelope(resp, 400, ErrorCode.PARAM_INVALID);
+        // msg 是字段错误的拼接串（T57 起再补 errors[]），内容随校验规则变 ⇒ 只断言"非空"。
+        assertFailureEnvelope(resp, 400, ErrorCode.PARAM_INVALID, null);
         assertThat(Envelope.msg(resp)).as("校验失败的人读摘要（字段级定位归 T57 的 errors[]）").isNotBlank();
     }
 
@@ -105,8 +106,7 @@ class ApiErrorExitContractTests extends AbstractHttpIntegrationTest {
         // 判别力来自 RateLimitFilterContractTests：同一请求不消耗任何限流令牌。
         ResponseEntity<String> resp = post("/user/changePassword", Map.of(), null);
 
-        assertFailureEnvelope(resp, 401, ErrorCode.AUTH_UNAUTHORIZED);
-        assertThat(Envelope.msg(resp)).isEqualTo(ErrorCode.AUTH_UNAUTHORIZED.getMessage());
+        assertFailureEnvelope(resp, 401, ErrorCode.AUTH_UNAUTHORIZED, ErrorCode.AUTH_UNAUTHORIZED.getMessage());
     }
 
     @Test
@@ -116,7 +116,7 @@ class ApiErrorExitContractTests extends AbstractHttpIntegrationTest {
 
         ResponseEntity<String> resp = get("/start", null);
 
-        assertFailureEnvelope(resp, 429, ErrorCode.RATE_LIMITED);
+        assertFailureEnvelope(resp, 429, ErrorCode.RATE_LIMITED, ErrorCode.RATE_LIMITED.getMessage());
         assertThat(resp.getHeaders().getFirst(ApiErrorWriter.HEADER_RETRY_AFTER))
                 .as("429 必须带 Retry-After（秒）；丢了客户端只能盲猜退避节奏")
                 .isNotNull()
@@ -163,8 +163,14 @@ class ApiErrorExitContractTests extends AbstractHttpIntegrationTest {
 
     // ==================== 辅助 ====================
 
-    /** 断言"某出口的错误响应符合 §2.1 的失败体契约"。 */
-    private void assertFailureEnvelope(ResponseEntity<String> resp, int expectedStatus, ErrorCode expectedCode) {
+    /**
+     * 断言"某出口的错误响应符合 §2.1 的失败体契约"。
+     *
+     * @param expectedMsg 期望文案；{@code null} ⇒ 只要求非空（校验失败那种随输入变的摘要）。
+     *                    ★ 传具体中文文案的用例同时充当**编码守卫**：UTF-8 写错时取回的会是乱码。
+     */
+    private void assertFailureEnvelope(ResponseEntity<String> resp, int expectedStatus,
+                                       ErrorCode expectedCode, String expectedMsg) {
         assertThat(resp.getStatusCode().value()).isEqualTo(expectedStatus);
 
         MediaType contentType = resp.getHeaders().getContentType();
@@ -178,23 +184,37 @@ class ApiErrorExitContractTests extends AbstractHttpIntegrationTest {
                 .as("若声明 charset 就必须是 UTF-8，实际 %s", contentType).isTrue();
 
         JsonNode body = Envelope.parse(resp);
+        // ★ T57 会给 400 补 `errors[]`（§2.5）⇒ 届时本断言必须**按新契约扩展**为
+        //   "{code,msg} 或 {code,msg,errors}"（契约跟随 G8），**不许**放宽成"至少含 code/msg"
+        //   —— 那会让"多一个字段/改字段名"这类漂移重新变成不可见。
         assertThat(body.size()).as("失败体只有 code / msg 两个字段：%s", resp.getBody()).isEqualTo(2);
         assertThat(body.has("code")).isTrue();
         assertThat(body.has("msg")).isTrue();
         assertThat(Envelope.hasDataField(resp)).as("失败体不得出现 data（NON_NULL 的失败分支）").isFalse();
 
         assertThat(Envelope.code(resp)).isEqualTo(expectedCode.getCode());
-        assertThat(Envelope.msg(resp)).isNotBlank();
+        if (expectedMsg == null) {
+            assertThat(Envelope.msg(resp)).as("msg 是给人读的兜底文案（前端可覆盖）").isNotBlank();
+        } else {
+            assertThat(Envelope.msg(resp)).as("默认文案必须原样取回（同时是 UTF-8 编码守卫）")
+                    .isEqualTo(expectedMsg);
+        }
 
         assertThat(resp.getHeaders().getFirst("X-Request-Id"))
                 .as("错误响应必须带 X-Request-Id（%d 出口）", expectedStatus)
                 .matches(REQUEST_ID);
     }
 
-    /** 把两个桶写成"刚补充完、存量 0"——下一枚令牌要等 1/rate 秒（本类已把 rate 压到 1/s）。 */
+    /**
+     * 把两个桶写成**负余额**——不是"恰好 0"。
+     *
+     * <p>★ 为什么是 {@code -30}：放行判据是"补充后 ≥ cost"，本类补充速率已压到 1 枚/秒
+     * ⇒ 存量 0 只给 **1 秒**预算，冷 JIT / CI 抖动一下就补满 1 枚、请求被放行成 200（偶发红）。
+     * 负余额把预算拉到 30 秒，且"被拒"这件事仍在业务口径内（令牌桶允许为负，折扣扣费也按负值算）。
+     */
     private void seedEmptyBuckets() {
         String now = String.valueOf(System.currentTimeMillis());
-        redis.opsForValue().set(ANON_KEY, "0.0:" + now);
-        redis.opsForValue().set(SERVER_KEY, "0.0:" + now);
+        redis.opsForValue().set(ANON_KEY, "-30.0:" + now);
+        redis.opsForValue().set(SERVER_KEY, "-30.0:" + now);
     }
 }

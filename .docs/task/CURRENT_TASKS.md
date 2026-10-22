@@ -33,8 +33,8 @@
 * ★ **顺序纪律（本专项特有）**：`T54` → `T55`/`T56`/`T57`（错误面）→ `T58`/`T59`（路由面 / 载荷面）→
   `T60` → `T61` → `T62`。**码表不定就改码 = 改两遍；路径不定就改形状 = 前端映射表重写两次。**
   路由一改，限流权重表（键是 `"[POST /x]"`）、安全契约测试、前端调用点**必须同一 commit 跟上**。
-* **回归基线**（2026-10-22，**`T56` 后复跑** `mvnw -o test`）：全量 **817/817 绿**（808 + `T56` 新增 9 例：
-  `ApiErrorExitContractTests` 5 + `FrameworkErrorContractTests` 4）。
+* **回归基线**（2026-10-22，**`T56` 后复跑** `mvnw -o test`）：全量 **818/818 绿**（808 + `T56` 新增 10 例：
+  `ApiErrorExitContractTests` 5 + `FrameworkErrorContractTests` 5）。
   ⚠️ 本环境跑全量需 `DB_POOL_MAX_SIZE=4`（否则 Testcontainers MySQL 报 `Too many connections`）。
 * ★ **本专项不动 schema**（纯 HTTP 层）⇒ 不产生 Flyway 迁移；若执行中发现必须动表，先停下登记 `I-##`。
 
@@ -177,7 +177,10 @@
   未映射路径 = **404 信封**；405 / 415 有码可查；反向验证：抽掉 writer 委托 ⇒ 三条用例必红。
   ⚠️ 执行期裁定（G13）：字面上的"同一错误场景从三个出口各触发一次"不可满足（一条错误只由一个出口产出）
   ⇒ 按"**同一条合法骨架**"验收：三条出口各取一个码（400 / 401 / 429），字段集 / 字段顺序 / 无 `data` /
-  内容类型 / `X-Request-Id` 完全一致；"逐字节相等"只在同码同文案时有意义。
+  `X-Request-Id` 完全一致，内容类型同为 `application/json`（⚠️ **charset 声明可以不同**：servlet 通道
+  显式 `setCharacterEncoding` ⇒ `application/json;charset=UTF-8`，MVC 通道走 Jackson 转换器按
+  RFC 8259 省略 charset —— 这是两条通道的**既有差异**，不属本任务要拉平的面）；"逐字节相等"只在
+  同码同文案时有意义。
 * **回写**：交付 `common/web/ApiErrorWriter`（状态 + 信封 + 头 + 内容类型 + 业务码属性的**唯一**写出点：
   MVC 走 `toResponse`、过滤器走 `write`，两条通道不各自拼装字段），三处出口全部委托、**链序未动**
   （401/403 仍由 `JwtAuthFilter` 在 servlet 前短路）；`NoResourceFoundException` / 405 / 415 这三个
@@ -186,18 +189,27 @@
   未映射路径 = **404 信封**，静态资源与 `/upload/**` 缺文件 = **404 无体**（不产信封 ⇒ 访问行 `code=0`），
   405 复制 `Allow`、415 复制 `Accept` 且**不回显**客户端发来的类型。
   契约由 `ApiErrorExitContractTests`（5 例：三出口骨架 = `{code,msg}` / 无 data / JSON 内容类型 /
-  `X-Request-Id`；429 用"空桶 + 1 枚/秒补充"可复算触发）+ `FrameworkErrorContractTests`
-  （4 例：404 信封 / 静态与媒体无体 + 访问行 `code=0` / `Allow` / `Accept` 且不回显）钉住；
+  `X-Request-Id`；429 用"**负余额** + 1 枚/秒补充"可复算触发——存量 0 只有 1 秒预算，慢机器上会偶发放行）
+  + `FrameworkErrorContractTests`（5 例：404 信封 / 静态与媒体无体 + 访问行 `code=0` / `Allow` /
+  `Accept` 且不回显 / **受保护端点的 415 仍先 401**）钉住；
   两条既有用例按契约变更改断言（G8：`RateLimitFilterContractTests` / `RateLimitWeightTableTests` 的
   "未映射 = 500"→404，注释写明依据与变更点）。全量回归 **817/817 绿**。
-  反向验证三次全真红：① `JwtAuthFilter` 自拼装信封（多一个字段）⇒ 骨架用例 + charset 用例红
-  （顺手证明"手写 `setContentType` 会丢 UTF-8 声明"）；② 摘掉 `@ExceptionHandler(NoResourceFoundException)`
-  ⇒ 未映射与静态两例回到 500；③ 静态豁免失效 + 不复制 `Allow` ⇒ 两例红（媒体 404 变成
-  `SYSTEM_ENDPOINT_NOT_FOUND` 信封）。
-  ⚠️ **已知代价（已写进 `接口契约.md` §2.1 末注）**：① **405/415 匿名可见**——鉴权用
-  `RequestMappingLookup`，而"路径命中但方法/类型不匹配"要在路由层才抛（lookup 见异常即按未映射放行），
-  泄露面仅"路径存在、接受什么"，不含内容；② 容器级 `/error` dispatch 不在三出口内（当前不可达：
-  过滤器链上除已捕获的 `BusinessException` 外不主动抛错）。
+  反向验证三次：① `JwtAuthFilter` **自拼装出一个形状不同的**信封（多一个 `trace` 字段）⇒ 骨架用例 +
+  charset 用例红（顺手证明"手写 `setContentType` 会丢 UTF-8 声明"）；② 摘掉
+  `@ExceptionHandler(NoResourceFoundException)` ⇒ 未映射与静态两例回到 500；③ 静态豁免失效 +
+  不复制 `Allow` ⇒ 两例红（媒体 404 变成 `SYSTEM_ENDPOINT_NOT_FOUND` 信封）。
+  ⚠️ **如实更正一句过奖的表述**：「抽掉 writer 委托 ⇒ 必红」**不成立**——把委托换回"同样正确"的
+  手写体（同一 `ObjectMapper` + 同一 `ApiResponse.error`）产物逐字节相同，HTTP 断言原理上看不见。
+  测试钉住的是**形状**，"唯一写出口"是结构属性（由本任务的分工与 review 保证，不靠 HTTP 用例）。
+  真正会红的是"形状偏离"，这正是三次注入所证明的。
+  ⚠️ **已知代价（已写进 `接口契约.md` §2.1 末注）**：① **405 匿名可见，415 不可见**——
+  差别在**时机**：`RequestMappingLookup` 对"路径命中、方法不匹配"直接抛异常 ⇒ 按未映射放行 ⇒
+  匿名也能看到 405；415 发生在处理器解析**之后**（读 body 时才找转换器）⇒ 受保护端点仍先 401
+  （review 指出初稿把两者并列写错，已改并补用例钉住：`受保护端点的415仍先401`）；
+  ② 容器级 `/error` dispatch 不在三出口内（初稿写"不可达"也过头了：`GET /error` 是一个
+  `@Controller` 端点、`Accept` 不接受 JSON 时写出会失败 ⇒ 都退回 Boot 默认体）；
+  ③ 静态/媒体的"无信封"判定只能是**路径清单**——静态缺文件与未映射走的是同一个 `/**` 资源处理器，
+  异常层无从区分；新增资产目录要同步清单，**漂移不会自己变红**。
   ⚠️ **未做（归后任务）**：`static/js/api.js` 顶部注释"唯一无信封的错误：未识别路径…"**已过时**
   （现在未映射有信封、无信封的只剩静态/媒体 404）—— 属 `T61` 的前端适配面，本任务不动前端。
 

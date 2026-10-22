@@ -135,6 +135,21 @@ class FrameworkErrorContractTests extends AbstractHttpIntegrationTest {
         assertThat(resp.getHeaders().getFirst("X-Request-Id")).isNotNull();
     }
 
+    @Test
+    @DisplayName("★ 受保护端点收到错误 Content-Type 仍先 401：415 **不是**匿名可见（与 405 不同）")
+    void 受保护端点的415仍先401() {
+        // 判别力：若把"方法/类型不匹配"也当成"未映射"放行到路由层（405 就是这样），
+        // 这里会变成 415 —— 那会把"这条受保护路径接受什么类型"泄露给匿名者。
+        // 415 的时机在处理器解析**之后**（RequestMappingLookup 已返回 HandlerMethod ⇒ 默认拒绝生效）。
+        ResponseEntity<String> resp = send(spec -> spec.uri("/user/changePassword")
+                .contentType(MediaType.TEXT_PLAIN)
+                .body("x"));
+
+        assertThat(resp.getStatusCode().value())
+                .as("受保护端点：鉴权先于 Content-Type 判定").isEqualTo(401);
+        assertThat(Envelope.code(resp)).isEqualTo("AUTH_UNAUTHORIZED");
+    }
+
     /** 轮询访问行（同 RateLimitFilterContractTests 手法：文件写入与响应之间有毫秒级竞态）。 */
     private String awaitAccessLine(String path) {
         return access.awaitLine(

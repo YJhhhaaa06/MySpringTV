@@ -268,9 +268,10 @@ public enum ErrorCode {
     /**
      * 请求过于频繁（429），响应带 {@code Retry-After}。
      *
-     * <p>⚠️ 实际出口**不看本枚举的 status**：限流发生在过滤器链上（{@code DispatcherServlet} 之前），
-     * {@code @RestControllerAdvice} 覆盖不到 ⇒ 由 {@code RateLimitFilter} 自写信封 + 头。
-     * 本项是**对外契约的声明**与过滤器取值的唯一来源。
+     * <p>⚠️ 实际出口是 {@code RateLimitFilter}（限流发生在过滤器链上、{@code DispatcherServlet} 之前，
+     * {@code @RestControllerAdvice} 覆盖不到），但**形状不由它拼**：{@code T56} 起它与 advice、
+     * {@code JwtAuthFilter} 一样委托 {@code common.web.ApiErrorWriter}（信封 / 内容类型 / 头一处出）。
+     * 本项是**对外契约的声明**与三处出口取值的唯一来源。
      */
     RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "请求过于频繁"),
 

@@ -289,8 +289,8 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
             hitSkippedAndAssertUntouched("/static/css/common.css");
             hitSkippedAndAssertUntouched("/actuator/health");
             hitSkippedAndAssertUntouched("/upload/" + UPLOAD_PROBE);
-            // /favicon.ico：文件不存在 ⇒ NoResourceFoundException ⇒ 本仓当前经 catch-all 变 500——
-            // 那是既有错误处理行为，与本任务无关；此处只证一件事：不耗令牌。
+            // /favicon.ico：文件不存在 ⇒ NoResourceFoundException ⇒ T56 起回 **404 无体**
+            // （静态资源不产信封，见 GlobalExceptionHandler#handleNoResource）；此处只证一件事：不耗令牌。
             hitSkippedAndAssertUntouched("/favicon.ico");
         } catch (IOException e) {
             throw new UncheckedIOException(e);

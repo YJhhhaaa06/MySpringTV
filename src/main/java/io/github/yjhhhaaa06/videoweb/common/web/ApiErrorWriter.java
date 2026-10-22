@@ -126,6 +126,9 @@ public class ApiErrorWriter {
                       ErrorCode errorCode, String msg, HttpHeaders extraHeaders) throws IOException {
         request.setAttribute(AccessLogFilter.ATTR_BUSINESS_CODE, errorCode.getCode());
         response.setStatus(errorCode.getStatus().value());
+        // ★ addHeader（不是 setHeader）与改造前 429 的 setHeader 等价 —— **前提是每个响应只走一次**
+        //   （两个过滤器都是"写完立即 return"）。若将来有人在同一次响应里调两次 write，
+        //   Retry-After 会重复出现（客户端取第一个），那时必须改成 setHeader。
         extraHeaders.forEach((name, values) -> values.forEach(value -> response.addHeader(name, value)));
         response.setContentType(CONTENT_TYPE.toString());
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
