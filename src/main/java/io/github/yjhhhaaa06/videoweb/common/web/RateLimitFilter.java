@@ -7,7 +7,6 @@ import io.github.yjhhhaaa06.videoweb.common.cache.RateLimitRedisOps;
 import io.github.yjhhhaaa06.videoweb.common.cache.RateLimitScriptException;
 import io.github.yjhhhaaa06.videoweb.common.config.RateLimitProperties;
 import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
-import io.github.yjhhhaaa06.videoweb.common.log.AccessLogFilter;
 import io.github.yjhhhaaa06.videoweb.common.security.JwtAuthFilter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -15,10 +14,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.annotation.Order;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
-import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.util.List;
@@ -53,11 +50,11 @@ import java.util.Set;
  * （429 掉视频文件与 429 掉 CSS 是同一类事故），登记 {@code I-19}；
  * 业务上传端点是 {@code POST /api/upload/*}，与本前缀零交集，不受影响。
  *
- * <h2>★ 429 出口：与 {@code JwtAuthFilter#writeError} 同款形态</h2>
- * 过滤器在 DispatcherServlet 之前，{@code @RestControllerAdvice} 覆盖不到 ⇒ 自写
- * {@link ApiResponse}；并**补记** {@link AccessLogFilter#ATTR_BUSINESS_CODE}——否则 429 的
- * 访问行记成 {@code code=0}，与静态资源混为一谈，访问日志三态塌成两态。
- * 另带 {@code Retry-After} 响应头（秒，向上取整；令牌桶天生知道自己何时补齐）。
+ * <h2>★ 429 出口：形状委托 {@link ApiErrorWriter}</h2>
+ * 过滤器在 DispatcherServlet 之前，{@code @RestControllerAdvice} 覆盖不到 ⇒ 必须在过滤器内写响应；
+ * 但**产物形状不在这里拼**（{@code T56}）：信封、内容类型、业务码属性补记、以及
+ * {@code Retry-After}（秒，向上取整；令牌桶天生知道自己何时补齐）一律交给
+ * {@link ApiErrorWriter#write}——否则"加一个错误字段要改三处、漏一处不会有测试变红"。
  *
  * <h2>★ fail-open：两种失败都放行，但日志分两档</h2>
  * Redis 不可达 / 熔断打开（{@code guarded} 快速失败）⇒ **放行**（可用性优先，
@@ -119,21 +116,19 @@ public class RateLimitFilter extends OncePerRequestFilter {
      */
     private static final List<String> SKIP_PREFIXES = List.of("/static/", "/actuator/", "/upload/");
 
-    private static final String HEADER_RETRY_AFTER = "Retry-After";
-
     private final RateLimitProperties properties;
     private final RateLimitRedisOps ops;
     private final RateLimitMetrics metrics;
-    private final ObjectMapper objectMapper;
+    private final ApiErrorWriter errorWriter;
 
     public RateLimitFilter(RateLimitProperties properties,
                            RateLimitRedisOps ops,
                            RateLimitMetrics metrics,
-                           ObjectMapper objectMapper) {
+                           ApiErrorWriter errorWriter) {
         this.properties = properties;
         this.ops = ops;
         this.metrics = metrics;
-        this.objectMapper = objectMapper;
+        this.errorWriter = errorWriter;
     }
 
     @Override
@@ -333,17 +328,16 @@ public class RateLimitFilter extends OncePerRequestFilter {
     }
 
     /**
-     * 429 短路出口（{@code JwtAuthFilter#writeError} 同款：自写信封 + 补记业务码属性，
-     * 理由见类注释「429 出口」）。另带 {@code Retry-After} 头（秒；放行路径不写此头）。
+     * 429 短路出口：状态、信封、{@code Retry-After} 与业务码属性**全部**委托
+     * {@link ApiErrorWriter}（{@code T56} 起形状只有一份）。
+     *
+     * <p>本方法剩下的唯一语义是"用 {@link ErrorCode#RATE_LIMITED} + 桶算出的秒数"——
+     * 也就是"限流器拒绝时对外说什么"，而不是"怎么说"。
      */
     private void writeTooManyRequests(HttpServletRequest request,
                                       HttpServletResponse response,
                                       long retryAfterSeconds) throws IOException {
-        request.setAttribute(AccessLogFilter.ATTR_BUSINESS_CODE, ErrorCode.RATE_LIMITED.getCode());
-        response.setStatus(ErrorCode.RATE_LIMITED.getStatus().value());
-        response.setHeader(HEADER_RETRY_AFTER, String.valueOf(retryAfterSeconds));
-        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        response.setCharacterEncoding("UTF-8");
-        objectMapper.writeValue(response.getWriter(), ApiResponse.error(ErrorCode.RATE_LIMITED));
+        errorWriter.write(request, response, ErrorCode.RATE_LIMITED,
+                ErrorCode.RATE_LIMITED.getMessage(), ApiErrorWriter.retryAfter(retryAfterSeconds));
     }
 }

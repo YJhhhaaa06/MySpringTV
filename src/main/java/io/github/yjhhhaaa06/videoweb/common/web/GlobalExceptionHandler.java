@@ -7,7 +7,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DuplicateKeyException;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
@@ -29,8 +28,9 @@ import java.util.stream.Collectors;
  * {@code HttpStatus.resolve(code)} —— 那正是"码与状态重复"的旧形态。
  *
  * <p>⚠️ 本类只管**进了 {@code DispatcherServlet} 之后的**错误。过滤器链上的 401/403/429
- * 在 servlet 之前短路（{@code JwtAuthFilter#writeError} / {@code RateLimitFilter#writeTooManyRequests}），
- * advice 覆盖不到；三处的信封形状由 {@code T56} 收敛为同一个 writer，**链序不变**。
+ * 在 servlet 之前短路（{@code JwtAuthFilter} / {@code RateLimitFilter}），advice 覆盖不到；
+ * 三处的信封形状已由 {@link ApiErrorWriter} 收敛为**同一份**，**链序不变**。
+ * 本类只决定"哪个异常归哪个码"，不再拼装 status / body / 头。
  *
  * <p>注意：Spring Security **不接管授权**（F-01/F-02 于 2026-10-18 拍板不迁），
  * 因此没有 {@code AuthenticationEntryPoint}/{@code AccessDeniedHandler} 需要对齐。
@@ -43,6 +43,12 @@ import java.util.stream.Collectors;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    private final ApiErrorWriter errorWriter;
+
+    public GlobalExceptionHandler(ApiErrorWriter errorWriter) {
+        this.errorWriter = errorWriter;
+    }
+
     /**
      * 业务异常：状态与码都来自异常携带的 {@link ErrorCode}。
      *
@@ -54,8 +60,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleBusiness(BusinessException ex, HttpServletRequest req) {
         log.warn("业务异常 {} {} -> code={}, msg={}",
                 req.getMethod(), req.getRequestURI(), ex.getCode(), ex.getMessage());
-        return ResponseEntity.status(ex.getStatus())
-                .body(ApiResponse.error(ex.getCode(), ex.getMessage()));
+        return errorWriter.toResponse(ex.getErrorCode(), ex.getMessage());
     }
 
     /**
@@ -71,9 +76,8 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleBusy(ServiceBusyException ex, HttpServletRequest req) {
         log.warn("服务繁忙 {} {} -> code={}, retryAfter={}s, msg={}",
                 req.getMethod(), req.getRequestURI(), ex.getCode(), ex.getRetryAfterSeconds(), ex.getMessage());
-        return ResponseEntity.status(ErrorCode.SYSTEM_UNAVAILABLE.getStatus())
-                .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()))
-                .body(ApiResponse.error(ex.getCode(), ex.getMessage()));
+        return errorWriter.toResponse(ex.getErrorCode(), ex.getMessage(),
+                ApiErrorWriter.retryAfter(ex.getRetryAfterSeconds()));
     }
 
     /**
@@ -90,8 +94,7 @@ public class GlobalExceptionHandler {
                 .map(fe -> fe.getField() + ": " + defaultMessage(fe))
                 .collect(Collectors.joining("; "));
         log.warn("参数校验失败 {} {} -> {}", req.getMethod(), req.getRequestURI(), detail);
-        return ResponseEntity.badRequest()
-                .body(ApiResponse.error(ErrorCode.PARAM_INVALID.getCode(), detail));
+        return errorWriter.toResponse(ErrorCode.PARAM_INVALID, detail);
     }
 
     /**
@@ -113,7 +116,7 @@ public class GlobalExceptionHandler {
         // 故此处**不**在调用点手写脱敏（否则就是两套机制、两处要维护）。
         // ★ 响应体**只给稳定文案**：异常 message 可能含入参回显，不许进 body。
         log.warn("请求参数错误 {} {} -> {}", req.getMethod(), req.getRequestURI(), ex.getMessage());
-        return ResponseEntity.badRequest().body(ApiResponse.error(ErrorCode.PARAM_INVALID));
+        return errorWriter.toResponse(ErrorCode.PARAM_INVALID);
     }
 
     /**
@@ -128,8 +131,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleDuplicateKey(DuplicateKeyException ex,
                                                                 HttpServletRequest req) {
         log.warn("唯一键冲突 {} {} -> {}", req.getMethod(), req.getRequestURI(), ex.getMostSpecificCause().getMessage());
-        return ResponseEntity.status(ErrorCode.SYSTEM_DUPLICATE_KEY.getStatus())
-                .body(ApiResponse.error(ErrorCode.SYSTEM_DUPLICATE_KEY));
+        return errorWriter.toResponse(ErrorCode.SYSTEM_DUPLICATE_KEY);
     }
 
     /**
@@ -139,16 +141,14 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(DataAccessException.class)
     public ResponseEntity<ApiResponse<Void>> handleDataAccess(DataAccessException ex, HttpServletRequest req) {
         log.error("数据访问异常 {} {}", req.getMethod(), req.getRequestURI(), ex);
-        return ResponseEntity.status(ErrorCode.SYSTEM_DATABASE.getStatus())
-                .body(ApiResponse.error(ErrorCode.SYSTEM_DATABASE));
+        return errorWriter.toResponse(ErrorCode.SYSTEM_DATABASE);
     }
 
     /** 兜底：未预期异常一律 500，且不把内部细节泄露到响应体。 */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleUnexpected(Exception ex, HttpServletRequest req) {
         log.error("未预期异常 {} {}", req.getMethod(), req.getRequestURI(), ex);
-        return ResponseEntity.status(ErrorCode.SYSTEM_INTERNAL.getStatus())
-                .body(ApiResponse.error(ErrorCode.SYSTEM_INTERNAL));
+        return errorWriter.toResponse(ErrorCode.SYSTEM_INTERNAL);
     }
 
     private static String defaultMessage(FieldError fe) {

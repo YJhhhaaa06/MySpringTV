@@ -2,16 +2,13 @@ package io.github.yjhhhaaa06.videoweb.common.security;
 
 import io.github.yjhhhaaa06.videoweb.common.exception.BusinessException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
-import io.github.yjhhhaaa06.videoweb.common.log.AccessLogFilter;
-import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
-import tools.jackson.databind.ObjectMapper;
+import io.github.yjhhhaaa06.videoweb.common.web.ApiErrorWriter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.annotation.Order;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -48,7 +45,8 @@ import java.io.IOException;
  * {@code 安全与鉴权-已知代价.md}。
  *
  * <p><b>为何不用 {@code @ControllerAdvice} 处理这里的异常</b>：过滤器在 DispatcherServlet 之前，
- * advice 覆盖不到。故本类自行书写错误响应（唯一一处），控制器层异常仍统一走
+ * advice 覆盖不到。故本类在过滤器内短路，但**产物形状委托** {@code common.web.ApiErrorWriter}
+ * （与 advice、限流器共用同一份信封与头口径）；控制器层异常仍统一走
  * {@code GlobalExceptionHandler}。
  */
 @Slf4j
@@ -74,16 +72,16 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
     private final AdminChecker adminChecker;
-    private final ObjectMapper objectMapper;
+    private final ApiErrorWriter errorWriter;
     private final RequestMappingLookup mappingLookup;
 
     public JwtAuthFilter(JwtService jwtService,
                          AdminChecker adminChecker,
-                         ObjectMapper objectMapper,
+                         ApiErrorWriter errorWriter,
                          RequestMappingLookup mappingLookup) {
         this.jwtService = jwtService;
         this.adminChecker = adminChecker;
-        this.objectMapper = objectMapper;
+        this.errorWriter = errorWriter;
         this.mappingLookup = mappingLookup;
     }
 
@@ -153,15 +151,16 @@ public class JwtAuthFilter extends OncePerRequestFilter {
      *
      * <p><b>为什么要顺手记业务码</b>（第三批 T2）：访问日志的 {@code code} 字段来自
      * {@code BusinessCodeAdvice}，而 advice 只对**经过 DispatcherServlet** 的响应生效——
-     * 本过滤器在 DispatcherServlet **之前**短路（401/403 根本到不了控制器）。若不在此处补记，
+     * 本过滤器在 DispatcherServlet **之前**短路（401/403 根本到不了控制器）。若不补记，
      * 鉴权拒绝的访问行会记成 {@code code=0}，与"静态资源"混为一谈，访问日志的三态就塌成两态。
+     * 该补记已收进 {@link ApiErrorWriter#write}（三条出口同款），本类不再自己动响应的任何字段。
      *
-     * <p>★ {@code T55} 起状态与码同源于 {@link ErrorCode}，不再 {@code HttpStatus.resolve}：
-     * 旧的 {@code int code} 既能当状态又能当码，正是"两层信息重复"的根。
+     * <p>★ {@code T55} 起状态与码同源于 {@link ErrorCode}；{@code T56} 起形状与头同源于
+     * {@link ApiErrorWriter}：本类只负责"在过滤器内短路"这个**时机**，不负责产物形状。
      */
     private void writeError(HttpServletRequest request, HttpServletResponse response, ErrorCode errorCode)
             throws IOException {
-        writeError(request, response, errorCode, errorCode.getMessage());
+        errorWriter.write(request, response, errorCode);
     }
 
     /**
@@ -169,10 +168,6 @@ public class JwtAuthFilter extends OncePerRequestFilter {
      */
     private void writeError(HttpServletRequest request, HttpServletResponse response,
                             ErrorCode errorCode, String msg) throws IOException {
-        request.setAttribute(AccessLogFilter.ATTR_BUSINESS_CODE, errorCode.getCode());
-        response.setStatus(errorCode.getStatus().value());
-        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        response.setCharacterEncoding("UTF-8");
-        objectMapper.writeValue(response.getWriter(), ApiResponse.error(errorCode.getCode(), msg));
+        errorWriter.write(request, response, errorCode, msg);
     }
 }

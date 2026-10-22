@@ -2,6 +2,7 @@ package io.github.yjhhhaaa06.videoweb.common.security;
 
 import io.github.yjhhhaaa06.videoweb.common.config.JwtProperties;
 import io.github.yjhhhaaa06.videoweb.common.log.AccessLogFilter;
+import io.github.yjhhhaaa06.videoweb.common.web.ApiErrorWriter;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -46,13 +47,15 @@ class JwtAuthFilterAuthzTests {
     /** 只有 {@link #ADMIN_ID} 是管理员 —— 与 {@code users.role == 1} 同义。 */
     private final AdminChecker adminChecker = userId -> userId == ADMIN_ID;
     private final ObjectMapper objectMapper = JsonMapper.builder().build();
+    /** `T56`：错误信封形状的唯一写出点（本类只关心 401/403 的分工，但仍要给出真实协作者）。 */
+    private final ApiErrorWriter errorWriter = new ApiErrorWriter(objectMapper);
     private static final Probe PROBE = new Probe();
 
     /** 用桩处理器构造过滤器：路径写死为 {@code /probe}，**故意不在 {@code /api/admin} 下**。 */
     private JwtAuthFilter filterFor(String probeMethod) throws NoSuchMethodException {
         Method method = Probe.class.getMethod(probeMethod);
         HandlerMapping stub = request -> new HandlerExecutionChain(new HandlerMethod(PROBE, method));
-        return new JwtAuthFilter(jwtService, adminChecker, objectMapper, new RequestMappingLookup(stub));
+        return new JwtAuthFilter(jwtService, adminChecker, errorWriter, new RequestMappingLookup(stub));
     }
 
     private Outcome call(JwtAuthFilter filter, String token) throws Exception {
