@@ -86,6 +86,22 @@ public final class CacheKeys {
     }
 
     /**
+     * 内容**播放量**：{@code content:playCount:{id}}（String int，按人去重，只增）。
+     *
+     * <p>★ 与评论数同形：**content 域自持**（值就是本域 {@code content.play_count} 列），
+     * 回源 / 回填 / 失效都在 {@code ContentCountCache}，**不经任何跨域转发**——
+     * 历史域只声明"这条内容的播放量变了"（{@code PlayCountChangedEvent}），
+     * 内容域的 {@code PlayCountChangedListener} 自己决定怎么写（口径见
+     * {@code architecture/domain/history/history.md} §五）。
+     *
+     * <p>★ <b>刻意无空标记</b>（口径同 {@link #contentCommentCount(long)}）：{@code 0} 是合法值
+     * （没人播过的视频真实存在），必须与"key 不存在"靠 {@code GET} 返回 {@code null} / {@code "0"} 区分。
+     */
+    public static String contentPlayCount(long contentId) {
+        return "content:playCount:" + contentId;
+    }
+
+    /**
      * 内容类型分区索引：{@code content:index:{type}:{categoryId}}（LIST）。
      *
      * <p>{@code -1} 表示通配维度（推荐接口 type/category 为空时的归一）。
@@ -319,5 +335,28 @@ public final class CacheKeys {
     /** 服务器桶（全局单桶）：{@code ratelimit:server}——"单实例整体还能接多少活"。 */
     public static String rateLimitServer() {
         return "ratelimit:server";
+    }
+
+    // ==================== 播放记录上报缓冲（HistoryReportBuffer，R-19 / T51-1） ====================
+
+    /**
+     * 脏用户集合：{@code history:dirty}（ZSET，member = userId，score = 最后一次上报的
+     * {@code serverReceiveTs} 毫秒）。
+     *
+     * <p>★ 选 ZSET 而不是"扫 hash 判 mtime"：{@code HTTL} 拿不到"最后一次写"，{@code HGETALL}
+     * 全库扫是 O(用户数)；ZSET 一条 {@code ZRANGEBYSCORE -inf (now-W) LIMIT n} 同时回答
+     * "谁脏"与"谁够闲"（{@code history-上报缓冲.md} §2）。
+     */
+    public static final String HISTORY_DIRTY = "history:dirty";
+
+    /**
+     * 单个用户的上报缓冲：{@code history:report:{userId}}（HASH，field = contentId，
+     * value = {@code "{progress}:{serverReceiveTs}"}）。
+     *
+     * <p>★ 键字符串同 {@code content:*} 一样是**冻结契约**：测试里硬编码形状，
+     * 让"改名导致缓冲失联"无法静默发生。
+     */
+    public static String historyReport(long userId) {
+        return "history:report:" + userId;
     }
 }

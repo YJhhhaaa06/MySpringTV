@@ -77,7 +77,7 @@ V1 一旦在任一库上被应用，就写进了该库的 `flyway_schema_history
 
 **结论**：V1 是**冻结**的。它是一份"已经发生过的历史"，不是可以被编辑的当前状态。
 
-### 2.3 增量演进：逐版本新增（当前已应用到 V5）
+### 2.3 增量演进：逐版本新增（当前已应用到 V8）
 
 要改结构，**新增一个版本号更高的脚本**，绝不回写 V1：
 
@@ -88,7 +88,10 @@ db/migration/
 ├── V3__backfill_favorite_count.sql   ← 已应用（2026-10-12 收藏二期 T12）：**只改数据、不改结构**
 ├── V4__watch_later.sql               ← 已应用（2026-10-14 收藏三期 T17）：稍后再看建表
 ├── V5__coin.sql                      ← 已应用（2026-10-19 投币 T36）：`content_coin` + 三列
-└── V6__<描述>.sql                    ← 下一次演进写这里（编号递增，绝不回写 V1~V5）
+├── V6__watch_history.sql             ← 已应用（2026-10-21 播放记录 T45）：`watch_history` + 两列
+├── V7__drop_legacy_video.sql         ← 已应用（2026-10-21 播放记录 T45）：删遗留 `video` / `videoinfo`
+├── V8__watch_history_list_index.sql  ← 已应用（2026-10-21 播放记录 T50）：换 `watch_history` 列表索引
+└── V9__<描述>.sql                    ← 下一次演进写这里（编号递增，绝不回写 V1~V8）
 ```
 
 - V2 在**所有环境**都会被执行（活库：V1 已应用 ⇒ 只有 V2 是新的，会真正跑；空库：V1→V2 顺序跑完）。
@@ -100,6 +103,16 @@ db/migration/
 - ★ **现状更新（2026-10-12）**：收藏二期 T12 又落了 **`V3__backfill_favorite_count.sql`**（数据迁移，见 §四）。
 - ★ **现状更新（2026-10-19）**：投币专项 T36 落了 **`V5__coin.sql`**（`content_coin` 建表 + `users` 两列 +
   `content.coin_count`，见 §四）⇒ **下一次演进走 V6**；V2 / V3 / V4 / V5 同 V1 一样**逐字节冻结**。
+- ★ **现状更新（2026-10-21）**：播放记录专项 T45 一次落了两版 —— **`V6__watch_history.sql`**
+  （`watch_history` 建表 + `content_media.duration_seconds` + `content.play_count`）与
+  **`V7__drop_legacy_video.sql`**（删遗留 `video` / `videoinfo`）⇒ **下一次演进走 V8**。
+  ★ 删表**单独一版**是刻意的：DROP 不可逆，与建表混在一个文件里会让回滚粒度变成"全做或全不做"，
+  而两件事的风险等级完全不同。V1 里那两条 `CREATE TABLE … IF NOT EXISTS video/videoinfo`
+  **不改**（冻结）—— 空库终态由"V1 建、V7 删"共同决定，最终仍是 18 张业务表。
+- ★ **现状更新（2026-10-21，T50）**：**`V8__watch_history_list_index.sql`** 落了列表索引替换
+  （`idx_user_update` → `idx_user_update_content` 覆盖复合索引）⇒ **下一次演进走 V9**。
+  ★ 它是**非结构性**的一版（不动表/列、表计数不变），单独一版是为了让"查询计划优化"有独立的
+  回滚与审计粒度；动机 / 基线 / 代价见 [history.md §二·§7.1](../../domain/history/history.md)。
 
 ⚠️ **V5 落地时活库路径的特殊之处**：三条 `ALTER TABLE … ADD COLUMN` 是裸语句（MySQL 8.0 不支持
 `ADD COLUMN IF NOT EXISTS`），只由 Flyway 应用一次；落笔前已用 `information_schema` 复核活库
@@ -198,9 +211,11 @@ registry.add("video.upload.root", AbstractIntegrationTest::testMediaRoot); // �
 ## 四、表结构总览
 
 V1 共定义 **15 张业务表**，V2 再增 **2 张**（收藏一期），V4 再增 **1 张**（收藏三期 T17 稍后再看），
-V5 再增 **1 张**（投币 T36 `content_coin`）+ **3 列**（`users.coin_deci` / `users.last_sign_date` / `content.coin_count`）；
+V5 再增 **1 张**（投币 T36 `content_coin`）+ **3 列**（`users.coin_deci` / `users.last_sign_date` / `content.coin_count`），
+V6 再增 **1 张**（播放记录 T45 `watch_history`）+ **2 列**（`content_media.duration_seconds` / `content.play_count`），
+V7 **减 2 张**（删遗留 `video` / `videoinfo`），V8 **不动表 / 列**（只换 `watch_history` 的列表索引）；
 **当前**活库/测试库的 `information_schema`
-（`table_type='BASE TABLE'`）计数 = **20** = 19 张业务表 + 1 张 Flyway 元表 `flyway_schema_history`
+（`table_type='BASE TABLE'`）计数 = **19** = 18 张业务表 + 1 张 Flyway 元表 `flyway_schema_history`
 （与 `InfrastructureConnectivityTests` 的断言一致）。按归属域列出（归属判据见 [模块边界与依赖](../module-boundary/模块边界与依赖.md)）：
 
 | # | 表 | 归属域 | 用途（一句） |
@@ -218,8 +233,8 @@ V5 再增 **1 张**（投币 T36 `content_coin`）+ **3 列**（`users.coin_deci
 | 11 | `content_like` | like | 内容点赞（`uk_user_content`） |
 | 12 | `coupon` | coupon | 优惠券（库存 + 抢购时段，含 `CHECK stock >= 0`） |
 | 13 | `coupon_order` | coupon | 抢券订单（`uk_coupon_user` / `uk_coupon_code`；**全库唯一外键** → `coupon.id`，`ON DELETE CASCADE`） |
-| 14 | `video` | 遗留（无当前域消费） | TV 遗留视频资源表（`videoID` 非自增） |
-| 15 | `videoinfo` | 遗留（无当前域消费） | TV 遗留视频元信息表 |
+| 14 | ~~`video`~~ | 遗留（**V7 已删除**） | TV 遗留视频资源表（`videoID` 非自增）—— V1 导出时带进来的历史包袱，T45 复核 `src/` 零引用后删除 |
+| 15 | ~~`videoinfo`~~ | 遗留（**V7 已删除**） | TV 遗留视频元信息表 —— 同上 |
 
 **V2 增量（`V2__favorite_tables.sql`，2026-10-08 收藏一期 T1）**：
 
@@ -253,7 +268,34 @@ V5 再增 **1 张**（投币 T36 `content_coin`）+ **3 列**（`users.coin_deci
 | — | `users.last_sign_date` | （同上） | 最近签到日（上海自然日） | `date`、可空（NULL = 从未签到，是幂等判据的一半） |
 | — | `content.coin_count` | （列在 content 上，业务归 coin） | 累计被投币数 | `int unsigned` 但**只增不减** ⇒ **刻意没有** like / comment 的防负守卫（口径差异，非漏改） |
 
-> 📌 本表出现的 `R-##` / `T#` 编号：收藏相关见 [favorite.md 附录「编号速查」](../../domain/favorite/favorite.md)，投币相关见 [coin.md 附录「编号速查」](../../domain/coin/coin.md)（编号的**活**查证入口；逐条论证在相应 `archive/` 或 git）。
+**V6 增量（`V6__watch_history.sql`，2026-10-21 播放记录专项 T45）**：
+
+| # | 表 / 列 | 归属域 | 用途（一句） | 口径 |
+|---|---|---|---|---|
+| 20 | `watch_history` | history | 播放记录：**一人一内容一行**（`uk_user_content` 是 ODKU / `INSERT IGNORE` 的落点）+ `idx_user_update_content`（**V8 起**：列表倒序 + 三列覆盖）+ `idx_content_id` 只服务不变量复算 | `play_counted` 与 `progress_seconds` **解耦**（拆端点：`/report` 只改进度、`/play` 只改标记）；**不可删**（删了就和"播放量只增"打架） |
+| — | `content_media.duration_seconds` | （列在 content_media 上，业务归 upload 解析 / content 投影） | 视频时长（秒；mp4 `moov → mvhd` 解析） | **可空**，NULL = 未知（解析失败 / 图文 / 存量不回填）；只对 `type=1` 的媒体行有意义 |
+| — | `content.play_count` | （列在 content 上，业务归 content 自持） | 播放量（**按用户去重**，一人一次） | `int unsigned` 且**只增**（没有取消播放）⇒ 刻意没有 like / comment 的防负守卫 |
+
+**V7 增量（`V7__drop_legacy_video.sql`，2026-10-21 播放记录专项 T45）——★ 只删表、不动结构**：
+
+| 项 | 内容 |
+|---|---|
+| 做了什么 | `DROP TABLE IF EXISTS videoinfo` / `video` |
+| 为什么单独一版 | DROP **不可逆**；与 V6 的建表混在一个文件里会让回滚粒度变成"全做或全不做"，而两件事风险等级不同 |
+| 删前证据（可复算） | `grep -rn "videoinfo" src/` ⇒ 只命中 V1 脚本自身；`grep -rniE "(from\|into\|update\|table)\s+\`?video\`?" src/main src/test` ⇒ 0 命中 |
+| 冻结状态 | ✅ **已应用 ⇒ 逐字节冻结**；V1 那两条 `CREATE TABLE … IF NOT EXISTS` **不改**（空库终态由"V1 建、V7 删"共同决定） |
+
+**V8 增量（`V8__watch_history_list_index.sql`，2026-10-21 播放记录专项 T50）——★ 只换索引、不动表/列**：
+
+| 项 | 内容 |
+|---|---|
+| 做了什么 | `DROP KEY idx_user_update` + `ADD KEY idx_user_update_content (user_id, update_time DESC, content_id DESC, progress_seconds)` |
+| 为什么换 | 列表 `ORDER BY update_time DESC, content_id DESC` 的 tie-break 列 `content_id` 不在旧索引上 ⇒ 每页对该用户**全部行** filesort；新索引前三列即排序键、第四列让三页 SELECT 免回表（基线：5k 行 3.15ms→0.10ms、50k 行 37.8ms→0.2ms） |
+| 形态口径 | **替换**而非新增：新索引前缀已覆盖旧索引（`countByUserId` 一并覆盖）⇒ 索引总数不变（仍 4 个）；写路径代价实测无回归（1000 次 ODKU：5.52/5.81s → 5.93/5.55s） |
+| 为什么单独一版 | 非结构性但**独立回滚 / 审计粒度**（与建表、删表同级的可追溯单元）；表计数不变（仍 19） |
+| 冻结状态 | ✅ **已应用 ⇒ 逐字节冻结**（§2.4：连注释都不能改） |
+
+> 📌 本表出现的 `R-##` / `T#` 编号：收藏相关见 [favorite.md 附录「编号速查」](../../domain/favorite/favorite.md)，投币相关见 [coin.md 附录「编号速查」](../../domain/coin/coin.md)，播放记录相关见 [history.md 附录「编号速查」](../../domain/history/history.md)（编号的**活**查证入口；逐条论证在相应 `archive/` 或 git）。
 
 > 落地形态的两处非显然设计（都是"一次到位 / 别在下游重复推导"的东西）：
 > ① `favorite_folder.default_uniq` 是 **VIRTUAL 生成列**（默认夹 `1`、自建夹 `NULL`），
@@ -272,7 +314,7 @@ V5 再增 **1 张**（投币 T36 `content_coin`）+ **3 列**（`users.coin_deci
 - **时间列注释**：`auto_bigv.created_at` 明示"只作诊断，不参与判定"。
 
 > 归属以"哪个域的 DAO/Mapper 触碰它"为准。`video` / `videoinfo` 在全仓 `src/` 下**无任何 Mapper/DAO 引用**
-> （除 V1 脚本自身），故标为**遗留、无当前域消费**。
+> （除 V1 脚本自身）⇒ T45 复核后由 **V7 删除**（证据见上面 V7 增量表）。
 
 > ⚠️ **计数列的 `±` 更新写法 ⇒ 看列类型（`T34`）**：`int unsigned` 计数列（`content.like_count` /
 > `content.comment_count` / `users.follow_count` / `users.follower_count`）的防负守卫**必须**写成
@@ -289,6 +331,8 @@ V5 再增 **1 张**（投币 T36 `content_coin`）+ **3 列**（`users.coin_deci
 存量数据的质量问题（如 `content.file_exists` / `last_verify_time` 表意"媒体完整性尚未全量核对"，
 以及 `video` / `videoinfo` 两张**无消费者的 TV 遗留表**）**继承自历史数据、非本仓引入**；
 处置口径是**逐条表态、不阻塞**——不因数据瑕疵阻断 schema 演进与上线。
+（`video` / `videoinfo` 已于 T45/V7 **删除表结构**；存量内容的时长不回填是另一条已知代价，
+见 [history.md §十](../../domain/history/history.md)。）
 
 > 本篇只给这一条边界口径，**不逐条展开**；需要时在对应域的文档或工单里单独表态。
 
@@ -300,7 +344,7 @@ V5 再增 **1 张**（投币 T36 `content_coin`）+ **3 列**（`users.coin_deci
 
 | 手段 | 说明 |
 |---|---|
-| **CI 下限断言** | `InfrastructureConnectivityTests` 断言 `information_schema.tables`（`table_type='BASE TABLE'`）计数 = **20**（19 业务表 + `flyway_schema_history`），且 `flyway_schema_history` 的**全部行**版本序为 `1 → 2 → 3 → 4 → 5`、`type=SQL`、`success=1`。这是在**空库路径**上可复算的结构连续性锚点。⚠️ 断言**全部版本行**而非只看首行：只看首行时"新增的 V2/V3/V4/V5 没被应用"是察觉不到的（首行永远是 V1）。★ **每加一个 `V<n>` 都要同时改两处锚点**：本行提到的计数/版本序，以及 `favorite/WatchLaterSchemaTests#全部迁移版本都被应用`（`endsWith` 末版本）—— 后者 T36 首次漏改、由全量回归抓到。 |
+| **CI 下限断言** | `InfrastructureConnectivityTests` 断言 `information_schema.tables`（`table_type='BASE TABLE'`）计数 = **19**（18 业务表 + `flyway_schema_history`），且 `flyway_schema_history` 的**全部行**版本序为 `1 → 2 → 3 → 4 → 5 → 6 → 7`、`type=SQL`、`success=1`。这是在**空库路径**上可复算的结构连续性锚点。⚠️ 断言**全部版本行**而非只看首行：只看首行时"新增的 V2…V7 没被应用"是察觉不到的（首行永远是 V1）。★ **每加一个 `V<n>` 都要同时改两处锚点**：本行提到的计数/版本序，以及 `favorite/WatchLaterSchemaTests#全部迁移版本都被应用`（`endsWith` 末版本）—— 后者 T36 首次漏改、由全量回归抓到。 |
 | **列集对拍** | 本仓 `tools/` 下**当前无**专门的结构比对脚本。复算方式：取活库列清单，与 V1 脚本中各 `CREATE TABLE` 的列清单做**差集**——两侧应仅相差 `flyway_schema_history`。 |
 | **收藏域结构契约** | `favorite/FavoriteSchemaTests`（T1）把 V2 的**列集 / 唯一键 / 索引**钉成会失败的用例；唯一键那两条是**真插两行**看它拦不拦（不是查 `information_schema`）。 |
 

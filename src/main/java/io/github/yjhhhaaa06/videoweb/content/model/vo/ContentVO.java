@@ -21,13 +21,13 @@ import java.util.List;
  *   <li>用 {@code @JsonIgnore} 屏蔽 {@code videoUrl} / {@code imageUrls}——
  *       **列表不带媒体地址**（TV 的设计：列表只需要封面，媒体地址属详情）</li>
  * </ol>
- * ⚠️ T43 起两个 VO **不再逐字段同形**：详情多出四个公共计数（列表一个都没有，见下一节）。
+ * ⚠️ T43 起两个 VO **不再逐字段同形**：详情多出公共计数（T48 起五个；列表一个都没有，见下一节）。
  * 于是对外 JSON 的键集 = 父类键集 − {videoUrl, imageUrls} + {interaction}，
  * 即 {@code {id, authorId, type, title, description, categoryId, commentEnabled, authorName,
  * coverUrl, createTime, interaction}}。
  *
  * <h2>★ T43：列表**不带任何公共计数**（用户 2026-10-19 拍板）</h2>
- * 点赞 / 评论 / 收藏 / 投币四个计数一律独立 key，且**只在详情响应平铺返回**
+ * 点赞 / 评论 / 收藏 / 投币 / 播放五个计数一律独立 key，且**只在详情响应平铺返回**
  * （见 {@link ContentDetailVO}）。列表卡片不再显示数字 —— 于是本类**没有** {@code coinCount}
  * （T40 曾加过，T43 撤掉）、也没有 {@code likeCount} / {@code commentCount}（它们已从父类移出）。
  * <p>口径与理由见 {@code architecture/tech/cache/缓存与数据一致性.md} §五：计数的读放大

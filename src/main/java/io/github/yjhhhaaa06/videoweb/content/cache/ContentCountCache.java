@@ -10,15 +10,20 @@ import io.github.yjhhhaaa06.videoweb.common.config.ContentCacheProperties;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+
 /**
- * 内容的**评论总数**缓存（T43）—— 独立 key {@code content:commentCount:{id}}。
+ * 内容的**两个本域计数**缓存 —— 评论总数 {@code content:commentCount:{id}}（T43）与
+ * 播放量 {@code content:playCount:{id}}（T48）。两者都是"值即本域列"（{@code content.comment_count} /
+ * {@code content.play_count}），回源 / 回填 / 失效全在本类，**不经任何跨域转发**。
  *
  * <h2>为什么它不在 {@link ContentCache} 里</h2>
  * {@link ContentCache} 管的是 {@code content:{id}}（整份 JSON + 索引），失效语义是"慢变字段变了"。
- * 评论数是**高频变化**的计数，生命周期与内容载荷相反（内容改一次、评论数改几千次）——
- * 混在一个类里会让"谁失效谁"重新变成一句注释。故单列一个小类，只做一件事。
+ * 计数是**高频变化**的，生命周期与内容载荷相反（内容改一次、评论数改几千次）——
+ * 混在一个类里会让"谁失效谁"重新变成一句注释。故单列一个小类，只做计数这一件事。
  *
  * <h2>为什么归 **content** 域（而不是 comment 域）</h2>
  * 值就是本域 {@code content.comment_count} 这一列，且 {@code ArchitectureTests} 规则 4 禁止
@@ -43,6 +48,19 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 public class ContentCountCache extends RedisOps {
+
+    /**
+     * 播放量的条件增量（原子）：key 存在才 {@code INCRBY 1}。KEYS: {@code [countKey]}。
+     *
+     * <p>只增：播放量没有"取消播放"（{@code history-需求.md} §四）⇒ 增量写是精确的。
+     * 播放事件本身由写路径**首播去重**后才发布（{@code /history/play}），故不会重复 +1。
+     */
+    private static final DefaultRedisScript<Long> PLAY_COUNT_INCR_SCRIPT = new DefaultRedisScript<>(
+            "if redis.call('EXISTS', KEYS[1]) == 1 then "
+            + "  redis.call('INCRBY', KEYS[1], 1) "
+            + "end "
+            + "return 1",
+            Long.class);
 
     private final ContentDao contentDao;
     private final ContentCacheProperties props;
@@ -133,6 +151,44 @@ public class ContentCountCache extends RedisOps {
      */
     public void backfillCommentCount(long contentId, long count) {
         backfillQuietly(CacheKeys.contentCommentCount(contentId), count);
+    }
+
+    /**
+     * 播放量的**回填契约**（T48）：同 {@link #backfillCommentCount} —— 键是本域自己的，直调，
+     * **不经互动域**。值来自聚合层一趟 {@code findCountColumns} 刚查出的 {@code content.play_count}
+     * 列快照。★ 命中键**不调**本方法（有选择回填）。
+     */
+    public void backfillPlayCount(long contentId, long count) {
+        backfillQuietly(CacheKeys.contentPlayCount(contentId), count);
+    }
+
+    /**
+     * 播放量的**条件增量**（T48）：**键存在才 {@code INCRBY 1}**，Lua 原子执行。
+     *
+     * <p>★ <b>冷 key 不建</b>：键不存在时"1"不是总量，写进去等于用一个漏掉历史的值钉住整个 TTL
+     * （详情会读成 1，而列里可能是 800）—— 比 miss 更坏。键不存在 ⇒ 什么都不写，下一个读
+     * 走 miss 回源读列。去掉 {@code EXISTS} 守卫 ⇒
+     * {@code ContentPlayCountTests#冷key播放不写半套缓存} 必红。
+     *
+     * <p>★ <b>每域自持脚本</b>：与 coin 的 {@code content:coinCount} 条件 {@code INCRBY} 同形，
+     * 但**不跨域复用**（本仓不做缓存实现的跨域共享，见《模块边界与依赖》§六）——
+     * content 域自己一份，形态可有细微差异而不牵连他域。
+     *
+     * <p>失败只记 WARN 不上抛：本方法由 {@code AFTER_COMMIT} 监听器调用，事务**已经提交**，
+     * 缓存故障不能反过来让一次成功的 {@code /history/play} 变成 500（TTL / 下次回源自愈）。
+     */
+    public void incrementPlayCountIfPresent(long contentId) {
+        String key = CacheKeys.contentPlayCount(contentId);
+        try {
+            eval(PLAY_COUNT_INCR_SCRIPT, List.of(key));
+        } catch (CacheUnavailableException e) {
+            log.warn("播放量缓存增量失败（Redis 不可用），交由 TTL / 回源自愈: key={}", key, e);
+        }
+    }
+
+    /** 失效播放量（内容删除时，同评论数的孤儿键口径）。 */
+    public void invalidatePlayCount(long contentId) {
+        invalidateQuietly(CacheKeys.contentPlayCount(contentId));
     }
 
     private static long nullToZero(Integer value) {

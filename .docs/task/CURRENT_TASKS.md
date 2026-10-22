@@ -16,27 +16,29 @@
 
 ## 周期头（每窗开读）
 
-* **方向**：★ **详情读聚合专项**（2026-10-20，`T44-1`–`T44-3`）——
-  like 计数回源切 `content.like_count` 列（T44-1）+ 详情四计数聚合读层
-  （一趟 MGET + miss 单飞一条列查 + 有选择回填，T44-2）。
-  **用户 2026-10-20 拍板**（三轮讨论：先查库盘点 → 合并读 / 全量回填的取舍 → 定形
-  "2 趟 Redis + contentId 单飞 + 全量查一次 + 只回填 miss 键"）。
-* **活事实源 / 设计落点**：口径 = [缓存与数据一致性 §5.1](../architecture/tech/cache/缓存与数据一致性.md)
-  （键拆分，T43 定稿）+ **§5.2**（聚合读形态与已知代价，T44-2 新增）；
-  边界登记见 [模块边界与依赖 §六](../architecture/tech/module-boundary/模块边界与依赖.md)
-  （like 读列例外 + MGET 键布局通道 + 回填转发边）。
-* ★ **编号裁定（用户 2026-10-20）**：上一期头曾把"计数缓存专项"的五个子任务占位为
-  `T43`–`T47`，**实际均为 T43 的子任务**（代码 / 文档里的 `T43` 引用是其中定稿项的锚点，
-  **不回收、不全面改名**）。本期起用 **`T44`**，子任务写 `T44-1/T44-2/T44-3`；
-  **下一期从 `T45` 起**。
-* ★ **执行约定**：一任务一 commit（G1）；本期执行者自拆为 3 个子任务、各 1 commit，
-  每 commit 可编译且自带验收测试 + 反向验证。
-* **本期目标态**：like 回源读列 + 删除归零；详情 Redis 读 2 趟、冷内容 DB 3 条
-  （列查 1 + 载荷 2）；命中键绝不被聚合层覆盖。
-* **回归基线**：默认组 **659 例** + resilience **41 例**（全绿，2026-10-20 本期收口）。
-  ⚠️ **口径澄清**：上一期写的"全量 692 例"是**含 resilience** 的总数（692 = 默认 651 + 41）；
-  `tools/run_tests.py` 默认排除 resilience ⇒ 两口径分开记。⚠️ 本环境跑全量需
-  `DB_POOL_MAX_SIZE=4`（否则 Testcontainers MySQL 报 `Too many connections`）。
+* **方向**：★ **播放记录（history）专项 —— 已全部收口**（2026-10-22）。
+  三轮：① 主体功能（进度上报 / 播放事件 / 列表 / 续播 / mp4 时长，`T45`–`T49`）；
+  ② 服务端上报缓冲 + `/position` 口径修正（`T51-1`–`T51-3`、`T52`，含性能项 `T50`）；
+  ③ **文档收口 + 术语表试点**（`T53`）。
+* **活事实源 / 设计落点**（本域不随期滚动，收口即终态）：
+  [history.md](../architecture/domain/history/history.md)（设计 + 编号速查）·
+  [history-需求.md](../architecture/domain/history/history-需求.md)（用户可见规则）·
+  [history-上报缓冲.md](../architecture/domain/history/history-上报缓冲.md)（缓冲机制）·
+  [history-客户端契约.md](../architecture/domain/history/history-客户端契约.md)（前端接入）·
+  [history-术语表.md](../architecture/domain/history/history-术语表.md)（★ 术语试点：页面↔端点 / 一物一名 / 错→对）。
+  ★ **代码注释只引这些篇 + `类#方法`**；不得引用任何草稿 / 本登记台。
+* ★ **编号**：`T45`–`T53` **全部交付并已清出本文件**（结论见 history.md 附录速查；
+  过程见 git，`6f895f5..` 起的各专项 commit）。**下一编号从 `T54` 起**。
+* ★ **执行约定**：一任务一 commit（G1）；每 commit 可编译且自带验收测试 + 反向验证。
+  清单只给**目标 / 红线 / 验收入口**，**不写实现步骤**（G13）——执行者自行决定拆法；
+  遇到清单前提不成立先登记 `CURRENT_ISSUES.md`，不擅自扩范围。
+* ★ **归档裁定（2026-10-21）**：本期**不建** `archive/` —— history 各篇是**活文档**
+  （域文档不随期滚动，收口即终态），逐条论证与失败尝试已在 git；与投币专项同例
+  （只有"一期一稿型设计稿"才归档）。
+* **回归基线**（2026-10-22 **T52 后复跑**，`mvnw -o test`）：默认组 **799/799 绿**
+  （T51-3 后 800；T52 在 `HistoryPositionTests` 删 2 例 / 加 1 例 ⇒ 净 −1）。
+  ★ `T53` 只改文档、**未动代码**，基线不变。
+  ⚠️ 本环境跑全量需 `DB_POOL_MAX_SIZE=4`（否则 Testcontainers MySQL 报 `Too many connections`）。
 
 ---
 
@@ -49,7 +51,7 @@
 | G3 | **疑问分级**：可自答的 → 任务回写留一句；须裁决的 → **停下问用户**，不擅自拍板、不硬扛、不超范围 |
 | G4 | 一任务 = 四要素 + 三句以内回写；探索过程 / 失败尝试 / 中间稿一律走 git，不进本文件 |
 | G5 | **声明式机制必须配契约测试**：断言通过 ≠ 机制生效；写「证明某机制」的用例前先自问「去掉那行实现会红吗」（详见仓库根 `AGENTS.md`「测试纪律」节） |
-| G6 | 改 schema 走 Flyway **最高版本 +1**（⚠️ **已应用的迁移文件逐字节冻结**——**连注释都不能改**，见 `architecture/tech/data-evolution/数据与Schema演进.md` §2.4）；★ 本期无 schema 变更（`like_count` 列 V1 已有，见 T44-1 回写） |
+| G6 | 改 schema 走 Flyway **最高版本 +1**（⚠️ **已应用的迁移文件逐字节冻结**——**连注释都不能改**，见 `architecture/tech/data-evolution/数据与Schema演进.md` §2.4）；★ 本期 schema 变更：**V6**（播放记录）+ **V7**（删遗留表）+ **V8**（列表索引） |
 | G8 | ★ **跨期约定（升格保留）**：测试必须只断言可观察行为（HTTP 状态 + body + DB 终态）—— 换实现时测试**不许改**；改了就说明测试在抄实现（纪律①）。⚠️ **回源口径契约变更除外**（如 T12 / T44-1 的"回源真理源切换"）：oracle 必须跟随真理源，此时改测试属**契约跟随**而非迎合，须在用例注释里写明口径变更依据 |
 | G13 | ★ **跨期约定（升格保留）**：清单只给方向与红线，不写死实现步骤 —— 有些问题**只有执行期才看得见**。执行中发现清单前提不成立 / 与既有实现冲突 / 有更好的拆法 ⇒ **自行决断或停下登记 `CURRENT_ISSUES.md` I-##** |
 | G14 | ★ **每个任务都显式标注「可质疑」（2026-10-11 用户要求）**：**任务可被质疑**（前提不成立 / 需求已被既有实现覆盖 / 执行时机不对）；**设计也可被质疑**。⚠️ 但本项目是学习项目、**无真实流量**（见 `AGENTS.md`「项目定位与优化口径」）⇒ **质疑成立 ≠ 停做**：**先把代价写进回写**；若仍做，注明"**已知代价后选择做**"。**只有质疑指向真实缺陷才必须停下回报** |
@@ -68,70 +70,44 @@
 > ⚠️ **读法（G14 校准）**：块里列的是**已知代价 / 反对理由**，**不是"请自行否决"** ——
 > 出现"停下回报"字样时按 G14 理解：**先记代价、再决定**；**只有指向真实缺陷才必须停**。
 
-**（`T43` 及其子任务——曾占位为 `T43`–`T47`——已全部收口并清出）**
-计数规范形态（独立 key + 只在详情平铺 + 列表零计数）的活事实源 =
-[缓存与数据一致性 §5.1](../architecture/tech/cache/缓存与数据一致性.md)；
-`T44`–`T47` 为占位编号（实为 T43 的子任务），**不再引用**。全文在 git。
+**（`T44-1`–`T44-3` 已收口：`34fe36f` / `88cb8b3` / `aadbf7c`；T43 占位编号的裁定见 git）**
 
-### T44-1 like 回源切 `like_count` 列 + 作者删除时归零【已完成】
+### 播放记录专项：全部收口（`T45`–`T53`，2026-10-21 → 2026-10-22）
 
-> ⚠️ **先质疑（G14）**：① **侦查推翻前提**——开工前以为 like 是"唯一没有冗余列的计数"、
-> 需要 V6 迁移；实际 `content.like_count` V1 已有 + 点赞写路径事务内 ±1 维护（T34 守卫），
-> **缺的只是读路径消费 + 删除归零** ⇒ 专项缩水、无 schema 变更（G6 无涉）。
-> ② 已知代价：like 计数的真理源从"行数"变为"列"，依赖写路径正确维护
-> （不变量 oracle 钉住 + `devclean/recount.py` 对账工具兜底，F-07 同族）。
+> 三轮执行态**已按「膨胀控制」清出本文件**；**结论的唯一活查证入口**
+> = [history.md 附录「编号速查」](../architecture/domain/history/history.md#附录编号速查活的查证入口)（每号一行）。
+> 逐条论证 / 失败尝试 / 反向验证细节 = git（第一轮 `6f895f5..3ea45f1`，其余见各 token 的 commit）。
 
-* **入口线索**：`ContentDao#findLikeCountById` / `resetLikeCount` / `LikeCache#getContentLikeCount` /
-  `LikeCountMaintenanceTests`
-* **目标**：like 计数缓存 miss 回源从 `COUNT(*) content_like` 切 `like_count` 列（对齐 T12 的
-  favorite 先例）；`deleteContent` 同事务归零（不变量对软删行成立，`/like/content/count`
-  对已删内容仍返 0）
-* **红线边界**：外部契约不变（端点行为逐字）；评论赞侧不切（范围纪律）；列查询刻意不带
-  `is_deleted`（口径同 `findCoinCount`：读列值非可见性）
-* **回写**：单 commit `feat(like):T44-1`（8 文件）。测试 `LikeCountMaintenanceTests` 3 例
-  （不变量双 oracle / 删除归零 + 端点契约回归 / **列漂移判别**：列=99 行=1 ⇒ 端点返 99，
-  回源改回 COUNT 必红；含对照内容防"恒 99"假绿）。反向验证 2 处全红后还原。
-  `ContentCountTests` 第 4 用例 like oracle 随口径改列（G8 契约跟随，注释已写依据）。
-  ★ 执行期修正一处用例错误：软删行仍存在 ⇒ "无行不回填"分支不可达，键被回填 "0" 是**正确**
-  行为（列值 0 = 真相，与旧行数口径一致），断言改为钉 "0"。
+**第一轮：主体功能 + 性能**
 
-### T44-2 详情计数聚合读层【已完成】
+| 号 | 一句话 | 交付形态 |
+|---|---|---|
+| T45 | V6/V7 迁移 + 结构契约（`watch_history` / `duration_seconds` / `play_count`；删遗留 `video`·`videoinfo`） | `HistorySchemaTests`；19 行 / 版本 `1..7` |
+| T46 | mp4 时长解析 → 落库 → 内容载荷投影（三个落点：DTO / `buildContentMedia` / `copyCommon`） | `Mp4DurationReaderTests` 15 + `UploadDurationTests` 8 |
+| T47 | history 写路径 `/report`（ODKU 无事务）+ `/play`（单事务首播判定） | `HistoryWriteTests` 10；权重 36→38 |
+| T48 | 播放量读面：5 键聚合 + 条件 `INCRBY` + 详情 `playCount` + 删除失效 | `ContentPlayCountTests` 6；详情键集 19 |
+| T49 | 历史读面：`/list`（失效占位）+ `/position`（续播）；`I-23` 核销 | `HistoryListTests` 15 + `HistoryPositionTests` 6 |
+| T50 | **V8 列表索引**：`idx_user_update` → `idx_user_update_content`（前三列即 `ORDER BY`、第四列覆盖），消灭每页全量 filesort；替换而非新增 | `HistorySchemaTests` 索引全集；版本 `1..8`；基线见 history.md §7.1 |
 
-> ⚠️ **先质疑（G14）**：合并读 / 全量回填 / 有选择回填三轮取舍的最终形态——
-> **已知代价后选择做**：① 聚合路径不做命中续期（四键 TTL 跨域，一趟 pipeline 带不了四种
-> EXPIRE）⇒ 热键每 TTL 周期重回源 1 条点查；② 单飞不跨载荷/计数合并（不复刻 `CacheAside`
-> 三态，载荷并入挂 F-26）；③ content.cache 读他域键名 + 经互动域转发回填 = 两条边界税，
-> 已在《模块边界与依赖》§六 登记；④ follower 重复 SET 幂等无害。收益端见 §5.2。
+**第二轮：上报缓冲 + 口径修正**
 
-* **入口线索**：`ContentCountAggregate`（新）/ `ContentCountColumns`（新 record）/
-  `ContentDao#findCountColumns` / `InteractionService#backfill{Like,Favorite,Coin}Count` /
-  `ContentDetailCountAggregateTests`
-* **目标**：详情四计数一趟 pipeline MGET（Redis 读 5→2 趟）；miss 单飞（`detail:counts:{id}`）
-  回源一条四列点查（冷内容 DB 5→3 条）；**只回填 miss 的键**（命中键不碰——防快照覆盖
-  未失效键重开旧值复活窗口）
-* **红线边界**：content 不直写他域键（回填经互动域转发）；404 短路在聚合之前；
-  降级直查 DB 不回填；DB 异常上抛 500
-* **回写**：单 commit `feat(content):T44-2`（16 文件）。删 `getPublicCounts` 与
-  `ContentPublicCounts`（唯一调用方被取代）；`CoinService#getCoinCount` /
-  `ContentCountCache#getCommentCount` 有意保留（单键通道，先例同款）。
-  测试 5 例：有选择回填（**反向验证：注入"回填全部"红**）/ 单飞合一（**反向验证：注入
-  "去单飞"红**；atMost(3) 而非 times(1)——线程调度无法保证全重叠，理由在用例内）/
-  脏值自愈 / 404 不回填（favorite 键按既存口径残留，如实钉）/ Redis 降级。
-  ★ 实测坑：record 组件**必须包装 Long**（MyBatis `<constructor>` 按 javaType 反射，
-  原生 canonical 构造器不匹配 ⇒ NoSuchMethodException ⇒ 详情 500，已写进 record Javadoc）。
+| 号 | 一句话 | 交付形态 |
+|---|---|---|
+| T51-1 | **缓冲内核**（纯 Redis，不接端点）：两键 + `video.history.buffer.*` 配置 + 三条 Lua + `maxmemory-policy` 启动自检 | `HistoryReportBufferTests` 13 + `HistoryBufferPropertiesTests` 3 |
+| T51-2 | **写路径接管**：`/report` 改走缓冲、新增 `/flush`、轮询兜底、503 + `Retry-After`（熔断先于校验） | `HistoryFlushTests` 9 · `HistoryReportBusyTests` 1 · 权重 38→39 |
+| T51-3 | 读路径（当时为"读缓冲优先"，**已被 T52 推翻**）+ 客户端契约**独立成篇**（只登记、不实现） | `HistoryPositionTests` 6→8 · `HistoryListTests` 15→16 |
+| T52 | `/position` 改回**只点查 DB**（推翻 T51-3 的读缓冲）；客户端 `resume()` 取 `max(服务端, 本地)` | `HistoryPositionTests` 7（判别力集中在"缓冲不参与续播"1 例） |
 
-### T44-3 文档收口 + 全量回归 + 登记台【已完成】
+**第三轮：文档收口**
 
-* **入口线索**：缓存文档 §5.2（新）/ 边界文档 §六（like 读例外 + 两条通道登记）/
-  `FURTHER_ISSUES` F-26（载荷读并入聚合层，留池）
-* **目标**：三道文档门禁 0 违规；全量回归全绿（默认组 + resilience 分口径记）
-* **红线边界**：不新开归档目录（本期无设计稿，形态进活文档 §5.2）；review #2 的两处
-  注释修正并入本 commit
-* **回写**：doc_refs / doc_links 0 违规，doc_stats 超限项均为归档件（不受控）；
-  回归默认组 **659 例** + resilience **41 例** 全绿（= T43 基线 692 含 resilience − 41 + 新增 8，
-  口径自洽）。两轮 subagent review（T44-1 / T44-2）结论主会话均已复核并落实
-  （T44-1 修 1 处编号残留 + 2 处注释；T44-2 零必须修项，2 处注释并入本 commit）。
+| 号 | 一句话 | 交付形态 |
+|---|---|---|
+| T53 | **文档收口 + 术语表试点**：四篇改读者顺序（§〇 上手、术语先行）；正文删除任务号 / 交付状态 / 实测流水（追溯收进速查）；新增 `history-术语表.md`（页面↔端点矩阵 / 一物一名 / 错→对） | `doc_links` / `doc_refs` 0 违规；**代码未改**，基线不变 |
 
+> ⚠️ **本轮提醒**：`history` 域**没有**历史缓存与删除能力（刻意不做，推翻条件在需求篇 §六）；
+> 前端接入 / 时长回填 / 容量上限仍未做 —— 都等着"推翻条件"成立，不要当遗漏补。
+> ★ 服务端心跳缓冲**已由 `R-19` 拍板改为做**（`F-27` 原"想过但否决"的理由前提已被推翻，行保留作留痕）。
+> ★ 术语表是**域内试点**（只此一域）；推广判据写在 `history-术语表.md` §五，**不要**顺手给别的域补一份。
 
 ```
 ### T# <任务名>（来源 R-## / 设计 §x）【待执行】
@@ -158,6 +134,7 @@
 
 | 来源 | 事项 | 去向（决定人 + 日期） |
 |------|------|---------------------|
+| **本期收口复核（2026-10-21）** | 下表三行**逐行复核：全部维持原决定**，无一条满足其推翻条件（`history` 专项未触及 TTL 续期 / F-26 / favorite 删除口径） | **维持**（本行不删；下期收尾再复核） |
 | T44 设计讨论 | **F-26**：载荷读并入聚合层（单飞跨载荷/计数合一，冷内容 3→2 条 SQL） | **留池**（FURTHER_ISSUES F-26，2026-10-20；推翻条件 = 实测详情载荷 miss 热点；理由 = 复刻 CacheAside 三态的漂移风险 > 常数 SQL） |
-| T44 设计讨论 | 聚合路径计数键**不做命中续期**（四键 TTL 跨域） | **登记为已知代价**（缓存文档 §5.2，2026-10-20；热键每 TTL 周期重回源 1 条点查）；推翻 = 出现 TTL 到期回源的实测压力 ⇒ 届时补一趟跨域 EXPIRE pipeline 或统一 TTL |
+| T44 设计讨论 | 聚合路径计数键**不做命中续期**（五键 TTL 跨域） | **登记为已知代价**（缓存文档 §5.2，2026-10-20；热键每 TTL 周期重回源 1 条点查）；推翻 = 出现 TTL 到期回源的实测压力 ⇒ 届时补一趟跨域 EXPIRE pipeline 或统一 TTL |
 | T44-1 执行发现 | favorite 键在内容删除时**不失效**（favorite 域不订阅 REMOVE，明细行不删、列不重算，键残留 TTL 自愈） | **如实钉进测试**（`ContentDetailCountAggregateTests#删除后404不回填计数键`，2026-10-20）——既存口径非本期引入；推翻 = 出现"已删内容的收藏数被外显"的读路径 ⇒ 届时给 favorite 域补 REMOVE 订阅 |

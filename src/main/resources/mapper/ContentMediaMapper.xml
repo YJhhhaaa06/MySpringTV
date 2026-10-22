@@ -6,6 +6,11 @@
   content_media Mapper（S5）。
   TV 的 ContentMediaDao 用 buildContentMedia(ResultSet) 手工装配；此处显式 resultMap。
   列顺序与别名逐字照搬 TV（`id` 映射到 mediaId——TV 的实体字段就叫 mediaId）。
+
+  ⚠️ T46 起多一列 `duration_seconds`（V6）。**凡是 select 都必须带上它**：
+  媒体行就是时长在系统里唯一的一份数据，漏一条 select 的后果是"那条路径上时长静默为 null"——
+  列表能显示、详情不能显示，或换个入口就没了。5 条 select 一个都不能漏
+  （口径见 architecture/domain/history/history.md §六.3）。
 -->
 <mapper namespace="io.github.yjhhhaaa06.videoweb.content.dao.ContentMediaDao">
 
@@ -15,18 +20,19 @@
         <result property="url" column="url"/>
         <result property="type" column="type"/>
         <result property="sort" column="sort"/>
+        <result property="durationSeconds" column="duration_seconds"/>
     </resultMap>
 
     <!-- TV: select id,content_id,url,type,sort from content_media where content_id=? order by type,sort -->
     <select id="findMediaByContentId" resultMap="contentMediaMap">
-        select id,content_id,url,type,sort from content_media where content_id=#{contentId}
+        select id,content_id,url,type,sort,duration_seconds from content_media where content_id=#{contentId}
         order by type,sort
     </select>
 
     <!-- TV: `... where content_id IN (?…) order by content_id,type,sort`
          —— StringBuilder 拼 IN 改 <foreach>（机械改动，SQL 语义不变）。 -->
     <select id="findMediaByContentIds" resultMap="contentMediaMap">
-        select id,content_id,url,type,sort from content_media where content_id IN
+        select id,content_id,url,type,sort,duration_seconds from content_media where content_id IN
         <foreach item="id" collection="ids" open="(" separator="," close=")">
             #{id}
         </foreach>
@@ -35,7 +41,7 @@
 
     <!-- TV: select id,content_id,url,type,sort from content_media where content_id=? and type=? and sort=? -->
     <select id="findMediaByContentTypeSort" resultMap="contentMediaMap">
-        select id,content_id,url,type,sort from content_media
+        select id,content_id,url,type,sort,duration_seconds from content_media
         where content_id=#{contentId} and type=#{type} and sort=#{sort}
     </select>
 
@@ -59,9 +65,11 @@
 
     <!-- TV: addMedia —— `insert into content_media(content_id,url,type,sort) VALUES (?, ?,?,?)`
          （写法逐字保留；无生成键需求——媒体行 id 无人引用）。
-         type 语义：1 视频 / 2 图片 / 3 封面（由调用方按上传类型给出）。 -->
+         type 语义：1 视频 / 2 图片 / 3 封面（由调用方按上传类型给出）。
+         T46 起多写 `duration_seconds`：只有**视频行**给值，封面/图片恒 null（列可空）。 -->
     <insert id="addMedia">
-        insert into content_media(content_id,url,type,sort) VALUES (#{contentId}, #{url}, #{type}, #{sort})
+        insert into content_media(content_id,url,type,sort,duration_seconds)
+        VALUES (#{contentId}, #{url}, #{type}, #{sort}, #{durationSeconds})
     </insert>
 
     <!-- TV: updateMediaUrl —— `update content_media set url=?, file_exists=?, last_verify_time=? where id=?`
@@ -71,18 +79,25 @@
         where id=#{mediaId}
     </update>
 
+    <!-- T46（history.md §六.2）：换源后**只**刷新该媒体行的时长（解析失败 ⇒ null = 未知）。
+         ★ 刻意与 updateMediaUrl 分开：换图片（type=2）/ 封面（type=3）时调用方**根本不调它**
+         ⇒ "换非视频不清空视频时长" 由调用点保证，而不是靠 SQL 里判 type 的隐式约定。 -->
+    <update id="updateMediaDuration">
+        update content_media set duration_seconds=#{durationSeconds} where id=#{mediaId}
+    </update>
+
     <!-- ============================ S8：admin（媒体审计） ============================ -->
 
     <!-- TV: findAllMedia —— `select id,content_id,url,type,sort from content_media order by id`
          （运维全量扫描的装载源；无上限，仅管理员手工动作触发）。 -->
     <select id="findAllMedia" resultMap="contentMediaMap">
-        select id,content_id,url,type,sort from content_media order by id
+        select id,content_id,url,type,sort,duration_seconds from content_media order by id
     </select>
 
     <!-- TV: findMediaById —— `select id,content_id,url,type,sort from content_media where id=?`
          （恢复前置：据 url 反解磁盘路径）。无行 → MyBatis 返回 null ⇒ 调用方 404。 -->
     <select id="findMediaById" resultMap="contentMediaMap">
-        select id,content_id,url,type,sort from content_media where id=#{mediaId}
+        select id,content_id,url,type,sort,duration_seconds from content_media where id=#{mediaId}
     </select>
 
     <!-- TV: updateFileExists —— `update content_media set file_exists=?, last_verify_time=? where id=?`

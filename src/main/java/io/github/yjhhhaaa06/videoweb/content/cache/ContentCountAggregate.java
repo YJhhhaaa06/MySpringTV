@@ -16,31 +16,32 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 /**
- * 详情**计数聚合读**（T44-2）——四个公共计数（赞 / 评 / 藏 / 币）的合并读通道，详情路径专用。
+ * 详情**计数聚合读**（T44-2）——五个公共计数（赞 / 评 / 藏 / 币 / 播放）的合并读通道，详情路径专用。
  *
  * <h2>形态（为什么是"2 趟 Redis + 单飞合一 + 全量查库 + 有选择回填"）</h2>
  * <ol>
- *   <li><b>一趟 pipeline GET 四键</b>（载荷键 {@code content:{id}} 仍走 {@link ContentCache} 的
+ *   <li><b>一趟 pipeline GET 五键</b>（载荷键 {@code content:{id}} 仍走 {@link ContentCache} 的
  *       三态读，与本类正交——详情 Redis 读共 2 趟）；</li>
  *   <li><b>miss 非空 ⇒ 进程内单飞</b>（key = {@code detail:counts:{id}}，同内容并发 miss
- *       只一次回源）：loader = {@link ContentDao#findCountColumns}——四列同在 content 行上，
-     * <b>一趟主键点查取齐</b>（冷内容全 miss 的 DB 成本从 5 条 SQL 收敛为 1 条）；</li>
+ *       只一次回源）：loader = {@link ContentDao#findCountColumns}——五列同在 content 行上，
+     * <b>一趟主键点查取齐</b>（冷内容全 miss 时，五个计数键各自回源 = 5 条单列查询，现收敛为 1 条）；</li>
  *   <li><b>有选择回填</b>：只对**自己 miss 的键**回填，命中键一个都不碰——否则会用本次快照
  *       覆盖未失效的键，重开"旧值复活"窗口（写事务 DEL 后、快照回填前的时间差）。</li>
  * </ol>
  * 口径与代价的活文档 = {@code 缓存与数据一致性.md §五.2}。
  *
  * <h2>回填的通道纪律（域边界）</h2>
- * 四个计数键分属三域（like / favorite / coin）+ 本域（comment）：本类**不直接写他域键**——
+ * 五个计数键分属三域（like / favorite / coin）+ 本域（comment / play）：本类**不直接写他域键**——
  * 外域回填经 {@link InteractionService} 的转发方法（{@code backfillLikeCount} 等）落到各域
- * 自己的 cache（各自 TTL、各自的 best-effort 语义）；comment 键是本域自己的，直调
- * {@link ContentCountCache#backfillCommentCount}。键名源头是 {@code CacheKeys}（全仓唯一源），
+ * 自己的 cache（各自 TTL、各自的 best-effort 语义）；comment / play 键是本域自己的，直调
+ * {@link ContentCountCache#backfillCommentCount} / {@link ContentCountCache#backfillPlayCount}。
+ * 键名源头是 {@code CacheKeys}（全仓唯一源），
  * 本类只"读"他域键、不"写"——写侧永远经由域契约（{@code 模块边界与依赖.md} §六 登记例外）。
  *
  * <h2>已知代价（有意接受，逐条可讲清）</h2>
  * <ul>
- *   <li><b>聚合路径不做命中续期</b>：四键各域 TTL 不同（likeTtl/favoriteTtl/coinTtl/contentTtl），
- *       一趟 pipeline 无法带上四种 EXPIRE 语义；放弃滑动续期 ⇒ 热键每 TTL 周期重回源一次
+ *   <li><b>聚合路径不做命中续期</b>：五键各域 TTL 不同（likeTtl/favoriteTtl/coinTtl/contentTtl），
+ *       一趟 pipeline 无法带上多种 EXPIRE 语义；放弃滑动续期 ⇒ 热键每 TTL 周期重回源一次
  *       （单飞合一后成本 = 1 条点查）。载荷键的续期不受影响（走 {@link ContentCache} 原样）。</li>
  *   <li><b>单飞不跨载荷/计数合并</b>：载荷 miss 的装载（含媒体装配）仍走 {@link ContentCache}
  *       自己的单飞；同请求"载荷 + 计数全 miss"时 DB 共 2 条（1 列查 + 1 载荷两件套），而非理论最优
@@ -64,11 +65,12 @@ public class ContentCountAggregate extends RedisOps {
     /** 进程内单飞 key 前缀（非 Redis 键；同 {@code ContentCache.INDEX_REBUILD_KEY} 的字面量形态）。 */
     private static final String FLIGHT_KEY_PREFIX = "detail:counts:";
 
-    /** 四键序（与 {@link #readCounts} 的解析、合并一一对应）。 */
+    /** 五键序（与 {@link #readCounts} 的解析、合并一一对应）。 */
     private static final int LIKE = 0;
     private static final int COMMENT = 1;
     private static final int FAVORITE = 2;
     private static final int COIN = 3;
+    private static final int PLAY = 4;
 
     private final ContentDao contentDao;
     private final ContentCountCache contentCountCache;
@@ -89,9 +91,9 @@ public class ContentCountAggregate extends RedisOps {
     }
 
     /**
-     * 读详情四计数：命中直用，miss 单飞回源一趟 {@code findCountColumns} 并**有选择**回填。
+     * 读详情五计数：命中直用，miss 单飞回源一趟 {@code findCountColumns} 并**有选择**回填。
      *
-     * @return 四计数值；列快照为 null（防御分支，正常时序不可达）⇒ miss 位按 0 作答、
+     * @return 五计数值；列快照为 null（防御分支，正常时序不可达）⇒ miss 位按 0 作答、
      *         命中位保留缓存值
      */
     public ContentCountColumns readCounts(long contentId) {
@@ -99,10 +101,11 @@ public class ContentCountAggregate extends RedisOps {
         String commentKey = CacheKeys.contentCommentCount(contentId);
         String favoriteKey = CacheKeys.contentFavoriteCount(contentId);
         String coinKey = CacheKeys.contentCoinCount(contentId);
-        List<String> keys = List.of(likeKey, commentKey, favoriteKey, coinKey);
+        String playKey = CacheKeys.contentPlayCount(contentId);
+        List<String> keys = List.of(likeKey, commentKey, favoriteKey, coinKey, playKey);
 
-        long[] values = new long[4];
-        boolean[] missed = new boolean[4];
+        long[] values = new long[5];
+        boolean[] missed = new boolean[5];
         try {
             List<Object> raw = pipeline(o -> {
                 for (String key : keys) {
@@ -132,9 +135,10 @@ public class ContentCountAggregate extends RedisOps {
             });
         }
 
-        boolean anyMissed = missed[LIKE] || missed[COMMENT] || missed[FAVORITE] || missed[COIN];
+        boolean anyMissed = missed[LIKE] || missed[COMMENT] || missed[FAVORITE] || missed[COIN] || missed[PLAY];
         if (!anyMissed) {
-            return new ContentCountColumns(values[LIKE], values[COMMENT], values[FAVORITE], values[COIN]);
+            return new ContentCountColumns(values[LIKE], values[COMMENT], values[FAVORITE],
+                    values[COIN], values[PLAY]);
         }
         CacheMissSignal.mark();                            // T26 信号②：miss 回源（含脏值）
         ContentCountColumns cols = singleFlight.get(flightKey(contentId),
@@ -144,9 +148,12 @@ public class ContentCountAggregate extends RedisOps {
             log.warn("计数聚合回源无行（防御分支，正常时序不可达）: contentId={}", contentId);
             return merged(values, missed, ZERO);
         }
-        // 有选择回填：只回填自己 miss 的键（comment 直调本域；外域经互动域转发到各域 cache）
+        // 有选择回填：只回填自己 miss 的键（comment / play 直调本域；外域经互动域转发到各域 cache）
         if (missed[COMMENT]) {
             contentCountCache.backfillCommentCount(contentId, cols.commentCount());
+        }
+        if (missed[PLAY]) {
+            contentCountCache.backfillPlayCount(contentId, cols.playCount());
         }
         if (missed[LIKE]) {
             interactionService.backfillLikeCount(contentId, cols.likeCount());
@@ -166,7 +173,8 @@ public class ContentCountAggregate extends RedisOps {
                 missed[LIKE] ? nvl(cols.likeCount()) : cached[LIKE],
                 missed[COMMENT] ? nvl(cols.commentCount()) : cached[COMMENT],
                 missed[FAVORITE] ? nvl(cols.favoriteCount()) : cached[FAVORITE],
-                missed[COIN] ? nvl(cols.coinCount()) : cached[COIN]);
+                missed[COIN] ? nvl(cols.coinCount()) : cached[COIN],
+                missed[PLAY] ? nvl(cols.playCount()) : cached[PLAY]);
     }
 
     /** 列理论上可空（DEFAULT 0 的 unsigned 列）⇒ 读侧统一 null → 0。 */
@@ -179,5 +187,5 @@ public class ContentCountAggregate extends RedisOps {
     }
 
     /** 行不存在（防御分支）时的全 0 列。 */
-    private static final ContentCountColumns ZERO = new ContentCountColumns(0L, 0L, 0L, 0L);
+    private static final ContentCountColumns ZERO = new ContentCountColumns(0L, 0L, 0L, 0L, 0L);
 }

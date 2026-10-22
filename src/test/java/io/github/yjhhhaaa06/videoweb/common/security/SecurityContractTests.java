@@ -316,6 +316,25 @@ class SecurityContractTests extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("★播放记录 T47/T49/T51-2：/history 五端点判为需登录（钉路由；**不**证明类级注解在不在）")
+    void history写端点需登录() {
+        // 本域四个端点都只对当前登录用户有意义（历史是"我的"私有记录）⇒ 类级 @RequiresLogin。
+        // ★ 判别力边界（如实声明，同 coin）：本仓是**默认拒绝** ⇒ 去掉类级注解后 requiresLogin
+        //   仍然是 true ⇒ 这条用例**测不到"注解在不在"**。它真正钉的是"路由落到了一个
+        //   @Controller 处理器上"（路径写错 / 控制器没被扫到 ⇒ 未映射 ⇒ false）。
+        // ⚠️ HTTP 侧对 @RequiresLogin 同样是假绿（401 由 @CurrentUserId 参数解析器兜出）。
+        // 📌 T47 落了写路径两段；T49 读面两段已补进本方法（核销 I-23）；T51-2 补 /flush
+        //    ——五个端点都有至少"路由可达"的机制级证据。
+        //   至少"路由可达"的机制级证据。方法名里的"写端点"是 T47 的引用锚点（多处文档按名引用），
+        //   语义已扩展为四端点，改名会带来静默断链。
+        assertThat(requiresLogin("POST", "/history/report")).isTrue();
+        assertThat(requiresLogin("POST", "/history/flush")).isTrue();
+        assertThat(requiresLogin("POST", "/history/play")).isTrue();
+        assertThat(requiresLogin("GET", "/history/list")).isTrue();
+        assertThat(requiresLogin("GET", "/history/position")).isTrue();
+    }
+
+    @Test
     @DisplayName("未映射的路径返回 false：真正的 404 由 DispatcherServlet 产生，本机制不越权处理路由")
     void 未映射路径不需登录() {
         assertThat(requiresLogin("GET", "/no/such/endpoint")).isFalse();

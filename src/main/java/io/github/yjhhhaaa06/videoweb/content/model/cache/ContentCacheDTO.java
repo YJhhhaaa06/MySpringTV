@@ -21,18 +21,19 @@ import java.util.List;
  * <h2>★ 字段集是冻结契约（JSON 形状）</h2>
  * 对外 JSON 的键 = 本类属性名（由 Getter 名推导）：
  * {@code id / authorId / type / title / description / categoryId / commentEnabled /
- * authorName / coverUrl / videoUrl / imageUrls / createTime}。
+ * authorName / coverUrl / videoUrl / imageUrls / durationSeconds / createTime}。
  * 其中 {@code videoUrl} / {@code imageUrls} 只在 {@code ContentDetailVO} 上出现
- * （列表 VO 用 {@code @JsonIgnore} 屏蔽，见 {@code ContentVO}）。
+ * （列表 VO 用 {@code @JsonIgnore} 屏蔽，见 {@code ContentVO}）；{@code durationSeconds}
+ * 是 T46 新增的**所有内容响应共有**的键（列表也带 —— 它是慢变字段，不是计数）。
  * 旧 pytest 对 {@code title} / {@code videoUrl} / {@code imageUrls} / {@code authorName} /
  * {@code commentEnabled} 有逐字断言，故**属性名不得改**。
  *
  * <h2>★ T43：{@code likeCount} / {@code commentCount} 已从本载荷移出（用户 2026-10-19 拍板）</h2>
  * 它们是**高频变化**的计数：留在本载荷里，每次点赞 / 发评论都必须 {@code DEL content:{id}}，
  * 让标题、媒体 URL、作者名这些**慢变**字段陪葬（热内容上内容缓存近乎永久失效）。
- * 现在四个计数一律走独立 key（{@code content:likeCount} / {@code content:commentCount} /
- * {@code content:favoriteCount} / {@code content:coinCount}），**只在详情响应里平铺返回**；
- * 列表面不再带任何计数。口径见
+ * 现在五个计数一律走独立 key（{@code content:likeCount} / {@code content:commentCount} /
+ * {@code content:favoriteCount} / {@code content:coinCount} / {@code content:playCount}），
+ * **只在详情响应里平铺返回**；列表面不再带任何计数。口径见
  * {@code architecture/tech/cache/缓存与数据一致性.md} §五。
  * <p>⚠️ 于是本载荷只承载"**改一次要写库**"的字段：编辑内容 / 删改媒体 / 改名 / 删除。
  * 若将来又想往这里塞计数，先读上面那条口径。
@@ -68,6 +69,18 @@ public class ContentCacheDTO {
     private String coverUrl;
     private String videoUrl;
     private List<String> imageUrls;
+
+    /**
+     * 视频时长（秒）—— **媒体聚合产物**，由 {@code ContentCache#buildContentMedia}
+     * 从 {@code type=1} 的那条媒体行投影（**零额外查询**：媒体行本来就要装配）。
+     *
+     * <p>★ 它是**慢变字段**（只在发布 / 换源时变）⇒ 留在本载荷里是安全的，
+     * 不影响 T43 "计数搬出内容缓存" 的口径（计数的特征是高频变化）。
+     *
+     * <p>{@code null} = 未知：图文 / 解析失败 / 存量未回填（{@code history.md} §六.2）。
+     * 用包装类型而非 {@code int}：{@code 0} 是"0 秒的视频"，与"不知道"是两回事。
+     */
+    private Integer durationSeconds;
 
     private LocalDateTime createTime;
 }

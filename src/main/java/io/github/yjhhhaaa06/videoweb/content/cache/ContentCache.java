@@ -251,12 +251,15 @@ public class ContentCache {
         addToIndex(dto);
     }
 
-    /** 删除 / 下架后移除：失效内容 key（含空标记）+ 评论数 key，并从**全部**索引 key 剔除该 id。 */
+    /** 删除 / 下架后移除：失效内容 key（含空标记）+ 评论数 / 播放量 key，并从**全部**索引 key 剔除该 id。 */
     public void removeContent(long contentId) {
         cacheAside.invalidate(CacheKeys.content(contentId));
         // T43：评论数是独立 key（不随内容载荷），内容真的没了要一并清掉 —— 否则 TTL 内残留
         // "内容已删、评论数还在"的孤儿键。点赞/投币/收藏的计数 key 由各自域订阅 REMOVE 事件处理。
         contentCountCache.invalidateCommentCount(contentId);
+        // T48：播放量同款（本域自持的孤儿键）。播放量列本身**不归零**（历史占位要用它），
+        // 这里只清缓存 —— 键删了也不会再回填，因为详情 404 在计数聚合之前短路。
+        contentCountCache.invalidatePlayCount(contentId);
         try {
             indexOps.removeIdFromAllIndexes(contentId);
         } catch (CacheUnavailableException e) {
@@ -324,6 +327,9 @@ public class ContentCache {
         target.setCommentEnabled(dto.isCommentEnabled());
         target.setAuthorName(dto.getAuthorName());
         target.setCoverUrl(dto.getCoverUrl());
+        // ★ T46：漏这一行 ⇒ 详情/列表的 durationSeconds 恒 null，而 DB 行断言**仍然全绿**
+        //   （最隐蔽的假绿：DTO 里明明有值，只是没被搬到 VO 上）。
+        target.setDurationSeconds(dto.getDurationSeconds());
         target.setCreateTime(dto.getCreateTime());
     }
 
@@ -407,7 +413,11 @@ public class ContentCache {
                     log.warn("内容媒体损坏（视频行缺失，按不可用处理）: contentId={}", dto.getId());
                     return false;
                 }
-                dto.setVideoUrl(jointUrl(videos.get(0).getUrl()));
+                ContentMedia video = videos.get(0);
+                dto.setVideoUrl(jointUrl(video.getUrl()));
+                // ★ T46：时长从**已有的视频行**投影 —— 零额外查询（行本来就要装配）。
+                //   null = 未知（存量 / 解析失败），原样透出，不补 0（0 秒是另一件事）。
+                dto.setDurationSeconds(video.getDurationSeconds());
             }
             case CONTENT_TYPE_IMAGE -> {
                 List<ContentMedia> images = byType.get(MEDIA_TYPE_IMAGE);

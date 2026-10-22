@@ -225,16 +225,18 @@ public class ContentService {
         // 单条四维走互动域单条契约；匿名（userId == null）由它短路返回 null ⇒ "interaction": null。
         // coin 维在互动域内按 type 分流：视频 ⇒ 0/1/2；图文 ⇒ null（"该维不适用"）。
         vo.setInteraction(interactionService.getStatus(userId, contentId, vo.getAuthorId(), vo.getType()));
-        // T44-2：四个公共计数由聚合层一趟提供——MGET 四键（1 趟 pipeline）→ miss 单飞回源
-        // 一条四列点查 → 只对 miss 的键回填（命中键不碰）。详情 Redis 读共 2 趟、冷内容 DB 1 条。
+        // T44-2：四个公共计数（T48 起五个）由聚合层一趟提供——MGET 五键（1 趟 pipeline）→ miss 单飞回源
+        // 一条五列点查 → 只对 miss 的键回填（命中键不碰）。详情 Redis 读共 2 趟、冷内容 DB 1 条。
         // 形态与代价见 ContentCountAggregate 类注释与 缓存与数据一致性.md §五.2。
-        // ★ 与 T43 形态的差异：四键读不再各走各的回源（原 getPublicCounts 三次单条 + 评论数一条，
+        // ★ 与 T43 形态的差异：多键读不再各走各的回源（原 getPublicCounts 三次单条 + 评论数一条，
         //   冷内容 4 条 SQL），互动域的读聚合被本聚合层取代（其回填转发保留在互动域）。
         ContentCountColumns counts = countAggregate.readCounts(contentId);
         vo.setLikeCount(counts.likeCount());
         vo.setFavoriteCount(counts.favoriteCount());
         vo.setCoinCount(counts.coinCount());
         vo.setCommentCount(counts.commentCount());
+        // T48：第 5 个公共计数（播放量），来源 = content.play_count 列（首播 +1，按人去重）。
+        vo.setPlayCount(counts.playCount());
         return vo;
     }
 
@@ -493,14 +495,16 @@ public class ContentService {
      *
      * @param videoUrl 已落盘视频的**应用内相对 URL**
      * @param coverUrl 已落盘封面的应用内相对 URL
+     * @param durationSeconds 视频时长（秒）；{@code null} = 解析失败 / 未知（**不阻断发布**，
+     *                        见 {@code history.md} §六.2 —— 只影响"进度百分比"，不影响可播性）
      * @return 新内容 id
      */
     @Transactional
     public long addVideo(long userId, String title, String description, int categoryId,
-                         String videoUrl, String coverUrl) {
+                         String videoUrl, String coverUrl, Integer durationSeconds) {
         long contentId = doAddContent(userId, ContentType.VIDEO, title, description, categoryId);
-        contentMediaDao.addMedia(contentId, videoUrl, UploadType.VIDEO.getMediaType(), 1);
-        contentMediaDao.addMedia(contentId, coverUrl, UploadType.COVER.getMediaType(), 1);
+        contentMediaDao.addMedia(contentId, videoUrl, UploadType.VIDEO.getMediaType(), 1, durationSeconds);
+        contentMediaDao.addMedia(contentId, coverUrl, UploadType.COVER.getMediaType(), 1, null);
         // S9 补回（原 TODO(feed 切片)）：声明"内容已发布"，由 feed 域订阅后投递写扩散消息。
         // ★ 与 TV 的差异：TV 直调 feedPushNotifier（content→feed 编译期依赖），此处改发事件
         //   （content 只声明自己发生了什么）——消掉 content⇄feed 环（《决策留痕表》C-9）。
@@ -527,11 +531,11 @@ public class ContentService {
                         String coverUrl, List<String> imageUrls) {
         long contentId = doAddContent(userId, ContentType.POST, title, description, categoryId);
         if (coverUrl != null) {
-            contentMediaDao.addMedia(contentId, coverUrl, UploadType.COVER.getMediaType(), 1);
+            contentMediaDao.addMedia(contentId, coverUrl, UploadType.COVER.getMediaType(), 1, null);
         }
         int sort = 1;
         for (String imageUrl : imageUrls) {
-            contentMediaDao.addMedia(contentId, imageUrl, UploadType.IMAGE.getMediaType(), sort++);
+            contentMediaDao.addMedia(contentId, imageUrl, UploadType.IMAGE.getMediaType(), sort++, null);
         }
         // S9 补回（原 TODO(feed 切片)）：口径同 addVideo（《遗留台账》A3 → 已闭合）。
         events.publishEvent(new ContentPublishedEvent(contentId, userId));
@@ -559,6 +563,13 @@ public class ContentService {
      * （同时把 {@code file_exists} 置 1 并记录校验时间）→ ③ 回写内容级 {@code content.file_exists}
      * 聚合。三者同进同退（TV 原样）。
      *
+     * <h2>★ T46：换视频要**同时**刷新时长（换图片 / 封面不能碰）</h2>
+     * {@code type == 1} ⇒ 在**同一事务**里更新该行的 {@code duration_seconds}
+     * （{@code durationSeconds == null} 表示新文件解析失败 ⇒ 时长回到"未知"，
+     * 这比"保留旧视频的时长"更诚实：旧时长配新视频，进度百分比直接算错）。
+     * {@code type == 2/3} ⇒ **不调用** {@code ContentMediaDao#updateMediaDuration}
+     * ⇒ 视频行的时长原样保留（换封面不该影响视频时长）。
+     *
      * <h2>提交后：两条清理/刷新，顺序与归属</h2>
      * <ol>
      *   <li>{@code REFRESH} 内容缓存（媒体 url 变了，详情的 videoUrl/coverUrl/imageUrls 要重载）；</li>
@@ -567,14 +578,21 @@ public class ContentService {
      *       事务已提交），故不会出现"DB 未提交却删了旧文件"。</li>
      * </ol>
      *
+     * @param durationSeconds 换视频时的**新**时长（秒）；{@code null} = 未知。
+     *                        仅 {@code type == 1} 时被使用，其余类型忽略
      * @return 被替换掉的**旧** url（供调用方清理物理文件）
      */
     @Transactional
-    public String replaceMedia(long contentId, long userId, int type, int sort, String newUrl) {
+    public String replaceMedia(long contentId, long userId, int type, int sort, String newUrl,
+                               Integer durationSeconds) {
         ContentMedia media = findOwnedMedia(contentId, userId, type, sort);
         String oldUrl = media.getUrl();
         Timestamp now = Timestamp.valueOf(LocalDateTime.now());
         contentMediaDao.updateMediaUrl(media.getMediaId(), newUrl, true, now);
+        if (type == UploadType.VIDEO.getMediaType()) {
+            // ★ 只在这个分支调用：换图片/封面时视频行的时长必须原样保留（history.md §六.2）
+            contentMediaDao.updateMediaDuration(media.getMediaId(), durationSeconds);
+        }
         contentDao.updateFileExists(contentId, true, now);
         events.publishEvent(ContentCacheChangedEvent.refresh(contentId));
         return oldUrl;

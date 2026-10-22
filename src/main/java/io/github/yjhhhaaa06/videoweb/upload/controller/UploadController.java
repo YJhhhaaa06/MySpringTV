@@ -9,6 +9,9 @@ import io.github.yjhhhaaa06.videoweb.content.service.ContentService;
 import io.github.yjhhhaaa06.videoweb.upload.model.UploadResult;
 import io.github.yjhhhaaa06.videoweb.upload.model.UploadType;
 import io.github.yjhhhaaa06.videoweb.upload.service.FileUploadService;
+import io.github.yjhhhaaa06.videoweb.upload.service.Mp4DurationReader;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -16,9 +19,11 @@ import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
 
 /**
  * 上传接口（S7）：发布视频 / 发布图文 / 作者换源。迁移自 TV
@@ -58,6 +63,8 @@ import java.util.Map;
 @RequiresLogin
 public class UploadController {
 
+    private static final Logger log = LoggerFactory.getLogger(UploadController.class);
+
     private final FileUploadService fileUploadService;
     private final ContentService contentService;
 
@@ -73,6 +80,10 @@ public class UploadController {
      * <p>校验（在**落盘之前**，与 TV 一致——失败不留文件）：
      * 标题非空且 ≤50；简介空则置 {@code "-"}、否则 ≤1000；{@code categoryId} 必须是单个数字字符。
      * 文件类型不支持 → 400 {@code "文件类型不支持"}（{@link FileUploadService#saveFile}）。
+     *
+     * <p>★ <b>时长解析（T46）</b>：落盘之后、写库之前解析 mp4 头的 {@code moov → mvhd}，
+     * 结果随 {@code addVideo} 一起进事务。**解析失败不阻断发布**（{@code null} = 未知），
+     * 理由见 {@code history.md} §六.2：时长只服务"进度百分比"，异常 mp4 不应变成新的失败点。
      */
     @PostMapping("/video")
     public ApiResponse<Map<String, Object>> uploadVideo(@CurrentUserId long userId,
@@ -91,7 +102,7 @@ public class UploadController {
             videoResult = fileUploadService.saveFile(video, UploadType.VIDEO);
             coverResult = fileUploadService.saveFile(cover, UploadType.COVER);
             long contentId = contentService.addVideo(userId, t, d, category,
-                    videoResult.url(), coverResult.url());
+                    videoResult.url(), coverResult.url(), readDuration(videoResult));
             return ApiResponse.success(Map.of("contentId", contentId));
         } catch (BusinessException e) {
             deleteQuietly(videoResult);
@@ -159,6 +170,10 @@ public class UploadController {
      * <p>{@code type ∈ 1(视频)/2(图片)/3(封面)}（{@link UploadType#fromMediaType}），
      * {@code type}/{@code sort} 定位 {@code content_media} 记录；所有权由 Service 校验。
      * 成功返回 {@code {"url": 新URL}}，且**旧文件被删除**（尽力而为，DB 已提交）。
+     *
+     * <p>★ <b>时长（T46）</b>：{@code type == 1} 时重新解析新文件的时长并**同一事务**写回该媒体行；
+     * {@code type == 2/3} 传 {@code null} 且 Service **不调用**更新 —— 换封面不能清空视频时长。
+     * 只在上传时解析会留"时长永远停在旧值"的显式不一致，所以两个调用点都要接。
      */
     @PostMapping("/replace")
     public ApiResponse<Map<String, Object>> replace(@CurrentUserId long userId,
@@ -178,7 +193,8 @@ public class UploadController {
         UploadResult result = null;
         try {
             result = fileUploadService.saveFile(file, uploadType);
-            String oldUrl = contentService.replaceMedia(contentId, userId, type, sort, result.url());
+            Integer duration = uploadType == UploadType.VIDEO ? readDuration(result) : null;
+            String oldUrl = contentService.replaceMedia(contentId, userId, type, sort, result.url(), duration);
             // 旧文件清理：DB 已提交、尽力而为（失败只记 WARNING，不影响响应）
             fileUploadService.deleteFileByUrl(oldUrl);
             return ApiResponse.success(Map.of("url", result.url()));
@@ -194,6 +210,25 @@ public class UploadController {
     // ========================================================================
     // 表单校验（文案逐字保留自 TV CommandConverter.uploadVideoToCommand / uploadPostToCommand）
     // ========================================================================
+
+    /**
+     * 解析已落盘视频的时长（秒）。**任何失败都返回 {@code null}**（= 未知），绝不抛出：
+     * 时长只服务"进度百分比"，不能让异常 mp4 把发布变成新的失败点（{@code history.md} §六.2）。
+     *
+     * <p>⚠️ {@code catch} 覆盖的不只是解析器内部的异常：{@code Path.of} 在
+     * {@link Mp4DurationReader#readSeconds} 的 try **之外**（{@code InvalidPathException} 是
+     * RuntimeException，不会被那边的 catch 吞掉）—— 少了这层，一个畸形路径就会让发布 500，
+     * 而"时长解析失败不阻断发布"的契约就不再字面成立。
+     */
+    private static Integer readDuration(UploadResult result) {
+        try {
+            OptionalInt duration = Mp4DurationReader.readSeconds(Path.of(result.absolutePath()));
+            return duration.isPresent() ? duration.getAsInt() : null;
+        } catch (RuntimeException e) {
+            log.warn("时长解析入口异常，按未知处理（发布继续）: absolutePath={}", result.absolutePath(), e);
+            return null;
+        }
+    }
 
     private static String requireTitle(String title) {
         if (title == null || title.isBlank()) {

@@ -28,6 +28,7 @@ import java.util.Set;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -84,7 +85,7 @@ class UploadTransactionTests extends AbstractHttpIntegrationTest {
 
         // 打桩：媒体行插入抛运行时异常（发生在 doAddContent 之后）
         doThrow(new RuntimeException("boom: 模拟媒体插入失败"))
-                .when(contentMediaDao).addMedia(anyLong(), anyString(), anyInt(), anyInt());
+                .when(contentMediaDao).addMedia(anyLong(), anyString(), anyInt(), anyInt(), any());
 
         MultiValueMap<String, Object> form = newForm();
         form.add("title", "s7_tx_rollback");

@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  watch_history Mapper（播放记录专项 T47）。
+  SQL 逐字来自 architecture/domain/history/history.md §四 —— 那三个语句是设计的一部分，
+  尤其"ODKU 不判首播 / INSERT IGNORE + 条件 UPDATE 判首播"的拆分，改动前先读那份文档。
+-->
+<mapper namespace="io.github.yjhhhaaa06.videoweb.history.dao.WatchHistoryDao">
+
+    <!-- /history/report：一条 ODKU，**不判首播**（不读 play_counted、不看 affected rows）。
+         ★ update_time 必须显式 SET：列上的 ON UPDATE 在"值没变"时不触发
+           ⇒ 同一秒重复上报不会把该行移到列表最前（history.md §二 口径 5）。 -->
+    <insert id="upsertProgress">
+        INSERT INTO watch_history (user_id, content_id, progress_seconds)
+        VALUES (#{userId}, #{contentId}, #{progressSeconds})
+        ON DUPLICATE KEY UPDATE
+          progress_seconds = VALUES(progress_seconds),
+          update_time = CURRENT_TIMESTAMP
+    </insert>
+
+    <!-- 批量落库（T51-2）：语义与 upsertProgress 逐字一致（LWW、只改进度与时间）。
+         ★ update_time 取**每条自己的** serverReceiveTs（#{it.updateTime}），不能用 CURRENT_TIMESTAMP：
+           一批里各条的接收时刻不同，用数据库当前时间会把它们压成同一秒 ⇒ 历史列表倒序退化。
+         ★ 绝不写 play_counted（那是 /play 两条语句的职责）。
+         ⚠️ 一条语句 = 一个隐式事务：任一行失败整批回滚 ⇒ 调用方必须能降级逐条重试。 -->
+    <insert id="upsertProgressBatch">
+        INSERT INTO watch_history (user_id, content_id, progress_seconds, update_time)
+        VALUES
+        <foreach collection="items" item="it" separator=",">
+            (#{userId}, #{it.contentId}, #{it.progressSeconds}, #{it.updateTime})
+        </foreach>
+        ON DUPLICATE KEY UPDATE
+          progress_seconds = VALUES(progress_seconds),
+          update_time = VALUES(update_time)
+    </insert>
+
+    <!-- /history/play ①：行不存在 ⇒ 建行并直接标记已计（affected = 1 即首播）。
+         ★ 不用 ODKU：useAffectedRows=false 下"插入"与"值没变的更新"都返回 1
+           ⇒ 会把重复播放误判成首播（history.md §四.2）。 -->
+    <insert id="insertIgnoreCounted">
+        INSERT IGNORE INTO watch_history (user_id, content_id, progress_seconds, play_counted)
+        VALUES (#{userId}, #{contentId}, 0, 1)
+    </insert>
+
+    <!-- /history/play ②：行已存在 ⇒ 条件抢占标记位（affected = 1 即首播，0 = 已计过）。
+         条件 UPDATE 在并发下是天然的互斥：只有一个事务能把 0 改成 1 ⇒ 播放量恰 +1。 -->
+    <update id="markCountedIfNotCounted">
+        UPDATE watch_history SET play_counted = 1
+        WHERE user_id = #{userId} AND content_id = #{contentId} AND play_counted = 0
+    </update>
+
+    <!-- /history/list 的行类型：★ 只映射本域三列。
+         title/coverUrl/authorName/durationSeconds 由 HistoryService#list 经
+         ContentService#loadContentVOs 组装；判失效也在那里（history.md §三 / §七.1）。
+         ★ watchedTime = update_time（最后上报时间），**不是** create_time（首次观看）。 -->
+    <resultMap id="historyItemVoMap"
+               type="io.github.yjhhhaaa06.videoweb.history.model.vo.HistoryItemVO">
+        <result property="contentId" column="content_id"/>
+        <result property="watchedTime" column="update_time"/>
+        <result property="progress" column="progress_seconds"/>
+    </resultMap>
+
+    <!-- 历史总条数（列表 total）。数的是 watch_history **行** —— 失效条目照常计入
+         （历史不可删、占位不缩水；否则 total 与页内条数打架，history.md §七.1）。 -->
+    <select id="countByUserId" resultType="int">
+        SELECT COUNT(*) FROM watch_history WHERE user_id = #{userId}
+    </select>
+
+    <!-- 一页历史（update_time DESC, content_id DESC），走 idx_user_update_content（V8 的覆盖复合索引：
+         前三列就是本 ORDER BY，progress_seconds 让本 SELECT 三列免回表）。
+         ① ★ 不 join content / content_media / users（模块边界 §三；一期 I-07 的教训）：
+            展示字段与失效判据都归 ContentService#loadContentVOs；
+         ② ★ tie-breaker 用 content_id DESC（不是行 id）：update_time 是秒精度，
+            同一秒的两行必须有序（history.md §三）；
+         ③ 失效行**不跳过**：整页失效也照常返回（跳过 ⇒ 用户看不到 ⇒ 永远没人处理）。 -->
+    <select id="findPageByUserId" resultMap="historyItemVoMap">
+        SELECT content_id AS content_id,
+               update_time AS update_time,
+               progress_seconds AS progress_seconds
+        FROM watch_history
+        WHERE user_id = #{userId}
+        ORDER BY update_time DESC, content_id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <!-- 续播位置（/history/position）：uk_user_content 点查。
+         ★ 刻意**不碰 content / content_media**、不判内容存在性（history.md §七.2）：
+           内容已删照样回答进度（内容是死是活由详情 404 负责）。
+         无行时 MyBatis 返回 null ⇒ service 折成 0（resultType 用包装 Integer，不用 int）。 -->
+    <select id="findProgress" resultType="java.lang.Integer">
+        SELECT progress_seconds FROM watch_history
+        WHERE user_id = #{userId} AND content_id = #{contentId}
+    </select>
+
+</mapper>

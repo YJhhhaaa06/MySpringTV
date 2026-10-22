@@ -25,11 +25,13 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atMost;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 /**
  * T44-2 验收：**详情计数聚合读**（{@code ContentCountAggregate}）——
- * 四个公共计数从"各自独立回源"改为"一趟 MGET + miss 单飞回源一条四列点查 + 有选择回填"。
+ * 公共计数从"各自独立回源"改为"一趟 MGET + miss 单飞回源一条多列点查 + 有选择回填"。
+ * T48 起聚合的键数 **4 → 5**（新增播放量），本类的选择性回填 / 单飞 / 降级口径对五个键同样适用。
  *
  * <h2>本类钉住的四件事（每一件都能被一行实现改动弄红）</h2>
  * <ol>
@@ -42,7 +44,7 @@ import static org.mockito.Mockito.verify;
  *       （eq(contentId) 收窄 + 另一内容做对照哨兵；不钉 times(1) 的理由见用例内注释——
  *       线程调度无法保证全部线程时间上重叠，atMost 对"去单飞"形态判别等价且稳定）；</li>
  *   <li><b>脏值自愈</b>：非数字缓存值按 miss 处理并被回填覆盖；</li>
- *   <li><b>404 短路在聚合之前</b>：内容删除（四键已被 REMOVE 监听器失效）后的详情请求
+ *   <li><b>404 短路在聚合之前</b>：内容删除（五键中四键已被 REMOVE 监听器失效；playCount 由 removeContent 失效）后的详情请求
  *       不得把计数键回填出来——预热在前保证"键不存在"有判别力（假绿形态①的规避）。</li>
  * </ol>
  *
@@ -77,7 +79,7 @@ class ContentDetailCountAggregateTests extends AbstractContentIntegrationTest {
         long contentId = insertVideoContent(authorId, "聚合-有选择回填");
         String viewerToken = registerAndGetToken(VIEWER_PHONE, VIEWER);
 
-        // 预热：详情一次，四键全部回填（like="0"）
+        // 预热：详情一次，五键全部回填（like="0"）
         JsonNode before = Envelope.data(get("/search/IdSearch?contentId=" + contentId, authorToken));
         assertThat(before.path("likeCount").asLong()).as("前置：0 赞").isZero();
 
@@ -105,6 +107,38 @@ class ContentDetailCountAggregateTests extends AbstractContentIntegrationTest {
     }
 
     @Test
+    @DisplayName("★五键聚合（T48）：冷内容五键全 miss ⇒ 一趟回源；playCount 命中键不被列快照覆盖，脏值按 miss")
+    void 五键聚合与播放量选择性回填() {
+        String token = registerAndGetToken(AUTHOR_PHONE, AUTHOR);
+        long authorId = userIdOf(AUTHOR_PHONE);
+        long contentId = insertVideoContent(authorId, "聚合-播放量五键");
+        jdbcTemplate.update("UPDATE content SET play_count = 4 WHERE id = ?", contentId);
+
+        // 冷内容：五个键全 miss ⇒ 一趟 findCountColumns 取齐五列，五个键按列值回填
+        JsonNode cold = Envelope.data(get("/search/IdSearch?contentId=" + contentId, token));
+        assertThat(cold.path("playCount").asLong()).as("playCount = 列真值 4").isEqualTo(4L);
+        assertThat(redis.opsForValue().get(CacheKeys.contentPlayCount(contentId)))
+                .as("★ 五键之一：miss 的 playCount 键被回填为列值").isEqualTo("4");
+        verify(contentDao, times(1)).findCountColumns(eq(contentId));
+
+        // 命中但陈旧（7 ≠ 列真值 4）+ 只失效 like ⇒ playCount 一个都不许碰（有选择回填）
+        redis.opsForValue().set(CacheKeys.contentPlayCount(contentId), "7");
+        redis.delete(CacheKeys.contentLikeCount(contentId));
+        JsonNode warm = Envelope.data(get("/search/IdSearch?contentId=" + contentId, token));
+        assertThat(warm.path("playCount").asLong())
+                .as("playCount 键命中 ⇒ 返回缓存值（cache-aside：失效权在写路径）").isEqualTo(7L);
+        assertThat(redis.opsForValue().get(CacheKeys.contentPlayCount(contentId)))
+                .as("★ 命中键绝不被聚合层覆盖（回填全部会让它变成 4 ⇒ 此断言红）").isEqualTo("7");
+
+        // 脏值：非数字 ⇒ 按 miss 处理，被回填覆盖
+        redis.opsForValue().set(CacheKeys.contentPlayCount(contentId), "not-a-number");
+        JsonNode dirty = Envelope.data(get("/search/IdSearch?contentId=" + contentId, token));
+        assertThat(dirty.path("playCount").asLong()).as("★ 脏值不外显（按 miss 回源列）").isEqualTo(4L);
+        assertThat(redis.opsForValue().get(CacheKeys.contentPlayCount(contentId)))
+                .as("★ 脏值被回填覆盖为列值").isEqualTo("4");
+    }
+
+    @Test
     @DisplayName("★单飞合一：聚合层入口真并发冷读把回源收敛到至多 3 次（20 线程；去单飞 = 20 次）")
     void 并发冷读只回源一次() throws Exception {
         registerAndGetToken(AUTHOR_PHONE, AUTHOR);
@@ -118,7 +152,7 @@ class ContentDetailCountAggregateTests extends AbstractContentIntegrationTest {
         // ⚠️ 还必须 stub 掉 pipeline（恒返回全 miss）：否则 20 线程在 Redis 连接池上排队，
         // 错峰进入单飞——那同样是环境时序，不是单飞语义。stub 后所有线程零延迟到达 flight，
         // "合一"才被纯净观测。★ 反向验证：去掉 SingleFlight（loader 直接执行）⇒ times(1) 红。
-        doReturn(java.util.Arrays.asList(null, null, null, null)).when(aggregate).pipeline(any());
+        doReturn(java.util.Arrays.asList(null, null, null, null, null)).when(aggregate).pipeline(any());
 
         int threads = 20;
         ExecutorService pool = Executors.newFixedThreadPool(threads + 3);
@@ -164,7 +198,7 @@ class ContentDetailCountAggregateTests extends AbstractContentIntegrationTest {
         long contentId = insertVideoContent(authorId, "聚合-脏值");
 
         assertThat(get("/search/IdSearch?contentId=" + contentId, token).getStatusCode().value())
-                .as("前置：详情可读（四键回填）").isEqualTo(200);
+                .as("前置：详情可读（五键回填）").isEqualTo(200);
 
         redis.opsForValue().set(CacheKeys.contentCoinCount(contentId), "not-a-number");
 
@@ -182,7 +216,7 @@ class ContentDetailCountAggregateTests extends AbstractContentIntegrationTest {
         long authorId = userIdOf(AUTHOR_PHONE);
         long contentId = insertVideoContent(authorId, "聚合-404短路");
 
-        // 预热四键（否则"键不存在"零判别力——假绿形态①）
+        // 预热五键（否则"键不存在"零判别力——假绿形态①）
         assertThat(get("/search/IdSearch?contentId=" + contentId, authorToken).getStatusCode().value())
                 .isEqualTo(200);
         assertThat(redis.hasKey(CacheKeys.contentLikeCount(contentId))).isTrue();
