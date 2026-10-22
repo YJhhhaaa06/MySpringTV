@@ -174,6 +174,27 @@ class ValidationErrorContractTests extends AbstractHttpIntegrationTest {
         assertThat(Envelope.msg(resp)).isEqualTo("请求体缺失或格式错误");
     }
 
+    @Test
+    @DisplayName("标在 @RequestParam 上的约束真的生效：空用户名 → 400 + errors[field=userName]")
+    void 请求参数上的约束生效() {
+        // ChangePasswordRequest 那套 @Valid 只管请求体；控制器的 @RequestParam 上的 @NotBlank
+        // 走的是 Spring 的方法校验（HandlerMethodValidationException）。这条用例钉住"它真的生效"，
+        // 而不是"注解看着像保证、实际被 catch-all 吞成 500"（CommentController 的老注释担心的正是这个）。
+        String token = registerAndGetToken("13800000203", "t57-param-constraint", "123456");
+
+        ResponseEntity<String> resp = post("/user/changeUserName?userName=", null, token);
+
+        assertThat(resp.getStatusCode().value())
+                .as("约束生效（不是 500，也不是静默成功）：%s", resp.getBody()).isEqualTo(400);
+        assertThat(Envelope.code(resp)).isEqualTo(ErrorCode.PARAM_INVALID.getCode());
+        JsonNode error = singleError(resp);
+        assertThat(error.path("field").asString()).isEqualTo("userName");
+        assertThat(error.path("code").asString()).isEqualTo(ErrorCode.PARAM_INVALID.getCode());
+        // 文案取自源码里的注解 message：约束缺 message 时是 Hibernate 的**本地化默认值**，
+        // 随 Locale 变 ⇒ 对外 body 里不许出现（这是"文案必须写死"的判别力所在）。
+        assertThat(error.path("message").asString()).isEqualTo("用户名不能为空");
+    }
+
     // ==================== 辅助（只读 JSON 树，不反序列化成 ApiResponse） ====================
 
     private static JsonNode singleError(ResponseEntity<String> resp) {

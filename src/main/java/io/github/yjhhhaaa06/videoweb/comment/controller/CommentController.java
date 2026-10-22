@@ -46,9 +46,15 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p><b>为什么 {@code commentId} 不加 {@code @Positive}</b>：① TV 对 {@code commentId=0}
  * 的行为是走到 SQL 后 404（不是 400），加了会把 404 变成 400，属行为改动；
- * ② 约束注解标在 {@code @RequestParam} 上需要类级 {@code @Validated} 才生效，
- * 缺了就是**看着像保证、实际不校验**的隐式失效——不如不加，依赖 Spring 自带的
- * "缺参 → {@code MissingServletRequestParameterException} → 400"（这条路必定生效）。
+ * ② 加了它会多一条与 TV 不一致的拒绝路径（TV 没有这个校验）——不如不加，
+ * 依赖 Spring 自带的"缺参 → {@code MissingServletRequestParameterException} → 400"（这条路必定生效）。
+ *
+ * <p>⚠️ 历史注释更正（`T57` 复核）：这里曾写"约束注解标在 {@code @RequestParam} 上需要类级
+ * {@code @Validated} 才生效"。那是 Spring 6.1 之前的 AOP 路线；本仓（Boot 4.1 / Framework 7）
+ * 走的是**内置方法校验**，注解不加 {@code @Validated} 也生效，失败抛
+ * {@code HandlerMethodValidationException}（由 {@code GlobalExceptionHandler} 收口成 400 + {@code errors[]}）。
+ * 实例见 {@code UserController#changeUserName}，契约见
+ * {@code ValidationErrorContractTests#请求参数上的约束生效}。
  *
  * <p><b>鉴权（SOP 步骤 6：用 {@code @RequiresLogin} 声明，不去改任何路径清单）</b>——
  * 依据 TV {@code AuthFilter} 复核：{@code PROTECTED_EXACT} 含

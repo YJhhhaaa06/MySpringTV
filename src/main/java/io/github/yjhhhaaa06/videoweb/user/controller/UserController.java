@@ -91,11 +91,16 @@ public class UserController {
      *
      * <p>审计口径同 {@link #changePassword}（{@code UserService.changeUserName} 亦为
      * {@code @Transactional}）。{@code target} 只记 {@code userId:N}，**不记新用户名**。
+     *
+     * <p>★ {@code @NotBlank} 标在 {@code @RequestParam} 上：由 Spring 的**内置方法校验**生效
+     * （不需要类级 {@code @Validated}），失败时抛 {@code HandlerMethodValidationException}，
+     * 由 {@code GlobalExceptionHandler} 收口成 400 + {@code errors[field=userName]}（`T57`）。
+     * {@code message} 必须写死：约束默认文案随 Locale 变，不能进对外 body。
      */
     @RequiresLogin
     @PostMapping("/changeUserName")
     public ApiResponse<Void> changeUserName(@CurrentUserId long userId,
-                                           @RequestParam @NotBlank String userName) {
+                                           @RequestParam @NotBlank(message = "用户名不能为空") String userName) {
         userService.changeUserName(userId, userName);
         AuditLog.success("user.changeUserName", userId, "userId:" + userId);
         return ApiResponse.success();

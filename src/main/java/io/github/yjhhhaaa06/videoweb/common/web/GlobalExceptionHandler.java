@@ -5,6 +5,8 @@ import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.exception.ServiceBusyException;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.MessageSourceResolvable;
+import org.springframework.core.MethodParameter;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpHeaders;
@@ -12,18 +14,21 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
+import org.springframework.validation.method.ParameterValidationResult;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.exc.InvalidFormatException;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -241,6 +246,48 @@ public class GlobalExceptionHandler {
             }
         }
         return field;
+    }
+
+    /**
+     * **标在控制器方法参数上的**约束失败（`T57`）：如 {@code @RequestParam @NotBlank String userName}。
+     *
+     * <p>★ 这是 Spring 6.1+ 的**内置方法校验**：约束注解直接生效，**不需要**类级 {@code @Validated}
+     * （那是旧 AOP 路线，本仓没有用它）。它可以工作，但抛出的
+     * {@link HandlerMethodValidationException} 在 `T57` 之前没有对应处理器 ⇒ 落进
+     * {@link #handleUnexpected} 变成 **500「服务器内部错误」**：用户填了空用户名，后端报"服务器内部错误"。
+     * 这是"注解看着像保证、实际错得离谱"的典型——判别力只来自 {@code ValidationErrorContractTests#请求参数上的约束生效}。
+     *
+     * <p>字段名取 {@link MethodParameter#getParameterName()}（编译带 {@code -parameters}，Boot 默认开），
+     * 它已剥掉 {@code @RequestParam} 的重命名，仍是**请求里的参数名**。
+     * 文案取约束注解上的 {@code message}（源码里的稳定文案）；缺失时退回 {@code 参数不合法}。
+     */
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMethodValidation(HandlerMethodValidationException ex,
+                                                                   HttpServletRequest req) {
+        List<ApiFieldError> errors = new ArrayList<>();
+        for (ParameterValidationResult result : ex.getParameterValidationResults()) {
+            String field = result.getMethodParameter().getParameterName();
+            for (MessageSourceResolvable error : result.getResolvableErrors()) {
+                errors.add(ApiFieldError.of(field, ErrorCode.PARAM_INVALID, messageOf(error, "参数不合法")));
+            }
+        }
+        for (MessageSourceResolvable error : ex.getCrossParameterValidationResults()) {
+            // 跨参数约束（如"起始 ≤ 结束"）没有单一字段可挂 ⇒ 省略 field，但原因仍要说清。
+            errors.add(ApiFieldError.ofWholeRequest(ErrorCode.PARAM_INVALID, messageOf(error, "参数不合法")));
+        }
+        log.warn("方法参数校验失败 {} {} -> {}", req.getMethod(), req.getRequestURI(),
+                errors.stream().map(ApiFieldError::toSummary).toList());
+        if (errors.isEmpty()) {
+            // 理论分支：异常存在但没有任何可读原因（框架侧变化）⇒ 退回只有码与默认文案的信封。
+            return errorWriter.toResponse(ErrorCode.PARAM_INVALID);
+        }
+        return errorWriter.toResponse(ErrorCode.PARAM_INVALID, ApiErrorWriter.summary(errors), errors);
+    }
+
+    /** 约束注解上的稳定文案；没有就地给兜底（**不**用异常 message：那可能夹带回显或框架措辞）。 */
+    private static String messageOf(MessageSourceResolvable error, String fallback) {
+        String message = error.getDefaultMessage();
+        return message == null || message.isBlank() ? fallback : message;
     }
 
     /**
