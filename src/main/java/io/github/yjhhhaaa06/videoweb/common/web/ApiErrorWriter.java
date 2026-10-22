@@ -13,6 +13,8 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * **全站错误响应的唯一写出点**（`T56`）：状态、信封、头、内容类型都只在这里决定。
@@ -92,6 +94,20 @@ public class ApiErrorWriter {
     }
 
     /**
+     * 带字段级错误的失败响应（`T57`）：{@code {code, msg, errors[]}}。
+     *
+     * <p>★ {@code msg} 由调用方用 {@link #summary} 从 {@code errors} 生成——摘要与字段级明细**同源**，
+     * 不许各自拼一套（否则两处文案迟早漂移，而漂移只有前端使用者会发现）。
+     *
+     * @param errors 至少一条（空列表在 {@link ApiResponse#error(ErrorCode, String, java.util.List)} 处直接拒绝）
+     */
+    public ResponseEntity<ApiResponse<Void>> toResponse(ErrorCode errorCode, String msg,
+                                                        List<ApiFieldError> errors) {
+        return ResponseEntity.status(errorCode.getStatus())
+                .body(ApiResponse.error(errorCode, msg, errors));
+    }
+
+    /**
      * 只有状态、没有响应体的错误（唯一使用者：静态资源 / 媒体文件 404）。
      *
      * <p>这不是"特例分支"，而是与信封并列的**第二种合法形状**：媒体请求的客户端不看 body。
@@ -140,6 +156,10 @@ public class ApiErrorWriter {
     /**
      * 失败信封（**唯一构造点**）：{@code {code, msg}}，不含 {@code data}。
      *
+     * <p>⚠️ 带 {@code errors[]} 的形态（`T57` 校验族）不经过本方法，走
+     * {@link ApiResponse#error(ErrorCode, String, List)} —— 同一个 record、同一套序列化，
+     * 差别只在多一个组件（{@code NON_NULL} ⇒ 非校验族不出现该字段）。
+     *
      * @param msg {@code null} ⇒ 回落到 {@link ErrorCode#getMessage()}（默认文案）
      */
     public ApiResponse<Void> envelope(ErrorCode errorCode, String msg) {
@@ -158,5 +178,19 @@ public class ApiErrorWriter {
         HttpHeaders headers = new HttpHeaders();
         headers.set(HEADER_RETRY_AFTER, String.valueOf(seconds));
         return headers;
+    }
+
+    /**
+     * 顶层 {@code msg} = 各条字段错误的**人读摘要**（`T57`）。
+     *
+     * <p>为什么保留这个"重复"：旧前端（以及不翻字典的调用方）只会展示 {@code msg}；
+     * 而新前端用 {@code errors[]} 挂字段。两者必须**同源**，所以摘要从 {@code errors} 生成，
+     * 不是另写一段拼接逻辑（那正是 T56 之前"加一个字段要改三处"的老毛病）。
+     *
+     * <p>多字段之间用 {@code "; "} 分隔（沿用 `T57` 之前 {@code handleValidation} 的既有格式，
+     * 旧前端哪怕在做字符串解析也不会突然失配）。
+     */
+    public static String summary(List<ApiFieldError> errors) {
+        return errors.stream().map(ApiFieldError::toSummary).collect(Collectors.joining("; "));
     }
 }

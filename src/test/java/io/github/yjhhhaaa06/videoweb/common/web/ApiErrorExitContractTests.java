@@ -67,8 +67,15 @@ class ApiErrorExitContractTests extends AbstractHttpIntegrationTest {
     /** 请求标识形态：16 位小写十六进制（`RequestIdFilter#newRequestId` 的公开契约，日志夹具同款正则）。 */
     private static final Pattern REQUEST_ID = Pattern.compile("^[0-9a-f]{16}$");
 
-    /** 唯一的合法失败体骨架（§2.1）。中文文案里不会有引号，故用这个窄正则即可判别多字段/少字段。 */
-    private static final Pattern FAILURE_BODY = Pattern.compile("^\\{\"code\":\"[A-Z][A-Z0-9_]*\",\"msg\":\"[^\"]*\"}$");
+    /**
+     * 唯一的合法失败体骨架（§2.1 / §2.5）。
+     *
+     * <p>`T57` 起有**两种**形状：{@code {code,msg}} 与 {@code {code,msg,errors:[{…}]}}（校验族）。
+     * 断言仍然只认这两个形状——多一个 {@code timestamp}、{@code msg} 改名、{@code errors} 不是数组都算漂移。
+     * 中文文案里不会有引号，故用这个窄正则即可判别多字段/少字段。
+     */
+    private static final Pattern FAILURE_BODY =
+            Pattern.compile("^\\{\"code\":\"[A-Z][A-Z0-9_]*\",\"msg\":\"[^\"]*\"(,\"errors\":\\[\\{.*}])?}$");
 
     /** 直写桶（夹具）。格式 {@code "tokens:lastRefillMs"} 与实现共用是**故意**的（格式即契约）。 */
     private static final String ANON_KEY = "ratelimit:anon:127.0.0.1";
@@ -88,15 +95,18 @@ class ApiErrorExitContractTests extends AbstractHttpIntegrationTest {
     // ==================== 逐出口：形状 + 请求标识头 ====================
 
     @Test
-    @DisplayName("出口①控制器层：400 失败信封 = {code,msg}，内容类型 JSON，带 X-Request-Id")
+    @DisplayName("出口①控制器层：400 校验失败信封 = {code,msg,errors}，内容类型 JSON，带 X-Request-Id")
     void 控制器层出口() {
-        // 三个字段全不合法 ⇒ @Valid 拦下 ⇒ 400 PARAM_INVALID（advice 出口）。
+        // password / phone 各违反一条约束；username "x" 合法（@NotBlank 通过、长度 1 在 1-50 内）
+        // ⇒ 恰好两条字段错误（`T57` 契约：每条违反一条，不合并）。
         ResponseEntity<String> resp = post("/user/register",
                 Map.of("phone", "1", "username", "x", "password", "1"), null);
 
-        // msg 是字段错误的拼接串（T57 起再补 errors[]），内容随校验规则变 ⇒ 只断言"非空"。
+        // msg 是字段错误的人读摘要（摘要来自 errors[]，不再是唯一的机器可读面）。
         assertFailureEnvelope(resp, 400, ErrorCode.PARAM_INVALID, null);
-        assertThat(Envelope.msg(resp)).as("校验失败的人读摘要（字段级定位归 T57 的 errors[]）").isNotBlank();
+        assertThat(Envelope.msg(resp)).as("校验失败的人读摘要").isNotBlank();
+        assertThat(Envelope.hasErrorsField(resp)).as("校验族必须带 errors[]（§2.5）").isTrue();
+        assertThat(Envelope.errors(resp).size()).as("两条违反 ⇒ 两条 errors").isEqualTo(2);
     }
 
     @Test
@@ -184,12 +194,19 @@ class ApiErrorExitContractTests extends AbstractHttpIntegrationTest {
                 .as("若声明 charset 就必须是 UTF-8，实际 %s", contentType).isTrue();
 
         JsonNode body = Envelope.parse(resp);
-        // ★ T57 会给 400 补 `errors[]`（§2.5）⇒ 届时本断言必须**按新契约扩展**为
-        //   "{code,msg} 或 {code,msg,errors}"（契约跟随 G8），**不许**放宽成"至少含 code/msg"
-        //   —— 那会让"多一个字段/改字段名"这类漂移重新变成不可见。
-        assertThat(body.size()).as("失败体只有 code / msg 两个字段：%s", resp.getBody()).isEqualTo(2);
+        // ★ `T57`（契约 §2.5，G8 契约跟随）：失败体从"恒两字段"扩展为**两种合法形状**——
+        //   `{code,msg}`（业务拒绝 / 过滤器出口）与 `{code,msg,errors}`（校验族）。
+        //   仍然**不许**放宽成"至少含 code/msg"：字段名漂移、多出 timestamp 之类必须当场红。
+        int allowedSize = body.has("errors") ? 3 : 2;
+        assertThat(body.size())
+                .as("失败体只能是 {code,msg} 或 {code,msg,errors}：%s", resp.getBody())
+                .isEqualTo(allowedSize);
         assertThat(body.has("code")).isTrue();
         assertThat(body.has("msg")).isTrue();
+        if (body.has("errors")) {
+            assertThat(body.get("errors").isArray())
+                    .as("errors 必须是数组（不是对象 / 不是字符串）：%s", resp.getBody()).isTrue();
+        }
         assertThat(Envelope.hasDataField(resp)).as("失败体不得出现 data（NON_NULL 的失败分支）").isFalse();
 
         assertThat(Envelope.code(resp)).isEqualTo(expectedCode.getCode());

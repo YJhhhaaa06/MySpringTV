@@ -3,14 +3,19 @@ package io.github.yjhhhaaa06.videoweb.common.web;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 
+import java.util.List;
+
 /**
  * 统一响应信封。
  *
- * <h2>形状（{@code T55} 定稿，契约见 {@code architecture/tech/api/接口契约.md} §2.1）</h2>
+ * <h2>形状（{@code T55} 定稿、{@code T57} 补 {@code errors[]}，契约见
+ * {@code architecture/tech/api/接口契约.md} §2.1 / §2.5）</h2>
  * <ul>
  *   <li><b>成功</b>：{@code {code:"OK", msg:"success", data}}；{@code data} 为空时**不出现**
  *       （{@link JsonInclude.Include#NON_NULL}）。</li>
- *   <li><b>失败</b>：{@code {code:"<域>_<原因>", msg, errors?}}；{@code data} 不出现。</li>
+ *   <li><b>失败</b>：{@code {code:"<域>_<原因>", msg, errors?}}；{@code data} 不出现。
+ *       {@code errors} 只在**校验族**（{@code @Valid} / 缺参 / 类型不匹配 / 请求体不可解析）出现，
+ *       元素见 {@link ApiFieldError}；业务拒绝（如"标题不能为空"这类 Service 内守卫）仍只有 {@code msg}。</li>
  * </ul>
  *
  * <h2>为什么 {@code code} 从 int 改成 String</h2>
@@ -21,18 +26,20 @@ import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
  * <p><b>两个刻意的契约细节</b>（勿"顺手优化"，否则破坏与旧前端的字段约定）：
  * 字段名是 {@code msg} 而非 {@code message}；成功码是字面量 {@code "OK"} 而不是 {@code 200}。
  *
- * @param code 业务码。成功恒为 {@link #OK}；失败为 {@link ErrorCode#getCode()}
- * @param msg  提示消息：成功恒为 {@code "success"}；失败是给人读的兜底文案（前端可覆盖）
- * @param data 业务数据，失败时为 null（且不序列化）
+ * @param code   业务码。成功恒为 {@link #OK}；失败为 {@link ErrorCode#getCode()}
+ * @param msg    提示消息：成功恒为 {@code "success"}；失败是给人读的兜底文案（前端可覆盖）
+ * @param data   业务数据，失败时为 null（且不序列化）
+ * @param errors 字段级错误（`T57`）；只在**校验族**出现，为空时 null（且不序列化）。
+ *               与 {@code data} 互斥：失败体永不出现 {@code data}，成功体永不出现 {@code errors}。
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public record ApiResponse<T>(String code, String msg, T data) {
+public record ApiResponse<T>(String code, String msg, T data, List<ApiFieldError> errors) {
 
     /** 成功码（字面量，不随 HTTP status 变：201 也回 {@code "OK"}，前端只判这一处）。 */
     public static final String OK = "OK";
 
     public static <T> ApiResponse<T> success(T data) {
-        return new ApiResponse<>(OK, "success", data);
+        return new ApiResponse<>(OK, "success", data, null);
     }
 
     /**
@@ -51,12 +58,12 @@ public record ApiResponse<T>(String code, String msg, T data) {
      * @param data 业务数据
      */
     public static <T> ApiResponse<T> success(String msg, T data) {
-        return new ApiResponse<>(OK, msg, data);
+        return new ApiResponse<>(OK, msg, data, null);
     }
 
     /** 无数据体的成功响应（如修改密码）。 */
     public static ApiResponse<Void> success() {
-        return new ApiResponse<>(OK, "success", null);
+        return new ApiResponse<>(OK, "success", null, null);
     }
 
     /**
@@ -66,11 +73,24 @@ public record ApiResponse<T>(String code, String msg, T data) {
      * @param msg  兜底中文文案
      */
     public static <T> ApiResponse<T> error(String code, String msg) {
-        return new ApiResponse<>(code, msg, null);
+        return new ApiResponse<>(code, msg, null, null);
     }
 
     /** 失败信封（码与默认文案都取自枚举）。 */
     public static <T> ApiResponse<T> error(ErrorCode errorCode) {
         return error(errorCode.getCode(), errorCode.getMessage());
+    }
+
+    /**
+     * 带字段级错误的失败信封（`T57`）：{@code {code, msg, errors}}。
+     *
+     * @param errors 至少一条；调用方负责保证非空（空列表会序列化成 {@code "errors":[]}，
+     *               那等于"我失败了但列不出原因"，前端无法区分"没有字段错误"与"忘了填"）
+     */
+    public static <T> ApiResponse<T> error(ErrorCode errorCode, String msg, List<ApiFieldError> errors) {
+        if (errors == null || errors.isEmpty()) {
+            throw new IllegalArgumentException("errors 必须非空：没有字段级原因时用不带 errors 的失败信封");
+        }
+        return new ApiResponse<>(errorCode.getCode(), msg, null, List.copyOf(errors));
     }
 }

@@ -24,7 +24,6 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * 统一异常出口（控制器层）。
@@ -98,20 +97,39 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * {@code @Valid} 校验失败：码 {@code PARAM_INVALID}，{@code msg} 是全部字段错误的拼接串。
+     * {@code @Valid} 校验失败：码 {@code PARAM_INVALID}，并给出**字段级**明细
+     * {@code errors:[{field, code, message}]}（`T57`）。
      *
-     * <p>⚠️ 拼接串只是**过渡态**：{@code T57} 会补 {@code errors:[{field,code,message}]}
-     * 把字段级定位交给机器读；{@code msg} 保留为"人读摘要"。
-     * 现在就把 {@code field: message} 的形式保留着，前端至少能靠它做临时解析。
+     * <h2>{@code msg} 与 {@code errors[]} 的分工</h2>
+     * {@code msg} = 人读摘要（各条 {@code field: message} 用 "; " 拼），保留它是为了让**旧前端**
+     * 与不翻字典的调用方仍能展示一句话；{@code errors[]} 是**机器读的真源**，前端据此把文案挂到输入框上。
+     * 两者**同源**（{@link ApiErrorWriter#summary} 从 {@code errors} 生成），不各拼一套。
+     *
+     * <h2>为什么 {@code message} 用注解文案、不用异常文案</h2>
+     * 注解的 {@code message} 是**源码里的稳定文案**；异常 message 形如
+     * {@code Validation failed for argument [...]}，且可能夹带入参回显。红线是"参数回显只进日志"，
+     * 故 body 只取注解文案，异常对象只用于日志。
+     *
+     * <h2>同一字段可能有多条</h2>
+     * Bean Validation 是"每条违反一条"，一个字段命中 {@code @NotBlank} 与 {@code @Size} 会产出两条。
+     * 这里**不合并**：合并要选"哪条算第一条"，那是不可解释的隐式策略，且会丢掉"还违反了另一条"的信息。
+     * 字段级去重交给前端（按 {@code field} 分组，展示第一条即可）。
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiResponse<Void>> handleValidation(MethodArgumentNotValidException ex,
                                                               HttpServletRequest req) {
-        String detail = ex.getBindingResult().getFieldErrors().stream()
-                .map(fe -> fe.getField() + ": " + defaultMessage(fe))
-                .collect(Collectors.joining("; "));
-        log.warn("参数校验失败 {} {} -> {}", req.getMethod(), req.getRequestURI(), detail);
-        return errorWriter.toResponse(ErrorCode.PARAM_INVALID, detail);
+        List<ApiFieldError> errors = ex.getBindingResult().getFieldErrors().stream()
+                .map(fe -> ApiFieldError.of(fe.getField(), ErrorCode.PARAM_INVALID, defaultMessage(fe)))
+                .toList();
+        log.warn("参数校验失败 {} {} -> {}", req.getMethod(), req.getRequestURI(),
+                errors.stream().map(ApiFieldError::toSummary).toList());
+        if (errors.isEmpty()) {
+            // 理论分支：只有类级（全局）约束、没有字段错误时无法给出 field。
+            // 此时退回"只有码 + 默认文案"的信封，**不**造一个 field 为空的假条目
+            // （那会让前端以为"某个字段错了"却无从挂载）。
+            return errorWriter.toResponse(ErrorCode.PARAM_INVALID);
+        }
+        return errorWriter.toResponse(ErrorCode.PARAM_INVALID, ApiErrorWriter.summary(errors), errors);
     }
 
     /**

@@ -72,4 +72,19 @@ public final class Envelope {
     public static boolean hasDataField(ResponseEntity<String> response) {
         return parse(response).has("data");
     }
+
+    /**
+     * 取字段级错误数组（`T57`，契约 §2.5）：{@code errors:[{field,code,message}]}。
+     *
+     * <p>缺失时返回 {@link JsonNode} 的 missing node（{@code isMissingNode() == true}），
+     * 与"存在但为空数组"可区分 —— 这正是"只有校验族才出现 {@code errors}"这条契约的判别点。
+     */
+    public static JsonNode errors(ResponseEntity<String> response) {
+        return parse(response).path("errors");
+    }
+
+    /** 该响应是否带了 {@code errors} 字段（存在 ≠ 非空）。 */
+    public static boolean hasErrorsField(ResponseEntity<String> response) {
+        return parse(response).has("errors");
+    }
 }
