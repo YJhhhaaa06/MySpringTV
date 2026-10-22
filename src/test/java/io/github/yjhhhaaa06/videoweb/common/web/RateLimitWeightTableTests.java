@@ -127,8 +127,9 @@ class RateLimitWeightTableTests extends AbstractHttpIntegrationTest {
     void 未登记端点落兜底权重() {
         seedAnonBucket();
 
-        // ⚠️ 后缀用**固定字母**：数字串（如 nanoTime）会被 SensitiveDataTests 的 `1[3-9]\d{9}`
-        //    扫描误判为"明文手机号"（未映射路径的 ERROR 行会落进 system.log——2026-10-16 实测）。
+        // ⚠️ 后缀仍用**固定字母**：数字串（如 nanoTime）会被 SensitiveDataTests 的 `1[3-9]\d{9}`
+        //    扫描误判为"明文手机号"。该风险在 T56 后已降低（未映射路径从 ERROR 降为 DEBUG，
+        //    见 GlobalExceptionHandler#handleNoResource），但"夹具不复刻手机号形态"这条纪律与日志级别无关。
         ResponseEntity<String> resp = get("/no-such-page-t26-probe", null);
 
         // ★ **契约变更（T56，G8）**：未映射路径从 500 改为 **404 信封**（§2.1 / §三 #6）。

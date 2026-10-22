@@ -314,7 +314,8 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
     void 未映射路径404也过闸() {
         // ⚠️ 后缀用**固定字母**（不用 System.nanoTime()）：数字串会被 SensitiveDataTests 的
         //    `1[3-9]\d{9}` 扫描误判为"明文手机号"（2026-10-16 全量回归实际红过一次——
-        //    GlobalExceptionHandler 把未映射路径的 NoResourceFoundException 落进 system.log）。
+        //    GlobalExceptionHandler 把未映射路径的 NoResourceFoundException 当成未预期异常记 ERROR）。
+        //    T56 起该路径改为 DEBUG（只剩访问行），但夹具纪律不变。
         ResponseEntity<String> resp = get("/no-such-page-t25-probe", null);
 
         // ★ **契约变更（T56，G8）**：本仓未映射路径的状态码从 500 改为 **404 信封**
