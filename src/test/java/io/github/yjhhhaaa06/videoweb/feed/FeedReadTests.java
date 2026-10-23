@@ -292,7 +292,7 @@ class FeedReadTests extends AbstractFeedIntegrationTest {
     private String tokenOf(String phone) {
         // 重新登录取 token（registerAndGetToken 已回填用户；token 直接复用注册时返回的更简单，
         // 但两个 helper 都会注册 → 这里用登录保证拿到 viewer 的 token）。
-        ResponseEntity<String> resp = post("/user/login",
+        ResponseEntity<String> resp = post("/api/v1/sessions",
                 java.util.Map.of("phone", phone, "password", PASSWORD), null);
         String token = Envelope.str(resp, "token");
         assertThat(token).as("登录必须返回 token").isNotBlank();

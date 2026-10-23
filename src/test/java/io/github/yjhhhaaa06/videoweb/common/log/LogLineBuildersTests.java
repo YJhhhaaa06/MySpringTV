@@ -35,7 +35,7 @@ class LogLineBuildersTests {
         String staticLine = AccessLogFilter.buildLine("GET", "/upload/a.png", 200, null, null, 1L, 1000L);
         assertThat(staticLine).contains("code=0 ").contains("userId=-").contains("slow=0");
 
-        String slowLine = AccessLogFilter.buildLine("POST", "/user/register", 200, "OK", 42L, 1000L, 1000L);
+        String slowLine = AccessLogFilter.buildLine("POST", "/api/v1/users", 200, "OK", 42L, 1000L, 1000L);
         assertThat(slowLine).contains("userId=42").contains("slow=1");
     }
 

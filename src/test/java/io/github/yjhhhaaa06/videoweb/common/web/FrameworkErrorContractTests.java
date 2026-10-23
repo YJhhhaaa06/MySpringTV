@@ -101,15 +101,15 @@ class FrameworkErrorContractTests extends AbstractHttpIntegrationTest {
     @Test
     @DisplayName("方法不支持：405 + 码 + **保住 Allow 头**（客户端才知道该用哪个方法）")
     void 方法不支持_405带Allow头() {
-        // /user/changePassword 只接受 POST；用 GET 打它 ⇒ 路径命中、方法不匹配。
-        ResponseEntity<String> resp = get("/user/changePassword", null);
+        // /api/v1/users/me/password 只接受 PUT（`T58` 起）；用 GET 打它 ⇒ 路径命中、方法不匹配。
+        ResponseEntity<String> resp = get("/api/v1/users/me/password", null);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(405);
         assertThat(Envelope.code(resp)).isEqualTo(ErrorCode.PARAM_METHOD_NOT_ALLOWED.getCode());
         assertThat(resp.getHeaders().getFirst("Allow"))
                 .as("Allow 由异常携带，丢弃它等于把 405 退化成'不知道为什么不行'")
                 .isNotNull()
-                .contains("POST");
+                .contains("PUT");
         assertThat(resp.getHeaders().getFirst("X-Request-Id")).isNotNull();
     }
 
@@ -119,7 +119,7 @@ class FrameworkErrorContractTests extends AbstractHttpIntegrationTest {
         // 该收 JSON 的登录端点收到 text/plain ⇒ 415。
         // 故意在 body 与 Content-Type 里塞标记串：它们只许进日志，绝不许出现在响应体。
         String marker = "t56-echo-probe";
-        ResponseEntity<String> resp = send(spec -> spec.uri("/user/login")
+        ResponseEntity<String> resp = send(spec -> spec.uri("/api/v1/sessions")
                 .contentType(MediaType.valueOf("text/" + marker))
                 .body("plain-" + marker));
 
@@ -141,7 +141,7 @@ class FrameworkErrorContractTests extends AbstractHttpIntegrationTest {
         // 判别力：若把"方法/类型不匹配"也当成"未映射"放行到路由层（405 就是这样），
         // 这里会变成 415 —— 那会把"这条受保护路径接受什么类型"泄露给匿名者。
         // 415 的时机在处理器解析**之后**（RequestMappingLookup 已返回 HandlerMethod ⇒ 默认拒绝生效）。
-        ResponseEntity<String> resp = send(spec -> spec.uri("/user/changePassword")
+        ResponseEntity<String> resp = execute(client.put().uri("/api/v1/users/me/password")
                 .contentType(MediaType.TEXT_PLAIN)
                 .body("x"));
 

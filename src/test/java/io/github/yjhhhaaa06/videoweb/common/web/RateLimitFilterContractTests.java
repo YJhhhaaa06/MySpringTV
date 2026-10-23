@@ -33,7 +33,7 @@ import static org.assertj.core.api.Assertions.within;
  * <h2>★ 测试参数整体调小 + 覆盖生效守门（对冲"匿名桶退化为全局限流"，见 {@code architecture/tech/rate-limit/限流.md} §三）</h2>
  * MockMvc / 本机 HTTP 的匿名请求 IP 全是 {@code 127.0.0.1} ⇒ 匿名桶在本环境退化为
  * "全局限流"。本类用 {@link TestPropertySource} **内联属性**把桶参数整体调小
- * （cap=50、rate=1/s）——★ T26 起权重表生效（{@code POST /user/register} = 5）⇒ cap 由 4 上调为 50：
+ * （cap=50、rate=1/s）——★ T26 起权重表生效（{@code POST /api/v1/users} = 5）⇒ cap 由 4 上调为 50：
  * 本类的 fixture 注册调用必须装得进桶（cap &lt; 5 会让注册本身被 429 拦下）；{@code /start} 等读端点
  * 仍吃 {@code default-base = 1}，各用例的独立 oracle 口径不变。内联属性"父类先、子类后、同键**子类胜**"是 Spring 文档明文的合并规则，
  * 故子类覆盖父类（{@code AbstractIntegrationTest} 的 1M 大桶基线）是**受保证**的行为；
@@ -336,7 +336,7 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
     @Test
     @DisplayName("★ 未登录访问受保护接口（401 短路在限流器之前）：不耗令牌")
     void 未登录访问受保护接口_不耗令牌() {
-        ResponseEntity<String> resp = post("/user/changePassword", Map.of(), null);
+        ResponseEntity<String> resp = put("/api/v1/users/me/password", Map.of(), null);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(401);
         Set<String> keys = redis.keys("ratelimit:*");

@@ -121,9 +121,9 @@ class SecurityContractTests extends AbstractIntegrationTest {
     @Test
     @DisplayName("方法级 @RequiresLogin：user / coupon / comment 的受保护端点判为需登录")
     void 方法级注解端点需登录() {
-        assertThat(requiresLogin("GET", "/user/me")).isTrue();
-        assertThat(requiresLogin("POST", "/user/changePassword")).isTrue();
-        assertThat(requiresLogin("POST", "/user/changeUserName")).isTrue();
+        assertThat(requiresLogin("GET", "/api/v1/users/me")).isTrue();
+        assertThat(requiresLogin("PUT", "/api/v1/users/me/password")).isTrue();
+        assertThat(requiresLogin("PUT", "/api/v1/users/me/username")).isTrue();
         assertThat(requiresLogin("POST", "/coupon/grab")).isTrue();
         assertThat(requiresLogin("GET", "/coupon/my")).isTrue();
         assertThat(requiresLogin("POST", "/comment/add")).isTrue();
@@ -133,8 +133,8 @@ class SecurityContractTests extends AbstractIntegrationTest {
     @Test
     @DisplayName("公开端点不得被判为需登录（否则会误拦匿名访问）")
     void 公开端点不需登录() {
-        assertThat(requiresLogin("POST", "/user/login")).isFalse();
-        assertThat(requiresLogin("POST", "/user/register")).isFalse();
+        assertThat(requiresLogin("POST", "/api/v1/sessions")).isFalse();
+        assertThat(requiresLogin("POST", "/api/v1/users")).isFalse();
         assertThat(requiresLogin("GET", "/coupon/list")).isFalse();
     }
 
@@ -445,7 +445,7 @@ class SecurityContractTests extends AbstractIntegrationTest {
         assertThat(requiresAdmin("GET", "/like/content/count"))
                 .as("历史 bug 端点：受 @RequiresLogin 保护，但与角色无关")
                 .isFalse();
-        assertThat(requiresAdmin("GET", "/user/me")).isFalse();
+        assertThat(requiresAdmin("GET", "/api/v1/users/me")).isFalse();
         assertThat(requiresAdmin("GET", "/start")).as("公开端点同样不是 admin").isFalse();
     }
 

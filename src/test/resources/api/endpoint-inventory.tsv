@@ -18,6 +18,11 @@ POST	/api/admin/media/scan	ADMIN	ApiResponse<MediaAuditResult>
 POST	/api/upload/post	LOGIN	ApiResponse<Map<String, Object>>
 POST	/api/upload/replace	LOGIN	ApiResponse<Map<String, Object>>
 POST	/api/upload/video	LOGIN	ApiResponse<Map<String, Object>>
+POST	/api/v1/sessions	PUBLIC	ApiResponse<LoginVO>
+POST	/api/v1/users	PUBLIC	ApiResponse<LoginVO>
+GET	/api/v1/users/me	LOGIN	ApiResponse<UserInfoVO>
+PUT	/api/v1/users/me/password	LOGIN	ApiResponse<Void>
+PUT	/api/v1/users/me/username	LOGIN	ApiResponse<Void>
 POST	/coin/add	LOGIN	ApiResponse<CoinBalanceVO>
 POST	/coin/signIn	LOGIN	ApiResponse<SignInVO>
 POST	/comment/add	LOGIN	ApiResponse<String>
@@ -65,11 +70,6 @@ GET	/profile	PUBLIC	ApiResponse<ProfileVO>
 GET	/search/IdSearch	PUBLIC	ApiResponse<ContentDetailVO>
 GET	/search/keywordSearch	PUBLIC	ApiResponse<PageResult<ContentVO>>
 GET	/start	PUBLIC	ApiResponse<List<ContentVO>>
-POST	/user/changePassword	LOGIN	ApiResponse<Void>
-POST	/user/changeUserName	LOGIN	ApiResponse<Void>
-POST	/user/login	PUBLIC	ApiResponse<LoginVO>
-GET	/user/me	LOGIN	ApiResponse<UserInfoVO>
-POST	/user/register	PUBLIC	ApiResponse<LoginVO>
 POST	/watchlater/add	LOGIN	ApiResponse<String>
 GET	/watchlater/list	LOGIN	ApiResponse<PageResult<WatchLaterItemVO>>
 POST	/watchlater/move	LOGIN	ApiResponse<String>

@@ -102,7 +102,7 @@ class ApiErrorExitContractTests extends AbstractHttpIntegrationTest {
     void 控制器层出口() {
         // password / phone 各违反一条约束；username "x" 合法（@NotBlank 通过、长度 1 在 1-50 内）
         // ⇒ 恰好两条字段错误（`T57` 契约：每条违反一条，不合并）。
-        ResponseEntity<String> resp = post("/user/register",
+        ResponseEntity<String> resp = post("/api/v1/users",
                 Map.of("phone", "1", "username", "x", "password", "1"), null);
 
         // msg 是字段错误的人读摘要（摘要来自 errors[]，不再是唯一的机器可读面）。
@@ -117,7 +117,7 @@ class ApiErrorExitContractTests extends AbstractHttpIntegrationTest {
     void 鉴权过滤器出口() {
         // 未带令牌访问受保护端点 ⇒ 在 JwtAuthFilter 短路（不是控制器层抛的）。
         // 判别力来自 RateLimitFilterContractTests：同一请求不消耗任何限流令牌。
-        ResponseEntity<String> resp = post("/user/changePassword", Map.of(), null);
+        ResponseEntity<String> resp = put("/api/v1/users/me/password", Map.of(), null);
 
         assertFailureEnvelope(resp, 401, ErrorCode.AUTH_UNAUTHORIZED, ErrorCode.AUTH_UNAUTHORIZED.getMessage());
     }
@@ -144,9 +144,9 @@ class ApiErrorExitContractTests extends AbstractHttpIntegrationTest {
     @DisplayName("★ 三出口的失败体骨架完全一致（字段集/顺序/无 data）——任一处自拼装即破")
     void 三出口骨架一致() {
         // ⚠️ 顺序有讲究：429 是**被制造出来的**（先把桶清空），若提前 seed 就会把前两个请求也打成 429。
-        ResponseEntity<String> controllerExit = post("/user/register",
+        ResponseEntity<String> controllerExit = post("/api/v1/users",
                 Map.of("phone", "1", "username", "x", "password", "1"), null);
-        ResponseEntity<String> authExit = post("/user/changePassword", Map.of(), null);
+        ResponseEntity<String> authExit = put("/api/v1/users/me/password", Map.of(), null);
         seedEmptyBuckets();
         ResponseEntity<String> rateLimitExit = get("/start", null);
 

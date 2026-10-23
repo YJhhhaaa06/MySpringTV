@@ -107,10 +107,10 @@ class RateLimitWeightTableTests extends AbstractHttpIntegrationTest {
         // 前置钉住：本用例的 oracle 是"表值 5"——若有人改了表而没改用例意图，这里先红
         assertThat(properties.cost().base())
                 .as("注册端点必须已登记且为 5（锚点：匿名可达的认证入口比普通写贵）")
-                .containsEntry("POST /user/register", 5);
+                .containsEntry("POST /api/v1/users", 5);
         seedAnonBucket();
 
-        ResponseEntity<String> resp = post("/user/register",
+        ResponseEntity<String> resp = post("/api/v1/users",
                 Map.of("phone", "13800002601", "username", "t26w", "password", "Password123"), null);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(200);

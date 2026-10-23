@@ -429,8 +429,8 @@ video:
       #      悄无声息地全落 default-base。RateLimitProperties 把 key 形态钉成绑定期校验 ⇒ 漏了方括号会启动失败。
       base:
         # —— 认证入口（5：登录 / 注册是匿名可达的入口，比普通写贵）——
-        "[POST /user/login]": 5
-        "[POST /user/register]": 5
+        "[POST /api/v1/sessions]": 5
+        "[POST /api/v1/users]": 5
         # —— 上传与媒体重活（10：流式写文件 + 批量回写；scan 为媒体全盘扫描，restore 同为媒体重操作）——
         "[POST /api/upload/video]": 10
         "[POST /api/upload/post]": 10
@@ -438,8 +438,8 @@ video:
         "[POST /api/admin/media/scan]": 10
         "[POST /api/admin/media/restore]": 10
         # —— 用户资料修改 ——
-        "[POST /user/changePassword]": 3
-        "[POST /user/changeUserName]": 3
+        "[PUT /api/v1/users/me/password]": 3
+        "[PUT /api/v1/users/me/username]": 3
         # —— 内容作者操作（delete 为级联软删，成本与"单个作品"同阶）——
         "[POST /content/commentEnabled]": 3
         "[POST /content/update]": 3

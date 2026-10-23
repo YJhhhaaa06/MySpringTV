@@ -254,7 +254,7 @@ class ContentCacheTests extends AbstractContentIntegrationTest {
                 .isEqualTo(AUTHOR);
         assertThat(cachedContentJson(contentId)).contains(AUTHOR);
 
-        assertThat(postQuery("/user/changeUserName", query("userName", "cache-author-new"), token)
+        assertThat(put("/api/v1/users/me/username?userName=cache-author-new", null, token)
                 .getStatusCode().value()).isEqualTo(200);
 
         assertThat(detailAuthorName(contentId, token)).as("改名后读自愈回填新名")
@@ -275,7 +275,7 @@ class ContentCacheTests extends AbstractContentIntegrationTest {
         get("/search/IdSearch?contentId=" + otherContentId, otherToken);
         String otherCached = cachedContentJson(otherContentId);
 
-        postQuery("/user/changeUserName", query("userName", "cache-author-new"), authorToken);
+        put("/api/v1/users/me/username", query("userName", "cache-author-new"), authorToken);
 
         assertThat(cachedContentJson(otherContentId))
                 .as("别人的缓存应原样保留（反向对照，排除『改名清空全部内容缓存』）")

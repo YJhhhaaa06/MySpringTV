@@ -15,8 +15,8 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -38,14 +38,19 @@ import org.springframework.web.bind.annotation.RestController;
  *       <td>删除（DTO/Command 双层的唯一作用是给手写解析器做适配，参数绑定后无必要）</td></tr>
  * </table>
  *
- * <p><b>路径与契约沿袭 TV</b>（决策⑧「路径沿袭控制迁移变量」）：
- * {@code /user/login}、{@code /user/register}、{@code /user/changePassword}、
- * {@code /user/changeUserName}，响应体形状不变。
+ * <p><b>路径（`T58` 资源化）</b>：响应体形状不变，路径按
+ * {@code 接口契约.md} §2.3 改为「资源 + 方法」——
+ * 注册 {@code POST /api/v1/users}（创建用户）、登录 {@code POST /api/v1/sessions}（创建会话）、
+ * 改密 {@code PUT /api/v1/users/me/password}、改名 {@code PUT /api/v1/users/me/username}、
+ * 当前用户 {@code GET /api/v1/users/me}。TV 的 {@code /user/{login,register,...}} 形态退役
+ * （硬切，见 §1.2）。
  *
- * <p>{@code /user/me} 是新增端点（TV 没有），用于切片 0「持 token 访问受保护接口」的验收闭环。
+ * <p>★ <b>登录为什么叫 sessions</b>：登录的产物是**会话凭据**（token），不是"用户"这个资源；
+ * 动词 {@code login} 不许进路径（§2.3），故落在"创建会话"上。
+ *
+ * <p>{@code /users/me} 是新增端点（TV 没有），用于切片 0「持 token 访问受保护接口」的验收闭环。
  */
 @RestController
-@RequestMapping("/user")
 public class UserController {
 
     private final UserService userService;
@@ -56,14 +61,14 @@ public class UserController {
 
     /** 注册并自动登录。token 可能为 null（注册成功但自动登录失败），见《事务边界决策表》U-1。 */
     @Public
-    @PostMapping("/register")
+    @PostMapping("/api/v1/users")
     public ApiResponse<LoginVO> register(@RequestBody @Valid RegisterRequest request) {
         return ApiResponse.success(userService.registerAndLogin(request));
     }
 
-    /** 登录。 */
+    /** 登录（创建会话：`T58` 起 {@code POST /api/v1/sessions}）。 */
     @Public
-    @PostMapping("/login")
+    @PostMapping("/api/v1/sessions")
     public ApiResponse<LoginVO> login(@RequestBody @Valid LoginRequest request) {
         return ApiResponse.success(userService.login(request.phone(), request.password()));
     }
@@ -78,7 +83,7 @@ public class UserController {
      * {@code target} 只记对象标识 {@code userId:N}——旧密码 / 新密码 / 手机号一律不落盘。
      */
     @RequiresLogin
-    @PostMapping("/changePassword")
+    @PutMapping("/api/v1/users/me/password")
     public ApiResponse<Void> changePassword(@CurrentUserId long userId,
                                            @RequestBody @Valid ChangePasswordRequest request) {
         userService.changePassword(userId, request);
@@ -98,7 +103,7 @@ public class UserController {
      * {@code message} 必须写死：约束默认文案随 Locale 变，不能进对外 body。
      */
     @RequiresLogin
-    @PostMapping("/changeUserName")
+    @PutMapping("/api/v1/users/me/username")
     public ApiResponse<Void> changeUserName(@CurrentUserId long userId,
                                            @RequestParam @NotBlank(message = "用户名不能为空") String userName) {
         userService.changeUserName(userId, userName);
@@ -108,7 +113,7 @@ public class UserController {
 
     /** 当前用户信息（新增端点）。 */
     @RequiresLogin
-    @GetMapping("/me")
+    @GetMapping("/api/v1/users/me")
     public ApiResponse<UserInfoVO> me(@CurrentUserId long userId) {
         return ApiResponse.success(userService.getProfile(userId));
     }

@@ -93,6 +93,42 @@ public abstract class AbstractHttpIntegrationTest extends AbstractIntegrationTes
     }
 
     /**
+     * 带可选 Bearer token 的 PUT（`T58` 起：{@code 接口契约.md} §2.4 的「幂等替换 / 幂等设置」）。
+     *
+     * <p>{@code body == null} 表示不带请求体（参数在 query 上，例如 {@code PUT /contents/{id}/like}）。
+     */
+    protected ResponseEntity<String> put(String path, Object body, String token) {
+        RestClient.RequestBodySpec request = client.put().uri(path).contentType(MediaType.APPLICATION_JSON);
+        if (token != null) {
+            request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+        }
+        return execute(body == null ? request : request.body(body));
+    }
+
+    /** 带可选 Bearer token 的 DELETE（`T58` 起：取消 / 删除语义；参数一律在 query 上）。 */
+    protected ResponseEntity<String> delete(String path, String token) {
+        RestClient.RequestHeadersSpec<?> request = client.delete().uri(path);
+        if (token != null) {
+            request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+        }
+        // ⚠️ 不能复用 send/sendGet：它们 apply 的是 client.post()/client.get()，会把方法悄悄换掉。
+        return execute(request);
+    }
+
+    /**
+     * 原始响应（不经状态处理器），`send`/`sendGet`/`put`/`delete` 的唯一出口。
+     *
+     * <p>{@code protected}：契约测试要发"畸形 Content-Type / 未声明方法"这类请求，
+     * 不能走上面那些带默认头的便捷方法（它们各自 apply {@code client.post()/get()/put()/delete()}）。
+     */
+    protected ResponseEntity<String> execute(RestClient.RequestHeadersSpec<?> request) {
+        return request.exchange((req, response) -> ResponseEntity
+                .status(response.getStatusCode())
+                .headers(response.getHeaders())
+                .body(response.bodyTo(String.class)), false);
+    }
+
+    /**
      * 注册一个用户并取回 token（各域测试都需要"先有个登录用户"这一步）。
      *
      * <p>同样下沉到基类而非各域复制：切片 1/2/3 的测试基类各写过一份逐字相同的实现
@@ -101,7 +137,7 @@ public abstract class AbstractHttpIntegrationTest extends AbstractIntegrationTes
      * @return 注册返回的 token；注册未返回 token 时直接断言失败（后续用例无法进行）
      */
     protected String registerAndGetToken(String phone, String username, String password) {
-        ResponseEntity<String> resp = post("/user/register",
+        ResponseEntity<String> resp = post("/api/v1/users",
                 java.util.Map.of("phone", phone, "username", username, "password", password), null);
         String token = Envelope.str(resp, "token");
         if (token == null || token.isBlank()) {

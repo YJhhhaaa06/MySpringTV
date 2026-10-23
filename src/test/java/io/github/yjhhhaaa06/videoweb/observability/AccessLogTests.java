@@ -83,10 +83,10 @@ class AccessLogTests extends AbstractObservabilityTest {
     @DisplayName("未登录访问受保护接口：status=401 且业务码是字符串码 AUTH_UNAUTHORIZED")
     void 未登录_访问行记401() {
         clearLogs();
-        ResponseEntity<String> response = post("/user/changePassword", Map.of(), null);
+        ResponseEntity<String> response = put("/api/v1/users/me/password", Map.of(), null);
         assertThat(response.getStatusCode().value()).isEqualTo(401);
 
-        String line = awaitAccessLine("/user/changePassword", "status=401");
+        String line = awaitAccessLine("/api/v1/users/me/password", "status=401");
         assertThat(line)
                 .as("鉴权拒绝的业务码由 JwtAuthFilter 写入——缺它这里会退化成 0、与静态资源混为一谈；"
                         + "T55 起它是字符串码，不再是 status 的数字副本")
@@ -131,11 +131,11 @@ class AccessLogTests extends AbstractObservabilityTest {
 
             clearLogs();
             get("/start", null);
-            post("/user/changePassword", Map.of(), null);
+            put("/api/v1/users/me/password", Map.of(), null);
             get(STATIC_URL, null);
 
             String normal = awaitAccessLine("/start", "status=200");
-            String unauthorized = awaitAccessLine("/user/changePassword", "status=401");
+            String unauthorized = awaitAccessLine("/api/v1/users/me/password", "status=401");
             String staticResource = awaitAccessLine(STATIC_URL, "status=200");
 
             List<String> states = new ArrayList<>(List.of(
@@ -167,12 +167,12 @@ class AccessLogTests extends AbstractObservabilityTest {
         clearLogs();
 
         ResponseEntity<String> response =
-                post("/user/changeUserName?userName=obs-error-probe", null, token);
+                put("/api/v1/users/me/username?userName=obs-error-probe", null, token);
         assertThat(response.getStatusCode().value())
                 .as("数据访问异常 ⇒ 500（HTTP 状态码正确化后不再是 200）")
                 .isEqualTo(500);
 
-        String accessLine = awaitAccessLine("/user/changeUserName", "status=500");
+        String accessLine = awaitAccessLine("/api/v1/users/me/username", "status=500");
         assertThat(accessLine).contains("code=SYSTEM_DATABASE ");
         String requestId = reqIdOf(accessLine);
 

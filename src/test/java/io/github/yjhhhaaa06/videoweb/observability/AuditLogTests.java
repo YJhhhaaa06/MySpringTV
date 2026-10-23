@@ -162,7 +162,7 @@ class AuditLogTests extends AbstractAdminIntegrationTest {
 
         try (LogCapture audit = LogCapture.audit()) {
             audit.clear();
-            assertThat(post("/user/changePassword",
+            assertThat(put("/api/v1/users/me/password",
                     Map.of("phone", phone, "oldPassword", password, "newPassword", newPassword), token)
                     .getStatusCode().value()).isEqualTo(200);
             String passwordLine = audit.awaitLine(
@@ -174,7 +174,7 @@ class AuditLogTests extends AbstractAdminIntegrationTest {
             assertThat(audit.countLinesContaining("action=user.changePassword")).isEqualTo(1);
 
             audit.clear();
-            assertThat(post("/user/changeUserName?userName=obs_audit_renamed", null, token)
+            assertThat(put("/api/v1/users/me/username?userName=obs_audit_renamed", null, token)
                     .getStatusCode().value()).isEqualTo(200);
             String renameLine = audit.awaitLine(
                     l -> l.contains("action=user.changeUserName"), "改名审计行", AWAIT);

@@ -70,7 +70,7 @@ abstract class AbstractCouponIntegrationTest extends AbstractHttpIntegrationTest
 
     /** 注册用户并返回 token（断言注册必须成功——否则后续用例的失败原因会指错方向）。 */
     protected String registerAndGetToken(String phone, String username) {
-        ResponseEntity<String> resp = post("/user/register",
+        ResponseEntity<String> resp = post("/api/v1/users",
                 Map.of("phone", phone, "username", username, "password", PASSWORD), null);
         String token = Envelope.str(resp, "token");
         assertThat(token).as("注册必须返回 token，否则后续用例无法进行：%s", resp.getBody()).isNotBlank();

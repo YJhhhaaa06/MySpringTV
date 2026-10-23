@@ -30,7 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>同一自然日再签 = 幂等 ⇒ 200「今日已签到」，**两列都不动**；</li>
  *   <li>昨天签过 ⇒ 今天可以再签 ⇒ {@code 10 → 20}，日期推进；</li>
  *   <li>并发双击 ⇒ 只有一条条件 {@code UPDATE} 命中 ⇒ 只 {@code +10}、只推进一次；</li>
- *   <li>{@code /user/me} ⇒ {@code coin = deci / 10}（一位小数）、{@code signedToday} 与列复算一致。</li>
+ *   <li>{@code GET /api/v1/users/me} ⇒ {@code coin = deci / 10}（一位小数）、{@code signedToday} 与列复算一致。</li>
  * </ul>
  *
  * <h2>反向验证（改哪一行必红）</h2>
@@ -207,15 +207,15 @@ class CoinSignInTests extends AbstractCoinIntegrationTest {
         }
     }
 
-    // ==================== 5. /user/me 的余额与已签标记 ====================
+    // ==================== 5. GET /api/v1/users/me 的余额与已签标记 ====================
 
     @Test
-    @DisplayName("/user/me：签到后 coin=1.0（scale 1）、signedToday=true；直改签到日为昨天 ⇒ signedToday=false 且余额不变")
+    @DisplayName("GET /api/v1/users/me：签到后 coin=1.0（scale 1）、signedToday=true；直改签到日为昨天 ⇒ signedToday=false 且余额不变")
     void 资料端点回带余额与今日已签标记() {
         TestUser user = registerUser("13900003705", "coinsign_profile");
         assertThat(signIn(user.token()).getStatusCode().value()).isEqualTo(200);
 
-        ResponseEntity<String> me = get("/user/me", user.token());
+        ResponseEntity<String> me = get("/api/v1/users/me", user.token());
         assertThat(me.getStatusCode().value()).isEqualTo(200);
         JsonNode data = Envelope.data(me);
         assertThat(data.path("coin").decimalValue().scale())
@@ -232,7 +232,7 @@ class CoinSignInTests extends AbstractCoinIntegrationTest {
         LocalDate yesterday = shanghaiToday().minusDays(1);
         setLastSignDate(user.id(), yesterday.toString());
 
-        ResponseEntity<String> again = get("/user/me", user.token());
+        ResponseEntity<String> again = get("/api/v1/users/me", user.token());
         JsonNode againData = Envelope.data(again);
         assertThat(againData.path("signedToday").isBoolean())
                 .as("★ false 断言必须配「字段在」：缺失节点 asBoolean() 也是 false").isTrue();

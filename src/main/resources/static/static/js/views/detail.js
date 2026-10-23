@@ -342,13 +342,13 @@ function closeCoinModal() {
   if (overlay) overlay.classList.add('hidden');
 }
 
-/** 弹层的余额：`GET user/me` 取一次即缓存；投币成功由响应体回带的 `balance` 就地覆盖。 */
+/** 弹层的余额：`GET api/v1/users/me` 取一次即缓存；投币成功由响应体回带的 `balance` 就地覆盖。 */
 async function showCoinBalance() {
   const el = state.container.querySelector('#coinBalanceTxt');
   if (!el) return;
   if (state.coinBalance == null) {
     try {
-      const me = await request('user/me');
+      const me = await request('api/v1/users/me');
       state.coinBalance = me && me.coin != null ? me.coin : 0;
     } catch (e) {
       el.textContent = '--';

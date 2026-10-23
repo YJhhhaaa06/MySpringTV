@@ -44,7 +44,7 @@ class ValidationErrorContractTests extends AbstractHttpIntegrationTest {
     @DisplayName("两字段同时错 ⇒ 两条 errors，field 精确、code 走码表、message 取注解文案")
     void 两字段同时错给出两条字段错误() {
         // username "x" 合法（@NotBlank 通过、长度 1 在 1-50 内）⇒ 只有 password / phone 两条。
-        ResponseEntity<String> resp = post("/user/register",
+        ResponseEntity<String> resp = post("/api/v1/users",
                 Map.of("username", "x", "password", "ab", "phone", "1"), null);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(400);
@@ -70,7 +70,7 @@ class ValidationErrorContractTests extends AbstractHttpIntegrationTest {
     @Test
     @DisplayName("顶层 msg 与 errors[] 同源：摘要里能读到每个字段的定位与文案")
     void 顶层msg是字段错误的摘要() {
-        ResponseEntity<String> resp = post("/user/register",
+        ResponseEntity<String> resp = post("/api/v1/users",
                 Map.of("username", "x", "password", "ab", "phone", "1"), null);
 
         // 摘要格式沿用 T57 之前的 "field: message"（旧前端哪怕在做字符串解析也不失配），
@@ -87,7 +87,7 @@ class ValidationErrorContractTests extends AbstractHttpIntegrationTest {
         // 反向验证：把 errors[].message 改成 ex.getMessage()（含 "Validation failed for argument..."），
         // 或把入参拼进文案，本条即红。
         String secret = "verysecret-zzzzzzzzzzzzzzzz";
-        ResponseEntity<String> resp = post("/user/register",
+        ResponseEntity<String> resp = post("/api/v1/users",
                 Map.of("username", "u", "password", secret, "phone", "13800000000"), null);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(400);
@@ -166,7 +166,7 @@ class ValidationErrorContractTests extends AbstractHttpIntegrationTest {
     @DisplayName("请求体整体不可解析 ⇒ 400 + 一条无 field 的 errors（不伪造字段名）")
     void 请求体整体不可解析时不给假字段() {
         // 需要 @RequestBody 的端点不带请求体 ⇒ HttpMessageNotReadableException，且无可定位字段。
-        ResponseEntity<String> resp = post("/user/login", null, null);
+        ResponseEntity<String> resp = post("/api/v1/sessions", null, null);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(400);
         JsonNode error = singleError(resp);
@@ -184,7 +184,7 @@ class ValidationErrorContractTests extends AbstractHttpIntegrationTest {
         // 而不是"注解看着像保证、实际被 catch-all 吞成 500"（CommentController 的老注释担心的正是这个）。
         String token = registerAndGetToken("13800000203", "t57-param-constraint", "123456");
 
-        ResponseEntity<String> resp = post("/user/changeUserName?userName=", null, token);
+        ResponseEntity<String> resp = put("/api/v1/users/me/username?userName=", null, token);
 
         assertThat(resp.getStatusCode().value())
                 .as("约束生效（不是 500，也不是静默成功）：%s", resp.getBody()).isEqualTo(400);
@@ -202,7 +202,7 @@ class ValidationErrorContractTests extends AbstractHttpIntegrationTest {
     void 同字段多条约束不合并() {
         // password="" 同时违反 @NotBlank 与 @Pattern（空串也匹配不上 ^[a-zA-Z0-9]{6,16}$）
         // ⇒ 契约 §2.5.1 明确"不合并"，否则"还违反了另一条"的信息会被悄悄丢掉。
-        ResponseEntity<String> resp = post("/user/register",
+        ResponseEntity<String> resp = post("/api/v1/users",
                 Map.of("username", "u", "password", "", "phone", "13800000000"), null);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(400);
@@ -218,7 +218,7 @@ class ValidationErrorContractTests extends AbstractHttpIntegrationTest {
     void 报文残缺不误报为类型错误() {
         // ★ 判别点：解析层失败（StreamRead）与数据绑定层失败（Databind）是两类成因。
         // 无论能否从引用链回收字段名，**文案**都必须说"报文坏了"，而不是"某字段类型不对"。
-        ResponseEntity<String> resp = postRaw("/user/login", "{\"phone\":\"13800000000\",");
+        ResponseEntity<String> resp = postRaw("/api/v1/sessions", "{\"phone\":\"13800000000\",");
 
         assertThat(resp.getStatusCode().value()).isEqualTo(400);
         JsonNode error = singleError(resp);

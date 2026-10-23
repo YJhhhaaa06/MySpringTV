@@ -32,7 +32,7 @@ class UserFlowTests extends AbstractHttpIntegrationTest {
     @Test
     @DisplayName("注册成功：返回 token，DB 落一行，密码为 BCrypt 散列而非明文")
     void 注册成功() {
-        ResponseEntity<String> resp = post("/user/register",
+        ResponseEntity<String> resp = post("/api/v1/users",
                 Map.of("phone", PHONE, "username", USERNAME, "password", PASSWORD), null);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -55,10 +55,10 @@ class UserFlowTests extends AbstractHttpIntegrationTest {
     @Test
     @DisplayName("手机号重复：409 + 业务码 409，且 DB 不新增行")
     void 手机号重复() {
-        post("/user/register", Map.of("phone", PHONE, "username", USERNAME, "password", PASSWORD), null);
+        post("/api/v1/users", Map.of("phone", PHONE, "username", USERNAME, "password", PASSWORD), null);
         long before = countUsers();
 
-        ResponseEntity<String> resp = post("/user/register",
+        ResponseEntity<String> resp = post("/api/v1/users",
                 Map.of("phone", PHONE, "username", "bob", "password", PASSWORD), null);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
@@ -69,10 +69,10 @@ class UserFlowTests extends AbstractHttpIntegrationTest {
     @Test
     @DisplayName("用户名重复：409，且 DB 不新增行")
     void 用户名重复() {
-        post("/user/register", Map.of("phone", PHONE, "username", USERNAME, "password", PASSWORD), null);
+        post("/api/v1/users", Map.of("phone", PHONE, "username", USERNAME, "password", PASSWORD), null);
         long before = countUsers();
 
-        ResponseEntity<String> resp = post("/user/register",
+        ResponseEntity<String> resp = post("/api/v1/users",
                 Map.of("phone", "13900000002", "username", USERNAME, "password", PASSWORD), null);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
@@ -83,7 +83,7 @@ class UserFlowTests extends AbstractHttpIntegrationTest {
     @Test
     @DisplayName("密码不合规：400（声明式校验，取代 TV 散落的手写 if）")
     void 密码不合规() {
-        ResponseEntity<String> resp = post("/user/register",
+        ResponseEntity<String> resp = post("/api/v1/users",
                 Map.of("phone", PHONE, "username", USERNAME, "password", "abc"), null);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
@@ -95,7 +95,7 @@ class UserFlowTests extends AbstractHttpIntegrationTest {
     @Test
     @DisplayName("手机号格式非法：400")
     void 手机号格式非法() {
-        ResponseEntity<String> resp = post("/user/register",
+        ResponseEntity<String> resp = post("/api/v1/users",
                 Map.of("phone", "12345", "username", USERNAME, "password", PASSWORD), null);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
@@ -107,9 +107,9 @@ class UserFlowTests extends AbstractHttpIntegrationTest {
     @Test
     @DisplayName("登录成功：返回可解出 userId 的 token")
     void 登录成功() {
-        post("/user/register", Map.of("phone", PHONE, "username", USERNAME, "password", PASSWORD), null);
+        post("/api/v1/users", Map.of("phone", PHONE, "username", USERNAME, "password", PASSWORD), null);
 
-        ResponseEntity<String> resp = post("/user/login",
+        ResponseEntity<String> resp = post("/api/v1/sessions",
                 Map.of("phone", PHONE, "password", PASSWORD), null);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -122,9 +122,9 @@ class UserFlowTests extends AbstractHttpIntegrationTest {
     @Test
     @DisplayName("密码错误：401 + AUTH_BAD_CREDENTIALS（★T55 起与「账号不存在」同码同文案）")
     void 密码错误() {
-        post("/user/register", Map.of("phone", PHONE, "username", USERNAME, "password", PASSWORD), null);
+        post("/api/v1/users", Map.of("phone", PHONE, "username", USERNAME, "password", PASSWORD), null);
 
-        ResponseEntity<String> resp = post("/user/login",
+        ResponseEntity<String> resp = post("/api/v1/sessions",
                 Map.of("phone", PHONE, "password", "wrongpass123"), null);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
@@ -134,7 +134,7 @@ class UserFlowTests extends AbstractHttpIntegrationTest {
     @Test
     @DisplayName("账号不存在：401 + **同一个** AUTH_BAD_CREDENTIALS（拆开就是手机号探测口）")
     void 用户不存在() {
-        ResponseEntity<String> resp = post("/user/login",
+        ResponseEntity<String> resp = post("/api/v1/sessions",
                 Map.of("phone", "13700000009", "password", PASSWORD), null);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
@@ -157,11 +157,11 @@ class UserFlowTests extends AbstractHttpIntegrationTest {
     @Test
     @DisplayName("★ 登录失败两分支耗时同量级（账号不存在也跑一次 BCrypt）")
     void 登录失败两分支耗时同量级() {
-        post("/user/register", Map.of("phone", PHONE, "username", USERNAME, "password", PASSWORD), null);
+        post("/api/v1/users", Map.of("phone", PHONE, "username", USERNAME, "password", PASSWORD), null);
 
-        long wrongPassword = medianMillis(() -> post("/user/login",
+        long wrongPassword = medianMillis(() -> post("/api/v1/sessions",
                 Map.of("phone", PHONE, "password", "wrongpass123"), null));
-        long noSuchUser = medianMillis(() -> post("/user/login",
+        long noSuchUser = medianMillis(() -> post("/api/v1/sessions",
                 Map.of("phone", "13700000077", "password", PASSWORD), null));
 
         assertThat(wrongPassword).as("对照组必须真的付了 BCrypt 成本（否则比值没有意义）").isPositive();
@@ -187,7 +187,7 @@ class UserFlowTests extends AbstractHttpIntegrationTest {
     @Test
     @DisplayName("无 token 访问受保护接口：401 + 统一信封")
     void 无token访问受保护接口() {
-        ResponseEntity<String> resp = get("/user/me", null);
+        ResponseEntity<String> resp = get("/api/v1/users/me", null);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(Envelope.code(resp)).isEqualTo("AUTH_UNAUTHORIZED");
@@ -198,21 +198,21 @@ class UserFlowTests extends AbstractHttpIntegrationTest {
     @Test
     @DisplayName("伪造 token：401")
     void 伪造token() {
-        ResponseEntity<String> resp = get("/user/me", "not.a.real.token");
+        ResponseEntity<String> resp = get("/api/v1/users/me", "not.a.real.token");
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(Envelope.code(resp)).isEqualTo("AUTH_UNAUTHORIZED");
     }
 
     @Test
-    @DisplayName("持有效 token 访问 /user/me：200 + 用户信息，且不泄露口令散列")
+    @DisplayName("持有效 token 访问 /api/v1/users/me：200 + 用户信息，且不泄露口令散列")
     void 持token访问受保护接口() {
-        post("/user/register", Map.of("phone", PHONE, "username", USERNAME, "password", PASSWORD), null);
-        String token = Envelope.str(post("/user/login",
+        post("/api/v1/users", Map.of("phone", PHONE, "username", USERNAME, "password", PASSWORD), null);
+        String token = Envelope.str(post("/api/v1/sessions",
                 Map.of("phone", PHONE, "password", PASSWORD), null), "token");
         assertThat(token).as("登录必须返回 token").isNotBlank();
 
-        ResponseEntity<String> resp = get("/user/me", token);
+        ResponseEntity<String> resp = get("/api/v1/users/me", token);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(Envelope.str(resp, "username")).isEqualTo(USERNAME);
@@ -224,7 +224,7 @@ class UserFlowTests extends AbstractHttpIntegrationTest {
     @Test
     @DisplayName("公开端点不受坏 token 影响（不能因坏 token 阻断登录）")
     void 公开端点忽略坏token() {
-        ResponseEntity<String> resp = post("/user/login",
+        ResponseEntity<String> resp = post("/api/v1/sessions",
                 Map.of("phone", PHONE, "password", PASSWORD), "garbage");
 
         // 用户不存在 → 401，但这是"登录失败"，不是"被过滤器拦截"：
@@ -240,40 +240,40 @@ class UserFlowTests extends AbstractHttpIntegrationTest {
     @Test
     @DisplayName("修改密码后：旧密码失效、新密码可用")
     void 修改密码() {
-        post("/user/register", Map.of("phone", PHONE, "username", USERNAME, "password", PASSWORD), null);
-        String token = Envelope.str(post("/user/login",
+        post("/api/v1/users", Map.of("phone", PHONE, "username", USERNAME, "password", PASSWORD), null);
+        String token = Envelope.str(post("/api/v1/sessions",
                 Map.of("phone", PHONE, "password", PASSWORD), null), "token");
 
-        ResponseEntity<String> resp = post("/user/changePassword",
+        ResponseEntity<String> resp = put("/api/v1/users/me/password",
                 Map.of("phone", PHONE, "oldPassword", PASSWORD, "newPassword", "newpass456"), token);
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
 
-        assertThat(post("/user/login", Map.of("phone", PHONE, "password", PASSWORD), null)
+        assertThat(post("/api/v1/sessions", Map.of("phone", PHONE, "password", PASSWORD), null)
                 .getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
-        assertThat(post("/user/login", Map.of("phone", PHONE, "password", "newpass456"), null)
+        assertThat(post("/api/v1/sessions", Map.of("phone", PHONE, "password", "newpass456"), null)
                 .getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
     @Test
     @DisplayName("原密码错误：401，且密码未被改动")
     void 原密码错误则不修改() {
-        post("/user/register", Map.of("phone", PHONE, "username", USERNAME, "password", PASSWORD), null);
-        String token = Envelope.str(post("/user/login",
+        post("/api/v1/users", Map.of("phone", PHONE, "username", USERNAME, "password", PASSWORD), null);
+        String token = Envelope.str(post("/api/v1/sessions",
                 Map.of("phone", PHONE, "password", PASSWORD), null), "token");
 
-        ResponseEntity<String> resp = post("/user/changePassword",
+        ResponseEntity<String> resp = put("/api/v1/users/me/password",
                 Map.of("phone", PHONE, "oldPassword", "totallywrong1", "newPassword", "newpass456"), token);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         // 独立 oracle 复算：原密码必须仍然可用
-        assertThat(post("/user/login", Map.of("phone", PHONE, "password", PASSWORD), null)
+        assertThat(post("/api/v1/sessions", Map.of("phone", PHONE, "password", PASSWORD), null)
                 .getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
     @Test
     @DisplayName("未登录不能改密：401（@RequiresLogin 生效）")
     void 未登录不能改密() {
-        ResponseEntity<String> resp = post("/user/changePassword",
+        ResponseEntity<String> resp = put("/api/v1/users/me/password",
                 Map.of("phone", PHONE, "oldPassword", PASSWORD, "newPassword", "newpass456"), null);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
@@ -284,29 +284,29 @@ class UserFlowTests extends AbstractHttpIntegrationTest {
     @Test
     @DisplayName("非本人手机号不能改密：400，且密码未被改动")
     void 非本人手机号不能改密() {
-        post("/user/register", Map.of("phone", PHONE, "username", USERNAME, "password", PASSWORD), null);
-        String token = Envelope.str(post("/user/login",
+        post("/api/v1/users", Map.of("phone", PHONE, "username", USERNAME, "password", PASSWORD), null);
+        String token = Envelope.str(post("/api/v1/sessions",
                 Map.of("phone", PHONE, "password", PASSWORD), null), "token");
 
-        ResponseEntity<String> resp = post("/user/changePassword",
+        ResponseEntity<String> resp = put("/api/v1/users/me/password",
                 Map.of("phone", "13900000009", "oldPassword", PASSWORD, "newPassword", "newpass456"), token);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(post("/user/login", Map.of("phone", PHONE, "password", PASSWORD), null)
+        assertThat(post("/api/v1/sessions", Map.of("phone", PHONE, "password", PASSWORD), null)
                 .getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
     @Test
     @DisplayName("★ 手机号比对先于旧密码判定：错号 + 错密码 → 400 而非 401")
     void 手机号比对先于旧密码_错号且错密码回400() {
-        post("/user/register", Map.of("phone", PHONE, "username", USERNAME, "password", PASSWORD), null);
-        String token = Envelope.str(post("/user/login",
+        post("/api/v1/users", Map.of("phone", PHONE, "username", USERNAME, "password", PASSWORD), null);
+        String token = Envelope.str(post("/api/v1/sessions",
                 Map.of("phone", PHONE, "password", PASSWORD), null), "token");
 
         // TV 的 doChangePassword 里手机号比对（UserService.java:188）严格早于旧密码比对（:193）
         // ⇒ 两个都错时必须是"手机号不匹配"的 400，不能是"旧密码错误"的 401。
         // 顺序反了这条就会变红；而"错号 + 对密码"的用例（上一个测试）两种顺序都是 400，不足以钉住顺序。
-        ResponseEntity<String> resp = post("/user/changePassword",
+        ResponseEntity<String> resp = put("/api/v1/users/me/password",
                 Map.of("phone", "13900000009", "oldPassword", "totallywrong1",
                         "newPassword", "newpass456"), token);
 

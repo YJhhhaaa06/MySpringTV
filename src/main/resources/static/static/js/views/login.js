@@ -69,7 +69,7 @@ async function doLogin() {
   try {
     // 字段名 `phone`（新后端 LoginRequest 仅承接按手机号登录；TV 的 `account` 字段与
     // "按用户ID登录"能力均未迁移，见 B10 契约核对）
-    const data = await request('user/login', { jsonBody: { phone: account, password } });
+    const data = await request('api/v1/sessions', { jsonBody: { phone: account, password } });
     setAuth(data.token, data.username, data.id);
     showToast('登录成功');
     navigate('/');
@@ -95,7 +95,7 @@ async function doRegister() {
   const btn = c.querySelector('#regBtn');
   btn.disabled = true; btn.textContent = '注册中...';
   try {
-    const data = await request('user/register', { jsonBody: { username, phone, password } });
+    const data = await request('api/v1/users', { jsonBody: { username, phone, password } });
     // 注册已成功但后端自动登录失败时 token 为 null（池 U-16 兜底）：
     // 不再带着空 token 跳首页，改为提示并在登录页预填手机号，用户手动登录即可。
     // 请求期间视图若已被 unmount（state 为 null）则只提示、不再操作 DOM

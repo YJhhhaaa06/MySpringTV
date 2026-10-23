@@ -80,10 +80,9 @@ class LogOutputSplitTests extends AbstractObservabilityTest {
         doThrow(new DataIntegrityViolationException("boom: 模拟写库失败"))
                 .when(userDao).updateUsername(anyLong(), anyString());
         clearLogs();
-        ResponseEntity<String> failure = post(
-                "/user/changeUserName?userName=obs-split-error-probe", null, token);
+        ResponseEntity<String> failure = put("/api/v1/users/me/username?userName=obs-split-error-probe", null, token);
         assertThat(failure.getStatusCode().value()).isEqualTo(500);
-        String requestId = reqIdOf(awaitAccessLine("/user/changeUserName", "status=500"));
+        String requestId = reqIdOf(awaitAccessLine("/api/v1/users/me/username", "status=500"));
 
         List<String> errorLines = structuredLines(LogCapture.errorFile());
 
@@ -114,10 +113,9 @@ class LogOutputSplitTests extends AbstractObservabilityTest {
         doThrow(new DataIntegrityViolationException("boom: 模拟写库失败"))
                 .when(userDao).updateUsername(anyLong(), anyString());
         clearLogs();
-        ResponseEntity<String> failure = post(
-                "/user/changeUserName?userName=obs-split-reject-probe", null, token);
+        ResponseEntity<String> failure = put("/api/v1/users/me/username?userName=obs-split-reject-probe", null, token);
         assertThat(failure.getStatusCode().value()).isEqualTo(500);
-        String failureReq = reqIdOf(awaitAccessLine("/user/changeUserName", "status=500"));
+        String failureReq = reqIdOf(awaitAccessLine("/api/v1/users/me/username", "status=500"));
 
         List<String> errorLines = structuredLines(LogCapture.errorFile());
         assertThat(errorLines.stream().filter(line -> line.contains("req=" + rejectionReq + " ")).toList())
