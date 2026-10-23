@@ -53,7 +53,7 @@ public class ContentCountCache extends RedisOps {
      * 播放量的条件增量（原子）：key 存在才 {@code INCRBY 1}。KEYS: {@code [countKey]}。
      *
      * <p>只增：播放量没有"取消播放"（{@code history-需求.md} §四）⇒ 增量写是精确的。
-     * 播放事件本身由写路径**首播去重**后才发布（{@code /history/play}），故不会重复 +1。
+     * 播放事件本身由写路径**首播去重**后才发布（{@code POST /api/v1/contents/{id}/play}），故不会重复 +1。
      */
     private static final DefaultRedisScript<Long> PLAY_COUNT_INCR_SCRIPT = new DefaultRedisScript<>(
             "if redis.call('EXISTS', KEYS[1]) == 1 then "
@@ -175,7 +175,7 @@ public class ContentCountCache extends RedisOps {
      * content 域自己一份，形态可有细微差异而不牵连他域。
      *
      * <p>失败只记 WARN 不上抛：本方法由 {@code AFTER_COMMIT} 监听器调用，事务**已经提交**，
-     * 缓存故障不能反过来让一次成功的 {@code /history/play} 变成 500（TTL / 下次回源自愈）。
+     * 缓存故障不能反过来让一次成功的播放事件（{@code POST /api/v1/contents/{id}/play}）变成 500（TTL / 下次回源自愈）。
      */
     public void incrementPlayCountIfPresent(long contentId) {
         String key = CacheKeys.contentPlayCount(contentId);

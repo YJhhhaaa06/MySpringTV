@@ -21,7 +21,8 @@ import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 
 /**
- * `T51-2` 的**故障姿态**：Redis 熔断打开时，`/history/report` 返回 503 + `Retry-After`，
+ * `T51-2` 的**故障姿态**：Redis 熔断打开时，进度上报（{@code PUT /api/v1/contents/{id}/progress}，
+ * `T58` 前为 {@code /history/report}）返回 503 + `Retry-After`，**且一次内容校验都不做**。
  * **且一次内容校验都不做**。
  *
  * <p>口径唯一事实源 = {@code history-上报缓冲.md} §5。
@@ -74,8 +75,7 @@ class HistoryReportBusyTests extends AbstractContentIntegrationTest {
         doReturn(false).when(breaker).tryAcquire();
         reset(contentService);
 
-        ResponseEntity<String> resp = post(
-                "/history/report?contentId=" + contentId + "&progress=10", null, viewerToken);
+        ResponseEntity<String> resp = put("/api/v1/contents/" + contentId + "/progress?progress=10", null, viewerToken);
 
         assertThat(resp.getStatusCode().value())
                 .as("★ 不降级直写库：故障瞬间把全部心跳压进 DB 正是本方案要避免的")

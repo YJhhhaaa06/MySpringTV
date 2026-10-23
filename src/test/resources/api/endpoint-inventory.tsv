@@ -37,6 +37,9 @@ PUT	/api/v1/contents/{id}/like	LOGIN	ApiResponse<String>
 GET	/api/v1/contents/{id}/like-count	LOGIN	ApiResponse<Integer>
 DELETE	/api/v1/contents/{id}/media	LOGIN	ApiResponse<String>
 PUT	/api/v1/contents/{id}/media	LOGIN	ApiResponse<Map<String, Object>>
+POST	/api/v1/contents/{id}/play	LOGIN	ApiResponse<Void>
+GET	/api/v1/contents/{id}/progress	LOGIN	ApiResponse<HistoryPositionVO>
+PUT	/api/v1/contents/{id}/progress	LOGIN	ApiResponse<Void>
 GET	/api/v1/coupons	PUBLIC	ApiResponse<List<CouponVO>>
 POST	/api/v1/coupons/{id}/claims	LOGIN	ApiResponse<String>
 GET	/api/v1/favorite-folders	LOGIN	ApiResponse<List<FavoriteFolderVO>>
@@ -50,6 +53,8 @@ POST	/api/v1/favorites	LOGIN	ApiResponse<String>
 PUT	/api/v1/favorites/{id}	LOGIN	ApiResponse<String>
 DELETE	/api/v1/follows/{id}	LOGIN	ApiResponse<String>
 PUT	/api/v1/follows/{id}	LOGIN	ApiResponse<String>
+GET	/api/v1/history	LOGIN	ApiResponse<PageResult<HistoryItemVO>>
+POST	/api/v1/history/flush	LOGIN	ApiResponse<Void>
 POST	/api/v1/sessions	PUBLIC	ApiResponse<LoginVO>
 POST	/api/v1/users	PUBLIC	ApiResponse<LoginVO>
 GET	/api/v1/users/me	LOGIN	ApiResponse<UserInfoVO>
@@ -65,11 +70,6 @@ GET	/api/v1/watch-later	LOGIN	ApiResponse<PageResult<WatchLaterItemVO>>
 PUT	/api/v1/watch-later/{id}	LOGIN	ApiResponse<String>
 PUT	/api/v1/watch-later/{id}/folder	LOGIN	ApiResponse<String>
 GET	/feed	LOGIN	ApiResponse<PageResult<ContentVO>>
-POST	/history/flush	LOGIN	ApiResponse<Void>
-GET	/history/list	LOGIN	ApiResponse<PageResult<HistoryItemVO>>
-POST	/history/play	LOGIN	ApiResponse<Void>
-GET	/history/position	LOGIN	ApiResponse<HistoryPositionVO>
-POST	/history/report	LOGIN	ApiResponse<Void>
 GET	/profile	PUBLIC	ApiResponse<ProfileVO>
 GET	/search/IdSearch	PUBLIC	ApiResponse<ContentDetailVO>
 GET	/search/keywordSearch	PUBLIC	ApiResponse<PageResult<ContentVO>>

@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>口径唯一事实源 = {@code history-上报缓冲.md} §3。
  *
  * <h2>★ 它只兜"没正常上报退出"的用户</h2>
- * 正常退出的用户走 {@code /history/flush}（同步、延迟 0），**不经过这里**。
+ * 正常退出的用户走 {@code POST /api/v1/history/flush}（同步、延迟 0），**不经过这里**。
  * 所以轮询周期只决定"崩溃 / 断网会话的兜底延迟"，不是降频参数。
  *
  * <h2>为什么抄 {@code FeedDeliveryBuffer} 的形态</h2>
@@ -68,7 +68,7 @@ public class HistoryFlushScheduler {
         try {
             scheduler.scheduleWithFixedDelay(this::tick, interval, interval, TimeUnit.MILLISECONDS);
         } catch (RuntimeException e) {
-            log.warn("播放记录兜底轮询启动失败 ⇒ 崩溃/断网会话的进度不再自动落库（只剩 /history/flush 路径）", e);
+            log.warn("播放记录兜底轮询启动失败 ⇒ 崩溃/断网会话的进度不再自动落库（只剩 /api/v1/history/flush 路径）", e);
         }
     }
 

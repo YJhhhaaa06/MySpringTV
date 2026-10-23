@@ -190,7 +190,7 @@ video:
   #    否则缓冲会在"轮到轮询"或"重试窗口内"就自己过期 ⇒ 静默丢数据，且外部只看到
   #    "进度偶尔回退"、无法归因。
   # ★ idle-threshold 是"多久算用户已离开"（**兜底判据**），不是降频参数：
-  #    正常退出走 /history/flush（同步、延迟 0），只有崩溃 / 断网的用户才等这个窗口。
+  #    正常退出走 /api/v1/history/flush（同步、延迟 0），只有崩溃 / 断网的用户才等这个窗口。
   # ★ poll-interval 只影响兜底延迟，不影响正常退出的可见性（所以它可以比 idle-threshold 短很多）。
   history:
     buffer:
@@ -470,13 +470,14 @@ video:
         # —— 投币（T37 / T38；`T58` 起资源化：签到 = check-in、投币挂在内容下；同"写路径 3"）——
         "[POST /api/v1/users/me/check-ins]": 3
         "[POST /api/v1/contents/{id}/coins]": 3
-        # —— 播放记录（T47 / T51-2）：上报**有意低于**"其余非 GET 写 3" ——
+        # —— 播放记录（T47 / T51-2；`T58` 起资源化：进度挂内容下，退出信号保持 POST /api/v1/history/flush）——
+        #    上报**有意低于**"其余非 GET 写 3" ——
         #    上报是设计上最高频的写（播放器持续报进度），权重 1；
         #    ★ 接心跳缓冲后**不需要**重估：缓冲挡的是 DB 写，请求数一点没少，权重按请求计。
         #    /flush 取 3（一次批量落库，比单条上报贵）。
-        "[POST /history/report]": 1
-        "[POST /history/flush]": 3
-        "[POST /history/play]": 1
+        "[PUT /api/v1/contents/{id}/progress]": 1
+        "[POST /api/v1/history/flush]": 3
+        "[POST /api/v1/contents/{id}/play]": 1
         # —— admin（人工操作、流量极小，但**无白名单** ⇒ 同样过闸计费）——
         "[POST /api/admin/comment/delete]": 3
         "[POST /api/admin/content/hide]": 3

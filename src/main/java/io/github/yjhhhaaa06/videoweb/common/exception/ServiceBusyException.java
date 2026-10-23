@@ -7,7 +7,7 @@ package io.github.yjhhhaaa06.videoweb.common.exception;
  * 需要把一个**机器可读的退避时长**带到响应头上。只靠消息文本让客户端自己猜退避节奏，
  * 恢复后它可能几分钟才回来一次 —— 那段时间的进度就白白丢了。
  *
- * <p>首个使用者是播放记录上报缓冲（`T51-2`）：Redis 熔断打开时 `/history/report` 返回它，
+ * <p>首个使用者是播放记录上报缓冲（`T51-2`）：Redis 熔断打开时进度上报（`T58` 起为 {@code PUT /api/v1/contents/{id}/progress}）返回它，
  * 让客户端按 {@code Retry-After} 线性退避；收到 200 再恢复原频率。
  * 服务端口径见 {@code history-上报缓冲.md} §5；
  * 客户端该怎么做见 {@code history-客户端契约.md} §五。

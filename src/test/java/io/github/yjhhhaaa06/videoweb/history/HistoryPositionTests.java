@@ -12,13 +12,14 @@ import tools.jackson.databind.JsonNode;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 续播位置（{@code GET /history/position}）的**行为契约**（播放记录专项 T49-2）。
+ * 续播位置（{@code GET /api/v1/contents/{id}/progress}，`T58` 起资源化）的**行为契约**
+ * （播放记录专项 T49-2）。
  *
  * <h2>期望值怎么来（盖住实现照样写得出来）</h2>
  * <ul>
  *   <li><b>无记录 ⇒ 0</b>：出自 {@code history-需求.md} §三「没有记录 ⇒ {@code 0}」
  *       —— 不是 404、也不是 {@code null}；</li>
- *   <li><b>有记录 ⇒ 存储秒数</b>：走真实写路径（{@code /history/report}）造前置状态，
+ *   <li><b>有记录 ⇒ 存储秒数</b>：走真实写路径（{@code PUT /api/v1/contents/{id}/progress}）造前置状态，
  *       再断言读端点回显的确实是写进去的那个数（往返一致）；</li>
  *   <li>★ <b>已删内容仍返回进度</b>：出自 {@code history-需求.md} §三「已删除的视频仍能查到历史进度
  *       （内容是死是活由详情 404 负责）」—— 这条直接钉"position 不判存在性"；</li>
@@ -80,11 +81,10 @@ class HistoryPositionTests extends AbstractContentIntegrationTest {
     void 有记录返回秒数() {
         long contentId = insertVideoContent(authorId, "续播视频");
 
-        ResponseEntity<String> report = post(
-                "/history/report?contentId=" + contentId + "&progress=123", null, viewerToken);
+        ResponseEntity<String> report = put("/api/v1/contents/" + contentId + "/progress?progress=123", null, viewerToken);
         assertThat(report.getStatusCode().value()).as("前置写应 200：%s", report.getBody()).isEqualTo(200);
         // ★ R-19：/report 只写缓冲；本类验的是"已落库的进度能被读回"，故先 flush
-        post("/history/flush", null, viewerToken);
+        post("/api/v1/history/flush", null, viewerToken);
 
         assertThat(Envelope.data(position(viewerToken, contentId)).path("progress").asInt())
                 .as("读回的就是写进去的秒数")
@@ -121,8 +121,8 @@ class HistoryPositionTests extends AbstractContentIntegrationTest {
     void 跨用户隔离() {
         String otherToken = registerAndGetToken(OTHER_PHONE, OTHER);
         long contentId = insertVideoContent(authorId, "共享视频");
-        post("/history/report?contentId=" + contentId + "&progress=55", null, viewerToken);
-        post("/history/flush", null, viewerToken);
+        put("/api/v1/contents/" + contentId + "/progress?progress=55", null, viewerToken);
+        post("/api/v1/history/flush", null, viewerToken);
 
         assertThat(Envelope.data(position(viewerToken, contentId)).path("progress").asInt())
                 .as("我自己：55").isEqualTo(55);
@@ -134,7 +134,7 @@ class HistoryPositionTests extends AbstractContentIntegrationTest {
     @DisplayName("鉴权：未登录 / 坏 token ⇒ 401（⚠️ HTTP 侧对 @RequiresLogin 是**假绿**）")
     void 需登录() {
         long contentId = insertVideoContent(authorId, "鉴权视频");
-        post("/history/report?contentId=" + contentId + "&progress=1", null, viewerToken);
+        put("/api/v1/contents/" + contentId + "/progress?progress=1", null, viewerToken);
 
         // ⚠️ 假绿声明：401 由 @CurrentUserId 参数解析器兜出 ⇒ 去掉类级 @RequiresLogin 这两条**仍然绿**。
         //    注解是否在位只由 SecurityContractTests 求值（钉路由，不证明注解）。
@@ -158,11 +158,11 @@ class HistoryPositionTests extends AbstractContentIntegrationTest {
     @DisplayName("★R-20 不读缓冲：库里 500、缓冲里 900（未落库）⇒ 返回 500")
     void 缓冲里的新进度不参与续播() {
         long contentId = insertVideoContent(authorId, "缓冲不参与续播");
-        post("/history/report?contentId=" + contentId + "&progress=500", null, viewerToken);
-        post("/history/flush", null, viewerToken);
+        put("/api/v1/contents/" + contentId + "/progress?progress=500", null, viewerToken);
+        post("/api/v1/history/flush", null, viewerToken);
 
         // 再上报一次但**不 flush**：这条只活在缓冲里（模拟"正在播 / 崩溃 / 还没退出"）
-        post("/history/report?contentId=" + contentId + "&progress=900", null, viewerToken);
+        put("/api/v1/contents/" + contentId + "/progress?progress=900", null, viewerToken);
 
         assertThat(Envelope.data(position(viewerToken, contentId)).path("progress").asInt())
                 .as("★ R-20：续播只认已落库的值（读到 900 说明还在读缓冲）")
@@ -170,6 +170,6 @@ class HistoryPositionTests extends AbstractContentIntegrationTest {
     }
 
     private ResponseEntity<String> position(String token, long contentId) {
-        return get("/history/position?contentId=" + contentId, token);
+        return get("/api/v1/contents/" + contentId + "/progress", token);
     }
 }

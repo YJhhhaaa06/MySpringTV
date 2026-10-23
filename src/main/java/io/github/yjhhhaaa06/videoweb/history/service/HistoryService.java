@@ -25,8 +25,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 播放记录业务：写路径（{@code /history/report} 与 {@code /history/play}）+ 读路径
- * （{@code /history/list} 历史列表、{@code /history/position} 续播位置）。
+ * 播放记录业务：写路径（进度上报 {@code PUT /api/v1/contents/{id}/progress} 与播放事件
+ * {@code POST /api/v1/contents/{id}/play}）+ 读路径
+ * （历史列表 {@code GET /api/v1/history}、续播位置 {@code GET /api/v1/contents/{id}/progress}）。
  *
  * <p>设计 / 口径的唯一事实源：{@code architecture/domain/history/history.md} §四（写）/ §七（读）。
  * 本类只做"校验 → 写"与"取页 → 组装"的编排：
@@ -86,10 +87,10 @@ public class HistoryService {
     }
 
     /**
-     * 上报播放进度（{@code POST /history/report}）：**校验后写 Redis 缓冲，不落库**。
+     * 上报播放进度（{@code PUT /api/v1/contents/{id}/progress}，`T58` 起 contentId 进路径、方法定 PUT）：**校验后写 Redis 缓冲，不落库**。
      *
      * <p>★ `R-19`（2026-10-22）起的契约变更：本方法不再写 `watch_history`，落库由
-     * {@code /history/flush}（退出信号）或空闲轮询完成。接口形态（200 / 400 / 404）未变。
+     * {@code POST /api/v1/history/flush}（退出信号）或空闲轮询完成。接口形态（200 / 400 / 404）未变。
      *
      * <p>校验顺序（**免费校验 → 熔断探测 → 需要 IO 的校验**）：
      * <ol>
@@ -122,7 +123,7 @@ public class HistoryService {
     }
 
     /**
-     * 退出信号（{@code POST /history/flush}）：把该用户**全部**脏缓冲同步落库。
+     * 退出信号（{@code POST /api/v1/history/flush}）：把该用户**全部**脏缓冲同步落库。
      *
      * <p>★ 粒度是 **userId 全量**（不是 contentId）：客户端退出时本来就该全 flush，
      * 不用它记住"这次看了哪些"；多标签下任一标签退出全写一遍，比"各管各的"简单且不漏。
@@ -143,7 +144,7 @@ public class HistoryService {
     }
 
     /**
-     * 播放事件（{@code POST /history/play}）：**首播去重后** {@code play_count + 1}，单事务。
+     * 播放事件（{@code POST /api/v1/contents/{id}/play}）：**首播去重后** {@code play_count + 1}，单事务。
      *
      * <p>三步走（设计 §四.2）：
      * <ol>
@@ -172,7 +173,7 @@ public class HistoryService {
     }
 
     /**
-     * 历史列表分页（{@code GET /history/list?page=&pageSize=}）：按**最后上报时间倒序**
+     * 历史列表分页（{@code GET /api/v1/history?page=&pageSize=}）：按**最后上报时间倒序**
      * （{@code update_time DESC, content_id DESC}）；失效条目返回**占位**（{@code history.md} §七.1）。
      *
      * <h2>★ 分页单位是 {@code watch_history} 行</h2>
@@ -241,7 +242,7 @@ public class HistoryService {
     }
 
     /**
-     * 续播位置（{@code GET /history/position?contentId=}）：**只点查 DB**（{@code uk_user_content}）。
+     * 续播位置（{@code GET /api/v1/contents/{id}/progress}）：**只点查 DB**（{@code uk_user_content}）。
      *
      * <p>★ `R-20`（2026-10-22）起**不再读缓冲**，推翻了 `R-19` 契约④的"读缓冲优先"。
      * 两条依据：

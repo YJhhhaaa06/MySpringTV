@@ -6,7 +6,7 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 /**
- * 历史列表里的一条（{@code GET /history/list} 的条目，播放记录专项）。
+ * 历史列表里的一条（{@code GET /api/v1/history} 的条目，播放记录专项）。
  *
  * <h2>一个形状两个角色（同 {@code WatchLaterItemVO}）</h2>
  * 本类同时是 **Mapper 行类型**（{@code historyItemVoMap}）与 **API 载荷形状**。
@@ -31,7 +31,7 @@ import java.time.LocalDateTime;
  * 键名稳定性的来源，`HistoryListTests#形状契约` 的键集断言也测不到这一点；
  * 保留包装只因它与既有 VO 同形、且能表达"未判定"（{@code null}）。
  *
- * <p>JSON 形状（{@code /history/list} 的 {@code data.list} 元素）：
+ * <p>JSON 形状（{@code GET /api/v1/history} 的 {@code data.list} 元素）：
  * <pre>
  * {"contentId":3,"watchedTime":"2026-10-21T00:00:00","invalid":false,
  *  "title":"标题","coverUrl":"/upload/cover/x.png","authorName":"作者",
