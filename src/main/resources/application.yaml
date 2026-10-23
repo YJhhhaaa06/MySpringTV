@@ -416,13 +416,17 @@ video:
       # ⚠️ 构造期只拒 [0,1] **之外**的值 ⇒ 0 是合法值、"键名写错"会静默绑成 0.0 而绕过校验；
       #    该洞由 RateLimitPropertiesBindingTests#被拒折扣落在开区间（口径取开区间 (0,1)）兜住。
       reject-discount: ${RATE_LIMIT_COST_REJECT_DISCOUNT:0.3}
-      # 权重表：key = 「<HTTP 方法> <空格> <路径模式>」（本仓端点无路径参数 ⇒ 即精确路径），value = 该端点一次的令牌数。
+      # 权重表：key = 「<HTTP 方法> <空格> <路由模式>」，value = 该端点一次的令牌数。
+      # （`T58` 起端点带路径变量（{id}）⇒ 查表按**路由模式**（BEST_MATCHING_PATTERN_ATTRIBUTE）匹配，
+      #  不再按原始 URI 精确匹配——否则带 id 的请求会静默落 default-base，
+      #  由 RateLimitWeightTableTests#路径变量端点按路由模式扣费钉住。）
       # 锚点：按"是否触达 DB 写 + 是否重活"排序 —— 登录/注册 5、上传与媒体扫描/恢复（同为重活）10、
       #       其余非 GET 写路径 3；**读一律吃 default-base = 1**（故不在此枚举读端点）。
       # 推翻条件：有按端点的实测成本。
       # 覆盖口径（T26 起）：**全部非 GET 端点在此登记**——完整性由 RateLimitWeightTableTests 的
       #       "扫描全部 handler 映射"用例兜住（新增端点漏配 ⇒ 该用例变红，逼一次定价决策）。
-      #       查表用「方法 空格 路径」精确匹配（未解码未规范化，与跳过清单同源）；未登记 ⇒ default-base。
+      #       查表用「方法 空格 路由模式」匹配（`T58` 起按 BEST_MATCHING_PATTERN_ATTRIBUTE 取模式，
+      #       键里的 {id} 即路由模式字面；未登记 ⇒ default-base）。
       # ⚠️⚠️ 键**必须**用方括号括起来（"[POST /x]": 3）！Spring 绑 Map 时会把键里
       #      "小写字母数字与 - 之外"的字符**静默删掉**：写成 POST /api/v1/favorites: 3 时
       #      实际绑出来的是 POSTapiv1favorites —— 无任何报错，只是这条权重永远命不中、

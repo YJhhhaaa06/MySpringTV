@@ -49,7 +49,7 @@
 | 项 | 内容 |
 |---|---|
 | 分类 | 债务 / 决策（**T55 换码表时才看得见**：旧实现所有 409 共用 `code=409`，这条路径的"泛码"被数字掩盖了） |
-| 现象 | `POST /coupon/grab` 重复领取时撞 `uk_coupon_user` ⇒ `DuplicateKeyException` ⇒ 出口只能回 `SYSTEM_DUPLICATE_KEY`（msg「数据已存在，请重试」）。前端拿不到「您已抢过该优惠券」这句精确提示，也无法按码区分"抢过了"与"真出事了"。 |
+| 现象 | `POST /api/v1/coupons/{id}/claims` 重复领取时撞 `uk_coupon_user` ⇒ `DuplicateKeyException` ⇒ 出口只能回 `SYSTEM_DUPLICATE_KEY`（msg「数据已存在，请重试」）。前端拿不到「您已抢过该优惠券」这句精确提示，也无法按码区分"抢过了"与"真出事了"。 |
 | 证据 | `CouponService#grabCoupon`（C-1 决定"不判 1062"）+ `CouponFlowTests#重复抢券库存只扣一次`（断言 `SYSTEM_DUPLICATE_KEY`）；`uk_coupon_user` / `uk_coupon_code` 见 `V1__baseline_tv_schema.sql:163-164` |
 | 影响 | 只影响**提示文案的精确度**（状态仍 409、库存仍只扣一次、回滚语义不变）。但它是"码表能表达原因"这个承诺的第一个反例。 |
 | 处置 | `T55` **不自行推翻 C-1**：出口拿到 `DuplicateKeyException` 时分不清撞的是 `uk_coupon_user` 还是 `uk_coupon_code`，硬猜会把两种原因报反；在 Service 里 catch 再翻译 = 恢复 C-1 删掉的 1062 判断，属决策变更。⇒ 如实登记，测试按实际行为钉住。 |
@@ -77,7 +77,18 @@
 | 处置 | `T57` **不自行放宽 §2.1**（本专项红线：规则不得执行期"顺手放宽"，要改先登记）。故只登记、不实现：正确形状应是 **413**（`Payload Too Large`）+ `errors[field=<part 名>]`，但那是给 §2.1 加一个新状态类别。 |
 | 去向 | **待裁决**（建议在 `T58` 或 `T62` 收口时定）：① 加 413 类别 + `UPLOAD_TOO_LARGE` 码（语义最准，需同步 §2.1 / §2.2 / 前端字典）；② 归入既有 400 + `PARAM_INVALID`（不加类别，代价是"文件太大"与"参数不合法"同状态）；③ 维持 500（不推荐：等于承认"用户输入可触发服务器错误"）。 |
 
-**本期其余暂无在办问题** —— 编号从 **`I-28`** 起顺延；已终结问题的**一行摘要**见文末「已解决」。
+### I-28 并发投币撞封顶时偶发 500（MySQL 死锁兜底，T58-10 全量回归实测）【待处理】
+
+| 项 | 内容 |
+|---|---|
+| 分类 | 缺陷（**既存并发竞态，非 `T58` 引入**——T58 只改路由，投币事务与封顶守卫未动） |
+| 现象 | `CoinAddTests#并发各投一枚不突破封顶`（两线程同内容各投 1，期望恰一条 200、一条 409 封顶拦截）在全量回归（788 例、4m21s）中出现 `[200, 500]`。 |
+| 证据 | `target/test-reports/run-20261023_145232.log`：`数据访问异常 POST /api/v1/contents/277/coins` → `Caused by: MySQLTransactionRollbackException: Deadlock found when trying to get lock`（GlobalExceptionHandler catch-all ⇒ 500 `SYSTEM_INTERNAL`）；同日隔离重跑 `CoinAddTests` 19/19 绿、T58-6 切片验证时亦 19/19 绿 ⇒ 负载相关的偶发，不是确定性失败。 |
+| 影响 | 死锁输家本应走"封顶拦截"的 409（或重试后成功），现在被兜成 500——并发窗口内用户会看到"服务器内部错误"；且 500 会污染错误率监控。窗口极窄（同用户同内容毫秒级并发 + InnoDB 恰好选该事务做死锁牺牲品）。 |
+| 处置 | `T58` 不修（路由专项红线：不顺手改事务/服务语义）。两条候选路：① Service 捕获 `DeadlockLoserDataAccessException` 重试一次（Spring 对 MySQL 死锁的标准解法）；② 缩小事务持锁面让两条并发天然串行化（`SELECT ... FOR UPDATE` 先行锁用户行）。选哪条要看 `CoinService` 的事务边界，属独立小任务。 |
+| 去向 | 留给下期排期（不阻塞 `T58` 验收——判据是"路由改动未引入回归"，隔离重跑 + 切片期两次全绿已证明）；若 T59 期间再 flake，升级为当期处理。 |
+
+**本期其余暂无在办问题** —— 编号从 **`I-29`** 起顺延；已终结问题的**一行摘要**见文末「已解决」。
 
 ---
 

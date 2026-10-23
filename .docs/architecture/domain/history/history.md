@@ -29,11 +29,11 @@
 
 | 谁 | 做什么 | 端点 |
 |---|---|---|
-| 播放页 · 开始播放 | 记一次播放量（一人一次，幂等） | `POST /history/play` |
-| 播放页 · 初始化 | 取续播位置（无记录 ⇒ 0） | `GET /history/position` |
-| 播放页 · 播放中 | 报进度，**只进缓冲不落库** | `POST /history/report` |
-| 播放页 · 暂停/退出/切页 | 把该用户缓冲**同步落库** | `POST /history/flush` |
-| 历史记录页 · 翻页 | 分页读列表（**唯一的读端点**） | `GET /history/list` |
+| 播放页 · 开始播放 | 记一次播放量（一人一次，幂等） | `POST /api/v1/contents/{id}/play` |
+| 播放页 · 初始化 | 取续播位置（无记录 ⇒ 0） | `GET /api/v1/contents/{id}/progress` |
+| 播放页 · 播放中 | 报进度，**只进缓冲不落库** | `PUT /api/v1/contents/{id}/progress` |
+| 播放页 · 暂停/退出/切页 | 把该用户缓冲**同步落库** | `POST /api/v1/history/flush` |
+| 历史记录页 · 翻页 | 分页读列表（**唯一的读端点**） | `GET /api/v1/history` |
 
 **三条最容易记错的口径**：
 
@@ -57,11 +57,11 @@
 
 | 做 | 不做 |
 |---|---|
-| 进度上报（`/history/report`，**先进 Redis 缓冲**，见 [上报缓冲](./history-上报缓冲.md)） | 历史删除 / 清空 |
-| 播放事件（`/history/play`，去重计播放量；**不进缓冲**） | 前端页面（`static/` 本期不动；播放历史后续一次性重制） |
-| 历史列表（`/history/list`，失效占位；**不合并缓冲**） | 历史列表缓存 |
-| 续播位置（`/history/position`，**只读已落库的值**） | 服务端**降频**（节流由客户端负责；缓冲只挡写库，不挡请求） |
-| 退出 flush（`/history/flush`）+ 空闲轮询兜底（[上报缓冲](./history-上报缓冲.md)） | 客户端节流（本期不做；见 [客户端契约](./history-客户端契约.md) §三） |
+| 进度上报（`PUT /api/v1/contents/{id}/progress`，**先进 Redis 缓冲**，见 [上报缓冲](./history-上报缓冲.md)） | 历史删除 / 清空 |
+| 播放事件（`POST /api/v1/contents/{id}/play`，去重计播放量；**不进缓冲**） | 前端页面（`static/` 本期不动；播放历史后续一次性重制） |
+| 历史列表（`GET /api/v1/history`，失效占位；**不合并缓冲**） | 历史列表缓存 |
+| 续播位置（`GET /api/v1/contents/{id}/progress`，**只读已落库的值**） | 服务端**降频**（节流由客户端负责；缓冲只挡写库，不挡请求） |
+| 退出 flush（`POST /api/v1/history/flush`）+ 空闲轮询兜底（[上报缓冲](./history-上报缓冲.md)） | 客户端节流（本期不做；见 [客户端契约](./history-客户端契约.md) §三） |
 | mp4 时长解析（发布 / 换源） | 「已看完」标记（由前端按 `progress / duration` 推导） |
 | 详情播放量（第 5 个公共计数） | 历史容量上限 / 旧行清理 |
 | 失效内容占位（抄收藏域形态） | 存量内容时长回填 |
@@ -136,16 +136,17 @@ filesort。新索引**前三列就是排序键**，第四列 `progress_seconds` 
 
 ## 三、端点契约
 
-写 = `POST` + `x-www-form-urlencoded`，读 = `GET` + query（沿袭 `/like/*`、`/watchlater/*`）。
+写 = `PUT` / `POST` + `x-www-form-urlencoded`，读 = `GET` + query（沿袭 `/like/*`、`/watchlater/*`
+—— `T58` 后两域已资源化为 `/api/v1/...`；进度覆盖幂等 ⇒ PUT，播放 / flush 是动作 ⇒ POST，见 `接口契约.md` §2.4）。
 `HistoryController` **类级 `@RequiresLogin`**：五个端点都只对当前登录用户有意义。
 
 | 端点 | 入参 | 出参（`data`） | 说明 |
 |---|---|---|---|
-| `POST /history/report` | `contentId`、`progress`（秒，整数） | 无（`msg="success"`） | **只写 Redis 缓冲、不落库**；后到即新（LWW）；按当前时长 clamp；Redis 不可用 ⇒ **503 + `Retry-After`** |
-| `POST /history/flush` | 无（`userId` 取自登录态） | 无（`msg="success"`） | 把**该用户全部**脏缓冲**同步**落库（退出信号）；落库失败仍 **200**（数据留缓冲等兜底） |
-| `POST /history/play` | `contentId` | 无（`msg="success"`） | 首播去重后 `play_count + 1`；行不存在则建行（progress=0） |
-| `GET /history/list` | `page`、`pageSize` | `PageResult<HistoryItemVO>` | 按 `update_time DESC, content_id DESC`；缺省 20 / 上限 100 |
-| `GET /history/position` | `contentId` | `{ "progress": 123 }` | 无记录 ⇒ `0`；**不校验内容、不返回 404** |
+| `PUT /api/v1/contents/{id}/progress` | `contentId`（进路径）、`progress`（秒，整数） | 无（`msg="success"`） | **只写 Redis 缓冲、不落库**；后到即新（LWW）；按当前时长 clamp；Redis 不可用 ⇒ **503 + `Retry-After`** |
+| `POST /api/v1/history/flush` | 无（`userId` 取自登录态） | 无（`msg="success"`） | 把**该用户全部**脏缓冲**同步**落库（退出信号）；落库失败仍 **200**（数据留缓冲等兜底） |
+| `POST /api/v1/contents/{id}/play` | `contentId`（进路径） | 无（`msg="success"`） | 首播去重后 `play_count + 1`；行不存在则建行（progress=0） |
+| `GET /api/v1/history` | `page`、`pageSize` | `PageResult<HistoryItemVO>` | 按 `update_time DESC, content_id DESC`；缺省 20 / 上限 100 |
+| `GET /api/v1/contents/{id}/progress` | `contentId`（进路径） | `{ "progress": 123 }` | 无记录 ⇒ `0`；**不校验内容、不返回 404** |
 
 **`HistoryItemVO`**（JSON 形状，扁平，同 `WatchLaterItemVO` 的形态）：
 
@@ -164,7 +165,7 @@ filesort。新索引**前三列就是排序键**，第四列 `progress_seconds` 
   `Boolean`**（`boolean` 会被 Lombok 生成 `isInvalid()`，埋 JSON 键名漂移的坑）。
 - `position` 只给进度：时长已随详情 `durationSeconds` 返回，不重复读一次内容。
 
-**限流权重**：`[POST /history/report] = 1`、`[POST /history/play] = 1`、`[POST /history/flush] = 3`。
+**限流权重**：`[PUT /api/v1/contents/{id}/progress] = 1`、`[POST /api/v1/contents/{id}/play] = 1`、`[POST /api/v1/history/flush] = 3`。
 前两者**有意低于**"其余非 GET 写 3"：上报是设计上最高频的写，★ 接心跳**不需要**重估 ——
 缓冲挡的是 DB 写、请求数不变，权重按请求计；`/flush` 取 3 是因为它一次批量写库。
 
@@ -172,7 +173,7 @@ filesort。新索引**前三列就是排序键**，第四列 `progress_seconds` 
 
 ## 四、写路径
 
-### 4.1 `/history/report`：校验 → **写缓冲**；落库在 flush（一条 ODKU，**不加事务**）
+### 4.1 `PUT /api/v1/contents/{id}/progress`：校验 → **写缓冲**；落库在 flush（一条 ODKU，**不加事务**）
 
 下面这条 SQL 是 **flush / 轮询兜底**执行的语句，语义（LWW、`update_time` 显式 SET、clamp）在
 "上报即落库"时代**逐字未变**：
@@ -203,7 +204,7 @@ ON DUPLICATE KEY UPDATE
 - **不做"进度只能增"的守卫**：后到即新。重看从头会把进度改回 0（与 B站 不同，见
   [history-需求](./history-需求.md) §六）。
 
-### 4.2 `/history/play`：首播判定，`@Transactional`
+### 4.2 `POST /api/v1/contents/{id}/play`：首播判定，`@Transactional`
 
 ```sql
 -- ① 行不存在：直接建行并标记已计
@@ -283,8 +284,8 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
 
 | 调用点 | 行为 |
 |---|---|
-| `POST /api/upload/video` | 落盘后解析；发布事务里写 `content_media.duration_seconds` |
-| `POST /api/upload/replace`（`type=1`） | 换源时重解析并**同一事务**更新该媒体行的时长；`type=2/3` 传 null，**不能清空视频行的时长** |
+| `POST /api/v1/contents/videos` | 落盘后解析；发布事务里写 `content_media.duration_seconds` |
+| `PUT /api/v1/contents/{id}/media`（换源，`type=1`） | 换源时重解析并**同一事务**更新该媒体行的时长；`type=2/3` 传 null，**不能清空视频行的时长** |
 
 - 解析失败 ⇒ `null`，**不阻断发布**（内容仍可播，只是没有百分比）。
 - **存量不回填**：时长 null = 未知；进度按秒展示。

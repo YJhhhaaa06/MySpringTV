@@ -104,7 +104,7 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
         assertThat(resp.getStatusCode().value()).as("新建夹成功").isEqualTo(200);
         assertThat(Envelope.code(resp)).isEqualTo("OK");
         // ⚠️ data 是**纯字符串**，故取整个 data 节点再 asString()；Envelope.str 是给对象型 data 用的
-        assertThat(Envelope.data(resp).asString()).as("写端点的 data 是中文文案（同 /like/add、/follow/add）")
+        assertThat(Envelope.data(resp).asString()).as("写端点的 data 是中文文案（同点赞 / 取关等写端点）")
                 .isEqualTo("创建成功");
 
         // 独立 oracle：直查 DB 终态（不信接口回显）

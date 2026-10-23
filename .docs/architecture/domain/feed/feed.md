@@ -59,7 +59,7 @@ FollowChangedFeedListener                   （feed.event，AFTER_COMMIT）
 ### 2.3 读取侧（读平面：两路读，纯拉兜底）
 
 ```
-GET /feed ─► FeedController ─► FeedService.getFeed
+GET /api/v1/feed ─► FeedController ─► FeedService.getFeed
                                    │
                          FeedReadService.readWindow(userId)
                          ┌─────────┴───────────┐
@@ -79,7 +79,7 @@ GET /feed ─► FeedController ─► FeedService.getFeed
 
 ## 三、读路径：两路读 + 有界窗口
 
-**入口唯一**：`FeedController` 只注入 `FeedService`，`/feed` 的 URL 与响应信封形状固定
+**入口唯一**：`FeedController` 只注入 `FeedService`，`/api/v1/feed` 的 URL 与响应信封形状固定
 （`{list,total,page,pageSize,totalPages}`；`pageSize` 上限/信封默认均 **100**）。
 
 **分流逻辑**在 `FeedService.getFeed`：先问 `FeedReadService.readWindow(userId)`，
@@ -306,7 +306,7 @@ fanout:
 
 **这是本篇最需要解释的"为什么"**——否则后人会以为 `FeedService` 放错了地方。
 
-`/feed` 的读编排**有意**落在 `feed` 域（历史实现把它放在 content 的 service 包，并形成
+`/api/v1/feed` 的读编排**有意**落在 `feed` 域（历史实现把它放在 content 的 service 包，并形成
 `content ⇄ feed` 双向依赖）。本项目把编排整体落在 feed 域，于是：
 
 ```
@@ -386,7 +386,7 @@ fanout:
 
 | 差异点 | 说明 |
 |---|---|
-| `/feed` 编排位置 | 从 content 的 service 包**迁到 feed 域**，以消 `content ⇄ feed` 环（见 §八） |
+| `/api/v1/feed` 编排位置 | 从 content 的 service 包**迁到 feed 域**，以消 `content ⇄ feed` 环（见 §八） |
 | feed 缓存键 | **两件套**（数据 key + `empty:`），**无 `partial:`**——收件箱键的写者只有读路径，读路径也不做前缀装载 |
 | 大V名单配置 | 外置 Properties 文件 + 热更**不搬**；名单并入 `video.bigv.user-ids`（值单一源） |
 | 投递可靠性 | 拓扑 / 连接自动恢复 / 有限重试 + DLQ / 预取交框架原生；异步投递线程池与内存补偿缓冲**已补齐** |

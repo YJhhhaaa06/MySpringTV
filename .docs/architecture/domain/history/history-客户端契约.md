@@ -35,11 +35,11 @@
 
 | 端点 | 何时调 | 语义（对客户端） |
 |---|---|---|
-| `POST /history/play` | **开始播放时一次** | 播放量去重计数；幂等，重复调不报错 |
-| `POST /history/report?contentId=&progress=` | **播放中定期**（§三） | 只进缓冲；`progress` 单位**秒**，整数 |
-| `POST /history/flush` | **暂停 / 退出 / 切页**（§四） | 把**本用户全部**缓冲同步落库；无参数 |
-| `GET /history/position?contentId=` | **播放器初始化** | `{progress}`；无记录返回 `0`，不 404 |
-| `GET /history/list?page=&pageSize=` | **历史记录页** | 分页；`pageSize` 默认 20、上限 100 |
+| `POST /api/v1/contents/{id}/play` | **开始播放时一次** | 播放量去重计数；幂等，重复调不报错 |
+| `PUT /api/v1/contents/{id}/progress?progress=` | **播放中定期**（§三） | 只进缓冲；`progress` 单位**秒**，整数 |
+| `POST /api/v1/history/flush` | **暂停 / 退出 / 切页**（§四） | 把**本用户全部**缓冲同步落库；无参数 |
+| `GET /api/v1/contents/{id}/progress` | **播放器初始化** | `{progress}`；无记录返回 `0`，不 404 |
+| `GET /api/v1/history?page=&pageSize=` | **历史记录页** | 分页；`pageSize` 默认 20、上限 100 |
 
 - 写端点收 `x-www-form-urlencoded`（`@RequestParam`），token 一律走 `Authorization` 头。
 - 全部端点**需要登录**（类级 `@RequiresLogin`）；未登录 ⇒ 401，不要拿 401 当"没有记录"。
@@ -69,7 +69,7 @@ DB 只在 flush / 兜底时写一次。所以客户端**不需要**为了"省数
 ### 4.1 用 `fetch keepalive`，**不是** `sendBeacon`
 
 ```js
-fetch('/history/flush', {
+fetch('/api/v1/history/flush', {
   method: 'POST',
   keepalive: true,                        // ★ 页面卸载后仍会把请求发完
   headers: { 'Authorization': 'Bearer ' + token }
@@ -88,7 +88,7 @@ fetch('/history/flush', {
 // 推荐：在页面还活着的时候做（visibilitychange → hidden）
 async function onHidden(finalProgress) {
   try { await report(finalProgress); } catch (e) { /* 忽略：下面 flush 仍会写缓冲里的旧值 */ }
-  fetch('/history/flush', { method: 'POST', keepalive: true, headers: authHeader });
+  fetch('/api/v1/history/flush', { method: 'POST', keepalive: true, headers: authHeader });
 }
 ```
 

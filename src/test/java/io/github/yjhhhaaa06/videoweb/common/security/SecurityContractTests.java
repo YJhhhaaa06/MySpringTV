@@ -464,8 +464,11 @@ class SecurityContractTests extends AbstractIntegrationTest {
         assertThat(requiresAdmin("GET", "/api/v1/contents/1/favorite"))
                 .as("收藏状态是私有视角但**不是**管理端点")
                 .isFalse();
-        assertThat(requiresAdmin("GET", "/like/content/count"))
-                .as("历史 bug 端点：受 @RequiresLogin 保护，但与角色无关")
+        // ★ `T58` 契约变更（接口契约.md §2.3）：原样例 /like/content/count 已资源化为
+        //   GET /api/v1/contents/{id}/like-count——语义不变（类级 @RequiresLogin 保护、与角色无关）。
+        //   旧路径在 T58 后未映射 ⇒ resolve 恒判 NONE ⇒ 断言空转，必须换成活路由才保住判别力。
+        assertThat(requiresAdmin("GET", "/api/v1/contents/1/like-count"))
+                .as("历史 bug 端点（T58 后 = like-count）：受 @RequiresLogin 保护，但与角色无关")
                 .isFalse();
         assertThat(requiresAdmin("GET", "/api/v1/users/me")).isFalse();
         // `T58` 契约变更：/start 资源化为 GET /api/v1/contents/recommended（接口契约.md §2.3）

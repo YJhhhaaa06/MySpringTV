@@ -44,17 +44,18 @@ CREATE TABLE IF NOT EXISTS `content_coin` (
 
 ## 二、端点契约
 
-写 = `POST` + `x-www-form-urlencoded`、读 = `GET` + query —— 沿袭 `/like/*`、`/favorite/*` 的既有风格。
+写 = `POST` + `x-www-form-urlencoded`、读 = `GET` + query —— 沿袭 `/like/*`、`/favorite/*` 的既有风格
+（`T58` 后两域路径已资源化为 `/api/v1/{contents,comments}/{id}/like[-count]`、`/api/v1/favorites` 等）。
 
 | 端点 | 鉴权 | 入参 | 出参（`data`） | msg |
 |---|---|---|---|---|
-| `POST /coin/add` | `@RequiresLogin` | `contentId`、`count`（`1` 或 `2`） | `{ "balance": 1.5 }` | 「投币成功」 |
-| `POST /coin/signIn` | `@RequiresLogin` | — | `{ "balance": 1.5, "credited": true }` | 「签到成功」/「今日已签到」 |
+| `POST /api/v1/contents/{id}/coins` | `@RequiresLogin` | `contentId`（进路径）、`count`（`1` 或 `2`） | `{ "balance": 1.5 }` | 「投币成功」 |
+| `POST /api/v1/users/me/check-ins` | `@RequiresLogin` | — | `{ "balance": 1.5, "credited": true }` | 「签到成功」/「今日已签到」 |
 
 - ★ **不新增"投币状态"读端点**：`0/1/2` 随**详情**内嵌（§六）。这是与 like / favorite **有意的不同**
   —— 它们各有 `status` 端点，投币刻意没有（一个数量字段就够三种分支，且省一趟往返）。
-- ★ **余额复用 `/user/me`**（`UserInfoVO` 加 `coin` 字段，一位小数）：不新增"余额查询"端点。
-  写操作**响应体回带新余额** ⇒ 前端投币/签到后无需再拉一次 `/user/me`。
+- ★ **余额复用 `GET /api/v1/users/me`**（`UserInfoVO` 加 `coin` 字段，一位小数）：不新增"余额查询"端点。
+  写操作**响应体回带新余额** ⇒ 前端投币/签到后无需再拉一次 `/api/v1/users/me`。
   ★ **`UserInfoVO` 同时加 `signedToday`**（= `last_sign_date == 上海今日`）—— 签到按钮要靠它才**进页就置灰**；
   否则只能"点了才知道今天已签"（幂等回「今日已签到」），体验差一档，而它只是**同一张表的两次单列点查**
   （主键命中、成本可忽略；刻意不把两列塞进 `findByIdForProfile` 的列集，见 `UserDao#findCoinDeci` 注释）。
@@ -130,7 +131,7 @@ UPDATE users SET coin_deci = coin_deci + 10, last_sign_date = :today
 
 影响 `1` 行 = **本次到账**（回 `credited = true`）；`0` 行 = 今日已签 ⇒ **200**（幂等，不加币、不报错）。
 ★ 并发双击只到账一次。**单语句自带原子性 ⇒ 不加 `@Transactional`**；签到也**不发事件**
-（`/user/me` 直接读 DB，没有需要失效的缓存）。
+（`GET /api/v1/users/me` 直接读 DB，没有需要失效的缓存）。
 
 ---
 
@@ -258,7 +259,7 @@ UPDATE users SET coin_deci = coin_deci + 10, last_sign_date = :today
 （`AFTER_COMMIT` 的存在证明，范式同 `LikeCacheTests.事务回滚后缓存未被污染`）。
 ⚠️ **不要写成"回滚 ⇒ key 不存在"**：冷 key 本来就不存在 ⇒ 那种断言在"事件没发"与"事件发了但回滚"
 两个世界都绿，**零判别力**（T42 复核时纠正的措辞；预热后断言"值没被动过"才是证明）。
-**列表不带 `coinCount`**（T43）：`/start` / `/search` / `/profile` 的条目里**没有**该键
+**列表不带 `coinCount`**（T43）：`/api/v1/contents/recommended` / `/api/v1/contents` / `/api/v1/users/{id}` 的条目里**没有**该键
 （`CoinReadTests#列表不返回任何公共计数` 用 `has(...)==false` 钉住 —— 用 `asLong()==0` 会因缺失节点也返回 0 而假绿）。
 
 **反向验证清单**（改哪一行必红）在开工时逐条实测登记。
