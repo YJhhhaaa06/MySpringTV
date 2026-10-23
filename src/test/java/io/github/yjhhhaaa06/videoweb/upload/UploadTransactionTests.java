@@ -93,7 +93,7 @@ class UploadTransactionTests extends AbstractHttpIntegrationTest {
         addFilePart(form, "video", fixture("test_video.mp4"), "video/mp4");
         addFilePart(form, "cover", fixture("test_cover.png"), "image/png");
 
-        ResponseEntity<String> resp = postMultipart("/api/upload/video", form, token);
+        ResponseEntity<String> resp = postMultipart("/api/v1/contents/videos", form, token);
 
         // 1) 对外：非业务异常 → 500
         assertThat(resp.getStatusCode().value()).isEqualTo(500);
@@ -123,7 +123,7 @@ class UploadTransactionTests extends AbstractHttpIntegrationTest {
         addFilePart(form, "video", fixture("test_video.mp4"), "video/mp4");
         addFilePart(form, "cover", fixture("test_cover.png"), "image/png");
 
-        ResponseEntity<String> resp = postMultipart("/api/upload/video", form, token);
+        ResponseEntity<String> resp = postMultipart("/api/v1/contents/videos", form, token);
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         long contentId = Envelope.num(resp, "contentId");
 

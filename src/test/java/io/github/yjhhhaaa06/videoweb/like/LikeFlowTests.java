@@ -74,7 +74,7 @@ class LikeFlowTests extends AbstractLikeIntegrationTest {
         long contentId = insertContent(ANY_AUTHOR_ID);
         likeContent(contentId, token);
 
-        ResponseEntity<String> resp = unlikeContent(contentId, token);
+        ResponseEntity<String> resp = cancelContentLike(contentId, token);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(Envelope.data(resp).asString()).isEqualTo("已取消点赞");
@@ -109,7 +109,7 @@ class LikeFlowTests extends AbstractLikeIntegrationTest {
         String token = registerAndGetToken(OTHER_PHONE, OTHER);
         long contentId = insertContent(ANY_AUTHOR_ID);
 
-        ResponseEntity<String> resp = unlikeContent(contentId, token);
+        ResponseEntity<String> resp = cancelContentLike(contentId, token);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(Envelope.code(resp)).isEqualTo("LIKE_NOT_LIKED");
@@ -146,7 +146,7 @@ class LikeFlowTests extends AbstractLikeIntegrationTest {
         assertThat(contentCount(contentId, token)).isEqualTo(1);
 
         // 取消
-        unlikeContent(contentId, token);
+        cancelContentLike(contentId, token);
         assertThat(contentStatus(contentId, token)).isFalse();
         assertThat(contentCount(contentId, token)).isZero();
     }
@@ -185,7 +185,7 @@ class LikeFlowTests extends AbstractLikeIntegrationTest {
         assertThat(commentStatus(commentId, token)).isTrue();
         assertThat(commentCount(commentId, token)).isEqualTo(1);
 
-        assertThat(unlikeComment(commentId, token).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(cancelCommentLike(commentId, token).getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(countCommentLikeRows(commentId)).isZero();
         assertThat(commentLikeCountColumn(commentId)).isZero();
         assertThat(commentStatus(commentId, token)).isFalse();
@@ -212,7 +212,7 @@ class LikeFlowTests extends AbstractLikeIntegrationTest {
         long contentId = insertContent(authorId);
         long commentId = insertComment(contentId, authorId, "评论", null, null);
 
-        assertThat(unlikeComment(commentId, token).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(cancelCommentLike(commentId, token).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         likeComment(commentId, token);
         assertThat(likeComment(commentId, token).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(countCommentLikeRows(commentId)).isEqualTo(1L);
@@ -237,7 +237,7 @@ class LikeFlowTests extends AbstractLikeIntegrationTest {
         jdbcTemplate.update("INSERT INTO content_like (user_id, content_id) VALUES (?, ?)", userId, contentId);
         assertThat(contentLikeCountColumn(contentId)).as("夹具：有记录但计数停在 0").isZero();
 
-        ResponseEntity<String> resp = unlikeContent(contentId, token);
+        ResponseEntity<String> resp = cancelContentLike(contentId, token);
 
         assertThat(resp.getStatusCode()).as("守卫拦住下溢；不得 500").isEqualTo(HttpStatus.OK);
         assertThat(countContentLikeRows(contentId, userId)).as("记录照删（守卫只作用于计数列）").isZero();
@@ -260,7 +260,7 @@ class LikeFlowTests extends AbstractLikeIntegrationTest {
         jdbcTemplate.update("INSERT INTO comment_like (user_id, comment_id) VALUES (?, ?)", userId, commentId);
         assertThat(commentLikeCountColumn(commentId)).as("夹具：有记录但计数停在 0").isZero();
 
-        ResponseEntity<String> resp = unlikeComment(commentId, token);
+        ResponseEntity<String> resp = cancelCommentLike(commentId, token);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(countCommentLikeRows(commentId)).isZero();
@@ -275,23 +275,23 @@ class LikeFlowTests extends AbstractLikeIntegrationTest {
         long contentId = insertContent(1001L);
         long commentId = insertComment(contentId, 1001L, "评论", null, null);
 
-        assertThat(postForm("/like/content/add", form("contentId", contentId), null).getStatusCode())
+        assertThat(put("/api/v1/contents/" + contentId + "/like", null, null).getStatusCode())
                 .isEqualTo(HttpStatus.UNAUTHORIZED);
-        assertThat(postForm("/like/content/remove", form("contentId", contentId), null).getStatusCode())
+        assertThat(delete("/api/v1/contents/" + contentId + "/like", null).getStatusCode())
                 .isEqualTo(HttpStatus.UNAUTHORIZED);
-        assertThat(postForm("/like/comment/add", form("commentId", commentId), null).getStatusCode())
+        assertThat(put("/api/v1/comments/" + commentId + "/like", null, null).getStatusCode())
                 .isEqualTo(HttpStatus.UNAUTHORIZED);
-        assertThat(postForm("/like/comment/remove", form("commentId", commentId), null).getStatusCode())
+        assertThat(delete("/api/v1/comments/" + commentId + "/like", null).getStatusCode())
                 .isEqualTo(HttpStatus.UNAUTHORIZED);
-        assertThat(get("/like/content/status?contentId=" + contentId, null).getStatusCode())
+        assertThat(get("/api/v1/contents/" + contentId + "/like", null).getStatusCode())
                 .isEqualTo(HttpStatus.UNAUTHORIZED);
-        assertThat(get("/like/comment/status?commentId=" + commentId, null).getStatusCode())
+        assertThat(get("/api/v1/comments/" + commentId + "/like", null).getStatusCode())
                 .isEqualTo(HttpStatus.UNAUTHORIZED);
         // ★ 这两个不消费 userId，但按 TV 口径仍需登录
-        assertThat(get("/like/content/count?contentId=" + contentId, null).getStatusCode())
+        assertThat(get("/api/v1/contents/" + contentId + "/like-count", null).getStatusCode())
                 .as("/like/content/count 不消费 userId，但 TV 的前缀保护把它也拦了——原样保留")
                 .isEqualTo(HttpStatus.UNAUTHORIZED);
-        assertThat(get("/like/comment/count?commentId=" + commentId, null).getStatusCode())
+        assertThat(get("/api/v1/comments/" + commentId + "/like-count", null).getStatusCode())
                 .isEqualTo(HttpStatus.UNAUTHORIZED);
 
         // 401 不得产生任何写入
@@ -307,47 +307,40 @@ class LikeFlowTests extends AbstractLikeIntegrationTest {
         String token = registerAndGetToken(OTHER_PHONE, OTHER);
         MultiValueMap<String, String> emptyForm = new LinkedMultiValueMap<>();
 
-        assertThat(postForm("/like/content/add", emptyForm, token).getStatusCode())
-                .as("缺 contentId").isEqualTo(HttpStatus.BAD_REQUEST);
-
-        MultiValueMap<String, String> blank = new LinkedMultiValueMap<>();
-        blank.add("contentId", "");
-        assertThat(postForm("/like/content/add", blank, token).getStatusCode())
-                .as("contentId 为空串").isEqualTo(HttpStatus.BAD_REQUEST);
-
-        MultiValueMap<String, String> notNumber = new LinkedMultiValueMap<>();
-        notNumber.add("contentId", "abc");
-        assertThat(postForm("/like/content/add", notNumber, token).getStatusCode())
-                .as("contentId 非数字").isEqualTo(HttpStatus.BAD_REQUEST);
-
-        assertThat(get("/like/content/status?contentId=abc", token).getStatusCode())
+        // ★ 契约变更（`T58`，G8）：contentId 从 form 进路径后，"缺 id"不再是 400（请求不匹配路由），
+        //   只剩"id 不可转换"这一档 —— 判据见 接口契约 §2.5.1。
+        assertThat(put("/api/v1/contents/abc/like", null, token).getStatusCode())
+                .as("PUT 侧非数字").isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(delete("/api/v1/contents/abc/like", token).getStatusCode())
+                .as("DELETE 侧非数字").isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(get("/api/v1/contents/abc/like", token).getStatusCode())
                 .as("GET 侧非数字").isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(get("/like/comment/count", token).getStatusCode())
-                .as("GET 侧缺参").isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(get("/api/v1/comments/abc/like-count", token).getStatusCode())
+                .as("GET 侧非数字（count）").isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
     // ==================== helpers ====================
 
     private boolean contentStatus(long contentId, String token) {
-        ResponseEntity<String> resp = get("/like/content/status?contentId=" + contentId, token);
+        ResponseEntity<String> resp = get("/api/v1/contents/" + contentId + "/like", token);
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         return Envelope.data(resp).asBoolean();
     }
 
     private int contentCount(long contentId, String token) {
-        ResponseEntity<String> resp = get("/like/content/count?contentId=" + contentId, token);
+        ResponseEntity<String> resp = get("/api/v1/contents/" + contentId + "/like-count", token);
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         return Envelope.data(resp).asInt();
     }
 
     private boolean commentStatus(long commentId, String token) {
-        ResponseEntity<String> resp = get("/like/comment/status?commentId=" + commentId, token);
+        ResponseEntity<String> resp = get("/api/v1/comments/" + commentId + "/like", token);
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         return Envelope.data(resp).asBoolean();
     }
 
     private int commentCount(long commentId, String token) {
-        ResponseEntity<String> resp = get("/like/comment/count?commentId=" + commentId, token);
+        ResponseEntity<String> resp = get("/api/v1/comments/" + commentId + "/like-count", token);
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         return Envelope.data(resp).asInt();
     }

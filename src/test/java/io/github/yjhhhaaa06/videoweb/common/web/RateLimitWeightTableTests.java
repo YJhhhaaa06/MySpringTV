@@ -120,6 +120,31 @@ class RateLimitWeightTableTests extends AbstractHttpIntegrationTest {
                 .isEqualTo(SEED - 5, within(1e-9));
     }
 
+    // ==================== 用例 4：路径变量端点按路由模式扣 ====================
+
+    @Test
+    @DisplayName("★ 路径变量端点按**路由模式**扣费：{id} 命不中精确路径时不许静默落兜底")
+    void 路径变量端点按路由模式扣费() {
+        // 前置钉住：本用例的 oracle 是"表值 3"（与用例 1 同一纪律：改表必须改用例意图）
+        assertThat(properties.cost().base())
+                .as("点赞端点必须已登记且为 3")
+                .containsEntry("PUT /api/v1/contents/{id}/like", 3);
+
+        String phone = "13800002699";
+        String token = registerAndGetToken(phone, "t58w", "Password123");
+        String userKey = "ratelimit:user:" + userIdOf(phone);
+        // 播种必须在注册之后：注册本身会扣这个 key（登录态请求同理）。
+        redis.opsForValue().set(userKey, SEED + ":" + System.currentTimeMillis());
+
+        // 内容不存在 ⇒ 预期 404；本用例只关心"过闸时扣了几枚"，业务结果只是"确实进了处理器"的证据。
+        ResponseEntity<String> resp = put("/api/v1/contents/987654/like", null, token);
+        assertThat(resp.getStatusCode().value()).isEqualTo(404);
+
+        assertThat(tokensOf(redis.opsForValue().get(userKey)))
+                .as("按路由模式查表 = 3；若退回原始 URI（未登记）⇒ 只扣兜底的 1")
+                .isEqualTo(SEED - 3, within(1e-9));
+    }
+
     // ==================== 用例 2：未登记 ⇒ 兜底 ====================
 
     @Test

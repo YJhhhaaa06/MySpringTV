@@ -219,13 +219,13 @@ class CommentFlowTests extends AbstractCommentIntegrationTest {
         long contentId = insertContent(userIdOf(AUTHOR_PHONE), true);
 
         // 缺 message（E-03）
-        assertThat(post("/comment/add", Map.of("contentId", contentId), token).getStatusCode())
+        assertThat(post("/api/v1/comments", Map.of("contentId", contentId), token).getStatusCode())
                 .isEqualTo(HttpStatus.BAD_REQUEST);
         // message 全空白
         assertThat(addComment(contentId, "   ", null, token).getStatusCode())
                 .isEqualTo(HttpStatus.BAD_REQUEST);
         // 缺 contentId
-        assertThat(post("/comment/add", Map.of("message", "x"), token).getStatusCode())
+        assertThat(post("/api/v1/comments", Map.of("message", "x"), token).getStatusCode())
                 .isEqualTo(HttpStatus.BAD_REQUEST);
         // contentId = 0（TV: contentId == 0 → ParamException）
         assertThat(addComment(0L, "x", null, token).getStatusCode())

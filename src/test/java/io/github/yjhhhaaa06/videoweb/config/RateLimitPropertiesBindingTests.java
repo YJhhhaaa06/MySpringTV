@@ -108,7 +108,7 @@ class RateLimitPropertiesBindingTests extends AbstractIntegrationTest {
         Map<String, Integer> base = limits.cost().base();
         int writePath = base.get("POST /favorite/add");
 
-        assertThat(base.get("POST /api/upload/video"))
+        assertThat(base.get("POST /api/v1/contents/videos"))
                 .as("上传是重活（落盘 + 转码排队），必须重于普通写路径")
                 .isGreaterThan(writePath);
         assertThat(base.get("POST /api/v1/sessions"))

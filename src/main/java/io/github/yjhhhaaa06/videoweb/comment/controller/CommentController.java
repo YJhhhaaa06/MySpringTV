@@ -15,8 +15,9 @@ import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -71,7 +72,6 @@ import org.springframework.web.bind.annotation.RestController;
  * （★ <b>T14 起为游标（keyset）分页</b>：入参 {@code cursor}、出参加 {@code nextCursor}，见方法注释）。
  */
 @RestController
-@RequestMapping("/comment")
 public class CommentController {
 
     /** T10-B：评论域 pageSize 上限（大 chunk 前端承载；T19 起各域自持常量）。 */
@@ -98,7 +98,7 @@ public class CommentController {
      * <p>成功响应 {@code data} 是字符串 {@code "评论成功"}——沿袭 TV {@code writeSuccess(resp, "评论成功")}。
      */
     @RequiresLogin
-    @PostMapping("/add")
+    @PostMapping("/api/v1/comments")
     public ApiResponse<String> add(@CurrentUserId long userId,
                                    @RequestBody @Valid AddCommentRequest request) {
         commentService.addComment(userId, request);
@@ -112,9 +112,9 @@ public class CommentController {
      * 他人的评论 → 403；不存在/已删 → 404。
      */
     @RequiresLogin
-    @PostMapping("/delete")
+    @DeleteMapping("/api/v1/comments/{id}")
     public ApiResponse<String> delete(@CurrentUserId long userId,
-                                      @RequestParam long commentId) {
+                                      @PathVariable("id") long commentId) {
         commentService.deleteCommentByUser(commentId, userId);
         return ApiResponse.success("删除成功");
     }
@@ -138,14 +138,11 @@ public class CommentController {
      * 见 {@code CommentService.getCommentsForContent} 的门禁说明）。
      */
     @Public
-    @GetMapping("/show")
+    @GetMapping("/api/v1/contents/{id}/comments")
     public ApiResponse<?> show(@CurrentUserId(required = false) Long userId,
-                               @RequestParam(required = false) Long contentId,
+                               @PathVariable("id") Long contentId,
                                @RequestParam(required = false) String page,
                                @RequestParam(required = false) String pageSize) {
-        if (contentId == null) {
-            throw new ParamException(ErrorCode.PARAM_INVALID, "contentId不能为空");
-        }
         if (page == null && pageSize == null) {
             return ApiResponse.success(commentService.getCommentsForContent(contentId, userId));
         }
@@ -174,14 +171,11 @@ public class CommentController {
      * 非法 / 越界 {@code cursor} → 静默归一到 0 或空页（**不报错**，见 {@code PageParams.normalizeCursor}）。
      */
     @Public
-    @GetMapping("/replies")
+    @GetMapping("/api/v1/comments/{id}/replies")
     public ApiResponse<CursorResult<CommentVO>> replies(@CurrentUserId(required = false) Long userId,
-                                                        @RequestParam(required = false) Long rootId,
+                                                        @PathVariable("id") Long rootId,
                                                         @RequestParam(required = false) String cursor,
                                                         @RequestParam(required = false) String pageSize) {
-        if (rootId == null) {
-            throw new ParamException(ErrorCode.PARAM_INVALID, "rootId不能为空");
-        }
         return ApiResponse.success(commentService.getRepliesForRoot(rootId, userId,
                 PageParams.normalizeCursor(cursor),
                 PageParams.normalizePageSize(pageSize, COMMENT_PAGE_SIZE_MAX, COMMENT_PAGE_SIZE_DEFAULT)));

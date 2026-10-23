@@ -168,7 +168,7 @@ class ContentPlayCountTests extends AbstractContentIntegrationTest {
         assertThat(detail(contentId).path("playCount").asLong()).isEqualTo(1L);
         assertThat(redis.opsForValue().get(CacheKeys.contentPlayCount(contentId))).isEqualTo("1");
 
-        assertThat(postQuery("/content/delete", query("contentId", String.valueOf(contentId)), authorToken)
+        assertThat(deleteQuery("/api/v1/contents/" + String.valueOf(contentId), query(), authorToken)
                 .getStatusCode().value()).as("前置：作者删除").isEqualTo(200);
 
         assertThat(redis.hasKey(CacheKeys.contentPlayCount(contentId)))

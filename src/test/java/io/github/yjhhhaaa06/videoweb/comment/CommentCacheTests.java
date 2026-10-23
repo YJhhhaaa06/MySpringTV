@@ -85,7 +85,7 @@ class CommentCacheTests extends AbstractContentIntegrationTest {
             insertMainComment(contentId, authorId, "主楼 " + i);
         }
         // 预热：分页读一次 ⇒ roots LIST 被装载（3 条）
-        get("/comment/show?contentId=" + contentId + "&page=1&pageSize=10", null);
+        get("/api/v1/contents/" + contentId + "/comments?page=1&pageSize=10", null);
         Long prewarmed = redis.opsForList().size(rootsKey(contentId));
         assertThat(prewarmed).as("预热必须真的把主楼装进 LIST 才有判别力").isEqualTo(3L);
 
@@ -93,7 +93,7 @@ class CommentCacheTests extends AbstractContentIntegrationTest {
         doThrow(new DataAccessException("模拟写入失败") {
         }).when(contentDao).updateCommentCount(anyLong(), anyInt());
 
-        ResponseEntity<String> resp = post("/comment/add",
+        ResponseEntity<String> resp = post("/api/v1/comments",
                 java.util.Map.of("contentId", contentId, "message", "回滚的评论"), token);
         assertThat(resp.getStatusCode().value()).as("写入失败应非 200：%s", resp.getBody())
                 .isNotEqualTo(200);
@@ -114,10 +114,10 @@ class CommentCacheTests extends AbstractContentIntegrationTest {
         for (int i = 0; i < 3; i++) {
             insertMainComment(contentId, authorId, "主楼 " + i);
         }
-        get("/comment/show?contentId=" + contentId + "&page=1&pageSize=10", null);
+        get("/api/v1/contents/" + contentId + "/comments?page=1&pageSize=10", null);
         assertThat(redis.opsForList().size(rootsKey(contentId))).isEqualTo(3L);
 
-        assertThat(post("/comment/add", java.util.Map.of("contentId", contentId, "message", "新主楼"), token)
+        assertThat(post("/api/v1/comments", java.util.Map.of("contentId", contentId, "message", "新主楼"), token)
                 .getStatusCode().value()).isEqualTo(200);
 
         assertThat(redis.hasKey(rootsKey(contentId)))
@@ -142,13 +142,13 @@ class CommentCacheTests extends AbstractContentIntegrationTest {
         }
 
         JsonNode page1 = Envelope.data(
-                get("/comment/show?contentId=" + contentId + "&page=1&pageSize=1", null));
+                get("/api/v1/contents/" + contentId + "/comments?page=1&pageSize=1", null));
         assertThat(page1.path("list").get(0).path("commentId").asLong()).isEqualTo(ids.get(0));
         assertThat(redis.opsForList().size(rootsKey(contentId)))
                 .as("取第 1 页只应装 1 条主楼（不是全量 5 条）").isEqualTo(1L);
 
         JsonNode page3 = Envelope.data(
-                get("/comment/show?contentId=" + contentId + "&page=3&pageSize=1", null));
+                get("/api/v1/contents/" + contentId + "/comments?page=3&pageSize=1", null));
         assertThat(page3.path("list").get(0).path("commentId").asLong()).isEqualTo(ids.get(2));
         assertThat(redis.opsForList().size(rootsKey(contentId)))
                 .as("取第 3 页把水位推进到 3（增量装载，不重装）").isEqualTo(3L);
@@ -184,7 +184,7 @@ class CommentCacheTests extends AbstractContentIntegrationTest {
 
         // 深翻第 30 页（pageSize=1）⇒ 水位被抬到 30
         JsonNode deep = Envelope.data(
-                get("/comment/show?contentId=" + contentId + "&page=30&pageSize=1", null));
+                get("/api/v1/contents/" + contentId + "/comments?page=30&pageSize=1", null));
         assertThat(deep.path("list").get(0).path("commentId").asLong()).isEqualTo(ids.get(29));
         assertThat(redis.opsForList().size(rootsKey(contentId)))
                 .as("前置：深翻必须真把水位抬到 30 才有判别力").isEqualTo(30L);
@@ -192,7 +192,7 @@ class CommentCacheTests extends AbstractContentIntegrationTest {
         Mockito.reset(commentRedisOps);   // ⚠️ 深翻那次读取不计入（reset 在被测请求之前）
 
         JsonNode page1 = Envelope.data(
-                get("/comment/show?contentId=" + contentId + "&page=1&pageSize=1", null));
+                get("/api/v1/contents/" + contentId + "/comments?page=1&pageSize=1", null));
         assertThat(page1.path("list").size()).isEqualTo(1);
         assertThat(page1.path("list").get(0).path("commentId").asLong()).isEqualTo(ids.get(0));
         assertThat(redis.opsForList().size(rootsKey(contentId)))
@@ -222,7 +222,7 @@ class CommentCacheTests extends AbstractContentIntegrationTest {
         }
 
         JsonNode beyond = Envelope.data(
-                get("/comment/show?contentId=" + contentId + "&page=99&pageSize=3", null));
+                get("/api/v1/contents/" + contentId + "/comments?page=99&pageSize=3", null));
         assertThat(beyond.path("list").size()).isZero();
         assertThat(beyond.path("total").asInt())
                 .as("越界页保留真实主楼数（T8 契约）").isEqualTo(5);
@@ -233,7 +233,7 @@ class CommentCacheTests extends AbstractContentIntegrationTest {
         // 对照：真无评论的内容，同样的页参数必须写空标记（hit-empty）
         long emptyContentId = insertVideoContent(authorId, "真无评论对照内容");
         JsonNode empty = Envelope.data(
-                get("/comment/show?contentId=" + emptyContentId + "&page=99&pageSize=3", null));
+                get("/api/v1/contents/" + emptyContentId + "/comments?page=99&pageSize=3", null));
         assertThat(empty.path("list").size()).isZero();
         assertThat(empty.path("total").asInt()).isZero();
         assertThat(redisKeys())
@@ -248,13 +248,13 @@ class CommentCacheTests extends AbstractContentIntegrationTest {
         long contentId = insertVideoContent(userIdOf(AUTHOR_PHONE), "无评论内容");
 
         JsonNode first = Envelope.data(
-                get("/comment/show?contentId=" + contentId + "&page=1&pageSize=10", null));
+                get("/api/v1/contents/" + contentId + "/comments?page=1&pageSize=10", null));
         assertThat(first.path("total").asInt()).isZero();
         assertThat(redisKeys()).as("空标记必须落盘")
                 .contains(EMPTY_PREFIX + rootsKey(contentId));
 
         JsonNode second = Envelope.data(
-                get("/comment/show?contentId=" + contentId + "&page=1&pageSize=10", null));
+                get("/api/v1/contents/" + contentId + "/comments?page=1&pageSize=10", null));
         assertThat(second.path("total").asInt()).isZero();
         verify(commentDao, times(1)).getMainCommentsAfter(anyLong(), anyLong(), anyInt());
     }
@@ -278,7 +278,7 @@ class CommentCacheTests extends AbstractContentIntegrationTest {
                 .when(commentRedisOps).emptyMarkerExists(org.mockito.ArgumentMatchers.anyString());
 
         JsonNode data = Envelope.data(
-                get("/comment/show?contentId=" + contentId + "&page=1&pageSize=10", null));
+                get("/api/v1/contents/" + contentId + "/comments?page=1&pageSize=10", null));
         assertThat(data.path("total").asInt()).as("降级走 DB，结果仍正确").isEqualTo(3);
         assertThat(data.path("list").size()).isEqualTo(3);
         assertThat(redisKeys()).as("降级路径**不写回**（D4）").doesNotContain(rootsKey(contentId));
@@ -295,7 +295,7 @@ class CommentCacheTests extends AbstractContentIntegrationTest {
         }).when(commentDao).getMainCommentsAfter(anyLong(), anyLong(), anyInt());
 
         ResponseEntity<String> resp =
-                get("/comment/show?contentId=" + contentId + "&page=1&pageSize=10", null);
+                get("/api/v1/contents/" + contentId + "/comments?page=1&pageSize=10", null);
         assertThat(resp.getStatusCode().value())
                 .as("返回『没有评论』会把读不到伪装成没有；正解是 500：%s", resp.getBody())
                 .isEqualTo(500);
@@ -319,11 +319,11 @@ class CommentCacheTests extends AbstractContentIntegrationTest {
         setReplyCount(rootId, 1);
 
         // 预热 replies field（分页读会 lazyLoad 并 HSET）
-        get("/comment/show?contentId=" + contentId + "&page=1&pageSize=10", null);
+        get("/api/v1/contents/" + contentId + "/comments?page=1&pageSize=10", null);
         assertThat(redis.opsForHash().hasKey(repliesKey(contentId), String.valueOf(rootId)))
                 .as("前置：replies field 应已被装载").isTrue();
 
-        assertThat(postForm("/like/comment/add", query("commentId", String.valueOf(replyId)), viewerToken)
+        assertThat(putForm("/api/v1/comments/" + String.valueOf(replyId) + "/like", query(), viewerToken)
                 .getStatusCode().value()).isEqualTo(200);
 
         assertThat(redis.opsForHash().hasKey(repliesKey(contentId), String.valueOf(rootId)))
@@ -344,10 +344,10 @@ class CommentCacheTests extends AbstractContentIntegrationTest {
         insertComment(contentId, authorId, "回复", rootId, null);
         setReplyCount(rootId, 1);
 
-        get("/comment/show?contentId=" + contentId + "&page=1&pageSize=10", null);
+        get("/api/v1/contents/" + contentId + "/comments?page=1&pageSize=10", null);
         assertThat(redis.opsForHash().hasKey(repliesKey(contentId), String.valueOf(rootId))).isTrue();
 
-        assertThat(post("/comment/add",
+        assertThat(post("/api/v1/comments",
                 java.util.Map.of("contentId", contentId, "message", "新回复", "parentId", rootId), token)
                 .getStatusCode().value()).isEqualTo(200);
 

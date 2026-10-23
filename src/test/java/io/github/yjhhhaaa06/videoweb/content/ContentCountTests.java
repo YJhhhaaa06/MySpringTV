@@ -90,8 +90,7 @@ class ContentCountTests extends AbstractContentIntegrationTest {
         assertThat(before.path("likeCount").asLong()).as("前置：0 赞").isZero();
         assertThat(cachedContentJson(contentId)).as("前置：内容 key 已预热").isNotNull();
 
-        ResponseEntity<String> likeResp = postForm("/like/content/add",
-                query("contentId", String.valueOf(contentId)), viewerToken);
+        ResponseEntity<String> likeResp = putForm("/api/v1/contents/" + String.valueOf(contentId) + "/like",query(), viewerToken);
         assertThat(likeResp.getStatusCode().value()).isEqualTo(200);
 
         // ★ 核心断言：内容 key 没有被 DEL（T43 之前这里会被 LIKE_CHANGED 监听器删掉）
@@ -125,7 +124,7 @@ class ContentCountTests extends AbstractContentIntegrationTest {
         assertThat(redis.hasKey(CacheKeys.contentCommentCount(contentId)))
                 .as("前置：评论数 key 已预热（否则'被失效'无法观测）").isTrue();
 
-        ResponseEntity<String> add = post("/comment/add",
+        ResponseEntity<String> add = post("/api/v1/comments",
                 Map.of("contentId", contentId, "message", "第一条", "parentId", 0), viewerToken);
         assertThat(add.getStatusCode().value()).as("前置：评论成功: %s", add.getBody()).isEqualTo(200);
 

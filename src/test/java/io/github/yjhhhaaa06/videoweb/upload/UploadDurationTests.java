@@ -140,7 +140,7 @@ class UploadDurationTests extends AbstractHttpIntegrationTest {
         addText(form, "title", TITLE_KEYWORD + " 图文");
         addText(form, "categoryId", "2");
         addFilePart(form, "cover", pngBytes(), "image/png");
-        ResponseEntity<String> resp = postMultipart("/api/upload/post", form, token);
+        ResponseEntity<String> resp = postMultipart("/api/v1/contents/posts", form, token);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         long contentId = Envelope.num(resp, "contentId");
@@ -159,8 +159,7 @@ class UploadDurationTests extends AbstractHttpIntegrationTest {
 
         MultiValueMap<String, Object> form = newForm();
         addFilePart(form, "file", resource(mp4Seconds(9), "new.mp4"), "video/mp4");
-        ResponseEntity<String> resp = postMultipart(
-                "/api/upload/replace?contentId=" + contentId + "&type=1&sort=1", form, token);
+        ResponseEntity<String> resp = putMultipart("/api/v1/contents/" + contentId + "/media?type=1&sort=1", form, token);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         assertThat(durationInDb(contentId))
@@ -178,8 +177,7 @@ class UploadDurationTests extends AbstractHttpIntegrationTest {
 
         MultiValueMap<String, Object> form = newForm();
         addFilePart(form, "file", pngBytes(), "image/png");
-        ResponseEntity<String> resp = postMultipart(
-                "/api/upload/replace?contentId=" + contentId + "&type=3&sort=1", form, token);
+        ResponseEntity<String> resp = putMultipart("/api/v1/contents/" + contentId + "/media?type=3&sort=1", form, token);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         assertThat(durationInDb(contentId))
@@ -200,8 +198,7 @@ class UploadDurationTests extends AbstractHttpIntegrationTest {
                 return "garbage.mp4";
             }
         }, "video/mp4");
-        ResponseEntity<String> resp = postMultipart(
-                "/api/upload/replace?contentId=" + contentId + "&type=1&sort=1", form, token);
+        ResponseEntity<String> resp = putMultipart("/api/v1/contents/" + contentId + "/media?type=1&sort=1", form, token);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         assertThat(durationInDb(contentId)).isNull();
@@ -231,7 +228,7 @@ class UploadDurationTests extends AbstractHttpIntegrationTest {
         addText(form, "categoryId", "1");
         addFilePart(form, "video", resource(video, fileName), contentType);
         addFilePart(form, "cover", pngBytes(), "image/png");
-        return postMultipart("/api/upload/video", form, token);
+        return postMultipart("/api/v1/contents/videos", form, token);
     }
 
     /**

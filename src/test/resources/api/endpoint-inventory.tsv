@@ -15,9 +15,25 @@ GET	/api/admin/media/list	ADMIN	ApiResponse<MediaAuditResult>
 GET	/api/admin/media/me	ADMIN	ApiResponse<Boolean>
 POST	/api/admin/media/restore	ADMIN	ApiResponse<RestoreResult>
 POST	/api/admin/media/scan	ADMIN	ApiResponse<MediaAuditResult>
-POST	/api/upload/post	LOGIN	ApiResponse<Map<String, Object>>
-POST	/api/upload/replace	LOGIN	ApiResponse<Map<String, Object>>
-POST	/api/upload/video	LOGIN	ApiResponse<Map<String, Object>>
+POST	/api/v1/comments	LOGIN	ApiResponse<String>
+DELETE	/api/v1/comments/{id}	LOGIN	ApiResponse<String>
+DELETE	/api/v1/comments/{id}/like	LOGIN	ApiResponse<String>
+GET	/api/v1/comments/{id}/like	LOGIN	ApiResponse<Boolean>
+PUT	/api/v1/comments/{id}/like	LOGIN	ApiResponse<String>
+GET	/api/v1/comments/{id}/like-count	LOGIN	ApiResponse<Integer>
+GET	/api/v1/comments/{id}/replies	PUBLIC	ApiResponse<CursorResult<CommentVO>>
+POST	/api/v1/contents/posts	LOGIN	ApiResponse<Map<String, Object>>
+POST	/api/v1/contents/videos	LOGIN	ApiResponse<Map<String, Object>>
+DELETE	/api/v1/contents/{id}	LOGIN	ApiResponse<String>
+PUT	/api/v1/contents/{id}	LOGIN	ApiResponse<String>
+PUT	/api/v1/contents/{id}/comment-enabled	LOGIN	ApiResponse<String>
+GET	/api/v1/contents/{id}/comments	PUBLIC	ApiResponse<?>
+DELETE	/api/v1/contents/{id}/like	LOGIN	ApiResponse<String>
+GET	/api/v1/contents/{id}/like	LOGIN	ApiResponse<Boolean>
+PUT	/api/v1/contents/{id}/like	LOGIN	ApiResponse<String>
+GET	/api/v1/contents/{id}/like-count	LOGIN	ApiResponse<Integer>
+DELETE	/api/v1/contents/{id}/media	LOGIN	ApiResponse<String>
+PUT	/api/v1/contents/{id}/media	LOGIN	ApiResponse<Map<String, Object>>
 POST	/api/v1/sessions	PUBLIC	ApiResponse<LoginVO>
 POST	/api/v1/users	PUBLIC	ApiResponse<LoginVO>
 GET	/api/v1/users/me	LOGIN	ApiResponse<UserInfoVO>
@@ -25,14 +41,6 @@ PUT	/api/v1/users/me/password	LOGIN	ApiResponse<Void>
 PUT	/api/v1/users/me/username	LOGIN	ApiResponse<Void>
 POST	/coin/add	LOGIN	ApiResponse<CoinBalanceVO>
 POST	/coin/signIn	LOGIN	ApiResponse<SignInVO>
-POST	/comment/add	LOGIN	ApiResponse<String>
-POST	/comment/delete	LOGIN	ApiResponse<String>
-GET	/comment/replies	PUBLIC	ApiResponse<CursorResult<CommentVO>>
-GET	/comment/show	PUBLIC	ApiResponse<?>
-POST	/content/commentEnabled	LOGIN	ApiResponse<String>
-POST	/content/delete	LOGIN	ApiResponse<String>
-POST	/content/mediaDelete	LOGIN	ApiResponse<String>
-POST	/content/update	LOGIN	ApiResponse<String>
 POST	/coupon/grab	LOGIN	ApiResponse<String>
 GET	/coupon/list	PUBLIC	ApiResponse<List<CouponVO>>
 GET	/coupon/my	LOGIN	ApiResponse<List<CouponOrderVO>>
@@ -58,14 +66,6 @@ GET	/history/list	LOGIN	ApiResponse<PageResult<HistoryItemVO>>
 POST	/history/play	LOGIN	ApiResponse<Void>
 GET	/history/position	LOGIN	ApiResponse<HistoryPositionVO>
 POST	/history/report	LOGIN	ApiResponse<Void>
-POST	/like/comment/add	LOGIN	ApiResponse<String>
-GET	/like/comment/count	LOGIN	ApiResponse<Integer>
-POST	/like/comment/remove	LOGIN	ApiResponse<String>
-GET	/like/comment/status	LOGIN	ApiResponse<Boolean>
-POST	/like/content/add	LOGIN	ApiResponse<String>
-GET	/like/content/count	LOGIN	ApiResponse<Integer>
-POST	/like/content/remove	LOGIN	ApiResponse<String>
-GET	/like/content/status	LOGIN	ApiResponse<Boolean>
 GET	/profile	PUBLIC	ApiResponse<ProfileVO>
 GET	/search/IdSearch	PUBLIC	ApiResponse<ContentDetailVO>
 GET	/search/keywordSearch	PUBLIC	ApiResponse<PageResult<ContentVO>>

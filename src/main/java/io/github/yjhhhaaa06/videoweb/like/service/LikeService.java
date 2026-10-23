@@ -102,7 +102,7 @@ public class LikeService {
      * 此处**原样保留**——`msg` 不在冻结契约内，但"顺手统一"是一次无声的契约改动。
      */
     @Transactional
-    public void removeLikeContent(long userId, long contentId) {
+    public void cancelContentLike(long userId, long contentId) {
         if (!contentDao.isContentExist(contentId)) {
             throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
         }
@@ -140,7 +140,7 @@ public class LikeService {
 
     /** 取消评论点赞（同构；文案保留 TV 原文 "未点赞，不可取消"）。 */
     @Transactional
-    public void removeLikeComment(long userId, long commentId) {
+    public void cancelCommentLike(long userId, long commentId) {
         if (!commentDao.isCommentExist(commentId)) {
             throw new NotFoundException(ErrorCode.COMMENT_NOT_FOUND, "评论不存在");
         }

@@ -118,28 +118,28 @@ class ValidationErrorContractTests extends AbstractHttpIntegrationTest {
     void 缺必填参数带字段定位() {
         String token = registerAndGetToken("13800000201", "t57-missing-param", "123456");
 
-        // /comment/delete 的 commentId 是必填 @RequestParam ⇒ Spring 抛
-        // MissingServletRequestParameterException（参数名由异常携带，不靠解析文案）。
-        ResponseEntity<String> resp = post("/comment/delete", null, token);
+        // /api/v1/contents/{id}/media 的 type 仍是必填 @RequestParam（`T58` 只把 id 收进路径）
+        // ⇒ Spring 抛 MissingServletRequestParameterException（参数名由异常携带，不靠解析文案）。
+        ResponseEntity<String> resp = put("/api/v1/contents/1/media", null, token);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(400);
         assertThat(Envelope.code(resp)).isEqualTo(ErrorCode.PARAM_INVALID.getCode());
         JsonNode error = singleError(resp);
-        assertThat(error.path("field").asString()).isEqualTo("commentId");
+        assertThat(error.path("field").asString()).isEqualTo("type");
         assertThat(error.path("code").asString()).isEqualTo(ErrorCode.PARAM_INVALID.getCode());
         assertThat(error.path("message").asString()).isEqualTo("缺少必填参数");
-        assertThat(Envelope.msg(resp)).as("顶层摘要与 errors 同源").isEqualTo("commentId: 缺少必填参数");
+        assertThat(Envelope.msg(resp)).as("顶层摘要与 errors 同源").isEqualTo("type: 缺少必填参数");
     }
 
     @Test
     @DisplayName("参数类型不匹配 ⇒ 400 + errors[field=参数名]，且不回显非法值")
     void 类型不匹配带字段定位且不回显() {
-        // contentId 声明为 Long，传 abc 由 Spring 转换失败（MethodArgumentTypeMismatchException）。
-        ResponseEntity<String> resp = get("/comment/show?contentId=abc", null);
+        // 路径变量 id 声明为 Long（`T58`：id 进路径且统一叫 {id}），传 abc 由 Spring 转换失败
+        ResponseEntity<String> resp = get("/api/v1/contents/abc/comments", null);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(400);
         JsonNode error = singleError(resp);
-        assertThat(error.path("field").asString()).isEqualTo("contentId");
+        assertThat(error.path("field").asString()).as("路径参数统一叫 id（§2.3）").isEqualTo("id");
         assertThat(error.path("message").asString()).isEqualTo("参数类型不正确");
         // ★ 异常 message 里带着 "Failed to convert 'contentId' with value: 'abc'" —— 那是回显，只许进日志
         assertThat(resp.getBody()).as("回显只进日志，不进 body").doesNotContain("abc");
@@ -152,7 +152,7 @@ class ValidationErrorContractTests extends AbstractHttpIntegrationTest {
 
         // contentId 是 Long，JSON 里给 "abc" ⇒ Jackson 的 InvalidFormatException，
         // 引用链是 ["contentId"] ⇒ field 可以精确到字段（这正是"非法枚举值/非法取值"的定位路径）。
-        ResponseEntity<String> resp = post("/comment/add",
+        ResponseEntity<String> resp = post("/api/v1/comments",
                 Map.of("contentId", "abc", "message", "hi"), token);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(400);

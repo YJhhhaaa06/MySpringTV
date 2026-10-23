@@ -84,7 +84,7 @@ class ContentDetailCountAggregateTests extends AbstractContentIntegrationTest {
         assertThat(before.path("likeCount").asLong()).as("前置：0 赞").isZero();
 
         // viewer 点赞：写路径事务内维护列（like_count=1），提交后 Lua 条件 INCR（键已预热 "0"→"1"）
-        assertThat(postForm("/like/content/add", query("contentId", String.valueOf(contentId)),
+        assertThat(putForm("/api/v1/contents/" + String.valueOf(contentId) + "/like", query(),
                 viewerToken).getStatusCode().value()).isEqualTo(200);
 
         // 造"命中但陈旧"的 favorite 键（555 ≠ 列真值 7）：聚合层若"回填全部"就会把它盖成 7
@@ -225,8 +225,8 @@ class ContentDetailCountAggregateTests extends AbstractContentIntegrationTest {
         // 误回填，它会被列快照覆盖 → 用 "999" vs 列值 0 可判别
         redis.opsForValue().set(CacheKeys.contentFavoriteCount(contentId), "999");
 
-        assertThat(postForm("/content/delete", query("contentId", String.valueOf(contentId)),
-                authorToken).getStatusCode().value()).as("前置：作者删除").isEqualTo(200);
+        assertThat(delete("/api/v1/contents/" + contentId, authorToken)
+                .getStatusCode().value()).as("前置：作者删除").isEqualTo(200);
 
         assertThat(get("/search/IdSearch?contentId=" + contentId, authorToken).getStatusCode().value())
                 .as("前置：详情 404").isEqualTo(404);

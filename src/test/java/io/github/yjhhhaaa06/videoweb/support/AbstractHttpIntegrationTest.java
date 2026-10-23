@@ -116,6 +116,64 @@ public abstract class AbstractHttpIntegrationTest extends AbstractIntegrationTes
     }
 
     /**
+     * PUT + query 参数（`T58` 起：幂等设置类端点，参数仍在 query 上，载荷形状归 `T59`）。
+     */
+    protected ResponseEntity<String> putQuery(String path, org.springframework.util.MultiValueMap<String, String> query,
+                                              String token) {
+        RestClient.RequestBodySpec request = client.put().uri(builder -> {
+            var b = builder.path(path);
+            if (query != null) {
+                b.queryParams(query);
+            }
+            return b.build();
+        }).contentType(MediaType.APPLICATION_JSON);
+        if (token != null) {
+            request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+        }
+        return execute(request);
+    }
+
+    /** DELETE + query 参数（取消 / 删除类端点；参数一律在 query 上）。 */
+    protected ResponseEntity<String> deleteQuery(String path,
+                                                 org.springframework.util.MultiValueMap<String, String> query,
+                                                 String token) {
+        RestClient.RequestHeadersSpec<?> request = client.delete().uri(builder -> {
+            var b = builder.path(path);
+            if (query != null) {
+                b.queryParams(query);
+            }
+            return b.build();
+        });
+        if (token != null) {
+            request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+        }
+        return execute(request);
+    }
+
+    /** PUT + multipart（`T58` 起"换源"是 {@code PUT /contents/{id}/media}）。 */
+    protected ResponseEntity<String> putMultipart(String path,
+                                                  org.springframework.util.MultiValueMap<String, Object> form,
+                                                  String token) {
+        RestClient.RequestBodySpec request = client.put().uri(path)
+                .contentType(MediaType.MULTIPART_FORM_DATA);
+        if (token != null) {
+            request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+        }
+        return execute(request.body(form));
+    }
+
+    /** PUT + {@code x-www-form-urlencoded}（保留旧表单形态的域；字段仍走 body）。 */
+    protected ResponseEntity<String> putForm(String path, org.springframework.util.MultiValueMap<String, String> form,
+                                             String token) {
+        RestClient.RequestBodySpec request = client.put().uri(path)
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED);
+        if (token != null) {
+            request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+        }
+        return execute(form == null ? request : request.body(form));
+    }
+
+    /**
      * 原始响应（不经状态处理器），`send`/`sendGet`/`put`/`delete` 的唯一出口。
      *
      * <p>{@code protected}：契约测试要发"畸形 Content-Type / 未声明方法"这类请求，

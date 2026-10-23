@@ -58,10 +58,10 @@ export function openEditWorkModal(content, onDone) {
     const btn = overlay.querySelector('.ew-save');
     btn.disabled = true;
     try {
-      await request('content/update', {
-        method: 'POST',
+      await request(`api/v1/contents/${content.id}`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ contentId: content.id, title, description }),
+        body: new URLSearchParams({ title, description }),
       });
       showToast('保存成功');
       content.title = title;
@@ -139,7 +139,7 @@ export function openEditWorkModal(content, onDone) {
       fd.append('type', String(t.type));
       fd.append('sort', String(t.sort));
       fd.append('file', file);
-      request('api/upload/replace', { method: 'POST', body: fd })
+      request(`api/v1/contents/${c.id}/media?type=${t.type}&sort=${t.sort}`, { method: 'PUT', body: fd })
         .then(() => { showToast('替换成功'); return refreshContent(); })
         .catch((e) => showToast(e.message || '替换失败'))
         .finally(() => { btn.disabled = false; btn.textContent = '替换'; });
@@ -152,7 +152,7 @@ export function openEditWorkModal(content, onDone) {
     if (!window.confirm(`确定删除「${t.label}」吗？删除后不可恢复`)) return;
     btn.disabled = true;
     btn.textContent = '处理中...';
-    request(`content/mediaDelete?contentId=${c.id}&type=${t.type}&sort=${t.sort}`, { method: 'POST' })
+    request(`api/v1/contents/${c.id}/media?type=${t.type}&sort=${t.sort}`, { method: 'DELETE' })
       .then(() => { showToast('删除成功'); return refreshContent(); })
       .catch((e) => showToast(e.message || '删除失败'))
       .finally(() => { btn.disabled = false; btn.textContent = '删除'; });
@@ -161,7 +161,7 @@ export function openEditWorkModal(content, onDone) {
   // 换源/删除后重新拉取内容，重建媒体区（文案输入保持用户未保存的编辑）；同时通知调用方刷新
   async function refreshContent() {
     try {
-      const fresh = await request(`search/IdSearch?contentId=${content.id}`);
+      const fresh = await request(`api/v1/contents/${content.id}`);
       if (fresh) {
         content = fresh;
         renderMediaList(fresh);

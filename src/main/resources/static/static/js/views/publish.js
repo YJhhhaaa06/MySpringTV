@@ -222,7 +222,7 @@ function addDeleteEntry(card, item) {
     e.stopPropagation(); // 卡片本身点击跳详情，按钮不触发跳转
     if (!window.confirm('确定删除该作品吗？删除后不可恢复')) return;
     try {
-      await request(`content/delete?contentId=${item.id}`, { method: 'POST' });
+      await request(`api/v1/contents/${item.id}`, { method: 'DELETE' });
       showToast('删除成功');
       // T11-B：本地摘除该卡片（不重置分块窗口），保持删除模式便于连续删除
       state.myItems = state.myItems.filter((it) => it.id !== item.id);
@@ -244,7 +244,7 @@ function addCommentToggle(card, item) {
     e.stopPropagation(); // 卡片本身点击跳详情，按钮不触发跳转
     const enabled = item.commentEnabled === false ? 1 : 0;
     try {
-      await request(`content/commentEnabled?contentId=${item.id}&enabled=${enabled}`, { method: 'POST' });
+      await request(`api/v1/contents/${item.id}/comment-enabled?enabled=${enabled}`, { method: 'PUT' });
       item.commentEnabled = enabled === 1;
       toggle.textContent = item.commentEnabled === false ? '开启评论区' : '关闭评论区';
       showToast(enabled === 1 ? '评论区已开启' : '评论区已关闭');
@@ -264,7 +264,7 @@ function addEditEntry(card, item) {
     e.stopPropagation(); // 卡片本身点击跳详情，按钮不触发跳转
     try {
       // ContentVO 不含 videoUrl/imageUrls，需拉全量内容
-      const full = await request(`search/IdSearch?contentId=${item.id}`);
+      const full = await request(`api/v1/contents/${item.id}`);
       if (!full) { showToast('内容不存在'); return; }
       // T11-B：编辑完成后按 id 定向刷新该卡片（原实现重拉当前页，在第 N 页会重复追加第 N 页）
       openEditWorkModal(full, () => refreshMyCard(item.id));
@@ -278,7 +278,7 @@ function addEditEntry(card, item) {
 /** 编辑/换源后：按 id 重拉该内容并就地替换卡片数据（拉取失败则保留原卡片，不打断页面） */
 async function refreshMyCard(contentId) {
   try {
-    const fresh = await request(`search/IdSearch?contentId=${contentId}`);
+    const fresh = await request(`api/v1/contents/${contentId}`);
     if (!fresh) return;
     state.myItems = state.myItems.map((it) => (it.id === contentId ? fresh : it));
     renderMyList(state.myItems);
@@ -584,11 +584,11 @@ async function doPublish() {
   if (state.type === 1) {
     fd.append('video', state.videoFile);
     fd.append('cover', state.coverFile);
-    url = 'api/upload/video';
+    url = 'api/v1/contents/videos';
   } else {
     if (state.coverFile) fd.append('cover', state.coverFile);
     state.imageFiles.forEach((f) => fd.append('image', f));
-    url = 'api/upload/post';
+    url = 'api/v1/contents/posts';
   }
 
   const btn = c.querySelector('#submitBtn');

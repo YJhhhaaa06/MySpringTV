@@ -205,7 +205,10 @@ class ApiContractInventoryTests extends AbstractIntegrationTest {
      * （档位从 LOGIN 变 PUBLIC，review 时看得见）。
      */
     private String authOf(RequestMethod method, String pattern) {
-        var authz = mappingLookup.resolve(new MockHttpServletRequest(method.name(), pattern));
+        // ★ `T58` 起路径含 {id} 变量：必须填一个样本值才匹配得到 handler，
+        //   否则 lookup 返回 NONE、整张表被误记成 PUBLIC（假绿的典型形态）。
+        var authz = mappingLookup.resolve(
+                new MockHttpServletRequest(method.name(), pattern.replaceAll("\\{[^/]+}", "1")));
         if (authz.adminRequired()) {
             return "ADMIN";
         }

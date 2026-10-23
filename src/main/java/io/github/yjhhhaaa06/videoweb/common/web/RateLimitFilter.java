@@ -15,6 +15,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
+import org.springframework.web.servlet.HandlerMapping;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
@@ -292,7 +293,14 @@ public class RateLimitFilter extends OncePerRequestFilter {
      * 必须看同一个字符串，否则两套口径（未解码未规范化的前提见 {@link #isSkipped}）。
      */
     private double costOf(HttpServletRequest request) {
-        Integer weight = properties.cost().base().get(request.getMethod() + " " + pathOf(request));
+        // ★ `T58` 起路径含 {id} 变量：必须以**命中的路由模式**查表，不能用原始 URI ——
+        //   否则 "[PUT /api/v1/contents/{id}/like]" 永远命不中、静默落 default-base
+        //   （完整性用例只比对 handler 模式，抓不到这种沉默失效 ⇒ 契约用例 4 专钉此处）。
+        //   属性由 JwtAuthFilter 里的 RequestMappingLookup#resolve 触发的 getHandler 顺带写入；
+        //   未映射 / 不可解析时没有属性 ⇒ 退回原始路径（口径仍是"未登记 ⇒ 兜底"）。
+        Object bestMatchingPattern = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
+        String lookupPath = bestMatchingPattern != null ? bestMatchingPattern.toString() : pathOf(request);
+        Integer weight = properties.cost().base().get(request.getMethod() + " " + lookupPath);
         return weight != null ? weight : properties.cost().defaultBase();
     }
 

@@ -75,14 +75,14 @@ public class LikeChangedListener {
                 if (event.liked()) {
                     likeCache.likeContent(event.userId(), event.targetId());
                 } else {
-                    likeCache.unlikeContent(event.userId(), event.targetId());
+                    likeCache.cancelContentLike(event.userId(), event.targetId());
                 }
             }
             case COMMENT -> {
                 if (event.liked()) {
                     likeCache.likeComment(event.userId(), event.targetId());
                 } else {
-                    likeCache.unlikeComment(event.userId(), event.targetId());
+                    likeCache.cancelCommentLike(event.userId(), event.targetId());
                 }
             }
         }

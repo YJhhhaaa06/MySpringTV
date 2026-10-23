@@ -186,12 +186,11 @@ abstract class AbstractCommentIntegrationTest extends AbstractHttpIntegrationTes
         if (parentId != null) {
             body.put("parentId", parentId);
         }
-        return post("/comment/add", body, token);
+        return post("/api/v1/comments", body, token);
     }
 
-    /** POST {@code /comment/delete}（query 参数，沿袭 TV）。 */
+    /** DELETE {@code /api/v1/comments/{id}}（`T58` 起 id 进路径）。 */
     protected ResponseEntity<String> deleteComment(Object commentId, String token) {
-        String path = commentId == null ? "/comment/delete" : "/comment/delete?commentId=" + commentId;
-        return post(path, null, token);
+        return delete("/api/v1/comments/" + commentId, token);
     }
 }

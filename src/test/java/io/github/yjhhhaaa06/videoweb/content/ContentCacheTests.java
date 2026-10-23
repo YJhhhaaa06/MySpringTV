@@ -98,8 +98,7 @@ class ContentCacheTests extends AbstractContentIntegrationTest {
         doThrow(new DataAccessException("模拟写入失败") {
         }).when(contentDao).updateContentInfo(anyLong(), anyString(), anyString());
 
-        ResponseEntity<String> resp = postQuery("/content/update",
-                query("contentId", String.valueOf(contentId), "title", "回滚后的标题"), token);
+        ResponseEntity<String> resp = putQuery("/api/v1/contents/" + String.valueOf(contentId),query("title", "回滚后的标题"), token);
         assertThat(resp.getStatusCode().value()).as("写入失败应非 200：%s", resp.getBody())
                 .isNotEqualTo(200);
 
@@ -125,8 +124,7 @@ class ContentCacheTests extends AbstractContentIntegrationTest {
                 .contains("预热原标题")
                 .doesNotContain("coinCount");
 
-        assertThat(postQuery("/content/update",
-                query("contentId", String.valueOf(contentId), "title", "提交后的标题"), token)
+        assertThat(putQuery("/api/v1/contents/" + String.valueOf(contentId),query("title", "提交后的标题"), token)
                 .getStatusCode().value()).isEqualTo(200);
 
         assertThat(cachedContentJson(contentId))

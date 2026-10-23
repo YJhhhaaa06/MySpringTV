@@ -142,7 +142,7 @@ public class LikeCache {
         conditionalWrite(userLikeSetKey(userId), contentLikeCountKey(contentId), contentId, true);
     }
 
-    public void unlikeContent(long userId, long contentId) {
+    public void cancelContentLike(long userId, long contentId) {
         conditionalWrite(userLikeSetKey(userId), contentLikeCountKey(contentId), contentId, false);
     }
 
@@ -150,7 +150,7 @@ public class LikeCache {
         conditionalWrite(userCommentLikeSetKey(userId), commentLikeCountKey(commentId), commentId, true);
     }
 
-    public void unlikeComment(long userId, long commentId) {
+    public void cancelCommentLike(long userId, long commentId) {
         conditionalWrite(userCommentLikeSetKey(userId), commentLikeCountKey(commentId), commentId, false);
     }
 

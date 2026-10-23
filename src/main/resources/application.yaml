@@ -432,27 +432,27 @@ video:
         "[POST /api/v1/sessions]": 5
         "[POST /api/v1/users]": 5
         # —— 上传与媒体重活（10：流式写文件 + 批量回写；scan 为媒体全盘扫描，restore 同为媒体重操作）——
-        "[POST /api/upload/video]": 10
-        "[POST /api/upload/post]": 10
-        "[POST /api/upload/replace]": 10
+        "[POST /api/v1/contents/videos]": 10
+        "[POST /api/v1/contents/posts]": 10
+        "[PUT /api/v1/contents/{id}/media]": 10
         "[POST /api/admin/media/scan]": 10
         "[POST /api/admin/media/restore]": 10
         # —— 用户资料修改 ——
         "[PUT /api/v1/users/me/password]": 3
         "[PUT /api/v1/users/me/username]": 3
         # —— 内容作者操作（delete 为级联软删，成本与"单个作品"同阶）——
-        "[POST /content/commentEnabled]": 3
-        "[POST /content/update]": 3
-        "[POST /content/mediaDelete]": 3
-        "[POST /content/delete]": 3
+        "[PUT /api/v1/contents/{id}/comment-enabled]": 3
+        "[PUT /api/v1/contents/{id}]": 3
+        "[DELETE /api/v1/contents/{id}/media]": 3
+        "[DELETE /api/v1/contents/{id}]": 3
         # —— 优惠券 / 点赞 / 评论 / 收藏 / 稍后再看 / 关注（各域写路径）——
         "[POST /coupon/grab]": 3
-        "[POST /like/content/add]": 3
-        "[POST /like/content/remove]": 3
-        "[POST /like/comment/add]": 3
-        "[POST /like/comment/remove]": 3
-        "[POST /comment/add]": 3
-        "[POST /comment/delete]": 3
+        "[PUT /api/v1/contents/{id}/like]": 3
+        "[DELETE /api/v1/contents/{id}/like]": 3
+        "[PUT /api/v1/comments/{id}/like]": 3
+        "[DELETE /api/v1/comments/{id}/like]": 3
+        "[POST /api/v1/comments]": 3
+        "[DELETE /api/v1/comments/{id}]": 3
         "[POST /favorite/add]": 3
         "[POST /favorite/remove]": 3
         "[POST /favorite/move]": 3

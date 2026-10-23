@@ -5,9 +5,11 @@ import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import io.github.yjhhhaaa06.videoweb.like.service.LikeService;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -42,7 +44,6 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RequiresLogin
 @RestController
-@RequestMapping("/like")
 public class LikeController {
 
     private final LikeService likeService;
@@ -51,55 +52,65 @@ public class LikeController {
         this.likeService = likeService;
     }
 
-    // ==================== 写（POST + form 参数） ====================
+    // ==================== 内容点赞（`T58`：/contents/{id}/like） ====================
 
-    @PostMapping("/content/add")
-    public ApiResponse<String> likeContent(@CurrentUserId long userId, @RequestParam long contentId) {
+    /** 点赞内容：幂等设置"我赞了这条" ⇒ PUT（§2.4）。 */
+    @PutMapping("/api/v1/contents/{id}/like")
+    public ApiResponse<String> likeContent(@CurrentUserId long userId, @PathVariable("id") long contentId) {
         likeService.likeContent(userId, contentId);
         return ApiResponse.success("点赞成功");
     }
 
-    @PostMapping("/content/remove")
-    public ApiResponse<String> unlikeContent(@CurrentUserId long userId, @RequestParam long contentId) {
-        likeService.removeLikeContent(userId, contentId);
+    /**
+     * 取消内容点赞：{@code cancel} = 撤销动作/状态（§2.8）——
+     * ★ {@code unlike} 全站退役（本仓没有"点踩"，对外只说"取消点赞"）。
+     */
+    @DeleteMapping("/api/v1/contents/{id}/like")
+    public ApiResponse<String> cancelContentLike(@CurrentUserId long userId, @PathVariable("id") long contentId) {
+        likeService.cancelContentLike(userId, contentId);
         return ApiResponse.success("已取消点赞");
     }
 
-    @PostMapping("/comment/add")
-    public ApiResponse<String> likeComment(@CurrentUserId long userId, @RequestParam long commentId) {
+    /** 点赞评论：同内容侧，PUT 幂等设置。 */
+    @PutMapping("/api/v1/comments/{id}/like")
+    public ApiResponse<String> likeComment(@CurrentUserId long userId, @PathVariable("id") long commentId) {
         likeService.likeComment(userId, commentId);
         return ApiResponse.success("点赞成功");
     }
 
-    @PostMapping("/comment/remove")
-    public ApiResponse<String> unlikeComment(@CurrentUserId long userId, @RequestParam long commentId) {
-        likeService.removeLikeComment(userId, commentId);
+    /** 取消评论点赞。 */
+    @DeleteMapping("/api/v1/comments/{id}/like")
+    public ApiResponse<String> cancelCommentLike(@CurrentUserId long userId, @PathVariable("id") long commentId) {
+        likeService.cancelCommentLike(userId, commentId);
         return ApiResponse.success("已取消点赞");
     }
 
-    // ==================== 读（GET + query 参数） ====================
+    // ==================== 读（GET + 单例关系 / 计数投影） ====================
 
     /** 当前用户是否点赞了该内容。{@code data} 是**布尔**，不是对象。 */
-    @GetMapping("/content/status")
-    public ApiResponse<Boolean> contentStatus(@CurrentUserId long userId, @RequestParam long contentId) {
+    @GetMapping("/api/v1/contents/{id}/like")
+    public ApiResponse<Boolean> contentStatus(@CurrentUserId long userId, @PathVariable("id") long contentId) {
         return ApiResponse.success(likeService.isContentLiked(userId, contentId));
     }
 
-    /** 内容点赞数。注意：本端点**不消费 userId**，但按 TV 口径仍需登录（见类注释）。{@code data} 是**整数**。 */
-    @GetMapping("/content/count")
-    public ApiResponse<Integer> contentCount(@RequestParam long contentId) {
+    /**
+     * 内容点赞数。★ 计数是**标量投影**（{@code like-count}），不是 {@code likes/count} 子资源——
+     * 后者会造出第 4 级路径（§2.3 层级 ≤ 3）且暗示"该端点返回集合"，与事实不符。
+     */
+    @GetMapping("/api/v1/contents/{id}/like-count")
+    public ApiResponse<Integer> contentCount(@PathVariable("id") long contentId) {
         return ApiResponse.success(likeService.getContentLikeCount(contentId));
     }
 
     /** 当前用户是否点赞了该评论。{@code data} 是**布尔**。 */
-    @GetMapping("/comment/status")
-    public ApiResponse<Boolean> commentStatus(@CurrentUserId long userId, @RequestParam long commentId) {
+    @GetMapping("/api/v1/comments/{id}/like")
+    public ApiResponse<Boolean> commentStatus(@CurrentUserId long userId, @PathVariable("id") long commentId) {
         return ApiResponse.success(likeService.isCommentLiked(userId, commentId));
     }
 
-    /** 评论点赞数。同上，仍需登录。{@code data} 是**整数**。 */
-    @GetMapping("/comment/count")
-    public ApiResponse<Integer> commentCount(@RequestParam long commentId) {
+    /** 评论点赞数（口径同内容侧；本端点不消费 userId，但按类级口径仍需登录）。 */
+    @GetMapping("/api/v1/comments/{id}/like-count")
+    public ApiResponse<Integer> commentCount(@PathVariable("id") long commentId) {
         return ApiResponse.success(likeService.getCommentLikeCount(commentId));
     }
 }

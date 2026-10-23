@@ -8,8 +8,10 @@ import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import io.github.yjhhhaaa06.videoweb.content.service.ContentService;
 import io.github.yjhhhaaa06.videoweb.upload.service.FileUploadService;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -60,7 +62,6 @@ import java.util.List;
  * {@code msg} 变成该条的摘要。差异仍然存在（TV 的原话没有保留），但**机器已经能定位到参数**了。
  */
 @RestController
-@RequestMapping("/content")
 public class ContentController {
 
     private final ContentService contentService;
@@ -79,10 +80,10 @@ public class ContentController {
      *
      * <p>非作者 → 403；内容不存在/已软删 → 404；未登录 → 401。
      */
-    @PostMapping("/commentEnabled")
+    @PutMapping("/api/v1/contents/{id}/comment-enabled")
     @RequiresLogin
     public ApiResponse<String> commentEnabled(@CurrentUserId long userId,
-                                              @RequestParam long contentId,
+                                              @PathVariable("id") long contentId,
                                               @RequestParam(required = false) String enabled) {
         if (enabled == null || enabled.isEmpty()) {
             throw new ParamException(ErrorCode.PARAM_INVALID, "enabled不能为空");
@@ -101,10 +102,10 @@ public class ContentController {
      * <p>标题空 → 400 {@code "标题不能为空"}；标题 >50 → 400；简介 >5000 → 400；
      * 非作者 → 403；内容不存在 → 404。
      */
-    @PostMapping("/update")
+    @PutMapping("/api/v1/contents/{id}")
     @RequiresLogin
     public ApiResponse<String> update(@CurrentUserId long userId,
-                                      @RequestParam long contentId,
+                                      @PathVariable("id") long contentId,
                                       @RequestParam(required = false) String title,
                                       @RequestParam(required = false) String description) {
         contentService.updateContentInfo(contentId, userId, title, description);
@@ -131,10 +132,10 @@ public class ContentController {
      * {@code deleteFileByUrl} 清理物理文件（尽力而为：非法 URL / 文件不存在静默忽略）。
      * S5 交付时因 upload 域未迁移而裁剪，补回位置即此（见《决策表》G-7 与《遗留台账》A7）。
      */
-    @PostMapping("/mediaDelete")
+    @DeleteMapping("/api/v1/contents/{id}/media")
     @RequiresLogin
     public ApiResponse<String> mediaDelete(@CurrentUserId long userId,
-                                           @RequestParam long contentId,
+                                           @PathVariable("id") long contentId,
                                            @RequestParam int type,
                                            @RequestParam int sort) {
         String oldUrl = contentService.deleteMedia(contentId, userId, type, sort);
@@ -152,9 +153,9 @@ public class ContentController {
      * url 列表，此处提交后逐个清物理文件。**磁盘文件随作品一并消失**从此成立
      * （此前为"DB 行删了、磁盘文件残留"的有意裁剪）。
      */
-    @PostMapping("/delete")
+    @DeleteMapping("/api/v1/contents/{id}")
     @RequiresLogin
-    public ApiResponse<String> delete(@CurrentUserId long userId, @RequestParam long contentId) {
+    public ApiResponse<String> delete(@CurrentUserId long userId, @PathVariable("id") long contentId) {
         List<String> mediaUrls = contentService.deleteContent(contentId, userId);
         for (String url : mediaUrls) {
             fileUploadService.deleteFileByUrl(url);

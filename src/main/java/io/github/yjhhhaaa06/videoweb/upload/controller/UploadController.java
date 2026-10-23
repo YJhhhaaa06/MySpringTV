@@ -14,9 +14,10 @@ import io.github.yjhhhaaa06.videoweb.upload.service.Mp4DurationReader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -60,7 +61,6 @@ import java.util.OptionalInt;
  * （TV 同样如此；回收工具属媒体审计面 S8）。
  */
 @RestController
-@RequestMapping("/api/upload")
 @RequiresLogin
 public class UploadController {
 
@@ -86,7 +86,7 @@ public class UploadController {
      * 结果随 {@code addVideo} 一起进事务。**解析失败不阻断发布**（{@code null} = 未知），
      * 理由见 {@code history.md} §六.2：时长只服务"进度百分比"，异常 mp4 不应变成新的失败点。
      */
-    @PostMapping("/video")
+    @PostMapping("/api/v1/contents/videos")
     public ApiResponse<Map<String, Object>> uploadVideo(@CurrentUserId long userId,
                                                        @RequestParam(required = false) String title,
                                                        @RequestParam(required = false) String description,
@@ -123,7 +123,7 @@ public class UploadController {
      * <p>校验：标题非空且 ≤50；简介空则置 {@code "-"}、否则 ≤10000（**注意与视频的 1000 不同**，
      * TV 原样）；{@code categoryId} 同视频。多图按 part 出现顺序写 {@code sort} 1..n。
      */
-    @PostMapping("/post")
+    @PostMapping("/api/v1/contents/posts")
     public ApiResponse<Map<String, Object>> uploadPost(@CurrentUserId long userId,
                                                       @RequestParam(required = false) String title,
                                                       @RequestParam(required = false) String description,
@@ -176,9 +176,9 @@ public class UploadController {
      * {@code type == 2/3} 传 {@code null} 且 Service **不调用**更新 —— 换封面不能清空视频时长。
      * 只在上传时解析会留"时长永远停在旧值"的显式不一致，所以两个调用点都要接。
      */
-    @PostMapping("/replace")
+    @PutMapping("/api/v1/contents/{id}/media")
     public ApiResponse<Map<String, Object>> replace(@CurrentUserId long userId,
-                                                   @RequestParam long contentId,
+                                                   @PathVariable("id") long contentId,
                                                    @RequestParam int type,
                                                    @RequestParam int sort,
                                                    @RequestPart(value = "file", required = false) MultipartFile file) {

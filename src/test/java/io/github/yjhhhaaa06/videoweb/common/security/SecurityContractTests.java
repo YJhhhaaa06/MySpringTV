@@ -89,11 +89,11 @@ class SecurityContractTests extends AbstractIntegrationTest {
     @Test
     @DisplayName("★回归：类级 @RequiresLogin 且**不接收** @CurrentUserId 的端点也必须判为需登录")
     void 类级注解且不接收UserId的端点需登录() {
-        assertThat(requiresLogin("GET", "/like/content/count"))
+        assertThat(requiresLogin("GET", "/api/v1/contents/1/like-count"))
                 .as("2026-10-02 修复前的漏洞点：该端点标了 @RequiresLogin 但不接收 userId，"
                         + "机制失效时它在无 token 下返回 200（其余端点因 @CurrentUserId 抛 401 而掩盖了问题）")
                 .isTrue();
-        assertThat(requiresLogin("GET", "/like/comment/count"))
+        assertThat(requiresLogin("GET", "/api/v1/comments/1/like-count"))
                 .as("同上：另一个不接收 userId 的受保护端点")
                 .isTrue();
     }
@@ -101,12 +101,12 @@ class SecurityContractTests extends AbstractIntegrationTest {
     @Test
     @DisplayName("类级 @RequiresLogin：该控制器全部端点判为需登录")
     void 类级注解覆盖全部端点() {
-        assertThat(requiresLogin("POST", "/like/content/add")).isTrue();
-        assertThat(requiresLogin("POST", "/like/content/remove")).isTrue();
-        assertThat(requiresLogin("POST", "/like/comment/add")).isTrue();
-        assertThat(requiresLogin("POST", "/like/comment/remove")).isTrue();
-        assertThat(requiresLogin("GET", "/like/content/status")).isTrue();
-        assertThat(requiresLogin("GET", "/like/comment/status")).isTrue();
+        assertThat(requiresLogin("PUT", "/api/v1/contents/1/like")).isTrue();
+        assertThat(requiresLogin("DELETE", "/api/v1/contents/1/like")).isTrue();
+        assertThat(requiresLogin("PUT", "/api/v1/comments/1/like")).isTrue();
+        assertThat(requiresLogin("DELETE", "/api/v1/comments/1/like")).isTrue();
+        assertThat(requiresLogin("GET", "/api/v1/contents/1/like")).isTrue();
+        assertThat(requiresLogin("GET", "/api/v1/comments/1/like")).isTrue();
     }
 
     @Test
@@ -126,8 +126,8 @@ class SecurityContractTests extends AbstractIntegrationTest {
         assertThat(requiresLogin("PUT", "/api/v1/users/me/username")).isTrue();
         assertThat(requiresLogin("POST", "/coupon/grab")).isTrue();
         assertThat(requiresLogin("GET", "/coupon/my")).isTrue();
-        assertThat(requiresLogin("POST", "/comment/add")).isTrue();
-        assertThat(requiresLogin("POST", "/comment/delete")).isTrue();
+        assertThat(requiresLogin("POST", "/api/v1/comments")).isTrue();
+        assertThat(requiresLogin("DELETE", "/api/v1/comments/1")).isTrue();
     }
 
     @Test
@@ -143,37 +143,37 @@ class SecurityContractTests extends AbstractIntegrationTest {
     void content写端点需登录() {
         // TV 的 AuthFilter 里，/content/** 下**只有这几条**在精确清单里（该域没有前缀级保护）
         // ⇒ 新实现必须用**方法级** @RequiresLogin（用类级会把将来的公开端点误拦）。
-        assertThat(requiresLogin("POST", "/content/commentEnabled")).isTrue();
-        assertThat(requiresLogin("POST", "/content/update")).isTrue();
-        assertThat(requiresLogin("POST", "/content/mediaDelete")).isTrue();
-        assertThat(requiresLogin("POST", "/content/delete")).isTrue();
+        assertThat(requiresLogin("PUT", "/api/v1/contents/1/comment-enabled")).isTrue();
+        assertThat(requiresLogin("PUT", "/api/v1/contents/1")).isTrue();
+        assertThat(requiresLogin("DELETE", "/api/v1/contents/1/media")).isTrue();
+        assertThat(requiresLogin("DELETE", "/api/v1/contents/1")).isTrue();
     }
 
     @Test
     @DisplayName("S5：content / comment 读端点公开（TV 清单不含它们；带 token 只做个性化）")
     void content读端点公开() {
-        assertThat(requiresLogin("GET", "/search/IdSearch")).isFalse();
-        assertThat(requiresLogin("GET", "/search/keywordSearch")).isFalse();
-        assertThat(requiresLogin("GET", "/start")).isFalse();
-        assertThat(requiresLogin("GET", "/profile")).isFalse();
+        assertThat(requiresLogin("GET", "/api/v1/contents/1")).isFalse();
+        assertThat(requiresLogin("GET", "/api/v1/contents")).isFalse();
+        assertThat(requiresLogin("GET", "/api/v1/contents/recommended")).isFalse();
+        assertThat(requiresLogin("GET", "/api/v1/users/1")).isFalse();
     }
 
     @Test
     @DisplayName("S5：comment 读端点公开（TV 只保护 /comment/add 与 /comment/delete 两个精确项）")
     void comment读端点公开() {
-        assertThat(requiresLogin("GET", "/comment/show")).isFalse();
-        assertThat(requiresLogin("GET", "/comment/replies")).isFalse();
+        assertThat(requiresLogin("GET", "/api/v1/contents/1/comments")).isFalse();
+        assertThat(requiresLogin("GET", "/api/v1/comments/1/replies")).isFalse();
         // 反向对照：同域的两个写端点**仍是**需登录的（排除"整个 /comment 都被放行"的假绿）
-        assertThat(requiresLogin("POST", "/comment/add")).isTrue();
-        assertThat(requiresLogin("POST", "/comment/delete")).isTrue();
+        assertThat(requiresLogin("POST", "/api/v1/comments")).isTrue();
+        assertThat(requiresLogin("DELETE", "/api/v1/comments/1")).isTrue();
     }
 
     @Test
-    @DisplayName("S7：upload 三个端点判为需登录（TV 的 `/api/upload` 是**前缀**保护项 ⇒ 类级注解）")
+    @DisplayName("S7：上传三个端点判为需登录（`T58` 起归 contents 域；类级 @RequiresLogin）")
     void upload类级注解覆盖全部端点() {
-        assertThat(requiresLogin("POST", "/api/upload/video")).isTrue();
-        assertThat(requiresLogin("POST", "/api/upload/post")).isTrue();
-        assertThat(requiresLogin("POST", "/api/upload/replace")).isTrue();
+        assertThat(requiresLogin("POST", "/api/v1/contents/videos")).isTrue();
+        assertThat(requiresLogin("POST", "/api/v1/contents/posts")).isTrue();
+        assertThat(requiresLogin("PUT", "/api/v1/contents/1/media")).isTrue();
     }
 
     @Test

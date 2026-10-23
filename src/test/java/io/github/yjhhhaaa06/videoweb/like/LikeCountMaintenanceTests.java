@@ -68,7 +68,7 @@ class LikeCountMaintenanceTests extends AbstractLikeIntegrationTest {
                 .isEqualTo(countContentLikeRows(contentId))
                 .isEqualTo(2);
 
-        assertThat(unlikeContent(contentId, viewerToken).getStatusCode().value()).isEqualTo(200);
+        assertThat(cancelContentLike(contentId, viewerToken).getStatusCode().value()).isEqualTo(200);
         assertThat(contentLikeCountColumn(contentId))
                 .as("★ 取消后列 == 行数（回到 1）")
                 .isEqualTo(countContentLikeRows(contentId))
@@ -86,11 +86,11 @@ class LikeCountMaintenanceTests extends AbstractLikeIntegrationTest {
         assertThat(likeContent(contentId, viewerToken).getStatusCode().value()).isEqualTo(200);
 
         // 预热计数键（否则"被失效后不回填"无法观测——冷 key 的"不存在"恒真，零判别力）
-        ResponseEntity<String> warm = get("/like/content/count?contentId=" + contentId, authorToken);
+        ResponseEntity<String> warm = get("/api/v1/contents/" + contentId + "/like-count", authorToken);
         assertThat(Envelope.data(warm).asLong()).as("前置：1 赞").isEqualTo(1L);
         assertThat(contentLikeCountValue(contentId)).as("前置：计数键已预热").isEqualTo("1");
 
-        assertThat(postForm("/content/delete", form("contentId", contentId), authorToken)
+        assertThat(delete("/api/v1/contents/" + contentId, authorToken)
                 .getStatusCode().value()).as("前置：作者删除成功").isEqualTo(200);
 
         // ★ T44-1 核心：行物理删、列归零（去掉 deleteContent 里的 resetLikeCount ⇒ 此断言红：
@@ -100,7 +100,7 @@ class LikeCountMaintenanceTests extends AbstractLikeIntegrationTest {
         assertThat(countContentLikeRows(contentId)).as("行已物理删").isZero();
 
         // 契约回归（G8）：切换前 COUNT(*) 对已删内容天然返回 0；切换后（读列）必须仍是 0
-        JsonNode data = Envelope.data(get("/like/content/count?contentId=" + contentId, authorToken));
+        JsonNode data = Envelope.data(get("/api/v1/contents/" + contentId + "/like-count", authorToken));
         assertThat(data.asLong()).as("★ /like/content/count 对已删内容仍返回 0（外部契约不变）").isZero();
         // 键被回填为 "0"：软删行仍存在（列查询刻意不带 is_deleted 过滤），列值 0 就是真相——
         // 缓存复现列值，与旧行数口径（回填 0）完全一致。"不回填"分支只服务"行真的不存在"。
@@ -123,10 +123,10 @@ class LikeCountMaintenanceTests extends AbstractLikeIntegrationTest {
         // 人为制造列漂移：列 = 99，行数仍 = 1（两种回源口径在这里给出不同答案——判别力所在）
         jdbcTemplate.update("UPDATE content SET like_count = 99 WHERE id = ?", drifted);
 
-        assertThat(Envelope.data(get("/like/content/count?contentId=" + drifted, token)).asLong())
+        assertThat(Envelope.data(get("/api/v1/contents/" + drifted + "/like-count", token)).asLong())
                 .as("★ 回源必须读列（把回源改回 COUNT(*) content_like ⇒ 此断言红：只会返回 1）")
                 .isEqualTo(99L);
-        assertThat(Envelope.data(get("/like/content/count?contentId=" + control, token)).asLong())
+        assertThat(Envelope.data(get("/api/v1/contents/" + control + "/like-count", token)).asLong())
                 .as("对照：未漂移内容仍返回真实计数（排除'恒 99'式假绿）")
                 .isEqualTo(1L);
     }
