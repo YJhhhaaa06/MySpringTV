@@ -106,8 +106,9 @@ public class FavoriteController {
     /**
      * 收藏夹内列表 pageSize 缺省（各域自持常量，见 {@code PageParams}）。
      *
-     * <p>取 100 而不是 20：与内容类列表（{@code /start} / {@code /profile} / {@code /search} /
-     * {@code /feed}）同为 100 —— 收藏夹是"回看"场景，一屏装不下时用户更可能翻页而不是
+     * <p>取 100 而不是 20：与内容类列表（首页 / 主页 / 搜索 / feed，`T58` 后为
+     * /api/v1/contents/recommended、/api/v1/users/{id}、/api/v1/contents、/api/v1/feed）同为 100
+     * —— 收藏夹是"回看"场景，一屏装不下时用户更可能翻页而不是
      * 缩小信封；且缺省与上限一致，省掉"缺省 < 上限"这一层不必存在的差异
      * （对照 comment 域是 500/200：那里的一屏主楼本来就大得多，属另一类量级）。
      */

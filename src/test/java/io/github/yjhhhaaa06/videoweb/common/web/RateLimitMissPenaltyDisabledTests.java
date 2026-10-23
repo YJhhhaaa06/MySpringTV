@@ -101,7 +101,7 @@ class RateLimitMissPenaltyDisabledTests extends AbstractHttpIntegrationTest {
     @Test
     @DisplayName("multiplier = 1.0（关闭）：冷读 miss 也不补扣（99 而非 97），且回源确实发生")
     void 关闭时_冷读也不补扣() throws InterruptedException {
-        ResponseEntity<String> resp = get("/search/IdSearch?contentId=" + CONTENT_ID, null);
+        ResponseEntity<String> resp = get("/api/v1/contents/" + CONTENT_ID, null);
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         assertThat(Envelope.code(resp)).isEqualTo("OK");
 

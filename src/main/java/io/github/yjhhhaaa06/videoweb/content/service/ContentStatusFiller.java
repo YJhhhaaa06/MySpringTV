@@ -27,7 +27,7 @@ import java.util.Set;
  * 互动域**不得依赖 content**（否则 {@code content → interaction → content} 成环，R-10 §六）
  * ⇒ 它不认识 {@code ContentVO}、也不反查"这条内容的作者是谁 / 什么类型"（作者与类型由调用方
  * 随 {@link InteractionTarget} 传入）。故"ContentVO ↔ 目标"的映射必须留在 content 侧；
- * 留在本类还让 {@code /start} 与 {@code /search/keywordSearch} 共享**同一份**映射。
+ * 留在本类还让 {@code /api/v1/contents/recommended}（首页）与 {@code /api/v1/contents}（搜索，`T58` 前为 /start、/search/keywordSearch）共享**同一份**映射。
  * ⚠️ {@code FeedService} 有一份**同形**的私有映射（3 行胶水）—— feed 是独立的一个"面"，
  * 维度常量由它自持；刻意**不**抽公共（抽了会让 feed 依赖 content 的装配组件，
  * 且 {@code feed → content} 的边会再宽一层）。
@@ -60,13 +60,13 @@ public class ContentStatusFiller {
     }
 
     /**
-     * 列表页批量回填互动态（{@code /start}、{@code /search/keywordSearch} 使用）。
+     * 列表页批量回填互动态（{@code /api/v1/contents/recommended}、{@code /api/v1/contents} 使用，`T58` 前为 /start、/search/keywordSearch）。
      *
      * <p>作者未知（{@code authorId <= 0}）的条目由互动域按 {@code false} 作答
      * （与既有跳过口径一致；且该维若被选中，仍会给出 {@code false} 而不是 {@code null}），
      * 本类不做分支。
      *
-     * <p>⚠️ {@code dimensions} 为**空集**（{@code /search/keywordSearch} 的取值）时
+     * <p>⚠️ {@code dimensions} 为**空集**（搜索面 {@code /api/v1/contents} 的取值）时
      * 本方法**仍要调用**互动域 —— 它一趟都不查、但会返回"对象在、四维全 {@code null}"的对象。
      * ★ **直接跳过调用会得到 {@code interaction: null} ⇒ 与"匿名"不可区分**（这是错的）。
      *
@@ -94,7 +94,7 @@ public class ContentStatusFiller {
     /**
      * 列表页批量回填**公共计数** —— ⛔ <b>T43 已删除</b>。
      *
-     * <p>原实现（T40）为 {@code /start} / {@code /search} / {@code /profile} 一趟
+     * <p>原实现（T40）为首页 / 搜索 / 主页三个列表面一趟
      * {@code MGET} 填 {@code coinCount}。T43 起列表面**不返回任何计数**
      * （用户 2026-10-19 拍板），四个数只在详情平铺（{@code ContentDetailVO}）——
      * 于是列表页省掉这趟批量，也省掉"漏填某个组装点"这一整类缺陷。

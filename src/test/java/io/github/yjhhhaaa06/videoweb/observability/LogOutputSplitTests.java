@@ -56,8 +56,9 @@ class LogOutputSplitTests extends AbstractObservabilityTest {
     @DisplayName("全文件不变式：access 行只落 access.log，且不泄进 system.log")
     void access与system互不污染() {
         clearLogs();
-        get("/start", null);
-        awaitAccessLine("/start", "status=200");
+        get("/api/v1/contents/recommended", null);
+        // `T58` 契约变更：/start 资源化为 GET /api/v1/contents/recommended（接口契约.md §2.3）
+        awaitAccessLine("/api/v1/contents/recommended", "status=200");
 
         List<String> accessLines = structuredLines(LogCapture.accessFile());
         List<String> systemLines = structuredLines(LogCapture.systemFile());
@@ -100,11 +101,14 @@ class LogOutputSplitTests extends AbstractObservabilityTest {
     void 拒绝与异常的分流() {
         String token = registerAndGetToken("13800009802", "obs-split-user", "abc123456");
 
-        // ① 可预期拒绝：/comment/show 缺 contentId ⇒ ParamException ⇒ 400 + WARN
+        // ① 可预期拒绝：keywordSearch 关键词空白 ⇒ ParamException ⇒ 400 + WARN
+        // （`T58` 契约变更，接口契约.md §2.3：原触发点 GET /comment/show 缺 contentId 的形态
+        //   随 contentId 进路径而不可表达——少路径段 = 无路由匹配 = 404，故换用本形态等价的
+        //   ParamException 400 拒绝；触发点同属读面，WARN 分流语义不变）
         clearLogs();
-        ResponseEntity<String> rejection = get("/comment/show", null);
+        ResponseEntity<String> rejection = get("/api/v1/contents?keyword=", null);
         assertThat(rejection.getStatusCode().value()).isEqualTo(400);
-        String rejectionReq = reqIdOf(awaitAccessLine("/comment/show", "status=400"));
+        String rejectionReq = reqIdOf(awaitAccessLine("/api/v1/contents", "status=400"));
         assertThat(awaitSystemLine("req=" + rejectionReq + " "))
                 .contains("level=WARN")
                 .contains("msg=业务异常");

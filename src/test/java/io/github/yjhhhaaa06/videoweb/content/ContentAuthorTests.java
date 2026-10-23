@@ -53,9 +53,9 @@ class ContentAuthorTests extends AbstractContentIntegrationTest {
         insertContentLike(authorId, contentId);
 
         // 预热三处缓存：内容 key / 评论两键组 / 类型分区索引
-        assertThat(get("/search/IdSearch?contentId=" + contentId, token).getStatusCode().value()).isEqualTo(200);
+        assertThat(get("/api/v1/contents/" + contentId, token).getStatusCode().value()).isEqualTo(200);
         get("/api/v1/contents/" + contentId + "/comments?page=1&pageSize=10", token);
-        get("/start", null);
+        get("/api/v1/contents/recommended", null);
         assertThat(cachedContentJson(contentId)).as("前置：内容 key 已缓存").isNotNull();
         assertThat(redis.hasKey(rootsKey(contentId))).as("前置：评论 roots 已装载").isTrue();
         assertThat(indexContains(contentId)).as("前置：内容在推荐索引里").isTrue();
@@ -138,7 +138,7 @@ class ContentAuthorTests extends AbstractContentIntegrationTest {
                 .containsExactly("/upload/image/a.jpg", "/upload/image/c.jpg", "/upload/cover/x.png");
 
         // 详情回读：imageUrls 只剩两张（提交后 REFRESH 生效）
-        assertThat(Envelope.data(get("/search/IdSearch?contentId=" + contentId, token))
+        assertThat(Envelope.data(get("/api/v1/contents/" + contentId, token))
                 .path("imageUrls").size()).isEqualTo(2);
     }
 

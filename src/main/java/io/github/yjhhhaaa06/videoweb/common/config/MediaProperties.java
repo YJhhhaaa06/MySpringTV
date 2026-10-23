@@ -17,7 +17,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * 真实用途却是恒空串），不如把它变成一个**配置项**：语义等价（都是"对外可见的 URL 前缀"），
  * 而部署形态变化时无需改代码。
  *
- * <p>⚠️ 默认值必须保持 {@code ""}：改它会让 {@code /search/IdSearch} 的 {@code videoUrl} /
+ * <p>⚠️ 默认值必须保持 {@code ""}：改它会让内容详情（现 {@code /api/v1/contents/{id}}）的 {@code videoUrl} /
  * {@code imageUrls} 形状变化（旧 pytest {@code S-09} 会去磁盘找 {@code <STONE_DIR>/video/xxx.mp4}，
  * 即断言 URL 以 {@code /upload/} 开头）。
  *

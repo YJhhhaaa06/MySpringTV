@@ -4,7 +4,8 @@ package io.github.yjhhhaaa06.videoweb.common.web;
  * 分页参数归一（承接 TV {@code BaseServletUtil.normalizePage / normalizePageSize}）。
  *
  * <h2>为什么抽（S5，rule of three）</h2>
- * S4 时 {@code FollowController} 内联了一份私有实现；S5 又要给 {@code /search}、{@code /profile}、
+ * S4 时 {@code FollowController} 内联了一份私有实现；S5 又要给搜索 / 主页（`T58` 后为
+ * {@code /api/v1/contents}、{@code /api/v1/users/{id}}）、
  * {@code /comment/*} 各来一份 ⇒ 第三个使用方出现，抽到这里。
  * FollowController 同时改为委托（口径零变化，其测试是回归网）。
  *

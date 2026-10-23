@@ -177,7 +177,7 @@ class ContentPlayCountTests extends AbstractContentIntegrationTest {
         // 404 短路在计数聚合之前：键刚被删除 ⇒ 若聚合先跑一步，它会 miss 并回填列值 "1"
         // ⇒ 下面的 hasKey 断言会红。⚠️ 不能先给键预置一个值（那样是命中，聚合本来就不回填
         //   ⇒ 两种实现都为真，零判别力 —— T42 假绿形态①）。
-        assertThat(get("/search/IdSearch?contentId=" + contentId, authorToken).getStatusCode().value())
+        assertThat(get("/api/v1/contents/" + contentId, authorToken).getStatusCode().value())
                 .as("前置：详情 404").isEqualTo(404);
         assertThat(redis.hasKey(CacheKeys.contentPlayCount(contentId)))
                 .as("★ 404 路径不回填（聚合若在 404 之前执行，会把列值回填进来 ⇒ 红）").isFalse();
@@ -192,7 +192,7 @@ class ContentPlayCountTests extends AbstractContentIntegrationTest {
         assertThat(post("/api/v1/contents/" + contentId + "/play", null, viewerToken).getStatusCode().value())
                 .isEqualTo(200);
 
-        JsonNode startItem = itemOf(Envelope.data(get("/start", viewerToken)), contentId);
+        JsonNode startItem = itemOf(Envelope.data(get("/api/v1/contents/recommended", viewerToken)), contentId);
         // ★ 必须用 has(key)==false：asLong() 对缺失节点返回 0，分不出"没有这个键"与"值就是 0"
         assertThat(startItem.has("playCount"))
                 .as("★ 列表卡片不带任何计数（列表零计数是契约，不是漏填）").isFalse();
@@ -203,7 +203,7 @@ class ContentPlayCountTests extends AbstractContentIntegrationTest {
 
     /** 详情（匿名，避免互动态干扰）：返回 data 节点。 */
     private JsonNode detail(long contentId) {
-        ResponseEntity<String> resp = get("/search/IdSearch?contentId=" + contentId, null);
+        ResponseEntity<String> resp = get("/api/v1/contents/" + contentId, null);
         assertThat(resp.getStatusCode().value()).as("详情应 200：%s", resp.getBody()).isEqualTo(200);
         return Envelope.data(resp);
     }

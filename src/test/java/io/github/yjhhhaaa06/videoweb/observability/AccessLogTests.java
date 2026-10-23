@@ -65,10 +65,11 @@ class AccessLogTests extends AbstractObservabilityTest {
     @DisplayName("正常请求：访问行含方法/路径/状态码/业务码/耗时，且同一 req 贯穿")
     void 正常请求_访问行完整() {
         clearLogs();
-        ResponseEntity<String> response = get("/start", null);
+        ResponseEntity<String> response = get("/api/v1/contents/recommended", null);
         assertThat(response.getStatusCode().value()).isEqualTo(200);
 
-        String line = awaitAccessLine("/start", "status=200");
+        // `T58` 契约变更：/start 资源化为 GET /api/v1/contents/recommended（接口契约.md §2.3）
+        String line = awaitAccessLine("/api/v1/contents/recommended", "status=200");
         assertThat(line).contains("method=GET ");
         assertThat(line).contains("code=OK ");
         assertThat(line).contains("userId=- ");           // 公开端点无身份
@@ -130,11 +131,11 @@ class AccessLogTests extends AbstractObservabilityTest {
             Files.writeString(probe, "observability probe", StandardCharsets.UTF_8);
 
             clearLogs();
-            get("/start", null);
+            get("/api/v1/contents/recommended", null);
             put("/api/v1/users/me/password", Map.of(), null);
             get(STATIC_URL, null);
 
-            String normal = awaitAccessLine("/start", "status=200");
+            String normal = awaitAccessLine("/api/v1/contents/recommended", "status=200");
             String unauthorized = awaitAccessLine("/api/v1/users/me/password", "status=401");
             String staticResource = awaitAccessLine(STATIC_URL, "status=200");
 
@@ -187,9 +188,10 @@ class AccessLogTests extends AbstractObservabilityTest {
     @DisplayName("访问行不记 query 串与请求头（D7「绝不记」：token/手机号/密码一律不落盘）")
     void 访问行不记query串与请求头() {
         clearLogs();
-        get("/search/IdSearch?contentId=1&keyword=secret-query-token", null);
+        get("/api/v1/contents/1?keyword=secret-query-token", null);
 
-        String line = awaitAccessLine("/search/IdSearch", "status=");
+        // `T58` 契约变更：详情 = GET /api/v1/contents/{id}（contentId 进路径，keyword 留 query）
+        String line = awaitAccessLine("/api/v1/contents/1", "status=");
         assertThat(line)
                 .as("path 取自 getRequestURI()，servlet 规范保证不含 query 串")
                 .doesNotContain("?")

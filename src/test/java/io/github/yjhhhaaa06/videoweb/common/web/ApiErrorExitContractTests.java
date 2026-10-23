@@ -127,7 +127,7 @@ class ApiErrorExitContractTests extends AbstractHttpIntegrationTest {
     void 限流过滤器出口() {
         seedEmptyBuckets();
 
-        ResponseEntity<String> resp = get("/start", null);
+        ResponseEntity<String> resp = get("/api/v1/contents/recommended", null);
 
         assertFailureEnvelope(resp, 429, ErrorCode.RATE_LIMITED, ErrorCode.RATE_LIMITED.getMessage());
         assertThat(resp.getHeaders().getFirst(ApiErrorWriter.HEADER_RETRY_AFTER))
@@ -148,7 +148,7 @@ class ApiErrorExitContractTests extends AbstractHttpIntegrationTest {
                 Map.of("phone", "1", "username", "x", "password", "1"), null);
         ResponseEntity<String> authExit = put("/api/v1/users/me/password", Map.of(), null);
         seedEmptyBuckets();
-        ResponseEntity<String> rateLimitExit = get("/start", null);
+        ResponseEntity<String> rateLimitExit = get("/api/v1/contents/recommended", null);
 
         List<ResponseEntity<String>> responses = List.of(controllerExit, authExit, rateLimitExit);
         assertThat(responses).extracting(r -> r.getStatusCode().value())
@@ -167,7 +167,7 @@ class ApiErrorExitContractTests extends AbstractHttpIntegrationTest {
     @Test
     @DisplayName("成功响应同样带 X-Request-Id（证明该头来自链最外层的过滤器，不是错误出口补的）")
     void 成功响应也带请求标识() {
-        ResponseEntity<String> resp = get("/start", null);
+        ResponseEntity<String> resp = get("/api/v1/contents/recommended", null);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         assertThat(Envelope.code(resp)).isEqualTo("OK");

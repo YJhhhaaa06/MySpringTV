@@ -119,7 +119,7 @@ class WatchLaterIsolationTests extends AbstractHttpIntegrationTest {
                         + "该路径**未映射**（Spring 走全局出口，非 200），绝不是'可用状态端点'")
                 .isNotEqualTo(200);
 
-        JsonNode interaction = Envelope.data(get("/search/IdSearch?contentId=" + video, me.token)).path("interaction");
+        JsonNode interaction = Envelope.data(get("/api/v1/contents/" + video, me.token)).path("interaction");
         assertThat(interaction.path("isWatchLater").isMissingNode())
                 .as("★ 详情互动态不得含 isWatchLater（加一个键就破了'除清单外看不到'）").isTrue();
         assertThat(interaction.propertyNames())

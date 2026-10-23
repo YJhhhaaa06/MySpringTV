@@ -128,7 +128,8 @@ public class FavoriteRedisOps extends RedisOps {
     /**
      * 一趟 pipeline 判定多个成员是否在集合内，返回与入参**同序**的布尔列表。
      *
-     * <p>为什么必须 pipeline：列表路径（`/start`、`/search`、`/profile`）一条响应里可能问 N 个
+     * <p>为什么必须 pipeline：列表路径（首页 / 搜索 / 主页，`T58` 后为 /api/v1/contents/recommended、
+     * /api/v1/contents、/api/v1/users/{id}）一条响应里可能问 N 个
      * contentId 的收藏态；退化成 N 次独立 {@code SISMEMBER} 就是 N 个往返，
      * "命令数与装载量双降"这个性质会被悄悄破坏（同 {@code LikeRedisOps.setIsMemberBatch}）。
      */

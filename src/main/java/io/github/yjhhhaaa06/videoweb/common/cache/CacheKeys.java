@@ -260,7 +260,7 @@ public final class CacheKeys {
      *
      * <p>★ **S5 补回**（决策表 G-8）：S4 曾在 F-7 里去掉它与 {@link #userFollowerCount(long)}，
      * 理由是该切片只剩"降级路径取 total"一个用途；F-7 同时写明补回位置 = S5 迁
-     * {@code ProfileService} 时。S5 兑现：{@code /profile} 直接需要这两个计数。
+     * {@code ProfileService} 时。S5 兑现：主页读路径（现 {@code /api/v1/users/{id}}）直接需要这两个计数。
      */
     public static String userFollowCount(long userId) {
         return "user:followCount:" + userId;

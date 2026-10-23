@@ -133,7 +133,7 @@ class RateLimitFailOpenObservabilityTests extends AbstractHttpIntegrationTest {
         try (LogCapture system = LogCapture.root()) {
             system.clear();
 
-            ResponseEntity<String> resp = get("/start", null);
+            ResponseEntity<String> resp = get("/api/v1/contents/recommended", null);
 
             assertThat(resp.getStatusCode().value()).as("fail-open：不得让业务接口失败（D-5）").isEqualTo(200);
             String line = system.awaitLine(l -> l.contains("限流器不可用"),
@@ -142,7 +142,9 @@ class RateLimitFailOpenObservabilityTests extends AbstractHttpIntegrationTest {
             assertThat(line)
                     .as("结论行不持栈 —— 判据用**真实制表符**（写成 \"\\\\tat \" 会变成恒真的假绿）")
                     .doesNotContain("\tat ");
-            assertThat(line).contains("path=/start").contains("userId=- ");
+            // T58 契约变更 + 依据《接口契约.md》§2.3：探针端点 /start 资源化为 /api/v1/contents/recommended，
+            // WARN 结论行的 path 字段取自真实请求 URI ⇒ 期望值随之更新。
+            assertThat(line).contains("path=/api/v1/contents/recommended").contains("userId=- ");
             assertThat(line)
                     .as("不落原始 key（本用例的原因文案是合成串；真实 Redis 异常文案可能带 **Redis 端点**"
                             + "地址——基础设施地址、非用户 PII，口径见 architecture/tech/rate-limit/限流.md §五）")
@@ -163,7 +165,7 @@ class RateLimitFailOpenObservabilityTests extends AbstractHttpIntegrationTest {
         try (LogCapture system = LogCapture.root()) {
             system.clear();
 
-            ResponseEntity<String> resp = get("/start", null);
+            ResponseEntity<String> resp = get("/api/v1/contents/recommended", null);
 
             assertThat(resp.getStatusCode().value()).as("自身缺陷也放行（500 会让限流器成单点故障）").isEqualTo(200);
             String line = system.awaitLine(l -> l.contains("限流脚本/返回值异常"),

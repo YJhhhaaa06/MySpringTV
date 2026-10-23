@@ -107,7 +107,8 @@ class RateLimitMissPenaltyTests extends AbstractHttpIntegrationTest {
     }
 
     private String 详情() {
-        return "/search/IdSearch?contentId=" + CONTENT_ID;
+        // `T58` 契约变更：详情 = GET /api/v1/contents/{id}（接口契约.md §2.3）
+        return "/api/v1/contents/" + CONTENT_ID;
     }
 
     private void seedBuckets() {

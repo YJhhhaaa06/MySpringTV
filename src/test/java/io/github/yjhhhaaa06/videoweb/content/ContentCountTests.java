@@ -60,7 +60,7 @@ class ContentCountTests extends AbstractContentIntegrationTest {
         String token = registerAndGetToken(AUTHOR_PHONE, AUTHOR);
         long contentId = insertVideoContent(userIdOf(AUTHOR_PHONE), "计数载荷测试");
 
-        assertThat(get("/search/IdSearch?contentId=" + contentId, token).getStatusCode().value())
+        assertThat(get("/api/v1/contents/" + contentId, token).getStatusCode().value())
                 .as("前置：详情可读（同时完成内容 key 的 miss 回填）").isEqualTo(200);
 
         String json = cachedContentJson(contentId);
@@ -86,7 +86,7 @@ class ContentCountTests extends AbstractContentIntegrationTest {
         long contentId = insertVideoContent(userIdOf(AUTHOR_PHONE), "点赞失效测试");
 
         // 预热：详情 + 内容 key
-        JsonNode before = Envelope.data(get("/search/IdSearch?contentId=" + contentId, authorToken));
+        JsonNode before = Envelope.data(get("/api/v1/contents/" + contentId, authorToken));
         assertThat(before.path("likeCount").asLong()).as("前置：0 赞").isZero();
         assertThat(cachedContentJson(contentId)).as("前置：内容 key 已预热").isNotNull();
 
@@ -98,7 +98,7 @@ class ContentCountTests extends AbstractContentIntegrationTest {
                 .as("★ 点赞不得失效内容载荷（计数已独立成 key）").isNotNull();
 
         // 值仍要正确：计数 key 冷 ⇒ miss 回源 COUNT(*)，不依赖内容载荷
-        JsonNode after = Envelope.data(get("/search/IdSearch?contentId=" + contentId, authorToken));
+        JsonNode after = Envelope.data(get("/api/v1/contents/" + contentId, authorToken));
         assertThat(after.path("likeCount").asLong())
                 .as("★ 详情 likeCount = content.like_count 列（T44-1 起回源口径；写路径维护列 ⇒ 与行数相等）")
                 .isEqualTo(countLikeRows(contentId))
@@ -118,7 +118,7 @@ class ContentCountTests extends AbstractContentIntegrationTest {
         long contentId = insertVideoContent(userIdOf(AUTHOR_PHONE), "评论失效测试");
 
         // 预热：详情（顺带把 content:commentCount 填成 "0"）
-        JsonNode before = Envelope.data(get("/search/IdSearch?contentId=" + contentId, authorToken));
+        JsonNode before = Envelope.data(get("/api/v1/contents/" + contentId, authorToken));
         assertThat(before.path("commentCount").asLong()).as("前置：0 评论").isZero();
         assertThat(cachedContentJson(contentId)).as("前置：内容 key 已预热").isNotNull();
         assertThat(redis.hasKey(CacheKeys.contentCommentCount(contentId)))
@@ -135,7 +135,7 @@ class ContentCountTests extends AbstractContentIntegrationTest {
         assertThat(redis.hasKey(CacheKeys.contentCommentCount(contentId)))
                 .as("★ 评论数 key 必须在提交后被失效（DEL，而不是猜 delta）").isFalse();
 
-        JsonNode after = Envelope.data(get("/search/IdSearch?contentId=" + contentId, authorToken));
+        JsonNode after = Envelope.data(get("/api/v1/contents/" + contentId, authorToken));
         assertThat(after.path("commentCount").asLong())
                 .as("★ 详情 commentCount = content.comment_count（独立 oracle）")
                 .isEqualTo(commentCountColumn(contentId))
@@ -162,7 +162,7 @@ class ContentCountTests extends AbstractContentIntegrationTest {
         jdbcTemplate.update("UPDATE content SET favorite_count = 7 WHERE id = ?", contentId);
         jdbcTemplate.update("UPDATE content SET coin_count = 2 WHERE id = ?", contentId);
 
-        JsonNode data = Envelope.data(get("/search/IdSearch?contentId=" + contentId, token));
+        JsonNode data = Envelope.data(get("/api/v1/contents/" + contentId, token));
 
         assertThat(data.path("likeCount").asLong()).as("likeCount ← content.like_count（T44-1 起读列）").isEqualTo(1L);
         assertThat(data.path("commentCount").asLong()).as("commentCount ← content.comment_count").isEqualTo(3L);

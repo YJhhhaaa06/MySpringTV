@@ -299,7 +299,7 @@ class FavoriteStatusShortCircuitTests extends AbstractHttpIntegrationTest {
 
     /** 详情页内联态（{@code GET /search/IdSearch} 的 {@code data.interaction.isFavorited}）。 */
     private boolean detailIsFavorited(long contentId, String token) {
-        ResponseEntity<String> resp = get("/search/IdSearch?contentId=" + contentId, token);
+        ResponseEntity<String> resp = get("/api/v1/contents/" + contentId, token);
         assertThat(resp.getStatusCode().value()).as("详情应 200: %s", resp.getBody()).isEqualTo(200);
         return Envelope.data(resp).path("interaction").path("isFavorited").asBoolean();
     }

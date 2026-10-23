@@ -26,7 +26,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 /**
- * S5：{@code /profile} 的 HTTP 契约 + 计数缓存语义（决策表 G-5 / G-8）。
+ * S5：用户主页（`T58` 契约变更起为 {@code GET /api/v1/users/{id}}，原 {@code /profile?userId=}）的
+ * HTTP 契约 + 计数缓存语义（决策表 G-5 / G-8）。
  *
  * <h2>信封位置是契约的一部分</h2>
  * 分页信封嵌在 {@code data.contentPage}（不是 {@code data}）——旧 pytest 的断言路径就是这个，
@@ -67,7 +68,7 @@ class ProfileReadTests extends AbstractContentIntegrationTest {
         long authorId = userIdOf(AUTHOR_PHONE);
         insertVideoContent(authorId, "主页内容");
 
-        ResponseEntity<String> resp = get("/profile?userId=" + authorId, null);
+        ResponseEntity<String> resp = get("/api/v1/users/" + authorId, null);
         assertThat(resp.getStatusCode().value()).as("%s", resp.getBody()).isEqualTo(200);
         JsonNode data = Envelope.data(resp);
         assertThat(data.path("userId").asLong()).isEqualTo(authorId);
@@ -97,7 +98,7 @@ class ProfileReadTests extends AbstractContentIntegrationTest {
         insertContentLike(viewerId, liked);            // ★ 对照：只有 liked 被赞
 
         Mockito.reset(interactionService);
-        JsonNode page = Envelope.data(get("/profile?userId=" + authorId, viewerToken))
+        JsonNode page = Envelope.data(get("/api/v1/users/" + authorId, viewerToken))
                 .path("contentPage");
 
         JsonNode likedView = itemOf(page.path("list"), liked).path("interaction");
@@ -125,7 +126,7 @@ class ProfileReadTests extends AbstractContentIntegrationTest {
         long contentId = insertVideoContent(authorId, "主页匿名内容");
 
         Mockito.reset(interactionService);
-        JsonNode item = itemOf(Envelope.data(get("/profile?userId=" + authorId, null))
+        JsonNode item = itemOf(Envelope.data(get("/api/v1/users/" + authorId, null))
                 .path("contentPage").path("list"), contentId);
 
         assertThat(item.path("interaction").isNull())
@@ -142,19 +143,19 @@ class ProfileReadTests extends AbstractContentIntegrationTest {
         long authorId = userIdOf(AUTHOR_PHONE);
         insertVideoContent(authorId, "分页内容");
 
-        JsonNode defaultPage = Envelope.data(get("/profile?userId=" + authorId, null)).path("contentPage");
+        JsonNode defaultPage = Envelope.data(get("/api/v1/users/" + authorId, null)).path("contentPage");
         assertThat(defaultPage.path("page").asInt()).isEqualTo(1);
         assertThat(defaultPage.path("pageSize").asInt()).isEqualTo(PAGE_SIZE_MAX);
 
-        assertThat(Envelope.data(get("/profile?userId=" + authorId + "&pageSize=999", null))
+        assertThat(Envelope.data(get("/api/v1/users/" + authorId + "?pageSize=999", null))
                 .path("contentPage").path("pageSize").asInt()).as("超上限截到 100").isEqualTo(100);
-        assertThat(Envelope.data(get("/profile?userId=" + authorId + "&pageSize=51", null))
+        assertThat(Envelope.data(get("/api/v1/users/" + authorId + "?pageSize=51", null))
                 .path("contentPage").path("pageSize").asInt()).as("51 原样回显").isEqualTo(51);
-        assertThat(Envelope.data(get("/profile?userId=" + authorId + "&pageSize=abc", null))
+        assertThat(Envelope.data(get("/api/v1/users/" + authorId + "?pageSize=abc", null))
                 .path("contentPage").path("pageSize").asInt()).as("非法值回落信封").isEqualTo(100);
 
         JsonNode explicitPage = Envelope.data(
-                get("/profile?userId=" + authorId + "&page=1&pageSize=100", null)).path("contentPage");
+                get("/api/v1/users/" + authorId + "?page=1&pageSize=100", null)).path("contentPage");
         assertThat(defaultPage.path("list").size()).as("需非空列表才有判别力").isEqualTo(1);
         assertThat(defaultPage.toString()).isEqualTo(explicitPage.toString());
     }
@@ -172,7 +173,7 @@ class ProfileReadTests extends AbstractContentIntegrationTest {
         List<Long> paged = new ArrayList<>();
         for (int page = 1; page <= 3; page++) {
             JsonNode envelope = Envelope.data(
-                    get("/profile?userId=" + authorId + "&page=" + page + "&pageSize=1", null))
+                    get("/api/v1/users/" + authorId + "?page=" + page + "&pageSize=1", null))
                     .path("contentPage");
             assertThat(envelope.path("total").asInt()).as("total 恒为 3（越界页也保留）").isEqualTo(3);
             assertThat(envelope.path("list").size()).isEqualTo(1);
@@ -184,17 +185,17 @@ class ProfileReadTests extends AbstractContentIntegrationTest {
     }
 
     @Test
-    @DisplayName("边界：缺 userId → 400（文案），非法 → 400，用户不存在 → 404")
+    @DisplayName("边界：非法 id → 400（文案保留），用户不存在 → 404")
     void 边界() {
-        ResponseEntity<String> missing = get("/profile", null);
-        assertThat(missing.getStatusCode().value()).isEqualTo(400);
-        assertThat(Envelope.msg(missing)).as("TV 文案逐字保留").isEqualTo("缺少 userId");
-
-        ResponseEntity<String> malformed = get("/profile?userId=abc", null);
+        // `T58` 契约变更（接口契约.md §2.3）：userId 进路径（GET /api/v1/users/{id}）——
+        // 旧断言"缺 userId → 400（缺少 userId）"的形态不可表达（少路径段 = 无路由匹配 = 404，
+        // 不再有"缺参"分支），按 §2.3 退役；"非数字 id → 400"保留：收 String 复刻 TV 判定，
+        // 文案"userId 格式错误"逐字不变。
+        ResponseEntity<String> malformed = get("/api/v1/users/abc", null);
         assertThat(malformed.getStatusCode().value()).isEqualTo(400);
         assertThat(Envelope.msg(malformed)).isEqualTo("userId 格式错误");
 
-        ResponseEntity<String> notFound = get("/profile?userId=987654321", null);
+        ResponseEntity<String> notFound = get("/api/v1/users/987654321", null);
         assertThat(notFound.getStatusCode().value()).isEqualTo(404);
         assertThat(Envelope.msg(notFound)).isEqualTo("用户不存在");
     }
@@ -210,15 +211,15 @@ class ProfileReadTests extends AbstractContentIntegrationTest {
         String viewerToken = registerAndGetToken(VIEWER_PHONE, VIEWER);
         long authorId = userIdOf(AUTHOR_PHONE);
 
-        assertThat(Envelope.data(get("/profile?userId=" + authorId, viewerToken))
+        assertThat(Envelope.data(get("/api/v1/users/" + authorId, viewerToken))
                 .path("isFollowed").asBoolean()).as("未关注 ⇒ false").isFalse();
 
         assertThat(putForm("/api/v1/follows/" + authorId, null, viewerToken)
                 .getStatusCode().value()).isEqualTo(200);
-        assertThat(Envelope.data(get("/profile?userId=" + authorId, viewerToken))
+        assertThat(Envelope.data(get("/api/v1/users/" + authorId, viewerToken))
                 .path("isFollowed").asBoolean()).as("已关注 ⇒ true").isTrue();
 
-        assertThat(Envelope.data(get("/profile?userId=" + authorId, authorToken))
+        assertThat(Envelope.data(get("/api/v1/users/" + authorId, authorToken))
                 .path("isFollowed").isNull()).as("看自己 ⇒ null（无意义的问题）").isTrue();
     }
 
@@ -233,11 +234,11 @@ class ProfileReadTests extends AbstractContentIntegrationTest {
         long authorId = userIdOf(AUTHOR_PHONE);
         insertVideoContent(authorId, "计数内容");
 
-        get("/profile?userId=" + authorId, null);
+        get("/api/v1/users/" + authorId, null);
         verify(userDao, times(1)).getFollowCountById(authorId);
         verify(userDao, times(1)).getFollowerCountById(authorId);
 
-        get("/profile?userId=" + authorId, null);
+        get("/api/v1/users/" + authorId, null);
         verify(userDao, times(1)).getFollowCountById(authorId);
         verify(userDao, times(1)).getFollowerCountById(authorId);
 
@@ -255,7 +256,7 @@ class ProfileReadTests extends AbstractContentIntegrationTest {
         long viewerId = userIdOf(VIEWER_PHONE);
 
         // 只预热**被关注者**的计数（读他的主页）；关注者本人的计数保持"未加载"
-        JsonNode before = Envelope.data(get("/profile?userId=" + authorId, viewerToken));
+        JsonNode before = Envelope.data(get("/api/v1/users/" + authorId, viewerToken));
         assertThat(before.path("followerCount").asInt()).isZero();
         assertThat(redis.opsForValue().get("user:followerCount:" + authorId))
                 .as("前置：被关注者的粉丝计数已加载为 0").isEqualTo("0");
@@ -273,13 +274,13 @@ class ProfileReadTests extends AbstractContentIntegrationTest {
                 .as("冷 key ⇒ 不创建半套计数").isNull();
 
         // ③ 读关注者的主页 ⇒ 回源 DB 得到真值并回填
-        JsonNode viewerProfile = Envelope.data(get("/profile?userId=" + viewerId, viewerToken));
+        JsonNode viewerProfile = Envelope.data(get("/api/v1/users/" + viewerId, viewerToken));
         assertThat(viewerProfile.path("followCount").asInt()).as("回源 DB 得到真值").isEqualTo(1);
         assertThat(redis.opsForValue().get("user:followCount:" + viewerId))
                 .as("回填后 key 建立").isEqualTo("1");
 
         // ④ 被关注者侧：接口读数与 DB 列一致（独立 oracle）
-        JsonNode after = Envelope.data(get("/profile?userId=" + authorId, viewerToken));
+        JsonNode after = Envelope.data(get("/api/v1/users/" + authorId, viewerToken));
         assertThat(after.path("followerCount").asInt()).as("接口读数与缓存一致").isEqualTo(1);
         assertThat(followerCountColumn(authorId)).as("独立 oracle：DB 列也一致").isEqualTo(1);
     }
@@ -298,7 +299,7 @@ class ProfileReadTests extends AbstractContentIntegrationTest {
                 .as("冷 key 不得被写成 1（真实值可能是 37）").isNull();
 
         // 读路径回源 DB ⇒ 得到真值 1，并回填
-        JsonNode profile = Envelope.data(get("/profile?userId=" + authorId, viewerToken));
+        JsonNode profile = Envelope.data(get("/api/v1/users/" + authorId, viewerToken));
         assertThat(profile.path("followerCount").asInt()).as("回源 DB 得到真值").isEqualTo(1);
         assertThat(redis.opsForValue().get("user:followerCount:" + authorId)).isEqualTo("1");
     }

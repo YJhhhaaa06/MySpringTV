@@ -51,8 +51,8 @@ import java.util.Set;
  * <table>
  *   <caption>端点 → 方法</caption>
  *   <tr><th>端点</th><th>方法</th><th>事务</th></tr>
- *   <tr><td>{@code GET /search/keywordSearch}</td><td>{@link #search}</td><td>无（纯读，G-2）</td></tr>
- *   <tr><td>{@code GET /search/IdSearch}</td><td>{@link #getContentDetailVO}</td><td>无（纯读）</td></tr>
+ *   <tr><td>{@code GET /api/v1/contents}（搜索，`T58` 前为 /search/keywordSearch）</td><td>{@link #search}</td><td>无（纯读，G-2）</td></tr>
+ *   <tr><td>{@code GET /api/v1/contents/{id}}（详情，`T58` 前为 /search/IdSearch）</td><td>{@link #getContentDetailVO}</td><td>无（纯读）</td></tr>
  *   <tr><td>{@code GET /comment/show}</td><td>{@link #getCommentsForContent} ×2 重载</td><td>无（纯读）</td></tr>
  *   <tr><td>{@code POST /content/commentEnabled}</td><td>{@link #setCommentEnabled}</td><td>{@code @Transactional}</td></tr>
  *   <tr><td>{@code POST /content/update}</td><td>{@link #updateContentInfo}</td><td>{@code @Transactional}</td></tr>

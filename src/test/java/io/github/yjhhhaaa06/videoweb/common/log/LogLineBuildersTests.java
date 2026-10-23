@@ -24,9 +24,10 @@ class LogLineBuildersTests {
     @Test
     @DisplayName("访问行：固定字段顺序 method → path → status → code → userId → cost → slow")
     void 访问行字段顺序() {
-        String line = AccessLogFilter.buildLine("GET", "/start", 200, "OK", null, 3L, 1000L);
+        // 样例路径取 `T58` 后的真实端点（字段顺序断言与具体路径无关，仅消除旧路径残留）
+        String line = AccessLogFilter.buildLine("GET", "/api/v1/contents/recommended", 200, "OK", null, 3L, 1000L);
 
-        assertThat(line).isEqualTo("method=GET path=/start status=200 code=OK userId=- cost=3ms slow=0");
+        assertThat(line).isEqualTo("method=GET path=/api/v1/contents/recommended status=200 code=OK userId=- cost=3ms slow=0");
     }
 
     @Test

@@ -41,11 +41,12 @@ import java.util.List;
  * 初衷：简略 VO 不需要的维度**就不查**，省下的那一位是 {@code null}、前端静默忽略
  * （互动域因此**不再按固定全集一起答**，见 {@code InteractionDimension}）。
  * <pre>
- *   /start                  ⇒ {关注}         （对标 B站 首页卡片只显示「已关注」）
- *   /search/keywordSearch   ⇒ {}（0 维）     （B站 搜索结果卡片不显示任何互动态）
- *   /feed                   ⇒ {赞}
- *   /profile.contentPage    ⇒ {赞}
- *   /search/IdSearch（详情） ⇒ 四维（经 getStatus 单条，**不经本类**）
+ *   /api/v1/contents/recommended（首页） ⇒ {关注}   （对标 B站 首页卡片只显示「已关注」）
+ *   /api/v1/contents（搜索）             ⇒ {}（0 维）（B站 搜索结果卡片不显示任何互动态）
+ *   /api/v1/feed                         ⇒ {赞}
+ *   /api/v1/users/{id}.contentPage（主页）⇒ {赞}
+ *   /api/v1/contents/{id}（详情）        ⇒ 四维（经 getStatus 单条，**不经本类**）
+ *   （以上为 `T58` 资源化后的路径，原 /start、/search/keywordSearch、/feed、/profile、/search/IdSearch）
  * </pre>
  * ⚠️ 0 维**不等于"不填"**：仍要调互动域（它一趟都不查），拿到"对象在、四维全 {@code null}"
  * —— 直接留 {@code null} 会与"匿名"不可区分。

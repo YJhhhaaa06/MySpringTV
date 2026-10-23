@@ -100,7 +100,7 @@ class AdminContentTests extends AbstractAdminIntegrationTest {
         insertContentLike(authorId, contentId);
         jdbcTemplate.update("UPDATE content SET comment_count = 1, like_count = 1 WHERE id = ?", contentId);
 
-        JsonNode before = Envelope.data(get("/search/IdSearch?contentId=" + contentId, null));
+        JsonNode before = Envelope.data(get("/api/v1/contents/" + contentId, null));
         String videoUrlBefore = before.path("videoUrl").asString();
         String coverUrlBefore = before.path("coverUrl").asString();
         int commentCountBefore = before.path("commentCount").asInt();
@@ -111,7 +111,7 @@ class AdminContentTests extends AbstractAdminIntegrationTest {
         assertThat(hide.getStatusCode().value()).as("下架应 200: %s", hide.getBody()).isEqualTo(200);
         assertThat(Envelope.data(hide).asString()).isEqualTo("下架成功");
 
-        assertThat(get("/search/IdSearch?contentId=" + contentId, null).getStatusCode().value())
+        assertThat(get("/api/v1/contents/" + contentId, null).getStatusCode().value())
                 .as("下架后详情应 404").isEqualTo(404);
         assertThat(profileContentIds(authorId)).as("下架后作者主页不应再列出").doesNotContain(contentId);
         assertThat(itemById(Envelope.data(get("/api/admin/content/list", adminToken)), contentId)
@@ -127,7 +127,7 @@ class AdminContentTests extends AbstractAdminIntegrationTest {
         assertThat(unhide.getStatusCode().value()).as("恢复应 200: %s", unhide.getBody()).isEqualTo(200);
         assertThat(Envelope.data(unhide).asString()).isEqualTo("恢复成功");
 
-        JsonNode after = Envelope.data(get("/search/IdSearch?contentId=" + contentId, null));
+        JsonNode after = Envelope.data(get("/api/v1/contents/" + contentId, null));
         assertThat(after.path("videoUrl").asString()).as("视频 URL 应保持不变").isEqualTo(videoUrlBefore);
         assertThat(after.path("coverUrl").asString()).as("封面 URL 应保持不变").isEqualTo(coverUrlBefore);
         assertThat(after.path("commentCount").asInt()).isEqualTo(commentCountBefore);
@@ -214,8 +214,8 @@ class AdminContentTests extends AbstractAdminIntegrationTest {
         long contentId = insertVideoContent(authorId, "缓存机制标题");
 
         // 预热：读详情填 content key；读 /start 触发索引懒重建（建出 content:index:* 四个键）
-        assertThat(get("/search/IdSearch?contentId=" + contentId, null).getStatusCode().value()).isEqualTo(200);
-        assertThat(get("/start", null).getStatusCode().value()).isEqualTo(200);
+        assertThat(get("/api/v1/contents/" + contentId, null).getStatusCode().value()).isEqualTo(200);
+        assertThat(get("/api/v1/contents/recommended", null).getStatusCode().value()).isEqualTo(200);
         assertThat(cachedContentJson(contentId)).as("前置：内容 key 应已被读路径回填").isNotNull();
         assertThat(indexContains(contentId)).as("前置：/start 之后内容应已进索引").isTrue();
 
@@ -256,7 +256,7 @@ class AdminContentTests extends AbstractAdminIntegrationTest {
 
     /** {@code GET /profile?userId=X} 第 1 页的内容 id 列表。 */
     private List<Long> profileContentIds(long authorId) {
-        JsonNode page = Envelope.data(get("/profile?userId=" + authorId, null)).path("contentPage").path("list");
+        JsonNode page = Envelope.data(get("/api/v1/users/" + authorId, null)).path("contentPage").path("list");
         List<Long> ids = new ArrayList<>();
         for (JsonNode item : page) {
             ids.add(item.path("id").asLong());

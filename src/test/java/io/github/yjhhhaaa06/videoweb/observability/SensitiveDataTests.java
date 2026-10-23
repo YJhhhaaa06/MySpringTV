@@ -84,7 +84,9 @@ class SensitiveDataTests extends AbstractObservabilityTest {
 
         // contentId 收 Long，非数字 ⇒ MethodArgumentTypeMismatchException（400），
         // 框架会把**被拒的值**回显进异常消息 ⇒ 这正是"参数进日志"的真实路径。
-        get("/comment/show?contentId=" + phone + "abc", null);
+        // `T58` 契约变更（接口契约.md §2.3）：原触发点 /comment/show 随 contentId 进路径而
+        // 不再存在（T58-2 漏改本行），换用同形态的详情端点 GET /api/v1/contents/{id} 触发。
+        get("/api/v1/contents/" + phone + "abc", null);
 
         awaitSystemLine("msg=请求参数错误");
         assertThat(String.join("\n", systemLines()))

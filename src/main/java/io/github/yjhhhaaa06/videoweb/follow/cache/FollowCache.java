@@ -78,7 +78,7 @@ import java.util.Set;
  * <h2>★ 计数缓存：S4 去掉、S5 补回（决策表 G-8）</h2>
  * S4 曾去掉 {@code user:followCount} / {@code user:followerCount}（理由：去掉 {@code partial} 后
  * 它只剩"降级路径取 total"一个用途），并写明"补回位置 = S5 迁 {@code ProfileService} 时"。
- * <b>S5 兑现</b>：{@code /profile} 直接需要这两个计数（{@link #getFollowCount} /
+ * <b>S5 兑现</b>：用户主页读路径（`T58` 后为 {@code /api/v1/users/{id}}）直接需要这两个计数（{@link #getFollowCount} /
  * {@link #getFollowerCount}），降级路径的 total 也改走它们（恢复 TV 口径）。
  * ★ T4 搬回 {@code partial} 后，它们**又多了一个用途**：部分态的 total（ZCARD 只是前缀大小）。
  * 写入方是 {@code FollowChangedListener}（提交后）的条件写 —— 见 {@link #applyCountWrite}。

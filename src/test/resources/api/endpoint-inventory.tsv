@@ -22,9 +22,12 @@ GET	/api/v1/comments/{id}/like	LOGIN	ApiResponse<Boolean>
 PUT	/api/v1/comments/{id}/like	LOGIN	ApiResponse<String>
 GET	/api/v1/comments/{id}/like-count	LOGIN	ApiResponse<Integer>
 GET	/api/v1/comments/{id}/replies	PUBLIC	ApiResponse<CursorResult<CommentVO>>
+GET	/api/v1/contents	PUBLIC	ApiResponse<PageResult<ContentVO>>
 POST	/api/v1/contents/posts	LOGIN	ApiResponse<Map<String, Object>>
+GET	/api/v1/contents/recommended	PUBLIC	ApiResponse<List<ContentVO>>
 POST	/api/v1/contents/videos	LOGIN	ApiResponse<Map<String, Object>>
 DELETE	/api/v1/contents/{id}	LOGIN	ApiResponse<String>
+GET	/api/v1/contents/{id}	PUBLIC	ApiResponse<ContentDetailVO>
 PUT	/api/v1/contents/{id}	LOGIN	ApiResponse<String>
 POST	/api/v1/contents/{id}/coins	LOGIN	ApiResponse<CoinBalanceVO>
 PUT	/api/v1/contents/{id}/comment-enabled	LOGIN	ApiResponse<String>
@@ -51,6 +54,7 @@ DELETE	/api/v1/favorites	LOGIN	ApiResponse<String>
 GET	/api/v1/favorites	LOGIN	ApiResponse<PageResult<FavoriteItemVO>>
 POST	/api/v1/favorites	LOGIN	ApiResponse<String>
 PUT	/api/v1/favorites/{id}	LOGIN	ApiResponse<String>
+GET	/api/v1/feed	LOGIN	ApiResponse<PageResult<ContentVO>>
 DELETE	/api/v1/follows/{id}	LOGIN	ApiResponse<String>
 PUT	/api/v1/follows/{id}	LOGIN	ApiResponse<String>
 GET	/api/v1/history	LOGIN	ApiResponse<PageResult<HistoryItemVO>>
@@ -62,6 +66,7 @@ POST	/api/v1/users/me/check-ins	LOGIN	ApiResponse<SignInVO>
 GET	/api/v1/users/me/coupons	LOGIN	ApiResponse<List<CouponOrderVO>>
 PUT	/api/v1/users/me/password	LOGIN	ApiResponse<Void>
 PUT	/api/v1/users/me/username	LOGIN	ApiResponse<Void>
+GET	/api/v1/users/{id}	PUBLIC	ApiResponse<ProfileVO>
 GET	/api/v1/users/{id}/favorite-folders	PUBLIC	ApiResponse<List<PublicFavoriteFolderVO>>
 GET	/api/v1/users/{id}/followers	LOGIN	ApiResponse<PageResult<FollowUserVO>>
 GET	/api/v1/users/{id}/following	LOGIN	ApiResponse<PageResult<FollowUserVO>>
@@ -69,8 +74,3 @@ DELETE	/api/v1/watch-later	LOGIN	ApiResponse<String>
 GET	/api/v1/watch-later	LOGIN	ApiResponse<PageResult<WatchLaterItemVO>>
 PUT	/api/v1/watch-later/{id}	LOGIN	ApiResponse<String>
 PUT	/api/v1/watch-later/{id}/folder	LOGIN	ApiResponse<String>
-GET	/feed	LOGIN	ApiResponse<PageResult<ContentVO>>
-GET	/profile	PUBLIC	ApiResponse<ProfileVO>
-GET	/search/IdSearch	PUBLIC	ApiResponse<ContentDetailVO>
-GET	/search/keywordSearch	PUBLIC	ApiResponse<PageResult<ContentVO>>
-GET	/start	PUBLIC	ApiResponse<List<ContentVO>>

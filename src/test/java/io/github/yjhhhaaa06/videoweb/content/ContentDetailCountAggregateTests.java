@@ -80,7 +80,7 @@ class ContentDetailCountAggregateTests extends AbstractContentIntegrationTest {
         String viewerToken = registerAndGetToken(VIEWER_PHONE, VIEWER);
 
         // 预热：详情一次，五键全部回填（like="0"）
-        JsonNode before = Envelope.data(get("/search/IdSearch?contentId=" + contentId, authorToken));
+        JsonNode before = Envelope.data(get("/api/v1/contents/" + contentId, authorToken));
         assertThat(before.path("likeCount").asLong()).as("前置：0 赞").isZero();
 
         // viewer 点赞：写路径事务内维护列（like_count=1），提交后 Lua 条件 INCR（键已预热 "0"→"1"）
@@ -94,7 +94,7 @@ class ContentDetailCountAggregateTests extends AbstractContentIntegrationTest {
         // 只失效 like 键（模拟点赞域 DEL 自愈窗口）
         redis.delete(CacheKeys.contentLikeCount(contentId));
 
-        JsonNode data = Envelope.data(get("/search/IdSearch?contentId=" + contentId, authorToken));
+        JsonNode data = Envelope.data(get("/api/v1/contents/" + contentId, authorToken));
         assertThat(data.path("likeCount").asLong())
                 .as("★ like 键 miss ⇒ 回源列并回填（写路径维护列 = 1）").isEqualTo(1L);
         assertThat(data.path("favoriteCount").asLong())
@@ -115,7 +115,7 @@ class ContentDetailCountAggregateTests extends AbstractContentIntegrationTest {
         jdbcTemplate.update("UPDATE content SET play_count = 4 WHERE id = ?", contentId);
 
         // 冷内容：五个键全 miss ⇒ 一趟 findCountColumns 取齐五列，五个键按列值回填
-        JsonNode cold = Envelope.data(get("/search/IdSearch?contentId=" + contentId, token));
+        JsonNode cold = Envelope.data(get("/api/v1/contents/" + contentId, token));
         assertThat(cold.path("playCount").asLong()).as("playCount = 列真值 4").isEqualTo(4L);
         assertThat(redis.opsForValue().get(CacheKeys.contentPlayCount(contentId)))
                 .as("★ 五键之一：miss 的 playCount 键被回填为列值").isEqualTo("4");
@@ -124,7 +124,7 @@ class ContentDetailCountAggregateTests extends AbstractContentIntegrationTest {
         // 命中但陈旧（7 ≠ 列真值 4）+ 只失效 like ⇒ playCount 一个都不许碰（有选择回填）
         redis.opsForValue().set(CacheKeys.contentPlayCount(contentId), "7");
         redis.delete(CacheKeys.contentLikeCount(contentId));
-        JsonNode warm = Envelope.data(get("/search/IdSearch?contentId=" + contentId, token));
+        JsonNode warm = Envelope.data(get("/api/v1/contents/" + contentId, token));
         assertThat(warm.path("playCount").asLong())
                 .as("playCount 键命中 ⇒ 返回缓存值（cache-aside：失效权在写路径）").isEqualTo(7L);
         assertThat(redis.opsForValue().get(CacheKeys.contentPlayCount(contentId)))
@@ -132,7 +132,7 @@ class ContentDetailCountAggregateTests extends AbstractContentIntegrationTest {
 
         // 脏值：非数字 ⇒ 按 miss 处理，被回填覆盖
         redis.opsForValue().set(CacheKeys.contentPlayCount(contentId), "not-a-number");
-        JsonNode dirty = Envelope.data(get("/search/IdSearch?contentId=" + contentId, token));
+        JsonNode dirty = Envelope.data(get("/api/v1/contents/" + contentId, token));
         assertThat(dirty.path("playCount").asLong()).as("★ 脏值不外显（按 miss 回源列）").isEqualTo(4L);
         assertThat(redis.opsForValue().get(CacheKeys.contentPlayCount(contentId)))
                 .as("★ 脏值被回填覆盖为列值").isEqualTo("4");
@@ -197,12 +197,12 @@ class ContentDetailCountAggregateTests extends AbstractContentIntegrationTest {
         long authorId = userIdOf(AUTHOR_PHONE);
         long contentId = insertVideoContent(authorId, "聚合-脏值");
 
-        assertThat(get("/search/IdSearch?contentId=" + contentId, token).getStatusCode().value())
+        assertThat(get("/api/v1/contents/" + contentId, token).getStatusCode().value())
                 .as("前置：详情可读（五键回填）").isEqualTo(200);
 
         redis.opsForValue().set(CacheKeys.contentCoinCount(contentId), "not-a-number");
 
-        JsonNode data = Envelope.data(get("/search/IdSearch?contentId=" + contentId, token));
+        JsonNode data = Envelope.data(get("/api/v1/contents/" + contentId, token));
         assertThat(data.path("coinCount").asLong())
                 .as("★ 脏值不外显（按 miss 回源列：coin_count = 0）").isZero();
         assertThat(redis.opsForValue().get(CacheKeys.contentCoinCount(contentId)))
@@ -217,7 +217,7 @@ class ContentDetailCountAggregateTests extends AbstractContentIntegrationTest {
         long contentId = insertVideoContent(authorId, "聚合-404短路");
 
         // 预热五键（否则"键不存在"零判别力——假绿形态①）
-        assertThat(get("/search/IdSearch?contentId=" + contentId, authorToken).getStatusCode().value())
+        assertThat(get("/api/v1/contents/" + contentId, authorToken).getStatusCode().value())
                 .isEqualTo(200);
         assertThat(redis.hasKey(CacheKeys.contentLikeCount(contentId))).isTrue();
 
@@ -228,7 +228,7 @@ class ContentDetailCountAggregateTests extends AbstractContentIntegrationTest {
         assertThat(delete("/api/v1/contents/" + contentId, authorToken)
                 .getStatusCode().value()).as("前置：作者删除").isEqualTo(200);
 
-        assertThat(get("/search/IdSearch?contentId=" + contentId, authorToken).getStatusCode().value())
+        assertThat(get("/api/v1/contents/" + contentId, authorToken).getStatusCode().value())
                 .as("前置：详情 404").isEqualTo(404);
 
         // like / comment / coin 三键的域订阅 REMOVE（点赞物理删行、评论级联软删、投币列清零式失效），
@@ -260,7 +260,7 @@ class ContentDetailCountAggregateTests extends AbstractContentIntegrationTest {
         try {
             doThrow(new CacheUnavailableException("模拟 Redis 故障"))
                     .when(aggregate).pipeline(any());
-            JsonNode data = Envelope.data(get("/search/IdSearch?contentId=" + contentId, token));
+            JsonNode data = Envelope.data(get("/api/v1/contents/" + contentId, token));
             assertThat(data.path("coinCount").asLong())
                     .as("★ 降级直查 DB，计数仍正确").isEqualTo(5L);
             assertThat(data.path("likeCount").asLong()).isZero();

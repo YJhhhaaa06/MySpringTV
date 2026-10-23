@@ -47,10 +47,11 @@ import static org.mockito.Mockito.verify;
  * 详情响应的互动态收在 {@code interaction} 子对象（顶层 {@code isLiked}/{@code isFollowed}
  * 已在 T10 删除——这是 R-10 有意的 breaking 面，见 {@code favorite.md} §六）；
  * **匿名 ⇒ {@code "interaction": null}**（不是 {@code {}}、不是三个 {@code false}）。
- * <p>★ **T13（R-13）起列表同形**：{@code /start} / {@code /search/keywordSearch} 也把互动态
+ * <p>★ **T13（R-13）起列表同形**：{@code /api/v1/contents/recommended}（`T58` 前为 {@code /start}）/
+ * {@code /api/v1/contents}（`T58` 前为 {@code /search/keywordSearch}）也把互动态
  * 收进 {@code interaction}（顶层两键删除），且**四维** —— 前三维值三态（{@code null} = 本面不查该维），
  * 第四维 {@code coin} 在详情是 {@code 0/1/2}、在列表**恒 {@code null}**：
- * {@code /start} 只带 {@code {关注}}、{@code /search/keywordSearch} 带 **0 维**（对象仍在、
+ * {@code /api/v1/contents/recommended} 只带 {@code {关注}}、{@code /api/v1/contents} 带 **0 维**（对象仍在、
  * 四维全 {@code null}）。详见 {@code ContentVO} 类注释的常量表。
  * ⚠️ 0 维的"对象仍在"是刻意的：{@code interaction: null} 是**匿名**的语义，两者必须可区分。
  */
@@ -86,7 +87,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
     }
 
     // ========================================================================
-    // /search/IdSearch
+    // /api/v1/contents/{id}（`T58` 契约变更，原 /search/IdSearch）
     // ========================================================================
 
     @Test
@@ -96,7 +97,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         long authorId = userIdOf(AUTHOR_PHONE);
         long contentId = insertVideoContent(authorId, "详情视频标题");
 
-        ResponseEntity<String> resp = get("/search/IdSearch?contentId=" + contentId, token);
+        ResponseEntity<String> resp = get("/api/v1/contents/" + contentId, token);
         assertThat(resp.getStatusCode().value()).as("详情应 200: %s", resp.getBody()).isEqualTo(200);
 
         JsonNode data = Envelope.data(resp);
@@ -137,7 +138,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         long authorId = userIdOf(AUTHOR_PHONE);
         long contentId = insertPostContent(authorId, "详情图文标题");
 
-        ResponseEntity<String> resp = get("/search/IdSearch?contentId=" + contentId, null);
+        ResponseEntity<String> resp = get("/api/v1/contents/" + contentId, null);
         JsonNode data = Envelope.data(resp);
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         assertThat(data.path("imageUrls").isArray()).isTrue();
@@ -154,22 +155,23 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         long authorId = userIdOf(AUTHOR_PHONE);
         long broken = insertBrokenVideoContent(authorId, "媒体损坏的内容");
 
-        assertThat(get("/search/IdSearch?contentId=987654321", null).getStatusCode().value())
+        assertThat(get("/api/v1/contents/987654321", null).getStatusCode().value())
                 .as("不存在的 id").isEqualTo(404);
-        assertThat(get("/search/IdSearch?contentId=" + broken, null).getStatusCode().value())
+        assertThat(get("/api/v1/contents/" + broken, null).getStatusCode().value())
                 .as("视频行缺失 = 资源已丢失，对外等同不存在").isEqualTo(404);
 
         jdbcTemplate.update("UPDATE content SET is_deleted = 1 WHERE id = ?", broken);
-        assertThat(get("/search/IdSearch?contentId=" + broken, null).getStatusCode().value())
+        assertThat(get("/api/v1/contents/" + broken, null).getStatusCode().value())
                 .as("已软删").isEqualTo(404);
     }
 
     @Test
-    @DisplayName("详情：缺 contentId → 400；非法 contentId → 400（TV 是 500，本切片有意修正）")
+    @DisplayName("详情：非法 contentId → 400（TV 是 500，本切片有意修正）")
     void 详情_参数错误() {
-        assertThat(get("/search/IdSearch", null).getStatusCode().value())
-                .as("缺 contentId").isEqualTo(400);
-        assertThat(get("/search/IdSearch?contentId=abc", null).getStatusCode().value())
+        // `T58` 契约变更（接口契约.md §2.3）：contentId 进路径（GET /api/v1/contents/{id}）——
+        // "缺 contentId → 400" 的形态不可表达（少路径段 = 无路由匹配 = 404），旧断言按 §2.3 退役；
+        // "非法 contentId → 400" 保留：非数字段由路径变量类型转换兜住（全局出口统一文案）。
+        assertThat(get("/api/v1/contents/abc", null).getStatusCode().value())
                 .as("非法 contentId（TV 此处是未捕获的 NumberFormatException → 500）").isEqualTo(400);
     }
 
@@ -189,7 +191,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         assertThat(postQuery("/api/v1/favorites", query("contentId", String.valueOf(contentId)), token)
                 .getStatusCode().value()).as("前置：收藏应成功").isEqualTo(200);
 
-        JsonNode interaction = Envelope.data(get("/search/IdSearch?contentId=" + contentId, token))
+        JsonNode interaction = Envelope.data(get("/api/v1/contents/" + contentId, token))
                 .path("interaction");
         assertThat(interaction.path("isLiked").asBoolean()).isTrue();
         assertThat(interaction.path("isFavorited").asBoolean())
@@ -199,7 +201,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         // 反向对照：换一个没点过赞 / 没收藏 / 没关注的用户 ⇒ 赞藏关注三维都是 false，且子对象**在场**
         // （排除"恒为 true"与"匿名态混入"两种假绿——这正是"这个断言还可能由谁产生"的自问）
         String otherToken = registerAndGetToken("13900001003", "content-third");
-        JsonNode other = Envelope.data(get("/search/IdSearch?contentId=" + contentId, otherToken))
+        JsonNode other = Envelope.data(get("/api/v1/contents/" + contentId, otherToken))
                 .path("interaction");
         assertThat(other.isObject()).as("登录但零互动 ⇒ 对象在场（不是 null）").isTrue();
         assertThat(other.path("isLiked").asBoolean()).isFalse();
@@ -213,7 +215,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         registerAndGetToken(AUTHOR_PHONE, AUTHOR);
         long contentId = insertVideoContent(userIdOf(AUTHOR_PHONE), "匿名可见内容");
 
-        ResponseEntity<String> resp = get("/search/IdSearch?contentId=" + contentId, null);
+        ResponseEntity<String> resp = get("/api/v1/contents/" + contentId, null);
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         JsonNode data = Envelope.data(resp);
         assertThat(data.has("interaction")).as("匿名也输出 interaction 键（值为 null）").isTrue();
@@ -225,7 +227,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
     }
 
     // ========================================================================
-    // /search/keywordSearch（T19 分页 + T15 tie-breaker）
+    // /api/v1/contents（`T58` 契约变更，原 /search/keywordSearch）（T19 分页 + T15 tie-breaker）
     // ========================================================================
 
     @Test
@@ -236,20 +238,20 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         insertPostContent(authorId, "zqtb 分页内容一");
         insertPostContent(authorId, "zqtb 分页内容二");
 
-        JsonNode defaultData = Envelope.data(get("/search/keywordSearch?keyword=zqtb", null));
+        JsonNode defaultData = Envelope.data(get("/api/v1/contents?keyword=zqtb", null));
         assertThat(keysOf(defaultData)).containsExactlyInAnyOrder(
                 "list", "total", "page", "pageSize", "totalPages");
         assertThat(defaultData.path("page").asInt()).isEqualTo(1);
         assertThat(defaultData.path("pageSize").asInt()).isEqualTo(PAGE_SIZE_MAX);
         assertThat(defaultData.path("total").asInt()).isEqualTo(2);
 
-        assertThat(Envelope.data(get("/search/keywordSearch?keyword=zqtb&pageSize=999", null))
+        assertThat(Envelope.data(get("/api/v1/contents?keyword=zqtb&pageSize=999", null))
                 .path("pageSize").asInt()).as("超上限截到 100").isEqualTo(100);
-        assertThat(Envelope.data(get("/search/keywordSearch?keyword=zqtb&pageSize=51", null))
+        assertThat(Envelope.data(get("/api/v1/contents?keyword=zqtb&pageSize=51", null))
                 .path("pageSize").asInt()).as("51 原样回显（不是截到 100）").isEqualTo(51);
-        assertThat(Envelope.data(get("/search/keywordSearch?keyword=zqtb&pageSize=abc", null))
+        assertThat(Envelope.data(get("/api/v1/contents?keyword=zqtb&pageSize=abc", null))
                 .path("pageSize").asInt()).as("非法值回落域级信封，不是 500").isEqualTo(100);
-        assertThat(Envelope.data(get("/search/keywordSearch?keyword=zqtb&page=0", null))
+        assertThat(Envelope.data(get("/api/v1/contents?keyword=zqtb&page=0", null))
                 .path("page").asInt()).as("page<1 归一为 1").isEqualTo(1);
     }
 
@@ -260,8 +262,8 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         long authorId = userIdOf(AUTHOR_PHONE);
         insertPostContent(authorId, "zqtb 等价内容");
 
-        JsonNode a = Envelope.data(get("/search/keywordSearch?keyword=zqtb", null));
-        JsonNode b = Envelope.data(get("/search/keywordSearch?keyword=zqtb&page=1&pageSize=100", null));
+        JsonNode a = Envelope.data(get("/api/v1/contents?keyword=zqtb", null));
+        JsonNode b = Envelope.data(get("/api/v1/contents?keyword=zqtb&page=1&pageSize=100", null));
         assertThat(a.path("list").size()).as("本用例需非空列表才有判别力").isEqualTo(1);
         assertThat(a.toString()).isEqualTo(b.toString());
     }
@@ -269,17 +271,17 @@ class ContentReadTests extends AbstractContentIntegrationTest {
     @Test
     @DisplayName("搜索：关键词空白 → 400（文案 输入不能为空）")
     void 搜索_关键词空() {
-        ResponseEntity<String> blank = get("/search/keywordSearch?keyword=", null);
+        ResponseEntity<String> blank = get("/api/v1/contents?keyword=", null);
         assertThat(blank.getStatusCode().value()).isEqualTo(400);
         assertThat(Envelope.msg(blank)).isEqualTo("输入不能为空");
 
         // 纯空白：必须走结构化 query，否则 RestClient 会把 %20 二次编码成字面量 "%20%20"
         // （那样服务端看到的是一个非空关键词 ⇒ 200，测试变成假红）
-        ResponseEntity<String> spaces = getQuery("/search/keywordSearch", query("keyword", "   "), null);
+        ResponseEntity<String> spaces = getQuery("/api/v1/contents", query("keyword", "   "), null);
         assertThat(spaces.getStatusCode().value()).as("%s", spaces.getBody()).isEqualTo(400);
         assertThat(Envelope.msg(spaces)).isEqualTo("输入不能为空");
 
-        assertThat(get("/search/keywordSearch", null).getStatusCode().value()).isEqualTo(400);
+        assertThat(get("/api/v1/contents", null).getStatusCode().value()).isEqualTo(400);
     }
 
     @Test
@@ -302,7 +304,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         List<Long> paged = new ArrayList<>();
         for (int page = 1; page <= ids.size(); page++) {
             JsonNode pageData = Envelope.data(
-                    get("/search/keywordSearch?keyword=qz&page=" + page + "&pageSize=1", null));
+                    get("/api/v1/contents?keyword=qz&page=" + page + "&pageSize=1", null));
             JsonNode list = pageData.path("list");
             assertThat(list.size()).as("pageSize=1 每页应 1 条").isEqualTo(1);
             paged.add(list.get(0).path("id").asLong());
@@ -311,17 +313,17 @@ class ContentReadTests extends AbstractContentIntegrationTest {
     }
 
     // ========================================================================
-    // /start
+    // /api/v1/contents/recommended（`T58` 契约变更，原 /start）
     // ========================================================================
 
     @Test
-    @DisplayName("/start：返回列表且包含已发布内容；请求参数 limit 被忽略（TV 固定 12）")
+    @DisplayName("/api/v1/contents/recommended：返回列表且包含已发布内容；请求参数 limit 被忽略（TV 固定 12）")
     void 首页推荐_列表与limit忽略() {
         registerAndGetToken(AUTHOR_PHONE, AUTHOR);
         long authorId = userIdOf(AUTHOR_PHONE);
         long contentId = insertVideoContent(authorId, "首页推荐内容");
 
-        ResponseEntity<String> resp = get("/start?limit=10", null);
+        ResponseEntity<String> resp = get("/api/v1/contents/recommended?limit=10", null);
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         JsonNode data = Envelope.data(resp);
         assertThat(data.isArray()).isTrue();
@@ -329,22 +331,22 @@ class ContentReadTests extends AbstractContentIntegrationTest {
     }
 
     @Test
-    @DisplayName("/start：type/categoryId 过滤与取值校验（语法非法静默、语义非法 400）")
+    @DisplayName("/api/v1/contents/recommended：type/categoryId 过滤与取值校验（语法非法静默、语义非法 400）")
     void 首页推荐_过滤与校验() {
         registerAndGetToken(AUTHOR_PHONE, AUTHOR);
         long authorId = userIdOf(AUTHOR_PHONE);
         long videoId = insertVideoContent(authorId, "类型过滤-视频");
         long postId = insertPostContent(authorId, "类型过滤-图文");
 
-        assertThat(idsOf(Envelope.data(get("/start?type=1", null)))).contains(videoId).doesNotContain(postId);
-        assertThat(idsOf(Envelope.data(get("/start?type=2", null)))).contains(postId).doesNotContain(videoId);
+        assertThat(idsOf(Envelope.data(get("/api/v1/contents/recommended?type=1", null)))).contains(videoId).doesNotContain(postId);
+        assertThat(idsOf(Envelope.data(get("/api/v1/contents/recommended?type=2", null)))).contains(postId).doesNotContain(videoId);
         // 语法非法（非数字）静默 → 不过滤
-        assertThat(idsOf(Envelope.data(get("/start?type=abc", null)))).contains(videoId, postId);
+        assertThat(idsOf(Envelope.data(get("/api/v1/contents/recommended?type=abc", null)))).contains(videoId, postId);
         // 语义非法（越界）→ 400（文案由缓存层给出，TV 原样）
-        ResponseEntity<String> badType = get("/start?type=3", null);
+        ResponseEntity<String> badType = get("/api/v1/contents/recommended?type=3", null);
         assertThat(badType.getStatusCode().value()).isEqualTo(400);
         assertThat(Envelope.msg(badType)).isEqualTo("不支持的内容类型: 3");
-        ResponseEntity<String> badCategory = get("/start?categoryId=99", null);
+        ResponseEntity<String> badCategory = get("/api/v1/contents/recommended?categoryId=99", null);
         assertThat(badCategory.getStatusCode().value()).isEqualTo(400);
         assertThat(Envelope.msg(badCategory)).isEqualTo("不支持的分区: 99");
     }
@@ -366,24 +368,24 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         jdbcTemplate.update("INSERT INTO follow (user_id, followed_user_id) VALUES (?, ?)",
                 viewerId, authorId);
 
-        // ---- /start：只带 {关注} ----
-        JsonNode startItem = itemOf(Envelope.data(get("/start", token)), contentId);
+        // ---- /api/v1/contents/recommended：只带 {关注} ----
+        JsonNode startItem = itemOf(Envelope.data(get("/api/v1/contents/recommended", token)), contentId);
         assertThat(startItem.has("isLiked")).as("顶层 isLiked 已删除（T13）").isFalse();
         assertThat(startItem.has("isFollowed")).as("顶层 isFollowed 已删除（T13）").isFalse();
         JsonNode startInteraction = startItem.path("interaction");
         assertThat(keysOf(startInteraction)).as("子对象键集恒四维（不靠缺键表达'不查'）")
                 .containsExactlyInAnyOrder("isLiked", "isFavorited", "isFollowed", "coin");
         assertThat(startInteraction.path("isFollowed").asBoolean())
-                .as("/start 带关注维 ⇒ 已关注作者为真").isTrue();
+                .as("recommended 带关注维 ⇒ 已关注作者为真").isTrue();
         assertThat(startInteraction.path("isLiked").isNull())
-                .as("★ /start 不带赞维 ⇒ null（**不是 false**——false 会是撒谎）").isTrue();
-        assertThat(startInteraction.path("isFavorited").isNull()).as("/start 不带收藏维").isTrue();
+                .as("★ recommended 不带赞维 ⇒ null（**不是 false**——false 会是撒谎）").isTrue();
+        assertThat(startInteraction.path("isFavorited").isNull()).as("recommended 不带收藏维").isTrue();
         assertThat(startInteraction.path("coin").isNull())
                 .as("★ 列表不查投币维 ⇒ coin 恒 null（契约，不是漏填）").isTrue();
 
-        // ---- /search/keywordSearch：0 维 ----
+        // ---- /api/v1/contents（搜索）：0 维 ----
         JsonNode searchItem = itemOf(
-                Envelope.data(get("/search/keywordSearch?keyword=zqtb", token)).path("list"), contentId);
+                Envelope.data(get("/api/v1/contents?keyword=zqtb", token)).path("list"), contentId);
         JsonNode searchInteraction = searchItem.path("interaction");
         assertThat(searchInteraction.isObject())
                 .as("★ 0 维：**对象仍在**（若为 null 就与匿名不可区分了）").isTrue();
@@ -397,10 +399,10 @@ class ContentReadTests extends AbstractContentIntegrationTest {
                 .as("列表不查投币维 ⇒ coin 恒 null").isTrue();
 
         // ---- 匿名 ⇒ 整对象为 null（与 0 维可区分）----
-        JsonNode anonStart = itemOf(Envelope.data(get("/start", null)), contentId);
+        JsonNode anonStart = itemOf(Envelope.data(get("/api/v1/contents/recommended", null)), contentId);
         assertThat(anonStart.path("interaction").isNull()).as("匿名 ⇒ interaction 为 null").isTrue();
         JsonNode anonSearch = itemOf(
-                Envelope.data(get("/search/keywordSearch?keyword=zqtb", null)).path("list"), contentId);
+                Envelope.data(get("/api/v1/contents?keyword=zqtb", null)).path("list"), contentId);
         assertThat(anonSearch.path("interaction").isNull()).as("匿名 ⇒ interaction 为 null").isTrue();
     }
 
@@ -415,7 +417,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         insertContentLike(viewerId, contentId);
         Mockito.reset(interactionService);      // 前置夹具（注册/点赞）的调用不计入
 
-        assertThat(idsOf(Envelope.data(get("/start", token))))
+        assertThat(idsOf(Envelope.data(get("/api/v1/contents/recommended", token))))
                 .as("本用例需非空列表才有判别力").contains(contentId);
 
         // ★ 判别力：把 ContentStatusFiller 改成"逐条调 getStatus"，这两个断言立即变红
@@ -441,7 +443,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
 
         // ---- /start：维度常量 = {关注} ⇒ 3 趟收敛为 1 趟 ----
         Mockito.reset(interactionService, likeService, favoriteService, followService);
-        assertThat(idsOf(Envelope.data(get("/start", token))))
+        assertThat(idsOf(Envelope.data(get("/api/v1/contents/recommended", token))))
                 .as("本用例需非空列表才有判别力").contains(contentId);
         verify(followService, times(1)).batchIsFollowing(eq(viewerId), anyList());
         // ★ 判别力：把 START_DIMENSIONS 改回全量三维 ⇒ 下面四条立即变红
@@ -452,7 +454,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
 
         // ---- /search/keywordSearch：维度常量 = 空集 ⇒ 3 趟收敛为 0 趟 ----
         Mockito.reset(interactionService, likeService, favoriteService, followService);
-        assertThat(idsOf(Envelope.data(get("/search/keywordSearch?keyword=pdtb", token)).path("list")))
+        assertThat(idsOf(Envelope.data(get("/api/v1/contents?keyword=pdtb", token)).path("list")))
                 .as("本用例需非空列表才有判别力").contains(contentId);
         // ★ 0 维必须**仍调**互动域一趟（要拿"对象在、四维全 null"），但底层三域一趟都不发
         verify(interactionService, times(1)).batchGetStatus(eq(viewerId), anyList(), anySet());
@@ -474,13 +476,13 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         assertThat(putQuery("/api/v1/contents/" + String.valueOf(contentId) + "/comment-enabled",query("enabled", "0"), token)
                 .getStatusCode().value()).isEqualTo(200);
         assertThat(contentCommentEnabledColumn(contentId)).as("独立 oracle：列值").isZero();
-        assertThat(Envelope.data(get("/search/IdSearch?contentId=" + contentId, token))
+        assertThat(Envelope.data(get("/api/v1/contents/" + contentId, token))
                 .path("commentEnabled").asBoolean()).as("详情回显（失效自愈后）").isFalse();
 
         assertThat(putQuery("/api/v1/contents/" + String.valueOf(contentId) + "/comment-enabled",query("enabled", "true"), token)
                 .getStatusCode().value()).as("true 也应被接受").isEqualTo(200);
         assertThat(contentCommentEnabledColumn(contentId)).isEqualTo(1);
-        assertThat(Envelope.data(get("/search/IdSearch?contentId=" + contentId, token))
+        assertThat(Envelope.data(get("/api/v1/contents/" + contentId, token))
                 .path("commentEnabled").asBoolean()).isTrue();
     }
 
@@ -533,7 +535,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         assertThat(resp.getStatusCode().value()).as("%s", resp.getBody()).isEqualTo(200);
         assertThat(contentTitleColumn(contentId)).as("独立 oracle：列值").isEqualTo("新标题");
         assertThat(contentDescriptionColumn(contentId)).isEqualTo("新简介");
-        assertThat(Envelope.data(get("/search/IdSearch?contentId=" + contentId, token))
+        assertThat(Envelope.data(get("/api/v1/contents/" + contentId, token))
                 .path("title").asString()).as("详情回显（REFRESH 后）").isEqualTo("新标题");
     }
 
@@ -598,7 +600,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
     /** 单页取全（pageSize=100 装得下本用例的数据）并返回 id 列表。 */
     private List<Long> fullOrder(String keyword) {
         JsonNode data = Envelope.data(
-                get("/search/keywordSearch?keyword=" + keyword + "&pageSize=100", null));
+                get("/api/v1/contents?keyword=" + keyword + "&pageSize=100", null));
         assertThat(data.path("total").asInt()).isEqualTo(data.path("list").size());
         return idsOf(data.path("list"));
     }

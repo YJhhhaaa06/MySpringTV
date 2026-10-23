@@ -185,7 +185,7 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
         putBucket(ANON_KEY, CAP, System.currentTimeMillis());   // 满桶起步
         putBucket(SERVER_KEY, CAP, System.currentTimeMillis());
 
-        ResponseEntity<String> resp = get("/start", null);
+        ResponseEntity<String> resp = get("/api/v1/contents/recommended", null);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         assertThat(Envelope.code(resp)).isEqualTo("OK");
@@ -207,7 +207,7 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
         putBucket(ANON_KEY, 0.2, t0);
         putBucket(SERVER_KEY, CAP, System.currentTimeMillis());
 
-        ResponseEntity<String> resp = get("/start", null);
+        ResponseEntity<String> resp = get("/api/v1/contents/recommended", null);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(429);
         assertThat(Envelope.code(resp)).as("业务码与 HTTP 对齐（T23 契约）").isEqualTo("RATE_LIMITED");
@@ -237,7 +237,7 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
         putBucket(SERVER_KEY, 0.2, t0);          // 服务器桶不足
         String serverBefore = rawOf(SERVER_KEY);
 
-        ResponseEntity<String> resp = get("/start", null);
+        ResponseEntity<String> resp = get("/api/v1/contents/recommended", null);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(429);
         // ★ 字节级对照：被拒的请求在服务器桶上"一个字节都不写"（非对称扣减的另一半）。
@@ -262,7 +262,7 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
         // 要靠"登录请求前后快照不变"来证，而不是"键不存在"。
         String anonBefore = rawOf(ANON_KEY);
 
-        ResponseEntity<String> resp = get("/start", token);
+        ResponseEntity<String> resp = get("/api/v1/contents/recommended", token);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         assertThat(tokensOf(rawOf(userKey))).as("登录桶按 cost 扣减").isEqualTo(CAP - COST, within(1e-9));
@@ -367,12 +367,13 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
         putBucket(ANON_KEY, 0.2, System.currentTimeMillis());
         putBucket(SERVER_KEY, CAP, System.currentTimeMillis());
 
-        ResponseEntity<String> resp = get("/start", null);
+        ResponseEntity<String> resp = get("/api/v1/contents/recommended", null);
         assertThat(resp.getStatusCode().value()).isEqualTo(429);
 
         // 轮询而非直读：访问行写在过滤器 finally 里，可能晚于响应到达客户端。
         // ★ 若 AccessLogFilter 不在限流器外侧，这条 429 根本不会有访问行 ⇒ 轮询超时 ⇒ 本用例红。
-        String line = awaitAccessLine("/start", "status=429");
+        // `T58` 契约变更：/start 资源化为 GET /api/v1/contents/recommended（接口契约.md §2.3）
+        String line = awaitAccessLine("/api/v1/contents/recommended", "status=429");
         assertThat(line)
                 .as("429 必须补记业务码——否则访问行记成 code=0，三态塌成两态")
                 .contains("code=RATE_LIMITED ");

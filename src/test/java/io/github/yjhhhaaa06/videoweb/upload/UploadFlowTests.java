@@ -122,7 +122,7 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
         assertThat(Files.size(diskPathOf(coverUrl))).isEqualTo(sourceSize(FIXTURE_COVER));
 
         // ---- 读回（旧 smoke S-08 的意图：上传后详情能看到 videoUrl）----
-        ResponseEntity<String> detail = get("/search/IdSearch?contentId=" + contentId, null);
+        ResponseEntity<String> detail = get("/api/v1/contents/" + contentId, null);
         assertThat(Envelope.code(detail)).isEqualTo("OK");
         assertThat(Envelope.str(detail, "videoUrl")).endsWith(videoUrl);
     }
@@ -165,7 +165,7 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
             assertThat(Files.size(path)).isEqualTo(sourceSize(fixture));
         }
 
-        ResponseEntity<String> detail = get("/search/IdSearch?contentId=" + contentId, null);
+        ResponseEntity<String> detail = get("/api/v1/contents/" + contentId, null);
         assertThat(Envelope.data(detail).path("imageUrls")).hasSize(2);
     }
 
@@ -324,7 +324,7 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
         assertThat(Files.size(diskPathOf(newUrl))).isEqualTo(sourceSize(FIXTURE_COVER));
         assertThat(oldPath).as("旧文件必须被删除（deleteFileByUrl）").doesNotExist();
 
-        ResponseEntity<String> detail = get("/search/IdSearch?contentId=" + contentId, null);
+        ResponseEntity<String> detail = get("/api/v1/contents/" + contentId, null);
         assertThat(Envelope.str(detail, "coverUrl")).endsWith(newUrl);
     }
 
@@ -346,7 +346,7 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
         String newUrl = Envelope.str(resp, "url");
         assertThat(newUrl).isNotEqualTo(oldUrl);
 
-        ResponseEntity<String> detail = get("/search/IdSearch?contentId=" + contentId, null);
+        ResponseEntity<String> detail = get("/api/v1/contents/" + contentId, null);
         assertThat(Envelope.str(detail, "videoUrl")).endsWith(newUrl);
         assertThat(diskPathOf(newUrl)).exists();
         assertThat(oldPath).doesNotExist();

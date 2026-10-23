@@ -101,7 +101,7 @@ class ValidationErrorContractTests extends AbstractHttpIntegrationTest {
     void 业务拒绝不带errors() {
         // /search/keywordSearch 的空白关键词由 SearchController 的守卫拒绝（文案 "输入不能为空"），
         // 属"业务拒绝"而不是"声明式校验"，故**不产** errors[]（§2.5 已知缺口，迁移归载荷面）。
-        ResponseEntity<String> resp = get("/search/keywordSearch?keyword=", null);
+        ResponseEntity<String> resp = get("/api/v1/contents?keyword=", null);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(400);
         assertThat(Envelope.code(resp)).isEqualTo(ErrorCode.PARAM_INVALID.getCode());

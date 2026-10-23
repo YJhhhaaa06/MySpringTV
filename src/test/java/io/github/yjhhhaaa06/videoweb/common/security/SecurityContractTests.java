@@ -155,6 +155,10 @@ class SecurityContractTests extends AbstractIntegrationTest {
     @Test
     @DisplayName("S5：content / comment 读端点公开（TV 清单不含它们；带 token 只做个性化）")
     void content读端点公开() {
+        // ★ `T58` reads 域（T58-8）落地后，GET /api/v1/contents/1（详情）与 GET /api/v1/users/1（主页）
+        //   才有真实 handler 匹配——断言语义自 S5 起不变：这四个读端点都必须是公开面。
+        //   GET /api/v1/contents/recommended 与 GET /api/v1/users/{id} 的路由优先级由
+        //   PathPattern"字面量段优先于 {id}"保证（字面量 /recommended、/me 各自优先命中）。
         assertThat(requiresLogin("GET", "/api/v1/contents/1")).isFalse();
         assertThat(requiresLogin("GET", "/api/v1/contents")).isFalse();
         assertThat(requiresLogin("GET", "/api/v1/contents/recommended")).isFalse();
@@ -203,7 +207,8 @@ class SecurityContractTests extends AbstractIntegrationTest {
         // ⇒ 类级 @RequiresLogin 与之对应。
         // 2026-10-03 更正：原来写 PROTECTED_EXACT（"精确，非前缀"）是误记——会被复算者当成事实依据，
         // 故一并改正。行为无差异：单端点时前缀与精确两种口径等价。
-        assertThat(requiresLogin("GET", "/feed")).isTrue();
+        // `T58` 契约变更（接口契约.md §2.3）：/feed 资源化为 GET /api/v1/feed——鉴权口径不变。
+        assertThat(requiresLogin("GET", "/api/v1/feed")).isTrue();
     }
 
     @Test
@@ -460,7 +465,8 @@ class SecurityContractTests extends AbstractIntegrationTest {
                 .as("历史 bug 端点：受 @RequiresLogin 保护，但与角色无关")
                 .isFalse();
         assertThat(requiresAdmin("GET", "/api/v1/users/me")).isFalse();
-        assertThat(requiresAdmin("GET", "/start")).as("公开端点同样不是 admin").isFalse();
+        // `T58` 契约变更：/start 资源化为 GET /api/v1/contents/recommended（接口契约.md §2.3）
+        assertThat(requiresAdmin("GET", "/api/v1/contents/recommended")).as("公开端点同样不是 admin").isFalse();
     }
 
     @Test
