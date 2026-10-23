@@ -222,7 +222,7 @@ function addDeleteEntry(card, item) {
     e.stopPropagation(); // 卡片本身点击跳详情，按钮不触发跳转
     if (!window.confirm('确定删除该作品吗？删除后不可恢复')) return;
     try {
-      await request(`api/v1/contents/${item.id}`, { method: 'DELETE' });
+      await request(`content/delete?contentId=${item.id}`, { method: 'POST' });
       showToast('删除成功');
       // T11-B：本地摘除该卡片（不重置分块窗口），保持删除模式便于连续删除
       state.myItems = state.myItems.filter((it) => it.id !== item.id);
@@ -244,7 +244,7 @@ function addCommentToggle(card, item) {
     e.stopPropagation(); // 卡片本身点击跳详情，按钮不触发跳转
     const enabled = item.commentEnabled === false ? 1 : 0;
     try {
-      await request(`api/v1/contents/${item.id}/comment-enabled?enabled=${enabled}`, { method: 'PUT' });
+      await request(`content/commentEnabled?contentId=${item.id}&enabled=${enabled}`, { method: 'POST' });
       item.commentEnabled = enabled === 1;
       toggle.textContent = item.commentEnabled === false ? '开启评论区' : '关闭评论区';
       showToast(enabled === 1 ? '评论区已开启' : '评论区已关闭');
@@ -584,11 +584,11 @@ async function doPublish() {
   if (state.type === 1) {
     fd.append('video', state.videoFile);
     fd.append('cover', state.coverFile);
-    url = 'api/v1/contents/videos';
+    url = 'api/upload/video';
   } else {
     if (state.coverFile) fd.append('cover', state.coverFile);
     state.imageFiles.forEach((f) => fd.append('image', f));
-    url = 'api/v1/contents/posts';
+    url = 'api/upload/post';
   }
 
   const btn = c.querySelector('#submitBtn');

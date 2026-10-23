@@ -342,13 +342,13 @@ function closeCoinModal() {
   if (overlay) overlay.classList.add('hidden');
 }
 
-/** 弹层的余额：`GET api/v1/users/me` 取一次即缓存；投币成功由响应体回带的 `balance` 就地覆盖。 */
+/** 弹层的余额：`GET user/me` 取一次即缓存；投币成功由响应体回带的 `balance` 就地覆盖。 */
 async function showCoinBalance() {
   const el = state.container.querySelector('#coinBalanceTxt');
   if (!el) return;
   if (state.coinBalance == null) {
     try {
-      const me = await request('api/v1/users/me');
+      const me = await request('user/me');
       state.coinBalance = me && me.coin != null ? me.coin : 0;
     } catch (e) {
       el.textContent = '--';
@@ -443,7 +443,7 @@ function ensureCommentList() {
     state.commentList = createChunkedList({
       // T11-B：只传 page（信封大小后端定，响应回显自适应）
       fetchChunk: async (page) => request(
-        `api/v1/contents/${state.contentId}/comments?page=${page}`),
+        `comment/show?contentId=${state.contentId}&page=${page}`),
       chunkSize: CHUNK_SIZE,
       batchSize: BATCH_SIZE,
       // 评论 VO 同时含 userId（作者），必须显式按 commentId 去重（见 chunkedList.js keyOf 说明）
@@ -627,7 +627,7 @@ async function ensureRootExpanded(comment, wrapper) {
   let cursor = 0;
   for (;;) {
     // T14：游标翻页——cursor 缺省 0（楼头）；后端 nextCursor=null 即到底（不再有 page/totalPages）
-    const data = await request(`api/v1/comments/${rootId}/replies?cursor=${cursor}`);
+    const data = await request(`comment/replies?rootId=${rootId}&cursor=${cursor}`);
     (data.list || []).forEach((r) => { known.set(r.commentId, r); });
     const next = data.nextCursor;
     if (!next || next <= cursor) break;   // 到底；`next <= cursor` 为防御性兜底（防不前进的死循环）
@@ -649,7 +649,7 @@ async function deleteComment(comment) {
   if (!requireLogin()) return;
   const removed = comment.parentId ? 1 : 1 + (comment.children || []).length;
   try {
-    await request(`api/v1/comments/${comment.commentId}`, { method: 'DELETE' });
+    await request(`comment/delete?commentId=${comment.commentId}`, { method: 'POST' });
     showToast('删除成功');
     // 删除后回到第 1 页重新累积（避免页码与已加载内容错位）
     await loadInitialComments();
@@ -850,7 +850,7 @@ async function toggleContentLike() {
   state.container.querySelector('#likeCount').textContent = item.likeCount;
   renderStats();
   try {
-    await request(`api/v1/contents/${state.contentId}/like`, { method: action === 'add' ? 'PUT' : 'DELETE' });
+    await request(`like/content/${action}?contentId=${state.contentId}`, { method: 'POST' });
   } catch (e) {
     it.isLiked = liked;
     item.likeCount += liked ? 1 : -1;
@@ -869,7 +869,7 @@ async function toggleCommentLike(comment, btn) {
   btn.className = 'comment-like' + (comment.isLiked ? ' liked' : '');
   btn.innerHTML = '❤ ' + comment.likeCount;
   try {
-    await request(`api/v1/comments/${comment.commentId}/like`, { method: action === 'add' ? 'PUT' : 'DELETE' });
+    await request(`like/comment/${action}?commentId=${comment.commentId}`, { method: 'POST' });
   } catch (e) {
     comment.isLiked = liked;
     comment.likeCount += liked ? 1 : -1;
@@ -915,7 +915,7 @@ async function sendComment() {
   if (state.parentId) body.parentId = state.parentId;
 
   try {
-    await request('api/v1/comments', { jsonBody: body });
+    await request('comment/add', { jsonBody: body });
     input.value = '';
     input.placeholder = '发一条友善的评论';
     state.parentId = null;

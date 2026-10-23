@@ -144,7 +144,7 @@ async function loadSelfCoin() {
   const box = state.container.querySelector('#userCoin');
   if (!box) return;
   try {
-    const me = await request('api/v1/users/me');
+    const me = await request('user/me');
     state.coin = me && me.coin != null ? me.coin : 0;
     state.signedToday = !!(me && me.signedToday);
   } catch (e) {
@@ -580,7 +580,7 @@ async function doChangePassword() {
   const newPassword = c.querySelector('#cpNewPwd').value;
   if (!phone || !oldPassword || !newPassword) { showToast('请填写所有字段'); return; }
   try {
-    await request('api/v1/users/me/password', { method: 'PUT', jsonBody: { phone, oldPassword, newPassword } });
+    await request('user/changePassword', { jsonBody: { phone, oldPassword, newPassword } });
     showToast('密码修改成功');
     closeModal();
   } catch (e) {
