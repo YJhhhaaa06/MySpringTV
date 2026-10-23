@@ -182,9 +182,9 @@ class ValidationErrorContractTests extends AbstractHttpIntegrationTest {
         // ⚠️ `T59` 载荷面契约变更：改用户名的 `@NotBlank` 从 `@RequestParam` 挪到请求体
         // （{@code ChangeUserNameRequest}）⇒ 本用例现在走 {@code MethodArgumentNotValidException}
         // 分支，不再是 {@code HandlerMethodValidationException}。
-        // ★ 覆盖缺口（如实登记）：`T59-2` 之后 `src/main` 已没有"标在控制器方法参数上的约束"，
-        // 方法校验分支暂无产码点（登记见 `CURRENT_ISSUES.md` I-28）。本用例仍钉住
-        // "约束注解的 message 进 errors[].message、field 逐字是请求字段名"这一对外契约。
+        // ★ 覆盖缺口（如实登记于接口契约 §2.5.1 ⑥：「当前无产码点」）：`T59-2` 之后
+        // `src/main` 已没有"标在控制器方法参数上的约束"，方法校验分支暂无可触发路径。
+        // 本用例仍钉住"约束注解的 message 进 errors[].message、field 逐字是请求字段名"这一对外契约。
         String token = registerAndGetToken("13800000203", "t57-param-constraint", "123456");
 
         ResponseEntity<String> resp = put("/api/v1/users/me/username", Map.of("userName", ""), token);

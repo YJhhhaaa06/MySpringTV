@@ -1,4 +1,4 @@
-package io.github.yjhhhaaa06.videoweb.common.web;
+package io.github.yjhhhaaa06.videoweb.contract;
 
 import io.github.yjhhhaaa06.videoweb.admin.model.audit.MediaAuditItem;
 import io.github.yjhhhaaa06.videoweb.admin.model.audit.MediaAuditResult;

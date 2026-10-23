@@ -201,11 +201,14 @@ public enum ErrorCode {
      * <p>业务层已先查重，并发下仍可能撞唯一键（{@code users.phone} / {@code users.username} /
      * 点赞、收藏、关注、优惠券的联合唯一键）。{@code GlobalExceptionHandler} 拿到的是
      * {@code DuplicateKeyException}，**无法知道撞的是哪个键** —— 硬猜会把「用户名占用」错报成「手机号占用」。
-     * 故用 SYSTEM 前缀如实表达「基础设施层冲突，请换值或重试」。
+     * 故用 SYSTEM 前缀如实表达「基础设施层冲突，值已存在」。
+     *
+     * <p>⚠️ `T59` 起文案去掉「请重试」：重复领券这类冲突**重试必然仍失败**，
+     * 原文案给了错误建议（`I-25` 的处置之一；码仍不细分，原因见该条登记）。
      *
      * <p>判据 ③（运维统计）：出现本码说明「先查后插」的窗口被穿越了，值得单独统计。
      */
-    SYSTEM_DUPLICATE_KEY(HttpStatus.CONFLICT, "数据已存在，请重试"),
+    SYSTEM_DUPLICATE_KEY(HttpStatus.CONFLICT, "数据已存在"),
 
     // ========================================================================
     // 400 域内约束（参数合法但业务上不允许；与 PARAM_INVALID 分开是因为前端要给出**不同**引导）
