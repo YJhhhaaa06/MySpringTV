@@ -249,7 +249,7 @@ class CoinSignInTests extends AbstractCoinIntegrationTest {
     @Test
     @DisplayName("未登录签到：401 + 统一错误信封（本条对 @RequiresLogin 是假绿，判别力在 SecurityContractTests）")
     void 未登录签到被拒() {
-        ResponseEntity<String> resp = postForm("/coin/signIn", noQuery(), null);
+        ResponseEntity<String> resp = postForm("/api/v1/users/me/check-ins", noQuery(), null);
 
         // ⚠️ 这条 401 可能来自 @CurrentUserId 的参数解析器，而不是 @RequiresLogin ——
         //    机制是否生效只能由 SecurityContractTests 直接对 RequestMappingLookup 求值来证明
@@ -263,8 +263,8 @@ class CoinSignInTests extends AbstractCoinIntegrationTest {
 
     /** 注册 / {@code (id, token)} 夹具已下沉到 {@link AbstractCoinIntegrationTest}（T38 起两组用例共用）。 */
 
-    /** 签到端点：{@code POST + form}、无入参（照 {@code /like/*} 的写路径形态）。 */
+    /** 签到（check-in）端点：{@code POST /api/v1/users/me/check-ins}（`T58` 起资源化，§2.8：check-in 与登录拆名）、form 空、无入参。 */
     private ResponseEntity<String> signIn(String token) {
-        return postForm("/coin/signIn", noQuery(), token);
+        return postForm("/api/v1/users/me/check-ins", noQuery(), token);
     }
 }

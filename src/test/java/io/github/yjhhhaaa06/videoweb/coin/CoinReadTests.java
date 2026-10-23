@@ -66,7 +66,7 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
         setCoinDeci(voter.id(), 10);                       // 1.0 枚，够投 1 枚
         long contentId = insertVideoContent(author.id(), "读面详情视频");
 
-        assertThat(postForm("/coin/add", coinForm(contentId, 1), voter.token()).getStatusCode().value())
+        assertThat(postForm("/api/v1/contents/" + contentId + "/coins", coinForm(1), voter.token()).getStatusCode().value())
                 .as("前置：投币必须成功，否则本用例没有判别力").isEqualTo(200);
 
         ResponseEntity<String> resp = get("/search/IdSearch?contentId=" + contentId, voter.token());
@@ -159,7 +159,7 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
         setCoinDeci(voter.id(), 10);
         long contentId = insertVideoContent(author.id(), "coinreadlist 读面列表内容");
 
-        assertThat(postForm("/coin/add", coinForm(contentId, 1), voter.token()).getStatusCode().value())
+        assertThat(postForm("/api/v1/contents/" + contentId + "/coins", coinForm(1), voter.token()).getStatusCode().value())
                 .as("前置：先给内容投 1 枚，确保计数非零（否则'没有键'与'值是 0'分不清）")
                 .isEqualTo(200);
         assertThat(coinCountOf(contentId)).as("前置：DB 计数为 1").isEqualTo(1);
@@ -196,7 +196,7 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
         setCoinDeci(voter.id(), 10);
         long contentId = insertVideoContent(author.id(), "读面主页内容");
 
-        assertThat(postForm("/coin/add", coinForm(contentId, 1), voter.token()).getStatusCode().value())
+        assertThat(postForm("/api/v1/contents/" + contentId + "/coins", coinForm(1), voter.token()).getStatusCode().value())
                 .as("前置：投币成功").isEqualTo(200);
         assertThat(coinCountOf(contentId)).isEqualTo(1);
 
@@ -256,7 +256,7 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
         assertThat(before.path("interaction").path("coin").asInt()).isZero();
         assertThat(before.path("coinCount").asLong()).isZero();
 
-        assertThat(postForm("/coin/add", coinForm(contentId, 1), voter.token()).getStatusCode().value())
+        assertThat(postForm("/api/v1/contents/" + contentId + "/coins", coinForm(1), voter.token()).getStatusCode().value())
                 .isEqualTo(200);
 
         // 不重启、不手动清缓存：读面必须立刻反映已提交的写。
@@ -280,10 +280,9 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
     // 夹具
     // ========================================================================
 
-    /** 投币端点：{@code POST + form}，带 {@code contentId} / {@code count}（同 CoinAddTests）。 */
-    private static MultiValueMap<String, String> coinForm(long contentId, int count) {
+    /** 投币 form：只剩 {@code count}（`T58` 起 {@code contentId} 已进路径，见各用例的 URL）。 */
+    private static MultiValueMap<String, String> coinForm(int count) {
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("contentId", String.valueOf(contentId));
         form.add("count", String.valueOf(count));
         return form;
     }

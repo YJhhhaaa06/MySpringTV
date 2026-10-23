@@ -445,8 +445,8 @@ video:
         "[PUT /api/v1/contents/{id}]": 3
         "[DELETE /api/v1/contents/{id}/media]": 3
         "[DELETE /api/v1/contents/{id}]": 3
-        # —— 优惠券 / 点赞 / 评论 / 收藏 / 稍后再看 / 关注（各域写路径）——
-        "[POST /coupon/grab]": 3
+        # —— 优惠券 / 点赞 / 评论（`T58` 起资源化：领券 = POST /api/v1/coupons/{id}/claims）——
+        "[POST /api/v1/coupons/{id}/claims]": 3
         "[PUT /api/v1/contents/{id}/like]": 3
         "[DELETE /api/v1/contents/{id}/like]": 3
         "[PUT /api/v1/comments/{id}/like]": 3
@@ -467,9 +467,9 @@ video:
         # —— 关注（`T58` 起资源化：关系 = /follows/{id}；列表是 GET，吃 default-base）——
         "[PUT /api/v1/follows/{id}]": 3
         "[DELETE /api/v1/follows/{id}]": 3
-        # —— 投币（T37 / T38；签到与投币同为"写路径 3"）——
-        "[POST /coin/signIn]": 3
-        "[POST /coin/add]": 3
+        # —— 投币（T37 / T38；`T58` 起资源化：签到 = check-in、投币挂在内容下；同"写路径 3"）——
+        "[POST /api/v1/users/me/check-ins]": 3
+        "[POST /api/v1/contents/{id}/coins]": 3
         # —— 播放记录（T47 / T51-2）：上报**有意低于**"其余非 GET 写 3" ——
         #    上报是设计上最高频的写（播放器持续报进度），权重 1；
         #    ★ 接心跳缓冲后**不需要**重估：缓冲挡的是 DB 写，请求数一点没少，权重按请求计。

@@ -38,8 +38,8 @@ public final class Envelope {
     /**
      * 取整个 {@code data} 节点。
      *
-     * <p>用于 {@code data} 本身不是对象的端点——例如 {@code /coupon/grab} 的 {@code data}
-     * 是一个**纯字符串**券码，{@code /coupon/list} 的 {@code data} 是**数组**。
+     * <p>用于 {@code data} 本身不是对象的端点——例如 {@code POST /api/v1/coupons/{id}/claims} 的 {@code data}
+     * 是一个**纯字符串**券码，{@code GET /api/v1/coupons} 的 {@code data} 是**数组**。
      * {@link #str} 走的是 {@code data.<field>} 路径，对这两种形状取不到值，故需要本方法。
      */
     public static JsonNode data(ResponseEntity<String> response) {

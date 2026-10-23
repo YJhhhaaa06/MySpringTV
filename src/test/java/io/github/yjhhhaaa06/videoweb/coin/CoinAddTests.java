@@ -576,9 +576,7 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
     @DisplayName("未登录投币：401（本条对 @RequiresLogin 是假绿，判别力在 SecurityContractTests）")
     void 未登录投币被拒() {
         // 内容存在与否不影响：鉴权在参数解析 / 注解层就短路了。
-        MultiValueMap<String, String> form = coinForm(1L, 1);
-
-        ResponseEntity<String> resp = postForm("/coin/add", form, null);
+        ResponseEntity<String> resp = postForm("/api/v1/contents/1/coins", coinForm(1), null);
 
         // ⚠️ 这条 401 可能来自 @CurrentUserId 的参数解析器，而不是 @RequiresLogin ——
         //    机制是否生效只能由 SecurityContractTests 直接对 RequestMappingLookup 求值来证明
@@ -590,14 +588,13 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
 
     // ==================== 夹具 ====================
 
-    /** 投币端点：{@code POST + form}，带 {@code contentId} / {@code count}。 */
+    /** 投币端点：{@code POST /api/v1/contents/{id}/coins}（`T58` 起 {@code contentId} 在路径上），{@code count} 走 form。 */
     private ResponseEntity<String> addCoin(String token, long contentId, int count) {
-        return postForm("/coin/add", coinForm(contentId, count), token);
+        return postForm("/api/v1/contents/" + contentId + "/coins", coinForm(count), token);
     }
 
-    private static MultiValueMap<String, String> coinForm(long contentId, int count) {
+    private static MultiValueMap<String, String> coinForm(int count) {
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("contentId", String.valueOf(contentId));
         form.add("count", String.valueOf(count));
         return form;
     }

@@ -30,7 +30,7 @@ import jakarta.validation.constraints.Size;
  * 此处改为 <i>"未指定被评论内容"</i>。状态码仍是 400，未变。
  *
  * <p>用包装类型 {@code Long contentId} 而非 TV 的原始类型 {@code long}：只有包装类型表达得出"字段缺失"，
- * 原始类型会让缺失静默变成 0（同 {@code coupon/GrabCouponRequest} 的处理）。
+ * 原始类型会让缺失静默变成 0。
  *
  * @param contentId 被评论的内容 id
  * @param message   评论正文，≤1000 字

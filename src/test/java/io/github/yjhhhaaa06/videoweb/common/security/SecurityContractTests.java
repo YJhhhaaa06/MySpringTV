@@ -127,8 +127,8 @@ class SecurityContractTests extends AbstractIntegrationTest {
         assertThat(requiresLogin("GET", "/api/v1/users/me")).isTrue();
         assertThat(requiresLogin("PUT", "/api/v1/users/me/password")).isTrue();
         assertThat(requiresLogin("PUT", "/api/v1/users/me/username")).isTrue();
-        assertThat(requiresLogin("POST", "/coupon/grab")).isTrue();
-        assertThat(requiresLogin("GET", "/coupon/my")).isTrue();
+        assertThat(requiresLogin("POST", "/api/v1/coupons/1/claims")).isTrue();
+        assertThat(requiresLogin("GET", "/api/v1/users/me/coupons")).isTrue();
         assertThat(requiresLogin("POST", "/api/v1/comments")).isTrue();
         assertThat(requiresLogin("DELETE", "/api/v1/comments/1")).isTrue();
     }
@@ -138,7 +138,7 @@ class SecurityContractTests extends AbstractIntegrationTest {
     void 公开端点不需登录() {
         assertThat(requiresLogin("POST", "/api/v1/sessions")).isFalse();
         assertThat(requiresLogin("POST", "/api/v1/users")).isFalse();
-        assertThat(requiresLogin("GET", "/coupon/list")).isFalse();
+        assertThat(requiresLogin("GET", "/api/v1/coupons")).isFalse();
     }
 
     @Test
@@ -324,8 +324,8 @@ class SecurityContractTests extends AbstractIntegrationTest {
         //   "类级覆盖"是读代码的约定，不是本类能断言的机制（与 `类级注解覆盖全部端点` 那条只列 /like/* 一致，
         //   它同样没有覆盖 coin —— 别把那条当成 coin 的兜底）。
         // ⚠️ HTTP 侧对 @RequiresLogin 也是假绿（401 由 @CurrentUserId 参数解析器兜出）。
-        assertThat(requiresLogin("POST", "/coin/signIn")).isTrue();
-        assertThat(requiresLogin("POST", "/coin/add")).isTrue();
+        assertThat(requiresLogin("POST", "/api/v1/users/me/check-ins")).isTrue();
+        assertThat(requiresLogin("POST", "/api/v1/contents/1/coins")).isTrue();
     }
 
     @Test

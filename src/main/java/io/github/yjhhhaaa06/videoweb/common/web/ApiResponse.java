@@ -45,7 +45,7 @@ public record ApiResponse<T>(String code, String msg, T data, List<ApiFieldError
     /**
      * 带自定义 {@code msg} 且**同时带 data** 的成功响应。
      *
-     * <p>投币签到（{@code POST /coin/signIn}）要在回带新余额的同时区分
+     * <p>投币签到（{@code POST /api/v1/users/me/check-ins}）要在回带新余额的同时区分
      * 「签到成功」与「今日已签到」（{@code architecture/domain/coin/coin.md} §二）——
      * 幂等不是错误，故不能走 {@link #error}；而 {@link #success(Object)} 的 msg 恒为
      * {@code "success"}。两参形态是这两条约束的唯一交点。

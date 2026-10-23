@@ -3,10 +3,10 @@ package io.github.yjhhhaaa06.videoweb.coin.model.vo;
 import java.math.BigDecimal;
 
 /**
- * 投币回执（{@code POST /coin/add} 的 {@code data}）。
+ * 投币回执（{@code POST /api/v1/contents/{id}/coins} 的 {@code data}）。
  *
  * <p>形状按 {@code architecture/domain/coin/coin.md} §二 冻结：{@code { "balance": 1.5 }} ——
- * 写操作**回带新余额**，前端投币后无需再拉一次 {@code /user/me}。
+ * 写操作**回带新余额**，前端投币后无需再拉一次 {@code /api/v1/users/me}。
  *
  * <p>与 {@code SignInVO} 刻意分开（而不是复用同一个 record 加个可空字段）：
  * 投币没有"本次是否到账"的幂等语义（投币不幂等，重复投是 409 而非 200），

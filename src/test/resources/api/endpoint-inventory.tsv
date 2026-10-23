@@ -26,6 +26,7 @@ POST	/api/v1/contents/posts	LOGIN	ApiResponse<Map<String, Object>>
 POST	/api/v1/contents/videos	LOGIN	ApiResponse<Map<String, Object>>
 DELETE	/api/v1/contents/{id}	LOGIN	ApiResponse<String>
 PUT	/api/v1/contents/{id}	LOGIN	ApiResponse<String>
+POST	/api/v1/contents/{id}/coins	LOGIN	ApiResponse<CoinBalanceVO>
 PUT	/api/v1/contents/{id}/comment-enabled	LOGIN	ApiResponse<String>
 GET	/api/v1/contents/{id}/comments	PUBLIC	ApiResponse<?>
 GET	/api/v1/contents/{id}/favorite	LOGIN	ApiResponse<FavoriteStatusVO>
@@ -36,6 +37,8 @@ PUT	/api/v1/contents/{id}/like	LOGIN	ApiResponse<String>
 GET	/api/v1/contents/{id}/like-count	LOGIN	ApiResponse<Integer>
 DELETE	/api/v1/contents/{id}/media	LOGIN	ApiResponse<String>
 PUT	/api/v1/contents/{id}/media	LOGIN	ApiResponse<Map<String, Object>>
+GET	/api/v1/coupons	PUBLIC	ApiResponse<List<CouponVO>>
+POST	/api/v1/coupons/{id}/claims	LOGIN	ApiResponse<String>
 GET	/api/v1/favorite-folders	LOGIN	ApiResponse<List<FavoriteFolderVO>>
 POST	/api/v1/favorite-folders	LOGIN	ApiResponse<String>
 DELETE	/api/v1/favorite-folders/{id}	LOGIN	ApiResponse<String>
@@ -50,6 +53,8 @@ PUT	/api/v1/follows/{id}	LOGIN	ApiResponse<String>
 POST	/api/v1/sessions	PUBLIC	ApiResponse<LoginVO>
 POST	/api/v1/users	PUBLIC	ApiResponse<LoginVO>
 GET	/api/v1/users/me	LOGIN	ApiResponse<UserInfoVO>
+POST	/api/v1/users/me/check-ins	LOGIN	ApiResponse<SignInVO>
+GET	/api/v1/users/me/coupons	LOGIN	ApiResponse<List<CouponOrderVO>>
 PUT	/api/v1/users/me/password	LOGIN	ApiResponse<Void>
 PUT	/api/v1/users/me/username	LOGIN	ApiResponse<Void>
 GET	/api/v1/users/{id}/favorite-folders	PUBLIC	ApiResponse<List<PublicFavoriteFolderVO>>
@@ -59,11 +64,6 @@ DELETE	/api/v1/watch-later	LOGIN	ApiResponse<String>
 GET	/api/v1/watch-later	LOGIN	ApiResponse<PageResult<WatchLaterItemVO>>
 PUT	/api/v1/watch-later/{id}	LOGIN	ApiResponse<String>
 PUT	/api/v1/watch-later/{id}/folder	LOGIN	ApiResponse<String>
-POST	/coin/add	LOGIN	ApiResponse<CoinBalanceVO>
-POST	/coin/signIn	LOGIN	ApiResponse<SignInVO>
-POST	/coupon/grab	LOGIN	ApiResponse<String>
-GET	/coupon/list	PUBLIC	ApiResponse<List<CouponVO>>
-GET	/coupon/my	LOGIN	ApiResponse<List<CouponOrderVO>>
 GET	/feed	LOGIN	ApiResponse<PageResult<ContentVO>>
 POST	/history/flush	LOGIN	ApiResponse<Void>
 GET	/history/list	LOGIN	ApiResponse<PageResult<HistoryItemVO>>
