@@ -2,7 +2,9 @@ package io.github.yjhhhaaa06.videoweb.contract;
 
 import io.github.yjhhhaaa06.videoweb.admin.model.audit.MediaAuditItem;
 import io.github.yjhhhaaa06.videoweb.admin.model.audit.MediaAuditResult;
+import io.github.yjhhhaaa06.videoweb.comment.model.vo.CommentVO;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.AdminContentVO;
+import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentDetailVO;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentVO;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ProfileVO;
 import io.github.yjhhhaaa06.videoweb.coupon.model.vo.CouponOrderVO;
@@ -10,8 +12,10 @@ import io.github.yjhhhaaa06.videoweb.coupon.model.vo.CouponVO;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteFolderVO;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteItemVO;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.WatchLaterItemVO;
+import io.github.yjhhhaaa06.videoweb.follow.model.vo.FollowUserVO;
 import io.github.yjhhhaaa06.videoweb.history.model.vo.HistoryItemVO;
 import io.github.yjhhhaaa06.videoweb.support.AbstractIntegrationTest;
+import io.github.yjhhhaaa06.videoweb.upload.model.vo.ContentCreatedVO;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,6 +39,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * （{@code JsonCodec} 也用这个 bean，见其类注释）。
  *
  * <p>⚠️ 作用域：本类**不**断言字段值来自 DB（那是各域用例的事），只钉"形状"。
+ * 覆盖清单是**代表性列出的**（时间 8 个字段 / ID 16 个字段 / 计数 14 个字段），
+ * 不是穷举所有 VO——新增对外 VO 时按需补充；漏掉的新 VO 不会自动变红。
+ * 真正"全站穷举"的是 `ApiContractInventoryTests` 的出参类型护栏（按端点扫真实 handler）。
  *
  * <h2>三条契约（§2.7 定稿）</h2>
  * <ol>
@@ -135,6 +142,8 @@ class PayloadShapeContractTests extends AbstractIntegrationTest {
         MediaAuditItem media = new MediaAuditItem();
         media.setMediaId(17L);
         media.setContentId(18L);
+        ContentCreatedVO created = new ContentCreatedVO(19L);
+        FollowUserVO followUser = new FollowUserVO(20L, "u", false, false);
 
         Map<String, Object[]> cases = new LinkedHashMap<>();
         // label → [VO, 字段名]
@@ -152,6 +161,8 @@ class PayloadShapeContractTests extends AbstractIntegrationTest {
         cases.put("CouponOrderVO.couponId", new Object[]{couponOrder, "couponId"});
         cases.put("MediaAuditItem.mediaId", new Object[]{media, "mediaId"});
         cases.put("MediaAuditItem.contentId", new Object[]{media, "contentId"});
+        cases.put("ContentCreatedVO.contentId", new Object[]{created, "contentId"});
+        cases.put("FollowUserVO.userId", new Object[]{followUser, "userId"});
 
         cases.forEach((label, pair) -> {
             JsonNode node = mapper.readTree(mapper.writeValueAsString(pair[0])).path((String) pair[1]);
@@ -173,6 +184,14 @@ class PayloadShapeContractTests extends AbstractIntegrationTest {
         audit.setMissing(8);
         audit.setInvalid(9);
         audit.setNotScanned(0);
+        ContentDetailVO detail = new ContentDetailVO();
+        detail.setLikeCount(10L);
+        detail.setCommentCount(11L);
+        detail.setFavoriteCount(12L);
+        detail.setCoinCount(13L);
+        detail.setPlayCount(14L);
+        CommentVO comment = new CommentVO();
+        comment.setLikeCount(15);
 
         Map<String, Object[]> cases = new LinkedHashMap<>();
         cases.put("ProfileVO.followerCount", new Object[]{profile, "followerCount"});
@@ -183,6 +202,12 @@ class PayloadShapeContractTests extends AbstractIntegrationTest {
         cases.put("MediaAuditResult.missing", new Object[]{audit, "missing"});
         cases.put("MediaAuditResult.invalid", new Object[]{audit, "invalid"});
         cases.put("MediaAuditResult.notScanned", new Object[]{audit, "notScanned"});
+        cases.put("ContentDetailVO.likeCount", new Object[]{detail, "likeCount"});
+        cases.put("ContentDetailVO.commentCount", new Object[]{detail, "commentCount"});
+        cases.put("ContentDetailVO.favoriteCount", new Object[]{detail, "favoriteCount"});
+        cases.put("ContentDetailVO.coinCount", new Object[]{detail, "coinCount"});
+        cases.put("ContentDetailVO.playCount", new Object[]{detail, "playCount"});
+        cases.put("CommentVO.likeCount", new Object[]{comment, "likeCount"});
 
         cases.forEach((label, pair) -> {
             JsonNode node = mapper.readTree(mapper.writeValueAsString(pair[0])).path((String) pair[1]);

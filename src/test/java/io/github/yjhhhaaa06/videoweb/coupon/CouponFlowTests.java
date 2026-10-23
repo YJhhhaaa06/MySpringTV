@@ -122,10 +122,13 @@ class CouponFlowTests extends AbstractCouponIntegrationTest {
         assertThat(second.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         // ★ T55 把这个路径的对外码暴露出来了：重复抢券**不是**走 COUPON_UNAVAILABLE（那是"库存 0 / 时间窗外"），
         //   而是撞 uk_coupon_user 唯一键 ⇒ DuplicateKeyException ⇒ 出口只能回 SYSTEM_DUPLICATE_KEY
-        //   （出口拿不到"撞的是哪个键"）。C-1 刻意不判 1062，故这是**已知代价**，
+        //   （出口拿不到"撞的是哪个键"）。C-1 刻意不判 1062，故这是**已知代价**（T59-4 裁决维持泛码），
         //   前端因此拿不到"您已抢过该优惠券"这句精确提示 ——
-        //   口径见 architecture/tech/api/接口契约.md §2.2「已知代价·第二例」（待裁决，未擅自改）。
+        //   口径见 architecture/tech/api/接口契约.md §2.2「已知代价·第二例」。
         assertThat(Envelope.code(second)).isEqualTo("SYSTEM_DUPLICATE_KEY");
+        // T59-4（I-25）把误导文案「请重试」删掉：重复领券重试必然仍失败。
+        // 这条断言是该裁决的**唯一判别力**（改回旧文案 ⇒ 本行红）。
+        assertThat(Envelope.msg(second)).isEqualTo("数据已存在");
 
         // 独立 oracle 复算：订单恰 1 行；库存恰减 1（不是 2）
         assertThat(countOrders(couponId, firstUserId())).isEqualTo(1L);

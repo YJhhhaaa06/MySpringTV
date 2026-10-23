@@ -173,13 +173,34 @@ class ApiContractInventoryTests extends AbstractIntegrationTest {
                 .isEmpty();
     }
 
-    // ==================== 用例 4：计数端点出参统一 long（§2.7）====================
+    /** 全站**标量计数端点**（`T59-3` 定稿；新增计数端点必须同批登记到这里）。 */
+    private static final Set<String> COUNT_ENDPOINTS = Set.of(
+            "GET /api/v1/contents/{id}/like-count",
+            "GET /api/v1/comments/{id}/like-count",
+            "GET /api/v1/contents/{id}/favorite-count");
 
+    /**
+     * ★ 计数端点（`*-count`）出参统一为 {@code ApiResponse<Long>}（§2.7）。
+     *
+     * <p>这里刻意**显式列端点集合**而不是只按 `endsWith("-count")` 过滤：后者在端点改名 /
+     * 新增 {@code /xx-total} 时会**静默脱保**（新端点根本进不了过滤）。集合比对让
+     * "改名 / 新增 / 删除"都变红，逼同一 commit 更新。
+     */
     @Test
-    @DisplayName("★ 计数端点（*-count）出参统一为 ApiResponse<Long>（§2.7：计数不分 int/long 两套）")
+    @DisplayName("★ 计数端点集合固定且出参统一 ApiResponse<Long>（§2.7：计数不分 int/long 两套）")
     void 计数端点出参统一为long() {
-        List<String> offenders = scan().stream()
+        List<Endpoint> scanned = scan();
+
+        Set<String> actual = scanned.stream()
                 .filter(e -> e.path().endsWith("-count"))
+                .map(e -> e.method() + " " + e.path())
+                .collect(Collectors.toCollection(TreeSet::new));
+        assertThat(actual)
+                .as("*-count 端点集合变了 —— 新增/改名/删除必须同批更新本清单与登记簿")
+                .containsExactlyInAnyOrderElementsOf(COUNT_ENDPOINTS);
+
+        List<String> offenders = scanned.stream()
+                .filter(e -> COUNT_ENDPOINTS.contains(e.method() + " " + e.path()))
                 .filter(e -> !"ApiResponse<Long>".equals(e.returns()))
                 .map(Endpoint::line)
                 .toList();

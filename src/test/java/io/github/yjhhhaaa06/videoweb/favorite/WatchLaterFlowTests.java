@@ -114,6 +114,25 @@ class WatchLaterFlowTests extends AbstractHttpIntegrationTest {
                 .as("remove 幂等：0 行不算错").isEqualTo(204);
     }
 
+    @Test
+    @DisplayName("★move 无 body（folderId 全缺省）⇒ 走默认夹懒建；与迁移前的空 form 同义（`T59`）")
+    void move无body走默认夹() {
+        TestUser me = register("13800005017", "无body用户");
+        long video = insertVideoContent(me.id, "无body视频");
+        add(me.token, video);
+
+        assertThat(put("/api/v1/watch-later/" + video + "/folder", null, me.token).getStatusCode().value())
+                .as("无 body ⇒ 不返 400（两字段本就都可缺省）").isEqualTo(200);
+        assertThat(oracleCount(me.id)).as("移出池").isZero();
+
+        Long defaultFolderId = jdbcTemplate.queryForObject(
+                "SELECT id FROM favorite_folder WHERE user_id = ? AND is_default = 1", Long.class, me.id);
+        assertThat(defaultFolderId).as("默认夹被懒建").isNotNull();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM favorite_item WHERE folder_id = ? AND content_id = ?",
+                Long.class, defaultFolderId, video)).as("内容落进默认夹").isEqualTo(1L);
+    }
+
     // ========================================================================
     // 3. ★ 重复 add ⇒ 移到最前（不新增行、不改 id、只刷时间）
     // ========================================================================

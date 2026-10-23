@@ -150,8 +150,10 @@ public class WatchLaterController {
     @PutMapping("/api/v1/watch-later/{id}/folder")
     public ApiResponse<Void> move(@CurrentUserId long userId,
                                   @PathVariable("id") long contentId,
-                                  @RequestBody MoveToFolderRequest request) {
-        watchLaterService.move(userId, contentId, request.folderId());
+                                  @RequestBody(required = false) MoveToFolderRequest request) {
+        // 无 body = 全部字段缺省（folderId 走默认夹）—— 与迁移前"空 form"逐字同义；
+        // 不把"忘写 body"变成 400：本端点的两个字段本就都可缺省。
+        watchLaterService.move(userId, contentId, request == null ? null : request.folderId());
         return ApiResponse.success();
     }
 }
