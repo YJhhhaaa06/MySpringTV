@@ -28,10 +28,10 @@ import java.util.Set;
  *
  * <h2>交付的 4 个端点</h2>
  * <ul>
- *   <li>{@code POST /follow/add} → {@link #follow}</li>
- *   <li>{@code POST /follow/remove} → {@link #unfollow}</li>
- *   <li>{@code GET /follow/following} → {@link #getFollowingList}</li>
- *   <li>{@code GET /follow/followers} → {@link #getFollowerList}</li>
+ *   <li>{@code PUT /api/v1/follows/{id}} → {@link #follow}</li>
+ *   <li>{@code DELETE /api/v1/follows/{id}} → {@link #unfollow}</li>
+ *   <li>{@code GET /api/v1/users/{id}/following} → {@link #getFollowingList}</li>
+ *   <li>{@code GET /api/v1/users/{id}/followers} → {@link #getFollowerList}</li>
  * </ul>
  * 全部需登录（TV {@code AuthFilter} 的 {@code PROTECTED_PREFIXES} 含 {@code /follow}）——
  * 由 {@code FollowController} 的**类级** {@code @RequiresLogin} 声明。

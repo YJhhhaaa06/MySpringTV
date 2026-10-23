@@ -5,12 +5,7 @@ import io.github.yjhhhaaa06.videoweb.support.AbstractHttpIntegrationTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestClient;
 
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -30,8 +25,10 @@ import java.util.stream.Collectors;
  * ② <b>Redis</b>：直读 ZSet 成员与空标记——验证"缓存"这一侧。
  *
  * <h2>请求形态</h2>
- * 写操作沿袭 TV：{@code POST} + {@code x-www-form-urlencoded}（旧 pytest 就是 form 提交的），
- * 故 {@link #postForm} 而非基类的 JSON {@code post}。
+ * `T58` 前写操作沿袭 TV：{@code POST} + {@code x-www-form-urlencoded}（旧 pytest 就是 form 提交的），
+ * 故当时用私有的 {@code postForm}。`T58` 起路径资源化——关注对象进路径
+ * （{@code PUT|DELETE /api/v1/follows/{id}}），**写操作不再有 form 字段**，
+ * 于是改为基类的 {@link #put} / {@link #delete}（无请求体）；私有 {@code postForm} 随之删除。
  */
 abstract class AbstractFollowIntegrationTest extends AbstractHttpIntegrationTest {
 
@@ -171,37 +168,26 @@ abstract class AbstractFollowIntegrationTest extends AbstractHttpIntegrationTest
 
     // ==================== HTTP ====================
 
-    /** POST + {@code x-www-form-urlencoded}（TV 的写操作形态）。 */
-    protected ResponseEntity<String> postForm(String path, MultiValueMap<String, String> form, String token) {
-        return send(spec -> {
-            RestClient.RequestBodySpec request = spec.uri(path)
-                    .contentType(MediaType.APPLICATION_FORM_URLENCODED);
-            if (token != null) {
-                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-            }
-            return request.body(form);
-        });
-    }
-
+    /**
+     * 关注：`T58` 起 {@code PUT /api/v1/follows/{id}}（幂等设置；{@code followedUserId} 进路径）。
+     *
+     * <p>无请求体：本域的写操作在 `T58` 后**不再有 form 字段**（唯一参数已进路径），
+     * 故用基类的 {@code put(path, null, token)} 而不是 {@code putForm}。
+     */
     protected ResponseEntity<String> follow(long followedUserId, String token) {
-        return postForm("/follow/add", form("followedUserId", followedUserId), token);
+        return put("/api/v1/follows/" + followedUserId, null, token);
     }
 
+    /** 取关：`T58` 起 {@code DELETE /api/v1/follows/{id}}（§2.8 的 cancel 语义）。 */
     protected ResponseEntity<String> unfollow(long followedUserId, String token) {
-        return postForm("/follow/remove", form("followedUserId", followedUserId), token);
+        return delete("/api/v1/follows/" + followedUserId, token);
     }
 
     protected ResponseEntity<String> getFollowing(long userId, String token) {
-        return get("/follow/following?userId=" + userId, token);
+        return get("/api/v1/users/" + userId + "/following", token);
     }
 
     protected ResponseEntity<String> getFollowers(long userId, String token) {
-        return get("/follow/followers?userId=" + userId, token);
-    }
-
-    protected static MultiValueMap<String, String> form(String name, long value) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add(name, String.valueOf(value));
-        return form;
+        return get("/api/v1/users/" + userId + "/followers", token);
     }
 }

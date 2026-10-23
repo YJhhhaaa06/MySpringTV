@@ -110,12 +110,15 @@ class SecurityContractTests extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("类级 @RequiresLogin：follow 全部端点判为需登录（TV 的 `/follow` 是**前缀**保护项）")
+    @DisplayName("类级 @RequiresLogin：follow 全部端点判为需登录（TV 的 `/follow` 是**前缀**保护项，`T58` 后改由类级注解继续表达）")
     void follow类级注解覆盖全部端点() {
-        assertThat(requiresLogin("POST", "/follow/add")).isTrue();
-        assertThat(requiresLogin("POST", "/follow/remove")).isTrue();
-        assertThat(requiresLogin("GET", "/follow/following")).isTrue();
-        assertThat(requiresLogin("GET", "/follow/followers")).isTrue();
+        // `T58` 契约变更（接口契约.md §2.3/§2.4）：关系 = PUT|DELETE /api/v1/follows/{id}，
+        //   列表 = GET /api/v1/users/{id}/{following,followers}。followedUserId / userId 进路径 ⇒
+        //   路径变量**必须**给样本值（写 {id} 匹配不到 handler ⇒ 恒判 PUBLIC，假绿）。
+        assertThat(requiresLogin("PUT", "/api/v1/follows/1")).isTrue();
+        assertThat(requiresLogin("DELETE", "/api/v1/follows/1")).isTrue();
+        assertThat(requiresLogin("GET", "/api/v1/users/1/following")).isTrue();
+        assertThat(requiresLogin("GET", "/api/v1/users/1/followers")).isTrue();
     }
 
     @Test

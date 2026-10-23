@@ -464,8 +464,9 @@ video:
         "[PUT /api/v1/watch-later/{id}]": 3
         "[DELETE /api/v1/watch-later]": 3
         "[PUT /api/v1/watch-later/{id}/folder]": 3
-        "[POST /follow/add]": 3
-        "[POST /follow/remove]": 3
+        # —— 关注（`T58` 起资源化：关系 = /follows/{id}；列表是 GET，吃 default-base）——
+        "[PUT /api/v1/follows/{id}]": 3
+        "[DELETE /api/v1/follows/{id}]": 3
         # —— 投币（T37 / T38；签到与投币同为"写路径 3"）——
         "[POST /coin/signIn]": 3
         "[POST /coin/add]": 3

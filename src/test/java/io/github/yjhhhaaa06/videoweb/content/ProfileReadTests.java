@@ -213,7 +213,7 @@ class ProfileReadTests extends AbstractContentIntegrationTest {
         assertThat(Envelope.data(get("/profile?userId=" + authorId, viewerToken))
                 .path("isFollowed").asBoolean()).as("未关注 ⇒ false").isFalse();
 
-        assertThat(postForm("/follow/add", query("followedUserId", String.valueOf(authorId)), viewerToken)
+        assertThat(putForm("/api/v1/follows/" + authorId, null, viewerToken)
                 .getStatusCode().value()).isEqualTo(200);
         assertThat(Envelope.data(get("/profile?userId=" + authorId, viewerToken))
                 .path("isFollowed").asBoolean()).as("已关注 ⇒ true").isTrue();
@@ -262,7 +262,7 @@ class ProfileReadTests extends AbstractContentIntegrationTest {
         assertThat(redis.opsForValue().get("user:followCount:" + viewerId))
                 .as("前置：关注者本人的关注计数**未加载**（本用例的关键前提）").isNull();
 
-        assertThat(postForm("/follow/add", query("followedUserId", String.valueOf(authorId)), viewerToken)
+        assertThat(putForm("/api/v1/follows/" + authorId, null, viewerToken)
                 .getStatusCode().value()).isEqualTo(200);
 
         // ① 已加载的一侧：提交后条件 INCRBY ⇒ 立刻是 1
@@ -292,7 +292,7 @@ class ProfileReadTests extends AbstractContentIntegrationTest {
         long authorId = userIdOf(AUTHOR_PHONE);
 
         // 不预热计数缓存，直接关注：条件写发现 key 不存在 ⇒ 什么都不做
-        assertThat(postForm("/follow/add", query("followedUserId", String.valueOf(authorId)), viewerToken)
+        assertThat(putForm("/api/v1/follows/" + authorId, null, viewerToken)
                 .getStatusCode().value()).isEqualTo(200);
         assertThat(redis.opsForValue().get("user:followerCount:" + authorId))
                 .as("冷 key 不得被写成 1（真实值可能是 37）").isNull();

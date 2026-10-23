@@ -45,12 +45,16 @@ DELETE	/api/v1/favorites	LOGIN	ApiResponse<String>
 GET	/api/v1/favorites	LOGIN	ApiResponse<PageResult<FavoriteItemVO>>
 POST	/api/v1/favorites	LOGIN	ApiResponse<String>
 PUT	/api/v1/favorites/{id}	LOGIN	ApiResponse<String>
+DELETE	/api/v1/follows/{id}	LOGIN	ApiResponse<String>
+PUT	/api/v1/follows/{id}	LOGIN	ApiResponse<String>
 POST	/api/v1/sessions	PUBLIC	ApiResponse<LoginVO>
 POST	/api/v1/users	PUBLIC	ApiResponse<LoginVO>
 GET	/api/v1/users/me	LOGIN	ApiResponse<UserInfoVO>
 PUT	/api/v1/users/me/password	LOGIN	ApiResponse<Void>
 PUT	/api/v1/users/me/username	LOGIN	ApiResponse<Void>
 GET	/api/v1/users/{id}/favorite-folders	PUBLIC	ApiResponse<List<PublicFavoriteFolderVO>>
+GET	/api/v1/users/{id}/followers	LOGIN	ApiResponse<PageResult<FollowUserVO>>
+GET	/api/v1/users/{id}/following	LOGIN	ApiResponse<PageResult<FollowUserVO>>
 DELETE	/api/v1/watch-later	LOGIN	ApiResponse<String>
 GET	/api/v1/watch-later	LOGIN	ApiResponse<PageResult<WatchLaterItemVO>>
 PUT	/api/v1/watch-later/{id}	LOGIN	ApiResponse<String>
@@ -61,10 +65,6 @@ POST	/coupon/grab	LOGIN	ApiResponse<String>
 GET	/coupon/list	PUBLIC	ApiResponse<List<CouponVO>>
 GET	/coupon/my	LOGIN	ApiResponse<List<CouponOrderVO>>
 GET	/feed	LOGIN	ApiResponse<PageResult<ContentVO>>
-POST	/follow/add	LOGIN	ApiResponse<String>
-GET	/follow/followers	LOGIN	ApiResponse<PageResult<FollowUserVO>>
-GET	/follow/following	LOGIN	ApiResponse<PageResult<FollowUserVO>>
-POST	/follow/remove	LOGIN	ApiResponse<String>
 POST	/history/flush	LOGIN	ApiResponse<Void>
 GET	/history/list	LOGIN	ApiResponse<PageResult<HistoryItemVO>>
 POST	/history/play	LOGIN	ApiResponse<Void>
