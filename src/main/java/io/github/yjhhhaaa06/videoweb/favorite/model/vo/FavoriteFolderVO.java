@@ -5,7 +5,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * 我的收藏夹列表项（{@code GET /favorite/folder/list} 的条目）。
+ * 我的收藏夹列表项（{@code GET /api/v1/favorite-folders} 的条目）。
  *
  * <h2>一个形状两个角色</h2>
  * 本类同时是 **Mapper 行类型**（{@code favoriteFolderVoMap} 的 {@code item_count} 由
@@ -18,7 +18,7 @@ import lombok.NoArgsConstructor;
  *   <li>{@code isDefault} —— ★ 前端据此**不给默认夹渲染"删除"**；后端不依赖前端，
  *       删默认夹在 {@code FavoriteService.deleteFolder} 里另有一道 409（契约测试守着）；</li>
  *   <li>{@code isPrivate} —— 列表是"我的夹"，**含私密**（favorite.md §三 原话）；
- *       本 VO 只**读**它；写入口（私密开关）在 T3 已落地（{@code POST /favorite/folder/update}，
+ *       本 VO 只**读**它；写入口（私密开关）在 T3 已落地（{@code PUT /api/v1/favorite-folders/{id}}，
  *       部分更新，见 {@code FavoriteService.updateFolder}）；</li>
  *   <li>{@code itemCount} —— 每夹**条目数**。</li>
  * </ul>
@@ -38,7 +38,7 @@ import lombok.NoArgsConstructor;
  * {@code isDefault} / {@code isPrivate}（getter 名 {@code getIsDefault} ⇒ 属性 {@code isDefault}），
  * 不需要 {@code @JsonProperty} 兜底。
  *
- * <p>JSON 形状（{@code /favorite/folder/list} 的 {@code data}）：
+ * <p>JSON 形状（{@code /api/v1/favorite-folders} 的 {@code data}）：
  * <pre>
  * [{"id":1,"name":"默认收藏夹","isDefault":true,"isPrivate":false,"itemCount":3}]
  * </pre>

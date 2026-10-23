@@ -239,7 +239,7 @@ class FavoriteItemWriteTests extends AbstractHttpIntegrationTest {
         MultiValueMap<String, String> repeatedParams = repeatedForm("contentIds",
                 String.valueOf(contentX), String.valueOf(contentY));
         repeatedParams.add("folderId", String.valueOf(folderA));
-        ResponseEntity<String> resp = postForm("/favorite/remove", repeatedParams, me.token);
+        ResponseEntity<String> resp = deleteQuery("/api/v1/favorites", repeatedParams, me.token);
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
 
         assertThat(itemRowCount(folderA, contentX)).isZero();
@@ -270,10 +270,10 @@ class FavoriteItemWriteTests extends AbstractHttpIntegrationTest {
                 .as("夹不存在 → 404").isEqualTo(404);
         MultiValueMap<String, String> emptyContentIds = form("folderId", mine);
         emptyContentIds.add("contentIds", "");
-        assertThat(postForm("/favorite/remove", emptyContentIds, me.token)
+        assertThat(deleteQuery("/api/v1/favorites", emptyContentIds, me.token)
                 .getStatusCode().value())
                 .as("contentIds= 空串 → 绑定成空列表 → 400（什么都不移是调用方 bug）").isEqualTo(400);
-        assertThat(postForm("/favorite/remove", form("folderId", mine), me.token)
+        assertThat(deleteQuery("/api/v1/favorites", form("folderId", mine), me.token)
                 .getStatusCode().value())
                 .as("缺 contentIds 参数 → 400").isEqualTo(400);
         assertThat(removeItems(null, mine, 2002L).getStatusCode().value()).isEqualTo(401);
@@ -417,20 +417,20 @@ class FavoriteItemWriteTests extends AbstractHttpIntegrationTest {
         if (folderId != null) {
             f.add("folderId", String.valueOf(folderId));
         }
-        return postForm("/favorite/add", f, token);
+        return postForm("/api/v1/favorites", f, token);
     }
 
     private ResponseEntity<String> removeItems(String token, long folderId, long... contentIds) {
         MultiValueMap<String, String> f = form("folderId", folderId);
         f.add("contentIds", commaJoined(contentIds));
-        return postForm("/favorite/remove", f, token);
+        return deleteQuery("/api/v1/favorites", f, token);
     }
 
     private ResponseEntity<String> moveItem(String token, long fromFolderId, long toFolderId, long contentId) {
+        // `T58` 契约变更：contentId 进路径（PUT /api/v1/favorites/{id}，接口契约.md §2.3/§2.4）。
         MultiValueMap<String, String> f = form("fromFolderId", fromFolderId);
         f.add("toFolderId", String.valueOf(toFolderId));
-        f.add("contentId", String.valueOf(contentId));
-        return postForm("/favorite/move", f, token);
+        return putForm("/api/v1/favorites/" + contentId, f, token);
     }
 
     /** POST + {@code x-www-form-urlencoded}（同域 T2 测试的同款实现）。 */

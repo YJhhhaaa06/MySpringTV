@@ -5,13 +5,10 @@ import io.github.yjhhhaaa06.videoweb.support.Envelope;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
 
 import java.sql.PreparedStatement;
@@ -25,9 +22,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <h2>覆盖什么</h2>
  * <ul>
- *   <li>★ {@code POST /favorite/folder/update} 升级为**部分更新**（给了才改；T2 交接①）、
+ *   <li>★ {@code PUT /api/v1/favorite-folders/{id}} 升级为**部分更新**（给了才改；T2 交接①）、
  *       私密开关落库（DB 终态 oracle）、空更新 400、{@code isPrivate} 取值与非法格式 400；</li>
- *   <li>★ {@code GET /favorite/folder/public?userId=X} —— **私密"一期"的全部可观察行为**：
+ *   <li>★ {@code GET /api/v1/users/{id}/favorite-folders} —— **私密"一期"的全部可观察行为**：
  *       只返回该用户的公开夹（私密不出现、别人的不出现）、匿名可访问、条目形状与顺序契约；</li>
  *   <li>400 **先于** 403/404 的顺序（T2 钉死的口径在加可选字段后不许打乱，T2 交接②）；</li>
  *   <li>默认夹可设私密（favorite-需求.md只规定"默认夹删不掉"）。</li>
@@ -279,7 +276,7 @@ class FavoritePrivacyTests extends AbstractHttpIntegrationTest {
         assertThat(names(Envelope.data(anon))).containsExactly("公开夹");
 
         // ② 坏 token：JwtAuthFilter 对"公开端点 + 坏 token"按匿名放行，不得误杀成 401
-        ResponseEntity<String> badToken = get("/favorite/folder/public?userId=" + me.id, "not-a-jwt");
+        ResponseEntity<String> badToken = get("/api/v1/users/" + me.id + "/favorite-folders", "not-a-jwt");
         assertThat(badToken.getStatusCode().value())
                 .as("公开端点收到坏 token ⇒ 按匿名处理（见 JwtAuthFilter 类注释）").isEqualTo(200);
         assertThat(names(Envelope.data(badToken))).containsExactly("公开夹");
@@ -318,9 +315,11 @@ class FavoritePrivacyTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("公开端点参数：缺 userId → 400；userId 非数字 → 400（缺参/坏参由参数绑定交给全局出口）")
+    @DisplayName("公开端点参数：userId 进路径后非数字 → 400（缺 id 已不可表达，见注释）")
     void 公开端点参数非法400() {
-        assertThat(get("/favorite/folder/public", null).getStatusCode().value()).as("缺 userId").isEqualTo(400);
+        // `T58` 契约变更（接口契约.md §2.3）：userId 从 query 搬进路径 ⇒ **非法 id = 400**；
+        //   **"缺 id" = 404**，但少了 id 就没有路由匹配，"缺参 400"这条旧断言已不可达 ——
+        //   退役它，不用双斜杠去撞路径归一化（那测的是容器 URL 处理、不是本契约）。
         assertThat(publicFoldersRaw("abc").getStatusCode().value()).as("userId 非数字").isEqualTo(400);
     }
 
@@ -329,44 +328,30 @@ class FavoritePrivacyTests extends AbstractHttpIntegrationTest {
     // ========================================================================
 
     private ResponseEntity<String> update(long folderId, String token, MultiValueMap<String, String> extraFields) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("folderId", String.valueOf(folderId));
-        form.addAll(extraFields);
-        return postForm("/favorite/folder/update", form, token);
+        // `T58` 契约变更：夹 id 进路径（PUT /api/v1/favorite-folders/{id}，接口契约.md §2.3/§2.4），
+        // 故 form 里不再有 folderId，只有"改什么"。
+        return putForm("/api/v1/favorite-folders/" + folderId, extraFields, token);
     }
 
     private ResponseEntity<String> removeFolder(long folderId, String token) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("folderId", String.valueOf(folderId));
-        return postForm("/favorite/folder/remove", form, token);
+        // `T58` 契约变更：DELETE + 夹 id 进路径（接口契约.md §2.3/§2.4）。
+        return delete("/api/v1/favorite-folders/" + folderId, token);
     }
 
     private ResponseEntity<String> listFolders(String token) {
-        return get("/favorite/folder/list", token);
+        return get("/api/v1/favorite-folders", token);
     }
 
     private ResponseEntity<String> publicFolders(long userId) {
-        return get("/favorite/folder/public?userId=" + userId, null);
+        return get("/api/v1/users/" + userId + "/favorite-folders", null);
     }
 
     private ResponseEntity<String> publicFolders(long userId, String token) {
-        return get("/favorite/folder/public?userId=" + userId, token);
+        return get("/api/v1/users/" + userId + "/favorite-folders", token);
     }
 
     private ResponseEntity<String> publicFoldersRaw(String rawUserId) {
-        return get("/favorite/folder/public?userId=" + rawUserId, null);
-    }
-
-    /** POST + {@code x-www-form-urlencoded}（收藏域的写形态，对齐 /like/*、/follow/* 与 T2 测试）。 */
-    private ResponseEntity<String> postForm(String path, MultiValueMap<String, String> form, String token) {
-        return send(spec -> {
-            RestClient.RequestBodySpec request = spec.uri(path)
-                    .contentType(MediaType.APPLICATION_FORM_URLENCODED);
-            if (token != null) {
-                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-            }
-            return request.body(form);
-        });
+        return get("/api/v1/users/" + rawUserId + "/favorite-folders", null);
     }
 
     private static MultiValueMap<String, String> fields(String... keyValuePairs) {

@@ -338,7 +338,7 @@ class FavoriteCapacityTests extends AbstractHttpIntegrationTest {
     // ========================================================================
 
     private ResponseEntity<String> addFolder(String name, String token) {
-        return postForm("/favorite/folder/add", form("name", name), token);
+        return postForm("/api/v1/favorite-folders", form("name", name), token);
     }
 
     private ResponseEntity<String> addItem(String token, long contentId, Long folderId) {
@@ -346,14 +346,14 @@ class FavoriteCapacityTests extends AbstractHttpIntegrationTest {
         if (folderId != null) {
             f.add("folderId", String.valueOf(folderId));
         }
-        return postForm("/favorite/add", f, token);
+        return postForm("/api/v1/favorites", f, token);
     }
 
     private ResponseEntity<String> moveItem(String token, long fromFolderId, long toFolderId, long contentId) {
+        // `T58` 契约变更：contentId 进路径（PUT /api/v1/favorites/{id}，接口契约.md §2.3/§2.4）。
         MultiValueMap<String, String> f = form("fromFolderId", fromFolderId);
         f.add("toFolderId", String.valueOf(toFolderId));
-        f.add("contentId", String.valueOf(contentId));
-        return postForm("/favorite/move", f, token);
+        return putForm("/api/v1/favorites/" + contentId, f, token);
     }
 
     private ResponseEntity<String> postForm(String path, MultiValueMap<String, String> form, String token) {

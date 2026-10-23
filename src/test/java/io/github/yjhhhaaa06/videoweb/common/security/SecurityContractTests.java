@@ -207,13 +207,15 @@ class SecurityContractTests extends AbstractIntegrationTest {
     @DisplayName("收藏一期 T2：夹 CRUD 四端点判为需登录（**方法级**注解 —— 该域将来有匿名端点）")
     void favorite夹CRUD端点需登录() {
         // ⚠️ 本组是 T2 鉴权口径的**机制级**保证。收藏域**刻意不用类级** @RequiresLogin：
-        //  favorite.md §三 要求 /favorite/folder/public 匿名可访问（T3 已落地），类级会把它误拦成 401，
+        //  favorite.md §三 要求 GET /api/v1/users/{id}/favorite-folders 匿名可访问（T3 已落地），类级会把它误拦成 401，
         //  而"私密夹自己照样看得见"会让这个误拦**长期无人发现**。
         //  反向对照（isFalse 那条）已在 T3 补入，见 favorite公开端点不得判为需登录。
-        assertThat(requiresLogin("POST", "/favorite/folder/add")).isTrue();
-        assertThat(requiresLogin("POST", "/favorite/folder/update")).isTrue();
-        assertThat(requiresLogin("POST", "/favorite/folder/remove")).isTrue();
-        assertThat(requiresLogin("GET", "/favorite/folder/list")).isTrue();
+        // `T58` 契约变更（接口契约.md §2.3/§2.4）：夹 CRUD 资源化到 /api/v1/favorite-folders，
+        //   update/remove 的夹 id 进路径 —— 路径变量**必须**给样本值（写 {id} 匹配不到 handler ⇒ 恒判 PUBLIC，假绿）。
+        assertThat(requiresLogin("POST", "/api/v1/favorite-folders")).isTrue();
+        assertThat(requiresLogin("PUT", "/api/v1/favorite-folders/1")).isTrue();
+        assertThat(requiresLogin("DELETE", "/api/v1/favorite-folders/1")).isTrue();
+        assertThat(requiresLogin("GET", "/api/v1/favorite-folders")).isTrue();
     }
 
     @Test
@@ -226,7 +228,8 @@ class SecurityContractTests extends AbstractIntegrationTest {
         //   机制级断言的**独立价值**是直接回答"这个 401 是谁要求的"，不依赖 HTTP 用例的覆盖面
         //   （T2 教训：机制失效时 401 常由参数解析器兜出，端到端看起来全对 —— 只有对
         //   RequestMappingLookup 直接求值才看得见）。
-        assertThat(requiresLogin("GET", "/favorite/folder/public"))
+        // `T58`：userId 进路径（/api/v1/users/{id}/favorite-folders），样本值 1。
+        assertThat(requiresLogin("GET", "/api/v1/users/1/favorite-folders"))
                 .as("favorite.md §三 冻结契约：看他人公开夹匿名可访问（T3）")
                 .isFalse();
     }
@@ -234,12 +237,13 @@ class SecurityContractTests extends AbstractIntegrationTest {
     @Test
     @DisplayName("收藏三期 T18：他人公开夹内容端点**不得**判为需登录（匿名可访问；与上面四端点 true 构成成对断言）")
     void favorite公开夹内容端点不得判为需登录() {
-        // ★ T18 新增的第三条匿名端点（"点开他人公开夹看内容"）：与 /folder/public 同为**他人视角的公开读**，
+        // ★ T18 新增的第三条匿名端点（"点开他人公开夹看内容"）：与 /users/{id}/favorite-folders 同为**他人视角的公开读**，
         //   与"我是谁"无关 ⇒ 必须匿名可访问。
         //   机制级断言的**独立价值**同 T3 那条：直接回答"这个 401 是谁要求的"，不依赖 HTTP 用例覆盖面
         //   （T2 教训：机制失效时 401 常由参数解析器兜出，端到端看起来全对）。★ 反向：若给本类误加
         //   类级 @RequiresLogin，本类是**最先**变红的那条（HTTP 侧同样会红 —— 见 PublicFolderItemsTests 匿名用例）。
-        assertThat(requiresLogin("GET", "/favorite/folder/items"))
+        // `T58`：folderId 进路径（/api/v1/favorite-folders/{id}/items），样本值 1。
+        assertThat(requiresLogin("GET", "/api/v1/favorite-folders/1/items"))
                 .as("T18 冻结契约：看他人公开夹的内容匿名可访问（服务端另以 is_private = 0 兜隐私）")
                 .isFalse();
     }
@@ -251,25 +255,29 @@ class SecurityContractTests extends AbstractIntegrationTest {
         // （取不到即 401），所以"未登录 → 401"的 HTTP 用例对 @RequiresLogin 机制是假绿
         // （401 可能来自参数解析器而非注解）—— 机制级的"是谁要求的"只有本类能回答。
         // 反向对照（公开端点 isFalse）随上一条用例钉着：类级误标会让那条先红。
-        assertThat(requiresLogin("POST", "/favorite/add")).isTrue();
-        assertThat(requiresLogin("POST", "/favorite/remove")).isTrue();
-        assertThat(requiresLogin("POST", "/favorite/move")).isTrue();
+        // `T58` 契约变更（接口契约.md §2.3/§2.4）：add=POST /favorites、remove=DELETE /favorites、
+        //   move=PUT /favorites/{contentId}（contentId 进路径，样本值 1）。
+        assertThat(requiresLogin("POST", "/api/v1/favorites")).isTrue();
+        assertThat(requiresLogin("DELETE", "/api/v1/favorites")).isTrue();
+        assertThat(requiresLogin("PUT", "/api/v1/favorites/1")).isTrue();
     }
 
     @Test
     @DisplayName("收藏一期 T5：status 判为需登录、count 判为**匿名可访问**（成对断言）")
     void favorite状态与计数鉴权() {
         // ★ 两类端点、两个信任边界（T5）：
-        //   /status = "我收在哪些夹"（私有）⇒ 需登录；
-        //   /count  = 公开展示数（favorite-需求.md §三）⇒ 匿名可访问 —— ★ 与 /like/content/count 的"需登录"
-        //            刻意不同（那条是 TV 的 /like 前缀保护惯性；收藏是新域，按真实口径定）。
+        //   /contents/{id}/favorite = "我收在哪些夹"（私有）⇒ 需登录；
+        //   /contents/{id}/favorite-count = 公开展示数（favorite-需求.md §三）⇒ 匿名可访问
+        //             —— ★ 与 /contents/{id}/like-count 的"需登录"刻意不同
+        //             （那条是 TV 的 /like 前缀保护惯性；收藏是新域，按真实口径定）。
         //   两条必须**成对**断：只断 status=true 的话，把这个端点漏标（或反过来给 count 误标）
         //   在断言上都看不出来。HTTP 侧也有覆盖（FavoriteStatusAndCountTests.状态需登录计数匿名可访问），
         //   本类是**最先、最精确**的信号（直接回答"这个 401 是谁要求的"，T2 教训）。
-        assertThat(requiresLogin("GET", "/favorite/status"))
+        // `T58` 契约变更（接口契约.md §2.3）：contentId 进路径，样本值 1。
+        assertThat(requiresLogin("GET", "/api/v1/contents/1/favorite"))
                 .as("私有状态，必须登录")
                 .isTrue();
-        assertThat(requiresLogin("GET", "/favorite/count"))
+        assertThat(requiresLogin("GET", "/api/v1/contents/1/favorite-count"))
                 .as("公开展示数，必须匿名可访问（误加 @RequiresLogin 会让匿名内容页看不到收藏数）")
                 .isFalse();
     }
@@ -278,11 +286,11 @@ class SecurityContractTests extends AbstractIntegrationTest {
     @DisplayName("收藏一期 T6：夹内列表判为需登录（**方法级**注解 —— 与三条匿名端点构成成对断言）")
     void favorite夹内列表需登录() {
         // 夹内列表是"我的夹里有什么" ⇒ 私有视角，必须登录。
-        // ⚠️ 同样**不能**靠类级 @RequiresLogin 解决：本域已有 /folder/public 与 /count 两条匿名端点
-        // （T3 / T5），类级会一并误拦。故这里断的是**方法级**注解是否落到 /favorite/list 上。
+        // ⚠️ 同样**不能**靠类级 @RequiresLogin 解决：本域已有公开夹列表与公开计数两条匿名端点
+        // （T3 / T5），类级会一并误拦。故这里断的是**方法级**注解是否落到 GET /api/v1/favorites 上。
         // ★ 判别力：本端点的 401 在 HTTP 侧同样可能由 @CurrentUserId 的参数解析器兜出
         // （T2 教训：机制失效时端到端看起来全对）——"这个 401 是谁要求的"只有本类能回答。
-        assertThat(requiresLogin("GET", "/favorite/list"))
+        assertThat(requiresLogin("GET", "/api/v1/favorites"))
                 .as("夹内列表是'我的'私有视角，必须登录（T6）")
                 .isTrue();
     }
@@ -295,10 +303,12 @@ class SecurityContractTests extends AbstractIntegrationTest {
         //   本组是 T17 鉴权口径的**机制级**保证：四个端点都收 @CurrentUserId（取不到即 401）⇒
         //   HTTP 用例对 @RequiresLogin 机制是**假绿**（401 可能来自参数解析器而非注解，
         //   见 T2 教训）——"这个 401 是谁要求的"只有本类能回答。
-        assertThat(requiresLogin("GET", "/watchlater/list")).isTrue();
-        assertThat(requiresLogin("POST", "/watchlater/add")).isTrue();
-        assertThat(requiresLogin("POST", "/watchlater/remove")).isTrue();
-        assertThat(requiresLogin("POST", "/watchlater/move")).isTrue();
+        // `T58` 契约变更（接口契约.md §2.3/§2.4）：资源化为 /api/v1/watch-later；
+        //   add=PUT /{id}、move=PUT /{id}/folder（contentId 进路径，样本值 1）、remove=DELETE。
+        assertThat(requiresLogin("GET", "/api/v1/watch-later")).isTrue();
+        assertThat(requiresLogin("PUT", "/api/v1/watch-later/1")).isTrue();
+        assertThat(requiresLogin("DELETE", "/api/v1/watch-later")).isTrue();
+        assertThat(requiresLogin("PUT", "/api/v1/watch-later/1/folder")).isTrue();
     }
 
     @Test
@@ -425,7 +435,7 @@ class SecurityContractTests extends AbstractIntegrationTest {
         // 它是一个**不属于任何业务控制器**的 HandlerMethod，默认拒绝下会被判成需登录。
         // 本仓无 CORS（不会产生预检），但 curl / 探活工具会看到 401，属于未被设计的行为变化。
         RequestMappingLookup.HandlerAuthz authz =
-                mappingLookup.resolve(new MockHttpServletRequest("OPTIONS", "/favorite/add"));
+                mappingLookup.resolve(new MockHttpServletRequest("OPTIONS", "/api/v1/favorites"));
 
         // ⚠️ 两个维度都要断：只比 HandlerAuthz.NONE 会变成"对生产常量自证"
         //   （NONE 被人改成 (false,true) 时不报警），只断 loginRequired 则会漏掉 adminRequired。
@@ -439,7 +449,7 @@ class SecurityContractTests extends AbstractIntegrationTest {
         // 真实端点对（不是桩）：一边是 3 个 admin 控制器，一边是同域之外的受保护端点。
         // 判别力：若实现把"是否 admin"写成恒 true（或仍按 /api/admin 之外的前缀误命中），下面三条立刻红。
         assertThat(requiresAdmin("GET", "/api/admin/content/list")).isTrue();
-        assertThat(requiresAdmin("GET", "/favorite/status"))
+        assertThat(requiresAdmin("GET", "/api/v1/contents/1/favorite"))
                 .as("收藏状态是私有视角但**不是**管理端点")
                 .isFalse();
         assertThat(requiresAdmin("GET", "/like/content/count"))

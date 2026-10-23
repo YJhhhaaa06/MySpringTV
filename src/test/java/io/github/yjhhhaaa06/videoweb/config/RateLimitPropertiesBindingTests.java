@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@link FavoriteLimitPropertiesBindingTests} 的原生 int）。
  * 更重要的是：本表有一个**实测到的静默陷阱** —— Spring 绑 {@code Map} 时会**删掉键里
  * 除小写字母数字与 {@code -} 之外的字符**，于是 YAML 里若忘了用方括号括键，
- * {@code POST /favorite/add} 会**静默变成** {@code POSTfavoriteadd}（无任何报错，
+ * {@code POST /api/v1/favorites} 会**静默变成** {@code POSTapiv1favorites}（无任何报错，
  * 只是那条权重永远命不中、全落 {@code default-base}）。
  * 故这里把"键形态"与"表非空"一起钉住。
  *
@@ -92,10 +92,10 @@ class RateLimitPropertiesBindingTests extends AbstractIntegrationTest {
                 .isNotEmpty();
         assertThat(base)
                 .as("示例路由必须逐字在表里（键名一致）")
-                .containsKey("POST /favorite/add");
+                .containsKey("POST /api/v1/favorites");
         assertThat(base.keySet())
                 .as("每个 key 都必须是「<方法> <以 / 开头的路径模式>」形态；"
-                        + "缺了空格 = 方括号漏写、键被 Spring 静默改写（实测 POST /favorite/add → POSTfavoriteadd）")
+                        + "缺了空格 = 方括号漏写、键被 Spring 静默改写（实测 POST /api/v1/favorites → POSTapiv1favorites）")
                 .allSatisfy(key -> assertThat(key).contains(" /"));
         assertThat(base.values())
                 .as("每条权重必须为正：0 等于对该端点不限流")
@@ -106,7 +106,7 @@ class RateLimitPropertiesBindingTests extends AbstractIntegrationTest {
     @DisplayName("权重按「是否触达 DB 写 + 是否重活」排序 —— 登录/上传 > 写路径 > 兜底")
     void 权重按重活程度排序() {
         Map<String, Integer> base = limits.cost().base();
-        int writePath = base.get("POST /favorite/add");
+        int writePath = base.get("POST /api/v1/favorites");
 
         assertThat(base.get("POST /api/v1/contents/videos"))
                 .as("上传是重活（落盘 + 转码排队），必须重于普通写路径")

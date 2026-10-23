@@ -6,14 +6,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestClient;
 
 import java.sql.PreparedStatement;
 
@@ -90,27 +87,16 @@ class WatchLaterTransactionTests extends AbstractHttpIntegrationTest {
     // ========================================================================
 
     private ResponseEntity<String> add(String token, long contentId) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("contentId", String.valueOf(contentId));
-        return postForm("/watchlater/add", form, token);
+        // `T58` 契约变更：contentId 进路径（PUT /api/v1/watch-later/{id}，接口契约.md §2.3/§2.4）。
+        return put("/api/v1/watch-later/" + contentId, null, token);
     }
 
     private ResponseEntity<String> move(String token, long contentId, long folderId) {
+        // `T58` 契约变更：contentId 进路径、folderId 留 form
+        // （PUT /api/v1/watch-later/{id}/folder，接口契约.md §2.3/§2.4）。
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("contentId", String.valueOf(contentId));
         form.add("folderId", String.valueOf(folderId));
-        return postForm("/watchlater/move", form, token);
-    }
-
-    private ResponseEntity<String> postForm(String path, MultiValueMap<String, String> form, String token) {
-        return send(spec -> {
-            RestClient.RequestBodySpec request = spec.uri(path)
-                    .contentType(MediaType.APPLICATION_FORM_URLENCODED);
-            if (token != null) {
-                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-            }
-            return request.body(form);
-        });
+        return putForm("/api/v1/watch-later/" + contentId + "/folder", form, token);
     }
 
     // ========================================================================

@@ -5,13 +5,10 @@ import io.github.yjhhhaaa06.videoweb.support.Envelope;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
 
 import java.sql.PreparedStatement;
@@ -177,7 +174,7 @@ class WatchLaterFlowTests extends AbstractHttpIntegrationTest {
                 .as("★ 图文不能进稍后再看（favorite-需求.md §六：只能加视频）")
                 .isEqualTo(400);
         assertThat(add(me.token, deletedVideo).getStatusCode().value())
-                .as("对已软删视频：走 type 判据前的'未软删'条件 ⇒ 404（同 /favorite/add 的失效口径）")
+                .as("对已软删视频：走 type 判据前的'未软删'条件 ⇒ 404（同 POST /api/v1/favorites 的失效口径）")
                 .isEqualTo(404);
         assertThat(add(me.token, 999999999L).getStatusCode().value())
                 .as("不存在的内容 ⇒ 404").isEqualTo(404);
@@ -382,18 +379,20 @@ class WatchLaterFlowTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("参数：remove 空 / 缺 contentIds ⇒ 400；add 缺 contentId ⇒ 400")
+    @DisplayName("参数：remove 空 / 缺 contentIds ⇒ 400；add 的路径 id 非数字 ⇒ 400")
     void 参数错误线() {
         TestUser me = register("13800005012", "参数用户");
 
         MultiValueMap<String, String> emptyIds = new LinkedMultiValueMap<>();
         emptyIds.add("contentIds", "");
-        assertThat(postForm("/watchlater/remove", emptyIds, me.token).getStatusCode().value())
+        assertThat(deleteQuery("/api/v1/watch-later", emptyIds, me.token).getStatusCode().value())
                 .as("空的 contentIds ⇒ 400（一个 id 都不给多半是调用方 bug）").isEqualTo(400);
-        assertThat(postForm("/watchlater/remove", new LinkedMultiValueMap<>(), me.token).getStatusCode().value())
+        assertThat(deleteQuery("/api/v1/watch-later", new LinkedMultiValueMap<>(), me.token).getStatusCode().value())
                 .as("缺 contentIds ⇒ 400").isEqualTo(400);
-        assertThat(postForm("/watchlater/add", new LinkedMultiValueMap<>(), me.token).getStatusCode().value())
-                .as("缺 contentId ⇒ 400").isEqualTo(400);
+        // `T58` 契约变更（接口契约.md §2.3）：contentId 从 form 进路径后，**"缺 id" 不再可表达**
+        // （请求根本不匹配路由 ⇒ 404），**非法 id = 400**。故这里断的是"非数字 id"这一半。
+        assertThat(put("/api/v1/watch-later/abc", null, me.token).getStatusCode().value())
+                .as("非法 id ⇒ 400（参数类型不正确，field=id）").isEqualTo(400);
     }
 
     // ========================================================================
@@ -401,7 +400,7 @@ class WatchLaterFlowTests extends AbstractHttpIntegrationTest {
     // ========================================================================
 
     private ResponseEntity<String> list(String token, String page, String pageSize) {
-        StringBuilder url = new StringBuilder("/watchlater/list");
+        StringBuilder url = new StringBuilder("/api/v1/watch-later");
         boolean first = true;
         if (page != null) {
             url.append("?page=").append(page);
@@ -414,9 +413,8 @@ class WatchLaterFlowTests extends AbstractHttpIntegrationTest {
     }
 
     private ResponseEntity<String> add(String token, long contentId) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("contentId", String.valueOf(contentId));
-        return postForm("/watchlater/add", form, token);
+        // `T58` 契约变更：contentId 进路径（PUT /api/v1/watch-later/{id}，接口契约.md §2.3/§2.4）。
+        return put("/api/v1/watch-later/" + contentId, null, token);
     }
 
     private ResponseEntity<String> remove(String token, long... contentIds) {
@@ -429,27 +427,17 @@ class WatchLaterFlowTests extends AbstractHttpIntegrationTest {
             joined.append(id);
         }
         form.add("contentIds", joined.toString());
-        return postForm("/watchlater/remove", form, token);
+        return deleteQuery("/api/v1/watch-later", form, token);
     }
 
     private ResponseEntity<String> move(String token, long contentId, Long folderId) {
+        // `T58` 契约变更：contentId 进路径、folderId 留 form
+        // （PUT /api/v1/watch-later/{id}/folder，接口契约.md §2.3/§2.4）。
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("contentId", String.valueOf(contentId));
         if (folderId != null) {
             form.add("folderId", String.valueOf(folderId));
         }
-        return postForm("/watchlater/move", form, token);
-    }
-
-    private ResponseEntity<String> postForm(String path, MultiValueMap<String, String> form, String token) {
-        return send(spec -> {
-            RestClient.RequestBodySpec request = spec.uri(path)
-                    .contentType(MediaType.APPLICATION_FORM_URLENCODED);
-            if (token != null) {
-                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-            }
-            return request.body(form);
-        });
+        return putForm("/api/v1/watch-later/" + contentId + "/folder", form, token);
     }
 
     private static List<Long> contentIds(JsonNode list) {

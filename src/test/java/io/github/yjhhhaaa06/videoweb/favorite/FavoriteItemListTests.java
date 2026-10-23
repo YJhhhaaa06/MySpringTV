@@ -5,13 +5,10 @@ import io.github.yjhhhaaa06.videoweb.support.Envelope;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
 
 import java.sql.PreparedStatement;
@@ -60,7 +57,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>{@code ORDER BY} 的 {@code i.create_time DESC} 换成 {@code i.id DESC} ⇒ 倒序与分页用例变红；</li>
  *   <li>{@code countByFolderId} 加 {@code JOIN content ... is_deleted = 0} ⇒ total 变小 ⇒
  *       "total 含失效"与分页并集用例变红；</li>
- *   <li>去掉 {@code /favorite/list} 的 {@code @RequiresLogin} ⇒ {@code SecurityContractTests} 变红
+ *   <li>去掉 {@code /api/v1/favorites} 的 {@code @RequiresLogin} ⇒ {@code SecurityContractTests} 变红
  *       （而本类 HTTP 用例**全绿** —— 又一次证实 T2 教训：HTTP 侧的 401 由 {@code @CurrentUserId}
  *       的参数解析器兜出，对 {@code @RequiresLogin} 机制是**假绿**）。</li>
  *   <li>★ <b>T8 补</b>：去掉 {@code countByFolderId} / {@code findPageByFolderId} 的
@@ -419,7 +416,7 @@ class FavoriteItemListTests extends AbstractHttpIntegrationTest {
         assertThat(before.path("total").asLong()).isEqualTo(2L);
         assertThat(itemByContentId(before.path("list"), softDeleted)).isNotNull();
 
-        // /favorite/remove 刻意**不校验内容存在性**（G11）⇒ 失效条目必须删得掉
+        // /api/v1/favorites 刻意**不校验内容存在性**（G11）⇒ 失效条目必须删得掉
         ResponseEntity<String> removed = remove(me.token, folder, softDeleted);
         assertThat(removed.getStatusCode().value()).as("失效条目移出 ⇒ 200（不是 404）").isEqualTo(200);
 
@@ -447,9 +444,9 @@ class FavoriteItemListTests extends AbstractHttpIntegrationTest {
                 .as("别人的夹 ⇒ 403（与改名/删除/移出同一口径）").isEqualTo(403);
         assertThat(list(me.token, 999999999L, null, null).getStatusCode().value())
                 .as("不存在的夹 ⇒ 404").isEqualTo(404);
-        assertThat(get("/favorite/list", me.token).getStatusCode().value())
+        assertThat(get("/api/v1/favorites", me.token).getStatusCode().value())
                 .as("缺 folderId ⇒ 400").isEqualTo(400);
-        assertThat(get("/favorite/list?folderId=abc", me.token).getStatusCode().value())
+        assertThat(get("/api/v1/favorites?folderId=abc", me.token).getStatusCode().value())
                 .as("folderId 非数字 ⇒ 400（与缺参同源，由 Spring 参数绑定拦）").isEqualTo(400);
         assertThat(list(me.token, mine, null, null).getStatusCode().value())
                 .as("自己的夹 ⇒ 200").isEqualTo(200);
@@ -496,7 +493,9 @@ class FavoriteItemListTests extends AbstractHttpIntegrationTest {
     // ========================================================================
 
     private ResponseEntity<String> list(String token, long folderId, String page, String pageSize) {
-        StringBuilder url = new StringBuilder("/favorite/list?folderId=").append(folderId);
+        // `T58` 契约变更：路径换成 GET /api/v1/favorites，folderId/page/pageSize 仍在 query
+        // （collection 上的过滤条件，接口契约.md §2.3）。
+        StringBuilder url = new StringBuilder("/api/v1/favorites?folderId=").append(folderId);
         if (page != null) {
             url.append("&page=").append(page);
         }
@@ -517,19 +516,7 @@ class FavoriteItemListTests extends AbstractHttpIntegrationTest {
             joined.append(id);
         }
         form.add("contentIds", joined.toString());
-        return postForm("/favorite/remove", form, token);
-    }
-
-    /** POST + {@code x-www-form-urlencoded}（同域 T2/T4 测试的同款实现：收藏写端点收 form）。 */
-    private ResponseEntity<String> postForm(String path, MultiValueMap<String, String> form, String token) {
-        return send(spec -> {
-            RestClient.RequestBodySpec request = spec.uri(path)
-                    .contentType(MediaType.APPLICATION_FORM_URLENCODED);
-            if (token != null) {
-                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-            }
-            return request.body(form);
-        });
+        return deleteQuery("/api/v1/favorites", form, token);
     }
 
     private static List<Long> contentIds(JsonNode list) {

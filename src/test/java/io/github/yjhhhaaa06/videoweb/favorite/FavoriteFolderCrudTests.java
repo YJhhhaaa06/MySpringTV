@@ -137,7 +137,7 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
 
         assertThat(addFolder("", me.token).getStatusCode().value()).as("空串名").isEqualTo(400);
         assertThat(addFolder("   ", me.token).getStatusCode().value()).as("全空白名").isEqualTo(400);
-        assertThat(postForm("/favorite/folder/add", new LinkedMultiValueMap<>(), me.token)
+        assertThat(postForm("/api/v1/favorite-folders", new LinkedMultiValueMap<>(), me.token)
                 .getStatusCode().value()).as("缺 name 参数（Spring 抛缺参 → 400）").isEqualTo(400);
 
         assertThat(folderRows(me.id)).as("被拒的请求不得留下任何行（400 必须发生在写库之前）").isEmpty();
@@ -399,21 +399,22 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
     // ========================================================================
 
     private ResponseEntity<String> addFolder(String name, String token) {
-        return postForm("/favorite/folder/add", form("name", name), token);
+        return postForm("/api/v1/favorite-folders", form("name", name), token);
     }
 
     private ResponseEntity<String> renameFolder(long folderId, String name, String token) {
-        MultiValueMap<String, String> f = form("folderId", folderId);
-        f.add("name", name);
-        return postForm("/favorite/folder/update", f, token);
+        // `T58` 契约变更：夹 id 进路径（PUT /api/v1/favorite-folders/{id}，接口契约.md §2.3/§2.4），
+        // 故 folderId 不再放 form；其余字段形态不动。
+        return putForm("/api/v1/favorite-folders/" + folderId, form("name", name), token);
     }
 
     private ResponseEntity<String> removeFolder(long folderId, String token) {
-        return postForm("/favorite/folder/remove", form("folderId", folderId), token);
+        // `T58` 契约变更：DELETE + 夹 id 进路径（接口契约.md §2.3/§2.4），无请求体。
+        return delete("/api/v1/favorite-folders/" + folderId, token);
     }
 
     private ResponseEntity<String> listFolders(String token) {
-        return get("/favorite/folder/list", token);
+        return get("/api/v1/favorite-folders", token);
     }
 
     /** POST + {@code x-www-form-urlencoded}（收藏域的写形态，对齐 /like/* 与 /follow/*）。 */

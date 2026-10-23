@@ -46,7 +46,7 @@ import java.util.regex.Pattern;
  *   <li>{@code cost.base} 的 <b>key 形态</b>必须是「{@code <方法> <以 / 开头的路径模式>}」——
  *       ⚠️ <b>这条不是洁癖，是实测到的静默陷阱</b>：Spring 绑 {@code Map} 时，键里除小写字母数字
  *       与 {@code -} 之外的字符会被**删掉**，于是 YAML 里若忘了用 {@code [ ]} 括键，
- *       {@code POST /favorite/add} 会**静默变成** {@code POSTfavoriteadd}（无任何报错，
+ *       {@code POST /api/v1/favorites} 会**静默变成** {@code POSTapiv1favorites}（无任何报错，
  *       只是那条权重永远命不中、全落 {@code default-base}）。把形态钉成断言后，
  *       这类"漏写方括号"会在**启动时**炸出来。</li>
  *   <li>{@code cost.miss-multiplier} 必须 {@code >= 1.0}：它是"缓存 miss 更贵"的乘数，
@@ -120,8 +120,9 @@ public record RateLimitProperties(Server server, User user, Cost cost) {
      * 成本信号与折扣（口径见 {@code architecture/tech/rate-limit/限流.md} §二 / §四）。
      *
      * @param base           权重表：key = 「{@code <方法> <路径模式>}」（Spring 路由模式，非具体 id，
-     *                       如 {@code POST /favorite/add}），value = 该端点一次的令牌数。
-     *                       ★ YAML 里**必须**写成 {@code "[POST /favorite/add]": 3}（方括号！）——
+     *                       如 {@code POST /api/v1/favorites}、{@code PUT /api/v1/favorite-folders/{id}}
+     *                       —— 模式里的 {@code {id}} **原样写**），value = 该端点一次的令牌数。
+     *                       ★ YAML 里**必须**写成 {@code "[PUT /api/v1/favorite-folders/{id}]": 3}（方括号！）——
      *                       理由见类注释校验清单第 1 条（漏写会被静默改写）。
      *                       <p>⚠️ <b>空表是合法的</b>（等价于"全部走 default-base"）——
      *                       故意不拒空，是为了保留"只按兜底单位限"这条合法配置；而"漏配某个路由"

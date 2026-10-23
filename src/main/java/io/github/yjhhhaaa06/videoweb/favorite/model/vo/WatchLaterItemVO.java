@@ -6,7 +6,7 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 /**
- * 稍后再看清单里的一条（{@code GET /watchlater/list} 的条目，收藏三期 T17）。
+ * 稍后再看清单里的一条（{@code GET /api/v1/watch-later} 的条目，收藏三期 T17）。
  *
  * <h2>★ 与 {@link FavoriteItemVO} 同形，但用 {@code addedTime}（用户 2026-10-14 决策 D3）</h2>
  * 两者渲染一张卡片所需的字段完全相同：{@code {contentId, 「时间」, invalid, title, coverUrl, authorName}}。
@@ -14,7 +14,7 @@ import java.time.LocalDateTime;
  * <ol>
  *   <li>时间是 {@code addedTime}（"加入稍后再看的时间"），**不借收藏语义的 {@code favoriteTime}**
  *       —— 字段名直接表达语义，免得下游把"稍后再看时间"读成"收藏时间"；</li>
- *   <li><b>不含 {@code id}</b>：移出按 {@code contentId} 定位（{@code /watchlater/remove} 收
+ *   <li><b>不含 {@code id}</b>：移出按 {@code contentId} 定位（{@code /api/v1/watch-later} 收
  *       {@code contentIds}），且 {@code uk_user_content} 保证「同一用户同一内容」只有一条
  *       ⇒ {@code contentId} 本就是稳定的行键，不需要再给一个记录 id。</li>
  * </ol>
@@ -40,7 +40,7 @@ import java.time.LocalDateTime;
  * SQL 只填**本域两列**（{@code contentId} / {@code addedTime}）；其余四列由
  * {@code WatchLaterService.list} 组装 —— 正常行从 {@code loadContentVOs} 抄出，失效行构造占位。
  *
- * <p>JSON 形状（{@code /watchlater/list} 的 {@code data.list} 元素）：
+ * <p>JSON 形状（{@code /api/v1/watch-later} 的 {@code data.list} 元素）：
  * <pre>
  * {"contentId":3,"addedTime":"2026-10-14T18:00:00","invalid":false,
  *  "title":"标题","coverUrl":"/upload/cover/x.png","authorName":"作者"}

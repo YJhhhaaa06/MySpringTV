@@ -186,14 +186,14 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         jdbcTemplate.update("INSERT INTO follow (user_id, followed_user_id) VALUES (?, ?)",
                 viewerId, authorId);
         // 收藏走真实写入口（不传 folderId ⇒ R-01 懒建默认夹）——内联收藏态是 R-10 的收益点，端到端点亮
-        assertThat(postQuery("/favorite/add", query("contentId", String.valueOf(contentId)), token)
+        assertThat(postQuery("/api/v1/favorites", query("contentId", String.valueOf(contentId)), token)
                 .getStatusCode().value()).as("前置：收藏应成功").isEqualTo(200);
 
         JsonNode interaction = Envelope.data(get("/search/IdSearch?contentId=" + contentId, token))
                 .path("interaction");
         assertThat(interaction.path("isLiked").asBoolean()).isTrue();
         assertThat(interaction.path("isFavorited").asBoolean())
-                .as("★ 内联收藏态（R-10 收益点：详情页不必再为它单发 /favorite/status）").isTrue();
+                .as("★ 内联收藏态（R-10 收益点：详情页不必再为它单发 /api/v1/contents/{id}/favorite）").isTrue();
         assertThat(interaction.path("isFollowed").asBoolean()).isTrue();
 
         // 反向对照：换一个没点过赞 / 没收藏 / 没关注的用户 ⇒ 赞藏关注三维都是 false，且子对象**在场**

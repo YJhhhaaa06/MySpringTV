@@ -23,8 +23,8 @@ import java.util.Map;
  *
  * <h2>它是什么、不是什么</h2>
  * 一个**独立于收藏夹**的"稍后再看"池：**只装视频**、按加入时间倒序、可批量移出、可"移入收藏夹"。
- * ⚠️ 它与收藏**不共表**（用户 2026-10-14 拍板）：共表会让 {@code /favorite/status}、
- * {@code /favorite/count}、夹列表、公开夹四条读语义全要加"排除稍后再看"、漏一处即静默错答案；
+ * ⚠️ 它与收藏**不共表**（用户 2026-10-14 拍板）：共表会让 {@code /api/v1/contents/{id}/favorite}、
+ * {@code /api/v1/contents/{id}/favorite-count}、夹列表、公开夹四条读语义全要加"排除稍后再看"、漏一处即静默错答案；
  * 独立表后**收藏侧一行不改**（决策见 {@code favorite.md} §九）。
  *
  * <h2>★ 三条实测语义（favorite-需求.md §六 / favorite.md §九）</h2>
@@ -35,7 +35,7 @@ import java.util.Map;
  *       —— 不新增行、不改 id；★ 容量判据用 {@code countByUserIdExcludingContent} **排除自身**
  *       ⇒ 已满（100）时"重复 add"仍成功，只有"加新内容且已满"才 400；</li>
  *   <li><b>除清单外无状态显示</b>：★ 本类**不提供**任何"是否在稍后再看"的查询 ——
- *       不加 status 端点、不让它出现在 {@code interaction} / {@code /favorite/status} 里
+ *       不加 status 端点、不让它出现在 {@code interaction} / {@code /api/v1/contents/{id}/favorite} 里
  *       （favorite-需求.md §六；违规注入见 {@code WatchLaterIsolationTests}）。</li>
  * </ol>
  *
@@ -89,7 +89,7 @@ public class WatchLaterService {
     // ========================================================================
 
     /**
-     * 加入稍后再看（{@code POST /watchlater/add}）。
+     * 加入稍后再看（{@code PUT /api/v1/watch-later/{id}}）。
      *
      * <h2>校验顺序</h2>
      * <ol>
@@ -112,7 +112,7 @@ public class WatchLaterService {
     }
 
     /**
-     * 从稍后再看移出若干条（{@code POST /watchlater/remove}，批量）。
+     * 从稍后再看移出若干条（{@code DELETE /api/v1/watch-later}，批量）。
      *
      * <p>★ <b>本方法不校验内容存在性</b>（同 **G11** 的理由 —— 失效条目必须删得掉）：
      * 直接按 {@code (user_id, content_id)} 删行。幂等：本就不在池中（陈旧页面 / 已移出）⇒ 删 0 行，
@@ -130,7 +130,7 @@ public class WatchLaterService {
     }
 
     /**
-     * 把一条内容从稍后再看**移入收藏夹**（{@code POST /watchlater/move}）。
+     * 把一条内容从稍后再看**移入收藏夹**（{@code PUT /api/v1/watch-later/{id}/folder}）。
      *
      * <h2>它是一个事务内的"加入目标夹 + 从池中移除"</h2>
      * 两条写必须同进同退：只加入不移除 ⇒ 内容既在池里又在夹里（"移"没完成）；只移除不加入 ⇒ 内容丢了。
@@ -142,17 +142,17 @@ public class WatchLaterService {
      * <ol>
      *   <li><b>内容 404 / 非视频 400</b>：{@link #requireVideoContent}（同 {@link #add}）；</li>
      *   <li><b>目标夹归属 404/403 · 已满 400 · 同内容 409 · 内容失效 404</b>：
-     *       全部由 {@code FavoriteService.addItem} 给出（口径同 {@code /favorite/add}）；
+     *       全部由 {@code FavoriteService.addItem} 给出（口径同 {@code /api/v1/favorites}）；
      *       ⚠️ 目标夹已有同内容 ⇒ 409 且**事务回滚 ⇒ 稍后再看条目保留**（不是"移出后丢失"）；</li>
      *   <li><b>从池中移除</b>：命中 0 行也算成功（幂等）。</li>
      * </ol>
      *
      * <p>★ <b>{@code folderId} 缺省 = 默认夹（懒建）</b>（D4，2026-10-14 拍板）：语义与
-     * {@code /favorite/add} 的 {@code folderId} 完全一致（缺省 ⇒ 收进必要时懒建的默认夹）。
+     * {@code /api/v1/favorites} 的 {@code folderId} 完全一致（缺省 ⇒ 收进必要时懒建的默认夹）。
      *
      * <p>⚠️ <b>不要求"内容本就在池中"</b>（与 {@code favorite/move} 对陈旧 source 的处置同款）：
      * 不在池中时，加入仍然成功、删行命中 0 行 —— 净效果等价于一次"加入收藏夹"，
-     * 而那是用户用 {@code /favorite/add} 本就能做的事，**不构成越权、也不产生数据错误**。
+     * 而那是用户用 {@code /api/v1/favorites} 本就能做的事，**不构成越权、也不产生数据错误**。
      *
      * @param userId    当前登录用户
      * @param contentId 内容 id；不存在 / 已软删 ⇒ 404、非视频 ⇒ 400
@@ -170,7 +170,7 @@ public class WatchLaterService {
     // ========================================================================
 
     /**
-     * 稍后再看清单分页（{@code GET /watchlater/list?page=&pageSize=}）——
+     * 稍后再看清单分页（{@code GET /api/v1/watch-later?page=&pageSize=}）——
      * 按**加入时间倒序**；失效条目返回脱敏占位（与收藏夹列表**同口径**，R-03 / R-11）。
      *
      * <h2>★ 分页单位是 {@code watch_later} 行</h2>

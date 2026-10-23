@@ -23,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <h2>为什么单列一类（这是本方案的核心卖点，必须被钉死）</h2>
  * 稍后再看与收藏**不共表**（用户 2026-10-14 拍板）—— 目的就是让
- * {@code /favorite/status}（{@code isFavorited}）、{@code /favorite/count}、夹列表、公开夹
+ * {@code /api/v1/contents/{id}/favorite}（{@code isFavorited}）、{@code /api/v1/contents/{id}/favorite-count}、夹列表、公开夹
  * **四条读语义天然看不到稍后再看**。本类把"看不到"变成一条**可观察断言**：
  * add 稍后再看后，收藏状态仍 {@code false}、收藏数不变。
  *
@@ -50,7 +50,7 @@ class WatchLaterIsolationTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("★加入稍后再看不改变收藏状态：/favorite/status 仍 false+[]、oracle favorite_item 0 行")
+    @DisplayName("★加入稍后再看不改变收藏状态：/api/v1/contents/{id}/favorite 仍 false+[]、oracle favorite_item 0 行")
     void 加入稍后再看不改变收藏状态() {
         TestUser me = register("13800006001", "隔离用户");
         long video = insertVideoContent(me.id, "隔离视频");
@@ -73,7 +73,7 @@ class WatchLaterIsolationTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("★加入稍后再看不改变收藏数：/favorite/count 不变；oracle 列与行都不动")
+    @DisplayName("★加入稍后再看不改变收藏数：/api/v1/contents/{id}/favorite-count 不变；oracle 列与行都不动")
     void 加入稍后再看不改变收藏数() {
         TestUser me = register("13800006002", "隔离计数用户");
         long video = insertVideoContent(me.id, "计数隔离视频");
@@ -92,7 +92,7 @@ class WatchLaterIsolationTests extends AbstractHttpIntegrationTest {
         long video = insertVideoContent(me.id, "互扰视频");
 
         // 先真正收藏（走真实写路径 ⇒ 维护 favorite_count 列）
-        assertThat(postForm("/favorite/add", "contentId", String.valueOf(video), me.token).getStatusCode().value())
+        assertThat(postForm("/api/v1/favorites", "contentId", String.valueOf(video), me.token).getStatusCode().value())
                 .isEqualTo(200);
         assertThat(count(me.token, video)).as("收藏后 = 1").isEqualTo(1L);
         assertThat(status(me.token, video).path("isFavorited").asBoolean()).isTrue();
@@ -106,12 +106,15 @@ class WatchLaterIsolationTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("★红线：除清单外无状态面 —— /watchlater/status 不存在；详情互动态不含 isWatchLater")
+    @DisplayName("★红线：除清单外无状态面 —— 不存在'是否在稍后再看'的读端点；详情互动态不含 isWatchLater")
     void 没有状态面() {
         TestUser me = register("13800006004", "无状态面用户");
         long video = insertVideoContent(me.id, "红线视频");
 
-        assertThat(get("/watchlater/status?contentId=" + video, me.token).getStatusCode().value())
+        // `T58` 契约变更（接口契约.md §2.3）：稍后再看资源化为 /api/v1/watch-later，
+        // 若将来有人加状态端点，最自然的落点是内容维度的单例关系 GET /api/v1/contents/{id}/watch-later
+        // —— 该路径**未映射**（Spring 走全局出口，非 200），绝不是"可用状态端点"。
+        assertThat(get("/api/v1/contents/" + video + "/watch-later", me.token).getStatusCode().value())
                 .as("★ 不提供'是否在稍后再看'的查询端点（favorite-需求.md §六 / favorite.md §九③）——"
                         + "该路径**未映射**（Spring 走全局出口，非 200），绝不是'可用状态端点'")
                 .isNotEqualTo(200);
@@ -132,15 +135,16 @@ class WatchLaterIsolationTests extends AbstractHttpIntegrationTest {
     // ========================================================================
 
     private ResponseEntity<String> add(String token, long contentId) {
-        return postForm("/watchlater/add", "contentId", String.valueOf(contentId), token);
+        // `T58` 契约变更：contentId 进路径（PUT /api/v1/watch-later/{id}，接口契约.md §2.3/§2.4）。
+        return put("/api/v1/watch-later/" + contentId, null, token);
     }
 
     private JsonNode status(String token, long contentId) {
-        return Envelope.data(get("/favorite/status?contentId=" + contentId, token));
+        return Envelope.data(get("/api/v1/contents/" + contentId + "/favorite", token));
     }
 
     private long count(String token, long contentId) {
-        return Envelope.data(get("/favorite/count?contentId=" + contentId, token)).asLong();
+        return Envelope.data(get("/api/v1/contents/" + contentId + "/favorite-count", token)).asLong();
     }
 
     private ResponseEntity<String> postForm(String path, String key, String value, String token) {

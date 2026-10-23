@@ -296,7 +296,7 @@ class FavoriteCountMaintenanceTests extends AbstractHttpIntegrationTest {
             redis.delete(keys);
         }
 
-        ResponseEntity<String> resp = get("/favorite/count?contentId=" + content, null);
+        ResponseEntity<String> resp = get("/api/v1/contents/" + content + "/favorite-count", null);
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         assertThat(Envelope.data(resp).asLong())
                 .as("★ 端点答 999 ⇒ 回源读的是列；若仍在实时 COUNT(DISTINCT)，这里只能是 1")
@@ -357,7 +357,7 @@ class FavoriteCountMaintenanceTests extends AbstractHttpIntegrationTest {
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
         form.add("folderId", String.valueOf(folderId));
         form.add("contentId", String.valueOf(contentId));
-        return postForm("/favorite/add", form, token);
+        return postForm("/api/v1/favorites", form, token);
     }
 
     private ResponseEntity<String> removeItems(long folderId, List<Long> contentIds, String token) {
@@ -366,21 +366,20 @@ class FavoriteCountMaintenanceTests extends AbstractHttpIntegrationTest {
         for (Long contentId : contentIds) {
             form.add("contentIds", String.valueOf(contentId));
         }
-        return postForm("/favorite/remove", form, token);
+        return deleteQuery("/api/v1/favorites", form, token);
     }
 
     private ResponseEntity<String> moveItem(long fromFolderId, long toFolderId, long contentId, String token) {
+        // `T58` 契约变更：contentId 进路径（PUT /api/v1/favorites/{id}，接口契约.md §2.3/§2.4）。
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
         form.add("fromFolderId", String.valueOf(fromFolderId));
         form.add("toFolderId", String.valueOf(toFolderId));
-        form.add("contentId", String.valueOf(contentId));
-        return postForm("/favorite/move", form, token);
+        return putForm("/api/v1/favorites/" + contentId, form, token);
     }
 
     private ResponseEntity<String> deleteFolder(long folderId, String token) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("folderId", String.valueOf(folderId));
-        return postForm("/favorite/folder/remove", form, token);
+        // `T58` 契约变更：DELETE + 夹 id 进路径（接口契约.md §2.3/§2.4）。
+        return delete("/api/v1/favorite-folders/" + folderId, token);
     }
 
     private ResponseEntity<String> postForm(String path, MultiValueMap<String, String> form, String token) {

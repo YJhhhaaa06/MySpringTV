@@ -57,7 +57,7 @@ import java.util.Set;
  *       重复收藏**撞唯一键** ⇒ {@code DuplicateKeyException} ⇒ 全局出口 409，
  *       不靠"先查后插"（并发下先查后插必然漏）。</li>
  *   <li>{@code idx_user_content (user_id, content_id)} —— 按人去重（上条口径 4）与
- *       {@code /favorite/status} 的成员判定。</li>
+ *       {@code /api/v1/contents/{id}/favorite} 的成员判定。</li>
  *   <li>{@code idx_folder_time (folder_id, create_time)} —— 夹内列表按收藏时间倒序分页（T6）。</li>
  * </ul>
  *
@@ -92,7 +92,7 @@ public interface FavoriteItemDao {
     int deleteByFolderId(@Param("folderId") long folderId);
 
     /**
-     * 收藏一条内容进一个夹（T4，{@code POST /favorite/add} 与 {@code POST /favorite/move} 共用）。
+     * 收藏一条内容进一个夹（T4，{@code POST /api/v1/favorites} 与 {@code PUT /api/v1/favorites/{id}} 共用）。
      *
      * <h2>三条口径（写调用方前先读）</h2>
      * <ol>
@@ -146,7 +146,7 @@ public interface FavoriteItemDao {
                                     @Param("contentIds") List<Long> contentIds);
 
     /**
-     * 某内容**收在我的哪些夹**（T5，{@code GET /favorite/status} 的 {@code folders}）。
+     * 某内容**收在我的哪些夹**（T5，{@code GET /api/v1/contents/{id}/favorite} 的 {@code folders}）。
      *
      * <h2>判据是 {@code (user_id, content_id)}，不是"按夹判"</h2>
      * 同一内容可以躺在我的多个夹里（唯一键是 {@code (folder_id, content_id)}），故"在哪些夹"
@@ -182,11 +182,11 @@ public interface FavoriteItemDao {
                                                             @Param("contentId") long contentId);
 
     // ========================================================================
-    // 夹内分页（T6：GET /favorite/list）
+    // 夹内分页（T6：GET /api/v1/favorites）
     // ========================================================================
 
     /**
-     * 夹内收藏记录总数（T6，{@code GET /favorite/list} 的 {@code total}）——
+     * 夹内收藏记录总数（T6，{@code GET /api/v1/favorites} 的 {@code total}）——
      * 数的是 **{@code favorite_item} 行**，不是"还能打开的内容"。
      *
      * <h2>★ 为什么 {@code total} 必须<b>包含</b>失效条目</h2>
@@ -280,7 +280,7 @@ public interface FavoriteItemDao {
      * <h2>★ 与 {@link #findFoldersByUserAndContent} 的区别：**不 JOIN**、只判存在</h2>
      * "我是否收藏过" ⟺ 存在一条 {@code (user_id, content_id)} 的记录 —— **不需要**知道
      * 收在哪些夹，也就不需要 JOIN {@code favorite_folder}（那条 JOIN 只是为取夹名，
-     * 服务 {@code /favorite/status} 的"收在哪些夹"）。本查询两列**等值**，正好命中
+     * 服务 {@code /api/v1/contents/{id}/favorite} 的"收在哪些夹"）。本查询两列**等值**，正好命中
      * {@code idx_user_content (user_id, content_id)} 的点查。
      *
      * <h2>口径：判"记录存在"，与收藏数同侧</h2>

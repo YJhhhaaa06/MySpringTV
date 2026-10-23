@@ -29,7 +29,7 @@ import java.util.Set;
  *   <li>{@code content:favoriteCount:{id}}（**String 整数**）——"这条内容被多少人收藏"（按人去重）。</li>
  * </ol>
  * ⚠️ **没有 {@code partial:}**：Set 无偏移语义，收藏域也没有"按序分页读大集合"的路径
- * （{@code /favorite/list} 分页的是**夹内记录行**、走 DB，见 §七），不存在前缀态。
+ * （{@code /api/v1/favorites} 分页的是**夹内记录行**、走 DB，见 §七），不存在前缀态。
  * ⚠️ **没有 {@code folders} 缓存**（§七 拍板）：低频 + "未收藏时短路"⇒ 正常路径几乎不打 DB；
  * 给它加缓存的失效点有 add / remove / move / 删夹 / 改名五个，换到的只是省一次亚毫秒点查。
  *
@@ -214,7 +214,7 @@ public class FavoriteCache {
      * 缓存是**域内实现细节**，互动域只依赖 Service 契约、对它无感
      * （{@code 模块边界与依赖.md} §四）。
      *
-     * <h2>★ T15 起本方法也是 {@code /favorite/status} 的唯一来源</h2>
+     * <h2>★ T15 起本方法也是 {@code /api/v1/contents/{id}/favorite} 的唯一来源</h2>
      * {@code FavoriteService.getFavoriteStatus} 用本方法的**返回值**做短路：{@code false} ⇒
      * 直接答 {@code {false, []}}、**不查库**；{@code true} ⇒ 它必须再去取 {@code folders}，
      * 布尔改由 {@code folders.isEmpty()} 推导（否则会破坏响应自洽
@@ -226,7 +226,7 @@ public class FavoriteCache {
  *       ⇒ 短路不会把"读不到"降级成"未收藏"（= {@code cache/DB} 失败语义的收口处，见类注释
  *       "两种失败必须区分"）。<br>
  *       ⚠️ <b>但别读成"false = 当下 DB 真相"</b>：空标记与 {@code SISMEMBER} 都可能是失效失败后的
- *       <b>陈旧结论</b>（≤ TTL）。这是 {@code /favorite/status} 容忍度边界的根源，完整论证在
+ *       <b>陈旧结论</b>（≤ TTL）。这是 {@code /api/v1/contents/{id}/favorite} 容忍度边界的根源，完整论证在
  *       {@code FavoriteStatusVO} 类注释 —— 那里是这层口径的唯一事实源，本段不复述。</li>
      *   <li><b>为什么冷 miss 要回填而不是白读一趟</b>：回填让冷状态**自愈** ——
      *       否则本端点会退化成"**每请求一次点查且永不收敛**"。这条取舍的完整论证与代价登记在

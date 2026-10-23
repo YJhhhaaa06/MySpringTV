@@ -127,7 +127,7 @@ import java.util.Set;
  *
  * <h2>★ 懒建与"列表空态"为什么自洽（T2 前提自审）</h2>
  * R-01 拍板默认夹**懒建**（首次收藏时建，落点 T4），故"这个用户一个夹都没有"是**合法状态**：
- * 新注册用户在还没收藏过任何东西时，{@code GET /favorite/folder/list} 返回 {@code []}。
+ * 新注册用户在还没收藏过任何东西时，{@code GET /api/v1/favorite-folders} 返回 {@code []}。
  * 看似"空列表很怪"，但另一条路（读时补建）更差：
  * <ul>
  *   <li>GET 变成**有副作用的写**（每次刷新列表都可能插一行）；</li>
@@ -166,7 +166,7 @@ import java.util.Set;
  * <h2>★ 私密（{@code is_private}）的语义 —— 它的可观察落点只有一条：他人视角端点</h2>
  * 自己的夹自己永远看得见（{@code /folder/list} **含私密**），所以"设私密"这个动作
  * 在本域内部**没有任何可观察差异** —— 它的全部对外行为都发生在
- * {@code GET /favorite/folder/public?userId=X} 上（R-08）。
+ * {@code GET /api/v1/users/{id}/favorite-folders} 上（R-08）。
  * <ul>
  *   <li>公开端点**永远只返回 {@code is_private = 0}**，包括夹主本人来调也一样 ——
  *       本端点表达的是"他人视角"这条路径，"我的"走 {@code /folder/list} 另一条。
@@ -294,7 +294,7 @@ public class FavoriteService {
     }
 
     /**
-     * 他人视角的公开夹列表（{@code GET /favorite/folder/public?userId=X}）——
+     * 他人视角的公开夹列表（{@code GET /api/v1/users/{id}/favorite-folders}）——
      * 私密（{@code is_private = 1}）的夹**完全不出现**，这就是"私密"一期的可观察落点（R-08）。
      *
      * <h2>三条口径（写改动前先读）</h2>
@@ -318,7 +318,7 @@ public class FavoriteService {
     }
 
     /**
-     * 他人**公开**收藏夹内的内容分页（{@code GET /favorite/folder/items?folderId=X}，T18）——
+     * 他人**公开**收藏夹内的内容分页（{@code GET /api/v1/favorite-folders/{id}/items}，T18）——
      * favorite-需求.md §二「看别人的收藏夹」的"点开看内容"那一半（一期 R-08 只给了"名称 + 数量"）。
      *
      * <h2>★ 与 {@link #listFolderItems} 的关系：同一条装配、不同的"准入闸"</h2>
@@ -454,7 +454,7 @@ public class FavoriteService {
     // ========================================================================
 
     /**
-     * 收藏一条内容进一个夹（{@code POST /favorite/add}）。
+     * 收藏一条内容进一个夹（{@code POST /api/v1/favorites}）。
      *
      * <h2>校验顺序（对齐 {@code /like/*} 写路径「先校验存在性」的参照）</h2>
      * <ol>
@@ -551,7 +551,7 @@ public class FavoriteService {
     }
 
     /**
-     * 从一个夹移出若干条收藏记录（{@code POST /favorite/remove}，批量：夹内勾选多条一次移出）。
+     * 从一个夹移出若干条收藏记录（{@code DELETE /api/v1/favorites}，批量：夹内勾选多条一次移出）。
      *
      * <h2>★ 红线：本方法**不校验内容存在性**（G11，T4 最重要的口径）</h2>
      * 直接按 {@code (folder_id, content_id)} 删行。失效内容的收藏记录**能移出** ——
@@ -604,7 +604,7 @@ public class FavoriteService {
     }
 
     /**
-     * 把一条收藏从 A 夹挪到 B 夹（{@code POST /favorite/move}）。
+     * 把一条收藏从 A 夹挪到 B 夹（{@code PUT /api/v1/favorites/{id}}）。
      *
      * <h2>★ 为什么 move 是独立端点，而不是前端的 remove + add 两次调用</h2>
      * T4 前提自审的结论（G13 授权自行决断，但事务边界要讲清楚）：两次 HTTP 调用之间
@@ -744,7 +744,7 @@ public class FavoriteService {
     // ========================================================================
 
     /**
-     * 当前用户对某内容的收藏状态（{@code GET /favorite/status}）——favorite-需求.md §三「打开内容页能看到
+     * 当前用户对某内容的收藏状态（{@code GET /api/v1/contents/{id}/favorite}）——favorite-需求.md §三「打开内容页能看到
      * "已收藏"，并知道**收在了哪些夹**」。
      *
      * <h2>★ T15：先问成员集，"未收藏"这一支一次库都不查</h2>
@@ -821,7 +821,7 @@ public class FavoriteService {
     }
 
     /**
-     * 某内容的收藏数（{@code GET /favorite/count}）—— <b>按人去重</b>（R-06，favorite-需求.md §六）。
+     * 某内容的收藏数（{@code GET /api/v1/contents/{id}/favorite-count}）—— <b>按人去重</b>（R-06，favorite-需求.md §六）。
      *
      * <p>★ <b>T11 起走缓存</b>：{@code content:favoriteCount:{id}}（{@code GET}），
      * miss 时**单飞回源**并回填、Redis 失败降级直查 DB（接口不 500）。
@@ -857,7 +857,7 @@ public class FavoriteService {
     // ========================================================================
 
     /**
-     * 夹内内容分页（{@code GET /favorite/list?folderId=&page=&pageSize=}）——
+     * 夹内内容分页（{@code GET /api/v1/favorites?folderId=&page=&pageSize=}）——
      * favorite-需求.md §三「打开某个夹，按**收藏时间倒序**看里面的内容」。
      *
      * <h2>★ 分页单位是<b>收藏记录行</b>，不是"内容"（G12 / R-07）</h2>
@@ -963,7 +963,7 @@ public class FavoriteService {
      * （R-10 / {@code favorite.md} §六）。
      *
      * <h2>★ 与 {@link #getFavoriteStatus} 的区别：只判存在、**不 JOIN**</h2>
-     * {@code /favorite/status} 要回答"**收在哪些夹**"（故 JOIN {@code favorite_folder} 取夹名）；
+     * {@code /api/v1/contents/{id}/favorite} 要回答"**收在哪些夹**"（故 JOIN {@code favorite_folder} 取夹名）；
      * 本方法只回答"我收藏过没有" ⟺ 存在一条 {@code (user_id, content_id)} 记录 ——
      * 一趟 {@code idx_user_content} 等值点查（DAO 口径见
      * {@code FavoriteItemDao.existsByUserAndContent}）。
@@ -977,7 +977,7 @@ public class FavoriteService {
      * <ul>
      *   <li><b>不判内容有效性</b>：失效内容的记录照样在（R-03 / R-07）⇒ 仍答 true
      *       （"我还收着它"是事实）；</li>
-     *   <li><b>不校验 userId 存在性</b>：查不到记录就是 false（同 {@code /favorite/status}
+     *   <li><b>不校验 userId 存在性</b>：查不到记录就是 false（同 {@code /api/v1/contents/{id}/favorite}
      *       的"空态是合法状态"口径，不给存在性开探测口）；</li>
      *   <li>同一人把同一内容收进**多个夹**也只答 true（判据是 {@code (user_id, content_id)}
      *       的记录存在性，不是按夹数）。</li>
@@ -1105,7 +1105,7 @@ public class FavoriteService {
      *       由调用方取行时一并带下来（**不重复查库**）；</li>
      *   <li>★ <b>数的是 {@code favorite_item} 行（含失效条目）</b>：
      *       {@code FavoriteItemDao.countByFolderId} **不碰 content 表** ⇒ 与
-     *       {@code FavoriteFolderVO#itemCount}、{@code /favorite/list} 的 {@code total}
+     *       {@code FavoriteFolderVO#itemCount}、{@code /api/v1/favorites} 的 {@code total}
      *       天然同一口径。别换成一个"还要问内容在不在"的数 —— 那会让"夹里显示 3 条、
      *       却提示已满"这类自相矛盾成为可能；</li>
      *   <li>判据是 {@code >=} ⇒ 夹**恰好能装到上限**（第 {@code limit} 条可进，第

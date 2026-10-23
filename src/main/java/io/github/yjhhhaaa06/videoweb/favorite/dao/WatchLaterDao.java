@@ -82,7 +82,7 @@ public interface WatchLaterDao {
     int countByUserIdExcludingContent(@Param("userId") long userId, @Param("contentId") long contentId);
 
     /**
-     * 该用户稍后再看的**总条数**（T17：{@code /watchlater/list} 的 {@code total}）。
+     * 该用户稍后再看的**总条数**（T17：{@code /api/v1/watch-later} 的 {@code total}）。
      *
      * <p>数的是 {@code watch_later} **行**（与列表 {@code LIMIT/OFFSET} 同一对象）——
      * 失效条目**照常计入、照常占位**（与收藏夹列表 G12 / R-07 同口径）。

@@ -7,14 +7,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestClient;
 
 import java.sql.PreparedStatement;
 
@@ -120,29 +117,19 @@ class FavoriteTransactionTests extends AbstractHttpIntegrationTest {
     }
 
     // ========================================================================
-    // HTTP（写 = POST + form，与收藏域其余用例同款）
+    // HTTP（`T58` 起：夹删除 = DELETE + id 进路径、移动 = PUT + contentId 进路径）
     // ========================================================================
 
     private ResponseEntity<String> removeFolder(String token, long folderId) {
-        return postForm("/favorite/folder/remove", form("folderId", folderId), token);
+        // `T58` 契约变更：DELETE + 夹 id 进路径（接口契约.md §2.3/§2.4），无请求体 ⇒ 不用拼空 form。
+        return delete("/api/v1/favorite-folders/" + folderId, token);
     }
 
     private ResponseEntity<String> moveItem(String token, long fromFolderId, long toFolderId, long contentId) {
+        // `T58` 契约变更：contentId 进路径（PUT /api/v1/favorites/{id}，接口契约.md §2.3/§2.4）。
         MultiValueMap<String, String> f = form("fromFolderId", fromFolderId);
         f.add("toFolderId", String.valueOf(toFolderId));
-        f.add("contentId", String.valueOf(contentId));
-        return postForm("/favorite/move", f, token);
-    }
-
-    private ResponseEntity<String> postForm(String path, MultiValueMap<String, String> form, String token) {
-        return send(spec -> {
-            RestClient.RequestBodySpec request = spec.uri(path)
-                    .contentType(MediaType.APPLICATION_FORM_URLENCODED);
-            if (token != null) {
-                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-            }
-            return request.body(form);
-        });
+        return putForm("/api/v1/favorites/" + contentId, f, token);
     }
 
     private static MultiValueMap<String, String> form(String name, long value) {
