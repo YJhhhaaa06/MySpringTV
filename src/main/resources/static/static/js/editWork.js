@@ -161,7 +161,7 @@ export function openEditWorkModal(content, onDone) {
   // 换源/删除后重新拉取内容，重建媒体区（文案输入保持用户未保存的编辑）；同时通知调用方刷新
   async function refreshContent() {
     try {
-      const fresh = await request(`api/v1/contents/${content.id}`);
+      const fresh = await request(`search/IdSearch?contentId=${content.id}`);
       if (fresh) {
         content = fresh;
         renderMediaList(fresh);

@@ -156,7 +156,7 @@ async function doSearch(keyword) {
   state.list = createChunkedList({
     fetchChunk: async (page) => {
       // T19：只传 `page`——信封大小（100）由后端 search 域常量决定
-      const data = await request(`api/v1/contents?keyword=${encodeURIComponent(keyword)}&page=${page}`);
+      const data = await request(`search/keywordSearch?keyword=${encodeURIComponent(keyword)}&page=${page}`);
       state.total = data.total || 0; // 「共 N 条结果」用后端 total（与页内容同源）
       return data;
     },

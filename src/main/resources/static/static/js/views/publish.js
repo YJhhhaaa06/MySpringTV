@@ -264,7 +264,7 @@ function addEditEntry(card, item) {
     e.stopPropagation(); // 卡片本身点击跳详情，按钮不触发跳转
     try {
       // ContentVO 不含 videoUrl/imageUrls，需拉全量内容
-      const full = await request(`api/v1/contents/${item.id}`);
+      const full = await request(`search/IdSearch?contentId=${item.id}`);
       if (!full) { showToast('内容不存在'); return; }
       // T11-B：编辑完成后按 id 定向刷新该卡片（原实现重拉当前页，在第 N 页会重复追加第 N 页）
       openEditWorkModal(full, () => refreshMyCard(item.id));
@@ -278,7 +278,7 @@ function addEditEntry(card, item) {
 /** 编辑/换源后：按 id 重拉该内容并就地替换卡片数据（拉取失败则保留原卡片，不打断页面） */
 async function refreshMyCard(contentId) {
   try {
-    const fresh = await request(`api/v1/contents/${contentId}`);
+    const fresh = await request(`search/IdSearch?contentId=${contentId}`);
     if (!fresh) return;
     state.myItems = state.myItems.map((it) => (it.id === contentId ? fresh : it));
     renderMyList(state.myItems);

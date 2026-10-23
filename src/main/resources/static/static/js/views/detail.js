@@ -141,7 +141,7 @@ function render() {
 async function init() {
   try {
     const [content] = await Promise.all([
-      request(`api/v1/contents/${state.contentId}`),
+      request(`search/IdSearch?contentId=${state.contentId}`),
       loadInitialComments(),
     ]);
     state.content = content;
@@ -155,7 +155,7 @@ async function init() {
 
 async function loadRelated() {
   try {
-    const list = await request('api/v1/contents/recommended');
+    const list = await request('start');
     state.related = list || [];
   } catch (e) {
     state.related = [];
@@ -273,7 +273,7 @@ function renderContent() {
 // 编辑作品完成后重新拉取详情并渲染
 async function reloadAfterEdit() {
   try {
-    state.content = await request(`api/v1/contents/${state.contentId}`);
+    state.content = await request(`search/IdSearch?contentId=${state.contentId}`);
     renderContent();
   } catch (e) {
     if (e.code === 401 || e.code === 403) return;

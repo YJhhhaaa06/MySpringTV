@@ -62,7 +62,7 @@ async function loadRecommend(shuffle) {
     if (state.type !== 0) params.push('type=' + state.type);
     if (state.category !== -1) params.push('categoryId=' + state.category);
     const qs = params.length ? '?' + params.join('&') : '';
-    let list = await request('api/v1/contents/recommended' + qs);
+    let list = await request('start' + qs);
     // 换一换：后端 /start 返回固定缓存列表，客户端打乱顺序以获得「新一批」观感。
     if (shuffle) list = shuffleArr(list || []);
     renderRecommend(list);
