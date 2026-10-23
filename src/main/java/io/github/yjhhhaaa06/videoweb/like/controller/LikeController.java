@@ -100,7 +100,7 @@ public class LikeController {
      * 后者会造出第 4 级路径（§2.3 层级 ≤ 3）且暗示"该端点返回集合"，与事实不符。
      */
     @GetMapping("/api/v1/contents/{id}/like-count")
-    public ApiResponse<Integer> contentCount(@PathVariable("id") long contentId) {
+    public ApiResponse<Long> contentCount(@PathVariable("id") long contentId) {
         return ApiResponse.success(likeService.getContentLikeCount(contentId));
     }
 
@@ -112,7 +112,7 @@ public class LikeController {
 
     /** 评论点赞数（口径同内容侧；本端点不消费 userId，但按类级口径仍需登录）。 */
     @GetMapping("/api/v1/comments/{id}/like-count")
-    public ApiResponse<Integer> commentCount(@PathVariable("id") long commentId) {
+    public ApiResponse<Long> commentCount(@PathVariable("id") long commentId) {
         return ApiResponse.success(likeService.getCommentLikeCount(commentId));
     }
 }

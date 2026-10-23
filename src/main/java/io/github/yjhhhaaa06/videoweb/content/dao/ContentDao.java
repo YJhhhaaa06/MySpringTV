@@ -227,7 +227,7 @@ public interface ContentDao {
      *
      * @return 点赞总数；内容行不存在 ⇒ {@code null}
      */
-    Integer findLikeCountById(@Param("contentId") long contentId);
+    Long findLikeCountById(@Param("contentId") long contentId);
 
     /**
      * 评论数增减。TV: {@code UPDATE content SET comment_count = comment_count + ? WHERE id = ?}

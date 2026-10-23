@@ -177,7 +177,7 @@ public class InteractionService {
      * 回填失败交由下次 miss 自愈，与单键回填的失败语义一致。
      */
     public void backfillLikeCount(long contentId, long count) {
-        likeService.backfillContentLikeCount(contentId, Math.toIntExact(count));
+        likeService.backfillContentLikeCount(contentId, count);
     }
 
     /** 收藏数回填转发（T44-2，见 {@link #backfillLikeCount} 的纪律说明）。 */

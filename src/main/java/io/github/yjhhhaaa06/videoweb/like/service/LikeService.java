@@ -155,7 +155,7 @@ public class LikeService {
         return likeCache.isContentLiked(userId, contentId);
     }
 
-    public int getContentLikeCount(long contentId) {
+    public long getContentLikeCount(long contentId) {
         return likeCache.getContentLikeCount(contentId);
     }
 
@@ -164,7 +164,7 @@ public class LikeService {
      * 调到这里，值来自 {@code content.like_count} 列快照。content 不得直连 like（T13/F-16 拆掉的边），
      * 经互动域转发是既有形态（读 {@code isContentLiked} 同路）。
      */
-    public void backfillContentLikeCount(long contentId, int count) {
+    public void backfillContentLikeCount(long contentId, long count) {
         likeCache.backfillContentCount(contentId, count);
     }
 
@@ -172,7 +172,7 @@ public class LikeService {
         return likeCache.isCommentLiked(userId, commentId);
     }
 
-    public int getCommentLikeCount(long commentId) {
+    public long getCommentLikeCount(long commentId) {
         return likeCache.getCommentLikeCount(commentId);
     }
 

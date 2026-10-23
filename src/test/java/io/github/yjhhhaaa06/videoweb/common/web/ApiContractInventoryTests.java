@@ -173,6 +173,23 @@ class ApiContractInventoryTests extends AbstractIntegrationTest {
                 .isEmpty();
     }
 
+    // ==================== 用例 4：计数端点出参统一 long（§2.7）====================
+
+    @Test
+    @DisplayName("★ 计数端点（*-count）出参统一为 ApiResponse<Long>（§2.7：计数不分 int/long 两套）")
+    void 计数端点出参统一为long() {
+        List<String> offenders = scan().stream()
+                .filter(e -> e.path().endsWith("-count"))
+                .filter(e -> !"ApiResponse<Long>".equals(e.returns()))
+                .map(Endpoint::line)
+                .toList();
+
+        assertThat(offenders)
+                .as("计数端点的 Java 出参必须是 Long（OpenAPI 里因此统一为 int64；"
+                        + "int 与 long 两套会让前端/生成器看到两种整数宽度）")
+                .isEmpty();
+    }
+
     // ==================== 扫描 ====================
 
     private List<Endpoint> scan() {

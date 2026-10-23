@@ -41,5 +41,5 @@ public interface CommentLikeDao {
     Set<Long> findLikedCommentIdsByUser(@Param("userId") long userId);
 
     /** 评论点赞总数。TV: {@code countByCommentId}。 */
-    int countByCommentId(@Param("commentId") long commentId);
+    long countByCommentId(@Param("commentId") long commentId);
 }

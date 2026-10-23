@@ -41,7 +41,7 @@
     </select>
 
     <!-- TV: SELECT COUNT(*) FROM comment_like WHERE comment_id = ? -->
-    <select id="countByCommentId" resultType="int">
+    <select id="countByCommentId" resultType="long">
         SELECT COUNT(*) FROM comment_like WHERE comment_id = #{commentId}
     </select>
 

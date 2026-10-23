@@ -20,7 +20,7 @@ DELETE	/api/v1/comments/{id}	LOGIN	ResponseEntity<Void>
 DELETE	/api/v1/comments/{id}/like	LOGIN	ResponseEntity<Void>
 GET	/api/v1/comments/{id}/like	LOGIN	ApiResponse<Boolean>
 PUT	/api/v1/comments/{id}/like	LOGIN	ApiResponse<Void>
-GET	/api/v1/comments/{id}/like-count	LOGIN	ApiResponse<Integer>
+GET	/api/v1/comments/{id}/like-count	LOGIN	ApiResponse<Long>
 GET	/api/v1/comments/{id}/replies	PUBLIC	ApiResponse<CursorResult<CommentVO>>
 GET	/api/v1/contents	PUBLIC	ApiResponse<PageResult<ContentVO>>
 POST	/api/v1/contents/posts	LOGIN	ApiResponse<ContentCreatedVO>
@@ -37,7 +37,7 @@ GET	/api/v1/contents/{id}/favorite-count	PUBLIC	ApiResponse<Long>
 DELETE	/api/v1/contents/{id}/like	LOGIN	ResponseEntity<Void>
 GET	/api/v1/contents/{id}/like	LOGIN	ApiResponse<Boolean>
 PUT	/api/v1/contents/{id}/like	LOGIN	ApiResponse<Void>
-GET	/api/v1/contents/{id}/like-count	LOGIN	ApiResponse<Integer>
+GET	/api/v1/contents/{id}/like-count	LOGIN	ApiResponse<Long>
 DELETE	/api/v1/contents/{id}/media	LOGIN	ResponseEntity<Void>
 PUT	/api/v1/contents/{id}/media	LOGIN	ApiResponse<MediaReplacedVO>
 POST	/api/v1/contents/{id}/play	LOGIN	ApiResponse<Void>
