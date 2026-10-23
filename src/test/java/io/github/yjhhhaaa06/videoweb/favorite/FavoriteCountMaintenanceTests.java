@@ -10,17 +10,15 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestClient;
 
 import java.sql.PreparedStatement;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -357,10 +355,7 @@ class FavoriteCountMaintenanceTests extends AbstractHttpIntegrationTest {
     // ========================================================================
 
     private ResponseEntity<String> addItem(long folderId, long contentId, String token) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("folderId", String.valueOf(folderId));
-        form.add("contentId", String.valueOf(contentId));
-        return postForm("/api/v1/favorites", form, token);
+        return post("/api/v1/favorites", Map.of("folderId", folderId, "contentId", contentId), token);
     }
 
     private ResponseEntity<String> removeItems(long folderId, List<Long> contentIds, String token) {
@@ -374,26 +369,14 @@ class FavoriteCountMaintenanceTests extends AbstractHttpIntegrationTest {
 
     private ResponseEntity<String> moveItem(long fromFolderId, long toFolderId, long contentId, String token) {
         // `T58` 契约变更：contentId 进路径（PUT /api/v1/favorites/{id}，接口契约.md §2.3/§2.4）。
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("fromFolderId", String.valueOf(fromFolderId));
-        form.add("toFolderId", String.valueOf(toFolderId));
-        return putForm("/api/v1/favorites/" + contentId, form, token);
+        // `T59` 载荷面：from/to 走 JSON body。
+        return put("/api/v1/favorites/" + contentId,
+                Map.of("fromFolderId", fromFolderId, "toFolderId", toFolderId), token);
     }
 
     private ResponseEntity<String> deleteFolder(long folderId, String token) {
         // `T58` 契约变更：DELETE + 夹 id 进路径（接口契约.md §2.3/§2.4）。
         return delete("/api/v1/favorite-folders/" + folderId, token);
-    }
-
-    private ResponseEntity<String> postForm(String path, MultiValueMap<String, String> form, String token) {
-        return send(spec -> {
-            RestClient.RequestBodySpec request = spec.uri(path)
-                    .contentType(MediaType.APPLICATION_FORM_URLENCODED);
-            if (token != null) {
-                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-            }
-            return request.body(form);
-        });
     }
 
     // ========================================================================

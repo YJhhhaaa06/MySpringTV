@@ -14,6 +14,8 @@ import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
 
+import java.util.Map;
+
 import java.sql.PreparedStatement;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -92,7 +94,7 @@ class WatchLaterIsolationTests extends AbstractHttpIntegrationTest {
         long video = insertVideoContent(me.id, "互扰视频");
 
         // 先真正收藏（走真实写路径 ⇒ 维护 favorite_count 列）
-        assertThat(postForm("/api/v1/favorites", "contentId", String.valueOf(video), me.token).getStatusCode().value())
+        assertThat(post("/api/v1/favorites", Map.of("contentId", video), me.token).getStatusCode().value())
                 .isEqualTo(200);
         assertThat(count(me.token, video)).as("收藏后 = 1").isEqualTo(1L);
         assertThat(status(me.token, video).path("isFavorited").asBoolean()).isTrue();

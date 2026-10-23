@@ -9,10 +9,9 @@ import org.mockito.Mockito;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
 
 import java.sql.PreparedStatement;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -92,11 +91,10 @@ class WatchLaterTransactionTests extends AbstractHttpIntegrationTest {
     }
 
     private ResponseEntity<String> move(String token, long contentId, long folderId) {
-        // `T58` 契约变更：contentId 进路径、folderId 留 form
+        // `T58` 契约变更：contentId 进路径
         // （PUT /api/v1/watch-later/{id}/folder，接口契约.md §2.3/§2.4）。
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("folderId", String.valueOf(folderId));
-        return putForm("/api/v1/watch-later/" + contentId + "/folder", form, token);
+        // `T59` 载荷面：folderId 走 JSON body。
+        return put("/api/v1/watch-later/" + contentId + "/folder", Map.of("folderId", folderId), token);
     }
 
     // ========================================================================

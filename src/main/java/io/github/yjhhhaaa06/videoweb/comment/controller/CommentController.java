@@ -6,6 +6,7 @@ import io.github.yjhhhaaa06.videoweb.comment.service.CommentService;
 import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.common.model.dto.CursorResult;
+import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.Public;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
@@ -96,14 +97,15 @@ public class CommentController {
     /**
      * 发表评论（主楼或楼中楼回复）。
      *
-     * <p>成功响应 {@code data} 是字符串 {@code "评论成功"}——沿袭 TV {@code writeSuccess(resp, "评论成功")}。
+     * <p>`T59` 起成功 = **200 + 无 data**（不再回「评论成功」文案）；
+     * 新评论的标识由客户端重新拉列表获得（本仓不提供单条评论详情端点）。
      */
     @RequiresLogin
     @PostMapping("/api/v1/comments")
-    public ApiResponse<String> add(@CurrentUserId long userId,
-                                   @RequestBody @Valid AddCommentRequest request) {
+    public ApiResponse<Void> add(@CurrentUserId long userId,
+                                 @RequestBody @Valid AddCommentRequest request) {
         commentService.addComment(userId, request);
-        return ApiResponse.success("评论成功");
+        return ApiResponse.success();
     }
 
     /**
@@ -121,32 +123,28 @@ public class CommentController {
     }
 
     /**
-     * 评论列表（{@code GET /comment/show?contentId=[&page][&pageSize]}）。
+     * 评论列表（{@code GET /api/v1/contents/{id}/comments}）。
      *
-     * <h2>★ 缺省与分页是**两种响应形状**（T8 的冻结兼容契约）</h2>
+     * <h2>★ `T59` 起**只有一种形状**：{@code PageResult<CommentVO>}</h2>
      * <pre>
-     * 不传 page 也不传 pageSize  → data = **全量数组**（children 全量随行；逐字节兼容改造前）
-     * 传了任一个               → data = **分页信封** {list,total,page,pageSize,totalPages}
-     *                            total = **主楼条数**；每主楼 children ≤ K=2 + replyCount
+     * data = {list,total,page,pageSize,totalPages} —— 恒为分页信封
+     * total = **主楼条数**；每主楼 children ≤ K=2 + replyCount（展开走 /comments/{id}/replies）
      * </pre>
-     * 判据不能用"page 是否等于 1"（无法区分"没传"与"显式传 page=1"）
-     * ——故两个参数都收 {@code String} 并逐个判 {@code null}（TV 的 {@code hasPagingParams} 同款）。
+     * `T59` 前"不传分页参数回全量数组、传了回信封"的两态**退役**（《接口契约.md》§2.6
+     * "同一端点只许一种形状"）：缺省 = {@code page=1&pageSize=200}，与显式传参**逐字节一致**。
      *
      * <p>分页归一：{@code page} 缺省/非数字/≤0 → 1；{@code pageSize} 缺省/非数字/≤0 → **200**；
      * 超上限 → **500**；其它原样回显。
      *
-     * <p>缺 {@code contentId} / 非法 → 400；内容不存在 / 评论区已关 → **200 + 空**（不是 404/409，
+     * <p>内容不存在 / 评论区已关 ⇒ **200 + 空信封**（不是 404/409，
      * 见 {@code CommentService.getCommentsForContent} 的门禁说明）。
      */
     @Public
     @GetMapping("/api/v1/contents/{id}/comments")
-    public ApiResponse<?> show(@CurrentUserId(required = false) Long userId,
-                               @PathVariable("id") Long contentId,
-                               @RequestParam(required = false) String page,
-                               @RequestParam(required = false) String pageSize) {
-        if (page == null && pageSize == null) {
-            return ApiResponse.success(commentService.getCommentsForContent(contentId, userId));
-        }
+    public ApiResponse<PageResult<CommentVO>> show(@CurrentUserId(required = false) Long userId,
+                                                   @PathVariable("id") Long contentId,
+                                                   @RequestParam(required = false) String page,
+                                                   @RequestParam(required = false) String pageSize) {
         return ApiResponse.success(commentService.getCommentsForContent(contentId, userId,
                 PageParams.normalizePage(page),
                 PageParams.normalizePageSize(pageSize, COMMENT_PAGE_SIZE_MAX, COMMENT_PAGE_SIZE_DEFAULT)));

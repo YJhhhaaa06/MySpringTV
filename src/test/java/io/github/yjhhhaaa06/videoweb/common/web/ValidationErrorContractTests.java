@@ -177,14 +177,17 @@ class ValidationErrorContractTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("标在 @RequestParam 上的约束真的生效：空用户名 → 400 + errors[field=userName]")
+    @DisplayName("请求体约束真的生效：空用户名 → 400 + errors[field=userName]")
     void 请求参数上的约束生效() {
-        // ChangePasswordRequest 那套 @Valid 只管请求体；控制器的 @RequestParam 上的 @NotBlank
-        // 走的是 Spring 的方法校验（HandlerMethodValidationException）。这条用例钉住"它真的生效"，
-        // 而不是"注解看着像保证、实际被 catch-all 吞成 500"（CommentController 的老注释担心的正是这个）。
+        // ⚠️ `T59` 载荷面契约变更：改用户名的 `@NotBlank` 从 `@RequestParam` 挪到请求体
+        // （{@code ChangeUserNameRequest}）⇒ 本用例现在走 {@code MethodArgumentNotValidException}
+        // 分支，不再是 {@code HandlerMethodValidationException}。
+        // ★ 覆盖缺口（如实登记）：`T59-2` 之后 `src/main` 已没有"标在控制器方法参数上的约束"，
+        // 方法校验分支暂无产码点（登记见 `CURRENT_ISSUES.md` I-28）。本用例仍钉住
+        // "约束注解的 message 进 errors[].message、field 逐字是请求字段名"这一对外契约。
         String token = registerAndGetToken("13800000203", "t57-param-constraint", "123456");
 
-        ResponseEntity<String> resp = put("/api/v1/users/me/username?userName=", null, token);
+        ResponseEntity<String> resp = put("/api/v1/users/me/username", Map.of("userName", ""), token);
 
         assertThat(resp.getStatusCode().value())
                 .as("约束生效（不是 500，也不是静默成功）：%s", resp.getBody()).isEqualTo(400);

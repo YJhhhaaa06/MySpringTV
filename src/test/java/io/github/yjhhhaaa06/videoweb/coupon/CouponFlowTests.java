@@ -23,7 +23,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <h2>契约形状（`T58` 起路径资源化；信封形状沿袭 TV，勿"顺手优化"）</h2>
  * <ul>
- *   <li>{@code POST /api/v1/coupons/{id}/claims} 的 {@code data} 是**纯字符串券码**，不是对象</li>
+ *   <li>{@code POST /api/v1/coupons/{id}/claims} 的 {@code data} 是 {@code {couponCode}} 对象
+ *       （`T59` 载荷面契约变更；`T59` 前是**纯字符串券码**）</li>
  *   <li>{@code GET /api/v1/coupons} / {@code GET /api/v1/users/me/coupons} 的 {@code data} 是数组；空集为 {@code []}，**不是 null**</li>
  *   <li>错误信封不含 {@code data} 键（{@code ApiResponse} 的 {@code NON_NULL} 约定）</li>
  * </ul>
@@ -36,7 +37,7 @@ class CouponFlowTests extends AbstractCouponIntegrationTest {
     // ==================== 抢券：成功路径 ====================
 
     @Test
-    @DisplayName("抢券成功：200 + 16 位券码；订单 +1 行、库存 -1（独立 oracle 复算）")
+    @DisplayName("抢券成功：200 + data.couponCode 为 16 位券码；订单 +1 行、库存 -1（独立 oracle 复算）")
     void 抢券成功() {
         String token = registerAndGetToken(PHONE, USERNAME);
         long couponId = insertCoupon("新人券", 5, WINDOW_OPEN);
@@ -45,8 +46,8 @@ class CouponFlowTests extends AbstractCouponIntegrationTest {
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(Envelope.code(resp)).isEqualTo("OK");
-        // data 是纯字符串券码（不是对象）——形状契约
-        assertThat(Envelope.data(resp).asString()).matches("[0-9A-Z]{16}");
+        // `T59` 载荷面契约变更：data 由纯字符串改为对象 {"couponCode": "…"}（§2.5 出参不得是裸 String）
+        assertThat(Envelope.data(resp).path("couponCode").asString()).matches("[0-9A-Z]{16}");
 
         // 独立 oracle：不读接口回显，直接查库
         assertThat(countOrders(couponId, firstUserId())).isEqualTo(1L);

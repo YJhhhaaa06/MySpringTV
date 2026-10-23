@@ -1,14 +1,16 @@
 package io.github.yjhhhaaa06.videoweb.coin.controller;
 
+import io.github.yjhhhaaa06.videoweb.coin.model.dto.AddCoinRequest;
 import io.github.yjhhhaaa06.videoweb.coin.model.vo.CoinBalanceVO;
 import io.github.yjhhhaaa06.videoweb.coin.model.vo.SignInVO;
 import io.github.yjhhhaaa06.videoweb.coin.service.CoinService;
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -71,18 +73,18 @@ public class CoinController {
      * 给内容投币（一枚或两枚）。
      *
      * <p>{@code contentId} 进路径（{@code @PathVariable}，`T58` 契约变更）；
-     * {@code count} 走 {@code @RequestParam}（form 或 query 均可）。
-     * 缺参 / 类型不符由全局异常出口归 400；业务拒因（参数 / 404 / 409）由 Service 抛出。
+     * `T59` 载荷面：{@code count} 改为 JSON body {@code {"count": 1|2}}（依据《接口契约.md》§2.5）。
+     * 缺 {@code count} → 400；业务拒因（参数 / 404 / 409）由 Service 抛出。
      *
      * @param contentId 内容 id（路径）
-     * @param count     投出的枚数（只能是 1 或 2）
+     * @param request   投出的枚数（只能是 1 或 2）
      * @return 投币后的余额（一位小数）
      */
     @PostMapping("/api/v1/contents/{id}/coins")
     public ApiResponse<CoinBalanceVO> add(@CurrentUserId long userId,
                                           @PathVariable("id") long contentId,
-                                          @RequestParam int count) {
-        CoinBalanceVO vo = coinService.add(userId, contentId, count);
+                                          @RequestBody @Valid AddCoinRequest request) {
+        CoinBalanceVO vo = coinService.add(userId, contentId, request.count());
         return ApiResponse.success("投币成功", vo);
     }
 }

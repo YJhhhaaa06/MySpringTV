@@ -9,7 +9,7 @@
   namespace 必须与 CommentDao 全限定名一致。
   每条语句上方保留 TV 原 SQL 对照，便于逐字复核「SQL 未被改动」。
 
-  ⚠️ 本文件只含写路径 8 条。读路径语句（getComments / getMainCommentsAfter /
+  ⚠️ 本文件只含写路径 8 条。读路径语句（getMainCommentsAfter /
      countMainComments / getRepliesByRootIds / getRepliesInTreeByRoot / findMainById）
      随 S5；点赞相关（updateLikeCount）随 S3；getContentIdByCommentId 随 S3。
 -->
@@ -144,17 +144,6 @@
     <!-- TV: SELECT content_id FROM comment WHERE comment_id = ? AND is_deleted = 0 -->
     <select id="getContentIdByCommentId" resultType="java.lang.Long">
         SELECT content_id FROM comment WHERE comment_id = #{commentId} AND is_deleted = 0
-    </select>
-
-    <!-- TV: getComments —— SELECT c.*, u.username, r.username AS reply_to_username
-         FROM comment c LEFT JOIN users u ON c.user_id = u.id
-         LEFT JOIN users r ON c.reply_to_user_id = r.id
-         WHERE c.content_id=? AND c.is_deleted=0 ORDER BY c.comment_id -->
-    <select id="getComments" resultMap="commentCacheMap">
-        SELECT c.*, u.username, r.username AS reply_to_username
-        FROM comment c LEFT JOIN users u ON c.user_id = u.id
-        LEFT JOIN users r ON c.reply_to_user_id = r.id
-        WHERE c.content_id=#{contentId} AND c.is_deleted=0 ORDER BY c.comment_id
     </select>
 
     <!-- TV: getMainCommentsAfter（T10-A 主楼 keyset 窗口）

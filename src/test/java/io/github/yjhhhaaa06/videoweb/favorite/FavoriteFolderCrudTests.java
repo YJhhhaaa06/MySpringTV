@@ -5,17 +5,13 @@ import io.github.yjhhhaaa06.videoweb.support.Envelope;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
 
 import java.sql.PreparedStatement;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -103,9 +99,7 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
 
         assertThat(resp.getStatusCode().value()).as("新建夹成功").isEqualTo(200);
         assertThat(Envelope.code(resp)).isEqualTo("OK");
-        // ⚠️ data 是**纯字符串**，故取整个 data 节点再 asString()；Envelope.str 是给对象型 data 用的
-        assertThat(Envelope.data(resp).asString()).as("写端点的 data 是中文文案（同点赞 / 取关等写端点）")
-                .isEqualTo("创建成功");
+        assertThat(resp.getBody()).as("`T59` 起写成功不再回文案 data").doesNotContain("\"data\"");
 
         // 独立 oracle：直查 DB 终态（不信接口回显）
         List<FolderRow> rows = folderRows(me.id);
@@ -137,8 +131,8 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
 
         assertThat(addFolder("", me.token).getStatusCode().value()).as("空串名").isEqualTo(400);
         assertThat(addFolder("   ", me.token).getStatusCode().value()).as("全空白名").isEqualTo(400);
-        assertThat(postForm("/api/v1/favorite-folders", new LinkedMultiValueMap<>(), me.token)
-                .getStatusCode().value()).as("缺 name 参数（Spring 抛缺参 → 400）").isEqualTo(400);
+        assertThat(post("/api/v1/favorite-folders", Map.of(), me.token)
+                .getStatusCode().value()).as("缺 name 字段（@NotBlank → 400）").isEqualTo(400);
 
         assertThat(folderRows(me.id)).as("被拒的请求不得留下任何行（400 必须发生在写库之前）").isEmpty();
     }
@@ -401,13 +395,13 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
     // ========================================================================
 
     private ResponseEntity<String> addFolder(String name, String token) {
-        return postForm("/api/v1/favorite-folders", form("name", name), token);
+        return post("/api/v1/favorite-folders", Map.of("name", name), token);
     }
 
     private ResponseEntity<String> renameFolder(long folderId, String name, String token) {
-        // `T58` 契约变更：夹 id 进路径（PUT /api/v1/favorite-folders/{id}，接口契约.md §2.3/§2.4），
-        // 故 folderId 不再放 form；其余字段形态不动。
-        return putForm("/api/v1/favorite-folders/" + folderId, form("name", name), token);
+        // `T58` 契约变更：夹 id 进路径（PUT /api/v1/favorite-folders/{id}，接口契约.md §2.3/§2.4）。
+        // `T59` 载荷面：改名走 JSON body。
+        return put("/api/v1/favorite-folders/" + folderId, Map.of("name", name), token);
     }
 
     private ResponseEntity<String> removeFolder(long folderId, String token) {
@@ -417,28 +411,6 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
 
     private ResponseEntity<String> listFolders(String token) {
         return get("/api/v1/favorite-folders", token);
-    }
-
-    /** POST + {@code x-www-form-urlencoded}（收藏域的写形态，对齐 /like/* 与 /follow/*）。 */
-    private ResponseEntity<String> postForm(String path, MultiValueMap<String, String> form, String token) {
-        return send(spec -> {
-            RestClient.RequestBodySpec request = spec.uri(path)
-                    .contentType(MediaType.APPLICATION_FORM_URLENCODED);
-            if (token != null) {
-                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-            }
-            return request.body(form);
-        });
-    }
-
-    private static MultiValueMap<String, String> form(String name, String value) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add(name, value);
-        return form;
-    }
-
-    private static MultiValueMap<String, String> form(String name, long value) {
-        return form(name, String.valueOf(value));
     }
 
     // ========================================================================

@@ -1,14 +1,15 @@
 package io.github.yjhhhaaa06.videoweb.content.controller;
 
-import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
-import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
+import io.github.yjhhhaaa06.videoweb.content.model.dto.CommentEnabledRequest;
+import io.github.yjhhhaaa06.videoweb.content.model.dto.UpdateContentRequest;
 import io.github.yjhhhaaa06.videoweb.content.service.ContentService;
 import io.github.yjhhhaaa06.videoweb.upload.service.FileUploadService;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -74,52 +75,37 @@ public class ContentController {
     }
 
     /**
-     * 作者开关自己作品的评论区（{@code POST /content/commentEnabled?contentId=X&enabled=0|1}）。
+     * 作者开关自己作品的评论区（{@code PUT /api/v1/contents/{id}/comment-enabled}）。
      *
-     * <p>{@code enabled} 接受 {@code 1/true/0/false}（大小写不敏感、两端空白忽略）。
-     * 缺失 → 400 {@code "enabled不能为空"}；其它值 → 400 {@code "enabled格式错误，应为 0/1 或 true/false"}。
+     * <p>`T59` 载荷面：入参改为 JSON body {@code {"enabled": true|false}}（布尔真类型，
+     * 依据《接口契约.md》§2.5）；旧的 {@code 1/true/0/false} 字符串形态退役。
+     * 缺 {@code enabled} → 400「enabled不能为空」；非布尔 → 400「参数取值不合法」。
      *
      * <p>非作者 → 403；内容不存在/已软删 → 404；未登录 → 401。
      */
     @PutMapping("/api/v1/contents/{id}/comment-enabled")
     @RequiresLogin
-    public ApiResponse<String> commentEnabled(@CurrentUserId long userId,
-                                              @PathVariable("id") long contentId,
-                                              @RequestParam(required = false) String enabled) {
-        if (enabled == null || enabled.isEmpty()) {
-            throw new ParamException(ErrorCode.PARAM_INVALID, "enabled不能为空");
-        }
-        Boolean value = parseEnabled(enabled);
-        if (value == null) {
-            throw new ParamException(ErrorCode.PARAM_INVALID, "enabled格式错误，应为 0/1 或 true/false");
-        }
-        contentService.setCommentEnabled(contentId, userId, value);
-        return ApiResponse.success("操作成功");
+    public ApiResponse<Void> commentEnabled(@CurrentUserId long userId,
+                                            @PathVariable("id") long contentId,
+                                            @RequestBody @Valid CommentEnabledRequest request) {
+        contentService.setCommentEnabled(contentId, userId, request.enabled());
+        return ApiResponse.success();
     }
 
     /**
-     * 作者编辑标题/简介（{@code POST /content/update?contentId=X&title=&description=}）。
+     * 作者编辑标题/简介（{@code PUT /api/v1/contents/{id}}）。
      *
-     * <p>标题空 → 400 {@code "标题不能为空"}；标题 >50 → 400；简介 >5000 → 400；
-     * 非作者 → 403；内容不存在 → 404。
+     * <p>`T59` 载荷面：入参改为 JSON body {@code {"title": "…", "description": "…"}}
+     * （依据《接口契约.md》§2.5）；标题空 → 400「标题不能为空」；标题 >50 → 400；
+     * 简介 >5000 → 400；非作者 → 403；内容不存在 → 404。
      */
     @PutMapping("/api/v1/contents/{id}")
     @RequiresLogin
-    public ApiResponse<String> update(@CurrentUserId long userId,
-                                      @PathVariable("id") long contentId,
-                                      @RequestParam(required = false) String title,
-                                      @RequestParam(required = false) String description) {
-        contentService.updateContentInfo(contentId, userId, title, description);
-        return ApiResponse.success("操作成功");
-    }
-
-    /** TV {@code parseEnabled} 逐字：{@code 1/true} → TRUE，{@code 0/false} → FALSE，其它 → null。 */
-    private static Boolean parseEnabled(String value) {
-        return switch (value.trim().toLowerCase()) {
-            case "1", "true" -> Boolean.TRUE;
-            case "0", "false" -> Boolean.FALSE;
-            default -> null;
-        };
+    public ApiResponse<Void> update(@CurrentUserId long userId,
+                                    @PathVariable("id") long contentId,
+                                    @RequestBody UpdateContentRequest request) {
+        contentService.updateContentInfo(contentId, userId, request.title(), request.description());
+        return ApiResponse.success();
     }
 
     /**

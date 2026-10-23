@@ -16,6 +16,7 @@ import tools.jackson.databind.JsonNode;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -98,7 +99,8 @@ class ContentCacheTests extends AbstractContentIntegrationTest {
         doThrow(new DataAccessException("模拟写入失败") {
         }).when(contentDao).updateContentInfo(anyLong(), anyString(), anyString());
 
-        ResponseEntity<String> resp = putQuery("/api/v1/contents/" + String.valueOf(contentId),query("title", "回滚后的标题"), token);
+        ResponseEntity<String> resp = put("/api/v1/contents/" + String.valueOf(contentId),
+                Map.of("title", "回滚后的标题"), token);
         assertThat(resp.getStatusCode().value()).as("写入失败应非 200：%s", resp.getBody())
                 .isNotEqualTo(200);
 
@@ -124,7 +126,7 @@ class ContentCacheTests extends AbstractContentIntegrationTest {
                 .contains("预热原标题")
                 .doesNotContain("coinCount");
 
-        assertThat(putQuery("/api/v1/contents/" + String.valueOf(contentId),query("title", "提交后的标题"), token)
+        assertThat(put("/api/v1/contents/" + String.valueOf(contentId), Map.of("title", "提交后的标题"), token)
                 .getStatusCode().value()).isEqualTo(200);
 
         assertThat(cachedContentJson(contentId))
@@ -252,7 +254,7 @@ class ContentCacheTests extends AbstractContentIntegrationTest {
                 .isEqualTo(AUTHOR);
         assertThat(cachedContentJson(contentId)).contains(AUTHOR);
 
-        assertThat(put("/api/v1/users/me/username?userName=cache-author-new", null, token)
+        assertThat(put("/api/v1/users/me/username", Map.of("userName", "cache-author-new"), token)
                 .getStatusCode().value()).isEqualTo(200);
 
         assertThat(detailAuthorName(contentId, token)).as("改名后读自愈回填新名")

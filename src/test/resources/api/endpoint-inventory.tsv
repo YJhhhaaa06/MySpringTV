@@ -15,7 +15,7 @@ GET	/api/v1/admin/me	ADMIN	ApiResponse<Boolean>
 GET	/api/v1/admin/media	ADMIN	ApiResponse<MediaAuditResult>
 POST	/api/v1/admin/media/scan	ADMIN	ApiResponse<MediaAuditResult>
 PUT	/api/v1/admin/media/{id}	ADMIN	ApiResponse<RestoreResult>
-POST	/api/v1/comments	LOGIN	ApiResponse<String>
+POST	/api/v1/comments	LOGIN	ApiResponse<Void>
 DELETE	/api/v1/comments/{id}	LOGIN	ResponseEntity<Void>
 DELETE	/api/v1/comments/{id}/like	LOGIN	ResponseEntity<Void>
 GET	/api/v1/comments/{id}/like	LOGIN	ApiResponse<Boolean>
@@ -23,15 +23,15 @@ PUT	/api/v1/comments/{id}/like	LOGIN	ApiResponse<Void>
 GET	/api/v1/comments/{id}/like-count	LOGIN	ApiResponse<Integer>
 GET	/api/v1/comments/{id}/replies	PUBLIC	ApiResponse<CursorResult<CommentVO>>
 GET	/api/v1/contents	PUBLIC	ApiResponse<PageResult<ContentVO>>
-POST	/api/v1/contents/posts	LOGIN	ApiResponse<Map<String, Object>>
+POST	/api/v1/contents/posts	LOGIN	ApiResponse<ContentCreatedVO>
 GET	/api/v1/contents/recommended	PUBLIC	ApiResponse<List<ContentVO>>
-POST	/api/v1/contents/videos	LOGIN	ApiResponse<Map<String, Object>>
+POST	/api/v1/contents/videos	LOGIN	ApiResponse<ContentCreatedVO>
 DELETE	/api/v1/contents/{id}	LOGIN	ResponseEntity<Void>
 GET	/api/v1/contents/{id}	PUBLIC	ApiResponse<ContentDetailVO>
-PUT	/api/v1/contents/{id}	LOGIN	ApiResponse<String>
+PUT	/api/v1/contents/{id}	LOGIN	ApiResponse<Void>
 POST	/api/v1/contents/{id}/coins	LOGIN	ApiResponse<CoinBalanceVO>
-PUT	/api/v1/contents/{id}/comment-enabled	LOGIN	ApiResponse<String>
-GET	/api/v1/contents/{id}/comments	PUBLIC	ApiResponse<?>
+PUT	/api/v1/contents/{id}/comment-enabled	LOGIN	ApiResponse<Void>
+GET	/api/v1/contents/{id}/comments	PUBLIC	ApiResponse<PageResult<CommentVO>>
 GET	/api/v1/contents/{id}/favorite	LOGIN	ApiResponse<FavoriteStatusVO>
 GET	/api/v1/contents/{id}/favorite-count	PUBLIC	ApiResponse<Long>
 DELETE	/api/v1/contents/{id}/like	LOGIN	ResponseEntity<Void>
@@ -39,21 +39,21 @@ GET	/api/v1/contents/{id}/like	LOGIN	ApiResponse<Boolean>
 PUT	/api/v1/contents/{id}/like	LOGIN	ApiResponse<Void>
 GET	/api/v1/contents/{id}/like-count	LOGIN	ApiResponse<Integer>
 DELETE	/api/v1/contents/{id}/media	LOGIN	ResponseEntity<Void>
-PUT	/api/v1/contents/{id}/media	LOGIN	ApiResponse<Map<String, Object>>
+PUT	/api/v1/contents/{id}/media	LOGIN	ApiResponse<MediaReplacedVO>
 POST	/api/v1/contents/{id}/play	LOGIN	ApiResponse<Void>
 GET	/api/v1/contents/{id}/progress	LOGIN	ApiResponse<HistoryPositionVO>
 PUT	/api/v1/contents/{id}/progress	LOGIN	ApiResponse<Void>
 GET	/api/v1/coupons	PUBLIC	ApiResponse<List<CouponVO>>
-POST	/api/v1/coupons/{id}/claims	LOGIN	ApiResponse<String>
+POST	/api/v1/coupons/{id}/claims	LOGIN	ApiResponse<CouponClaimVO>
 GET	/api/v1/favorite-folders	LOGIN	ApiResponse<List<FavoriteFolderVO>>
-POST	/api/v1/favorite-folders	LOGIN	ApiResponse<String>
+POST	/api/v1/favorite-folders	LOGIN	ApiResponse<Void>
 DELETE	/api/v1/favorite-folders/{id}	LOGIN	ResponseEntity<Void>
-PUT	/api/v1/favorite-folders/{id}	LOGIN	ApiResponse<String>
+PUT	/api/v1/favorite-folders/{id}	LOGIN	ApiResponse<Void>
 GET	/api/v1/favorite-folders/{id}/items	PUBLIC	ApiResponse<PageResult<FavoriteItemVO>>
 DELETE	/api/v1/favorites	LOGIN	ResponseEntity<Void>
 GET	/api/v1/favorites	LOGIN	ApiResponse<PageResult<FavoriteItemVO>>
-POST	/api/v1/favorites	LOGIN	ApiResponse<String>
-PUT	/api/v1/favorites/{id}	LOGIN	ApiResponse<String>
+POST	/api/v1/favorites	LOGIN	ApiResponse<Void>
+PUT	/api/v1/favorites/{id}	LOGIN	ApiResponse<Void>
 GET	/api/v1/feed	LOGIN	ApiResponse<PageResult<ContentVO>>
 DELETE	/api/v1/follows/{id}	LOGIN	ResponseEntity<Void>
 PUT	/api/v1/follows/{id}	LOGIN	ApiResponse<Void>
@@ -72,5 +72,5 @@ GET	/api/v1/users/{id}/followers	LOGIN	ApiResponse<PageResult<FollowUserVO>>
 GET	/api/v1/users/{id}/following	LOGIN	ApiResponse<PageResult<FollowUserVO>>
 DELETE	/api/v1/watch-later	LOGIN	ResponseEntity<Void>
 GET	/api/v1/watch-later	LOGIN	ApiResponse<PageResult<WatchLaterItemVO>>
-PUT	/api/v1/watch-later/{id}	LOGIN	ApiResponse<String>
-PUT	/api/v1/watch-later/{id}/folder	LOGIN	ApiResponse<String>
+PUT	/api/v1/watch-later/{id}	LOGIN	ApiResponse<Void>
+PUT	/api/v1/watch-later/{id}/folder	LOGIN	ApiResponse<Void>

@@ -15,6 +15,7 @@ import tools.jackson.databind.JsonNode;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -188,7 +189,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         jdbcTemplate.update("INSERT INTO follow (user_id, followed_user_id) VALUES (?, ?)",
                 viewerId, authorId);
         // 收藏走真实写入口（不传 folderId ⇒ R-01 懒建默认夹）——内联收藏态是 R-10 的收益点，端到端点亮
-        assertThat(postQuery("/api/v1/favorites", query("contentId", String.valueOf(contentId)), token)
+        assertThat(post("/api/v1/favorites", Map.of("contentId", contentId), token)
                 .getStatusCode().value()).as("前置：收藏应成功").isEqualTo(200);
 
         JsonNode interaction = Envelope.data(get("/api/v1/contents/" + contentId, token))
@@ -473,13 +474,13 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         String token = registerAndGetToken(AUTHOR_PHONE, AUTHOR);
         long contentId = insertVideoContent(userIdOf(AUTHOR_PHONE), "开关内容");
 
-        assertThat(putQuery("/api/v1/contents/" + String.valueOf(contentId) + "/comment-enabled",query("enabled", "0"), token)
+        assertThat(put("/api/v1/contents/" + String.valueOf(contentId) + "/comment-enabled", Map.of("enabled", false), token)
                 .getStatusCode().value()).isEqualTo(200);
         assertThat(contentCommentEnabledColumn(contentId)).as("独立 oracle：列值").isZero();
         assertThat(Envelope.data(get("/api/v1/contents/" + contentId, token))
                 .path("commentEnabled").asBoolean()).as("详情回显（失效自愈后）").isFalse();
 
-        assertThat(putQuery("/api/v1/contents/" + String.valueOf(contentId) + "/comment-enabled",query("enabled", "true"), token)
+        assertThat(put("/api/v1/contents/" + String.valueOf(contentId) + "/comment-enabled", Map.of("enabled", true), token)
                 .getStatusCode().value()).as("true 也应被接受").isEqualTo(200);
         assertThat(contentCommentEnabledColumn(contentId)).isEqualTo(1);
         assertThat(Envelope.data(get("/api/v1/contents/" + contentId, token))
@@ -493,32 +494,34 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         String otherToken = registerAndGetToken(OTHER_PHONE, OTHER);
         long contentId = insertVideoContent(userIdOf(AUTHOR_PHONE), "权限内容");
 
-        ResponseEntity<String> forbidden = putQuery("/api/v1/contents/" + String.valueOf(contentId) + "/comment-enabled",query("enabled", "0"), otherToken);
+        ResponseEntity<String> forbidden = put("/api/v1/contents/" + String.valueOf(contentId) + "/comment-enabled", Map.of("enabled", false), otherToken);
         assertThat(forbidden.getStatusCode().value()).isEqualTo(403);
         assertThat(Envelope.msg(forbidden)).isEqualTo("只能操作自己的作品");
         assertThat(contentCommentEnabledColumn(contentId)).as("403 时不得改动").isEqualTo(1);
 
-        ResponseEntity<String> notFound = putQuery("/api/v1/contents/" + "987654321" + "/comment-enabled",query("enabled", "0"), authorToken);
+        ResponseEntity<String> notFound = put("/api/v1/contents/" + "987654321" + "/comment-enabled", Map.of("enabled", false), authorToken);
         assertThat(notFound.getStatusCode().value()).isEqualTo(404);
         assertThat(Envelope.msg(notFound)).isEqualTo("内容不存在");
 
-        assertThat(putQuery("/api/v1/contents/" + String.valueOf(contentId) + "/comment-enabled",query("enabled", "0"), null)
+        assertThat(put("/api/v1/contents/" + String.valueOf(contentId) + "/comment-enabled", Map.of("enabled", false), null)
                 .getStatusCode().value()).as("未登录 → 401").isEqualTo(401);
     }
 
     @Test
-    @DisplayName("开关评论区：enabled 缺失/非法 → 400（文案逐字保留）")
+    @DisplayName("开关评论区：enabled 缺失/非布尔 → 400（T59 载荷面：布尔真类型）")
     void 开关_参数校验() {
         String token = registerAndGetToken(AUTHOR_PHONE, AUTHOR);
         long contentId = insertVideoContent(userIdOf(AUTHOR_PHONE), "参数校验内容");
 
-        ResponseEntity<String> missing = putQuery("/api/v1/contents/" + String.valueOf(contentId) + "/comment-enabled",query(), token);
+        ResponseEntity<String> missing = put("/api/v1/contents/" + String.valueOf(contentId) + "/comment-enabled", Map.of(), token);
         assertThat(missing.getStatusCode().value()).isEqualTo(400);
-        assertThat(Envelope.msg(missing)).isEqualTo("enabled不能为空");
+        assertThat(Envelope.msg(missing)).isEqualTo("enabled: enabled不能为空");
 
-        ResponseEntity<String> invalid = putQuery("/api/v1/contents/" + String.valueOf(contentId) + "/comment-enabled",query("enabled", "2"), token);
+        // `T59` 契约变更（接口契约.md §2.5「布尔用真类型」）：旧的 "2"/"1"/"0" 字符串形态退役，
+        // 非布尔字面量在 JSON 转换层就失败 ⇒ 400「参数取值不合法」，不再是业务侧文案。
+        ResponseEntity<String> invalid = put("/api/v1/contents/" + String.valueOf(contentId) + "/comment-enabled", Map.of("enabled", "2"), token);
         assertThat(invalid.getStatusCode().value()).isEqualTo(400);
-        assertThat(Envelope.msg(invalid)).isEqualTo("enabled格式错误，应为 0/1 或 true/false");
+        assertThat(Envelope.code(invalid)).isEqualTo("PARAM_INVALID");
     }
 
     // ========================================================================
@@ -531,8 +534,10 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         String token = registerAndGetToken(AUTHOR_PHONE, AUTHOR);
         long contentId = insertVideoContent(userIdOf(AUTHOR_PHONE), "旧标题");
 
-        ResponseEntity<String> resp = putQuery("/api/v1/contents/" + String.valueOf(contentId),query("title", "新标题","description", "新简介"), token);
+        ResponseEntity<String> resp = put("/api/v1/contents/" + String.valueOf(contentId),
+                Map.of("title", "新标题", "description", "新简介"), token);
         assertThat(resp.getStatusCode().value()).as("%s", resp.getBody()).isEqualTo(200);
+        assertThat(resp.getBody()).as("`T59` 起写成功不回文案 data").doesNotContain("\"data\"");
         assertThat(contentTitleColumn(contentId)).as("独立 oracle：列值").isEqualTo("新标题");
         assertThat(contentDescriptionColumn(contentId)).isEqualTo("新简介");
         assertThat(Envelope.data(get("/api/v1/contents/" + contentId, token))
@@ -546,18 +551,19 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         String otherToken = registerAndGetToken(OTHER_PHONE, OTHER);
         long contentId = insertVideoContent(userIdOf(AUTHOR_PHONE), "原标题");
 
-        assertThat(putQuery("/api/v1/contents/" + String.valueOf(contentId),query("title", "被别人改"), otherToken)
+        assertThat(put("/api/v1/contents/" + String.valueOf(contentId), Map.of("title", "被别人改"), otherToken)
                 .getStatusCode().value()).isEqualTo(403);
         assertThat(contentTitleColumn(contentId)).as("403 时不得改动").isEqualTo("原标题");
 
-        assertThat(putQuery("/api/v1/contents/" + String.valueOf(contentId),query("title", " "), authorToken)
+        assertThat(put("/api/v1/contents/" + String.valueOf(contentId), Map.of("title", " "), authorToken)
                 .getStatusCode().value()).as("空标题").isEqualTo(400);
-        assertThat(Envelope.msg(putQuery("/api/v1/contents/" + String.valueOf(contentId),query("title", " "), authorToken)))
+        assertThat(Envelope.msg(put("/api/v1/contents/" + String.valueOf(contentId), Map.of("title", " "), authorToken)))
                 .isEqualTo("标题不能为空");
 
-        assertThat(putQuery("/api/v1/contents/" + String.valueOf(contentId),query("title", "x".repeat(51)), authorToken)
+        assertThat(put("/api/v1/contents/" + String.valueOf(contentId), Map.of("title", "x".repeat(51)), authorToken)
                 .getStatusCode().value()).as("标题超 50").isEqualTo(400);
-        assertThat(putQuery("/api/v1/contents/" + String.valueOf(contentId),query("title", "ok","description", "y".repeat(5001)), authorToken)
+        assertThat(put("/api/v1/contents/" + String.valueOf(contentId),
+                Map.of("title", "ok", "description", "y".repeat(5001)), authorToken)
                 .getStatusCode().value()).as("简介超 5000").isEqualTo(400);
 
         assertThat(contentTitleColumn(contentId)).as("参数非法时不得改动").isEqualTo("原标题");
@@ -565,7 +571,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
                 .as("参数非法时简介也不得改动")
                 .isEqualTo("原标题 的简介");
 
-        assertThat(putQuery("/api/v1/contents/" + String.valueOf(contentId),query("title", "ok"), null)
+        assertThat(put("/api/v1/contents/" + String.valueOf(contentId), Map.of("title", "ok"), null)
                 .getStatusCode().value()).as("未登录 → 401").isEqualTo(401);
     }
 

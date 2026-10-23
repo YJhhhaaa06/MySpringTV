@@ -322,7 +322,7 @@ class UserFlowTests extends AbstractHttpIntegrationTest {
         String token = Envelope.str(post("/api/v1/sessions",
                 Map.of("phone", PHONE, "password", PASSWORD), null), "token");
 
-        ResponseEntity<String> resp = put("/api/v1/users/me/username?userName=" + USERNAME, null, token);
+        ResponseEntity<String> resp = put("/api/v1/users/me/username", Map.of("userName", USERNAME), token);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(Envelope.code(resp)).isEqualTo("OK");

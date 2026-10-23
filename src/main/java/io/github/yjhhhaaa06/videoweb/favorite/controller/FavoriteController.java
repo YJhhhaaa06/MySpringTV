@@ -1,24 +1,28 @@
 package io.github.yjhhhaaa06.videoweb.favorite.controller;
 
-import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
-import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.Public;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
 import io.github.yjhhhaaa06.videoweb.common.web.PageParams;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
+import io.github.yjhhhaaa06.videoweb.favorite.model.dto.AddFavoriteRequest;
+import io.github.yjhhhaaa06.videoweb.favorite.model.dto.CreateFavoriteFolderRequest;
+import io.github.yjhhhaaa06.videoweb.favorite.model.dto.MoveFavoriteRequest;
+import io.github.yjhhhaaa06.videoweb.favorite.model.dto.UpdateFavoriteFolderRequest;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteItemVO;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteFolderVO;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteStatusVO;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.PublicFavoriteFolderVO;
 import io.github.yjhhhaaa06.videoweb.favorite.service.FavoriteService;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -124,24 +128,30 @@ public class FavoriteController {
     // ==================== 夹 CRUD（T2；`T58` 起写 = POST/PUT/DELETE） ====================
 
     /**
-     * 新建收藏夹（{@code POST /api/v1/favorite-folders}）。成功响应 {@code data} 是字符串「创建成功」。
+     * 新建收藏夹（{@code POST /api/v1/favorite-folders}）。`T59` 起成功 = **200 + 无 data**
+     * （不再回「创建成功」文案）。
+     *
+     * <p>`T59` 载荷面：入参改为 JSON body {@code {"name": "…"}}（依据《接口契约.md》§2.5）。
      *
      * <p>建出来的永远是**自建夹**（{@code is_default = 0}）。
      * 默认夹由首次收藏懒建（R-01，T4），本端点不碰它。
      *
-     * @param name 夹名；缺参 → 400（Spring 抛 {@code MissingServletRequestParameterException}）、
-     *             空白 / 超长 → 400（service 侧 {@code ParamException}）、
-     *             自建夹已达 20 个 → 400（T16；默认夹不计入，见 {@code FavoriteLimitProperties}）
+     * @param request 夹名；缺 / 空白 → 400（{@code @NotBlank}）、
+     *                超长 / 自建夹已达 20 个 → 400（T16，见 {@code FavoriteLimitProperties}）
      */
     @RequiresLogin
     @PostMapping("/api/v1/favorite-folders")
-    public ApiResponse<String> addFolder(@CurrentUserId long userId, @RequestParam String name) {
-        favoriteService.createFolder(userId, name);
-        return ApiResponse.success("创建成功");
+    public ApiResponse<Void> addFolder(@CurrentUserId long userId,
+                                       @RequestBody @Valid CreateFavoriteFolderRequest request) {
+        favoriteService.createFolder(userId, request.name());
+        return ApiResponse.success();
     }
 
     /**
-     * 更新收藏夹（**部分更新**：改名 / 私密开关，给了才改）。成功响应 {@code data} 是字符串「修改成功」。
+     * 更新收藏夹（**部分更新**：改名 / 私密开关，给了才改）。`T59` 起成功 = **200 + 无 data**。
+     *
+     * <p>`T59` 载荷面：入参改为 JSON body {@code {"name": "…", "isPrivate": true}}；
+     * {@code isPrivate} 为布尔真类型（旧的 {@code 1/true/0/false} 字符串退役）。
      *
      * <p>{@code name} 与 {@code isPrivate} **至少给一个**（都没给 → 400）；给了哪个改哪个。
      * 默认夹也能改名、也能设私密（只有删除才拦）。"简介"在favorite-需求.md是「待定」——不实现。
@@ -150,20 +160,17 @@ public class FavoriteController {
      * <p>`T58` 起目标夹走路径（{@code PUT /api/v1/favorite-folders/{id}}，§2.4「幂等替换」），
      * 夹 id 不再能从 query/form 传 —— 路径变量是**唯一**寻址方式。
      *
-     * @param folderId  路径变量 {@code {id}}：目标夹；他人的夹 → 403、不存在 → 404、是默认夹则**允许**
-     * @param name      新夹名；不传 = 不改名；空白 / 超长 → 400（**400 先于 403/404**）
-     * @param isPrivate 私密开关；不传 = 不动它。接受 {@code 1/true/0/false}
-     *                  （大小写不敏感、两端空白忽略，与 {@code /content/commentEnabled} 同一值集）；
-     *                  给了但格式非法 → 400（同样先于 403/404）
+     * @param folderId 路径变量 {@code {id}}：目标夹；他人的夹 → 403、不存在 → 404、是默认夹则**允许**
+     * @param request  {@code name} 不传 = 不改名（空白 / 超长 → 400，**400 先于 403/404**）；
+     *                 {@code isPrivate} 不传 = 不动它
      */
     @RequiresLogin
     @PutMapping("/api/v1/favorite-folders/{id}")
-    public ApiResponse<String> updateFolder(@CurrentUserId long userId,
-                                           @PathVariable("id") long folderId,
-                                           @RequestParam(required = false) String name,
-                                           @RequestParam(required = false) String isPrivate) {
-        favoriteService.updateFolder(userId, folderId, name, parseIsPrivate(isPrivate));
-        return ApiResponse.success("修改成功");
+    public ApiResponse<Void> updateFolder(@CurrentUserId long userId,
+                                          @PathVariable("id") long folderId,
+                                          @RequestBody UpdateFavoriteFolderRequest request) {
+        favoriteService.updateFolder(userId, folderId, request.name(), request.isPrivate());
+        return ApiResponse.success();
     }
 
     /**
@@ -266,7 +273,7 @@ public class FavoriteController {
     // ==================== 收藏写路径（T4；`T58` 起 add=POST、remove=DELETE、move=PUT） ====================
 
     /**
-     * 收藏内容到指定夹（{@code POST /api/v1/favorites}）。成功响应 {@code data} 是字符串「收藏成功」。
+     * 收藏内容到指定夹（{@code POST /api/v1/favorites}）。`T59` 起成功 = **200 + 无 data**。
      *
      * <p>★ <b>{@code folderId} 可不传 = 收进默认夹</b>（favorite-需求.md §二「没选夹自动进默认收藏夹」）；
      * 默认夹不存在时**就地懒建**（R-01，全系统唯一建默认夹的路径 —— 新用户拿不到
@@ -275,19 +282,17 @@ public class FavoriteController {
      * <b>目标夹已满 400</b>（T16；判在 403/404 **之后** —— 容量是资源状态、不是参数形态）。
      * 详见 {@code FavoriteService.addItem}。
      *
-     * <p>`T58` 起内容与夹都仍是**字段**（{@code contentId}/{@code folderId} 在 form 或 query）：
-     * 这是"往集合里加一条"，被寻址的是集合本身（{@code /api/v1/favorites}），不是某个已存在的成员。
+     * <p>`T58` 起内容与夹都仍是**字段**（被寻址的是集合本身 {@code /api/v1/favorites}）；
+     * `T59` 起这两个字段走 JSON body {@code {"contentId": N, "folderId": N?}}。
      *
-     * @param contentId 内容 id（必传）
-     * @param folderId  目标夹；缺省 = 默认夹（必要时懒建）；夹不存在 → 404、不是我的 → 403
+     * @param request {@code contentId} 必传；{@code folderId} 缺省 = 默认夹（必要时懒建）
      */
     @RequiresLogin
     @PostMapping("/api/v1/favorites")
-    public ApiResponse<String> addItem(@CurrentUserId long userId,
-                                       @RequestParam long contentId,
-                                       @RequestParam(required = false) Long folderId) {
-        favoriteService.addItem(userId, folderId, contentId);
-        return ApiResponse.success("收藏成功");
+    public ApiResponse<Void> addItem(@CurrentUserId long userId,
+                                     @RequestBody @Valid AddFavoriteRequest request) {
+        favoriteService.addItem(userId, request.folderId(), request.contentId());
+        return ApiResponse.success();
     }
 
     /**
@@ -333,20 +338,20 @@ public class FavoriteController {
      * 两条写在同一事务（{@code FavoriteService.moveItem}）。
      *
      * <p>⚠️ 进路径的是 **{@code contentId}**（被移动的那条收藏，§2.3"唯一标识被操作对象"）；
-     * 源/目标夹只是移动的**参数**，仍留 form/query —— 它们不是被寻址的资源。
+     * 源/目标夹只是移动的**参数**，`T59` 起走 JSON body
+     * {@code {"fromFolderId": N, "toFolderId": N}}。
      *
-     * @param contentId    路径变量 {@code {id}}：内容 id；内容不存在或已失效 → 404（条目留在源夹）
-     * @param fromFolderId 源夹；不存在 → 404、不是我的 → 403
-     * @param toFolderId   目标夹；同上
+     * @param contentId 路径变量 {@code {id}}：内容 id；内容不存在或已失效 → 404（条目留在源夹）
+     * @param request   {@code fromFolderId} 源夹；不存在 → 404、不是我的 → 403。
+     *                  {@code toFolderId} 目标夹；同上
      */
     @RequiresLogin
     @PutMapping("/api/v1/favorites/{id}")
-    public ApiResponse<String> moveItem(@CurrentUserId long userId,
-                                        @PathVariable("id") long contentId,
-                                        @RequestParam long fromFolderId,
-                                        @RequestParam long toFolderId) {
-        favoriteService.moveItem(userId, fromFolderId, toFolderId, contentId);
-        return ApiResponse.success("移动成功");
+    public ApiResponse<Void> moveItem(@CurrentUserId long userId,
+                                      @PathVariable("id") long contentId,
+                                      @RequestBody @Valid MoveFavoriteRequest request) {
+        favoriteService.moveItem(userId, request.fromFolderId(), request.toFolderId(), contentId);
+        return ApiResponse.success();
     }
 
     // ==================== 收藏状态与收藏数（T5：读 = GET；contentId 进路径） ====================
@@ -434,27 +439,5 @@ public class FavoriteController {
         return ApiResponse.success(favoriteService.listFolderItems(userId, folderId,
                 PageParams.normalizePage(page),
                 PageParams.normalizePageSize(pageSize, FAVORITE_PAGE_SIZE_MAX, FAVORITE_PAGE_SIZE_DEFAULT)));
-    }
-
-    // ==================== 参数解析 ====================
-
-    /**
-     * 解析私密开关：{@code 1/true} → {@code TRUE}，{@code 0/false} → {@code FALSE}
-     * （大小写不敏感、两端空白忽略），其它 → 400。
-     *
-     * <p>值集与 {@code ContentController.parseEnabled} 对齐（"布尔型 form 参数"在本仓的既有口径）；
-     * 那处是 TV 逐字保真、不可复用，故这里是第二份实现（rule of three 未到，不抽公共）。
-     *
-     * @param raw {@code null} = 本次不动私密开关（**不**参与解析）；非 null 但解析不出 → 400
-     */
-    private static Boolean parseIsPrivate(String raw) {
-        if (raw == null) {
-            return null;
-        }
-        return switch (raw.trim().toLowerCase()) {
-            case "1", "true" -> Boolean.TRUE;
-            case "0", "false" -> Boolean.FALSE;
-            default -> throw new ParamException(ErrorCode.PARAM_INVALID, "isPrivate格式错误，应为 0/1 或 true/false");
-        };
     }
 }

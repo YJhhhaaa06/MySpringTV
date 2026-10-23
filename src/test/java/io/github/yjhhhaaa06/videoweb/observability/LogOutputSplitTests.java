@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -81,7 +82,7 @@ class LogOutputSplitTests extends AbstractObservabilityTest {
         doThrow(new DataIntegrityViolationException("boom: 模拟写库失败"))
                 .when(userDao).updateUsername(anyLong(), anyString());
         clearLogs();
-        ResponseEntity<String> failure = put("/api/v1/users/me/username?userName=obs-split-error-probe", null, token);
+        ResponseEntity<String> failure = put("/api/v1/users/me/username", Map.of("userName", "obs-split-error-probe"), token);
         assertThat(failure.getStatusCode().value()).isEqualTo(500);
         String requestId = reqIdOf(awaitAccessLine("/api/v1/users/me/username", "status=500"));
 
@@ -117,7 +118,7 @@ class LogOutputSplitTests extends AbstractObservabilityTest {
         doThrow(new DataIntegrityViolationException("boom: 模拟写库失败"))
                 .when(userDao).updateUsername(anyLong(), anyString());
         clearLogs();
-        ResponseEntity<String> failure = put("/api/v1/users/me/username?userName=obs-split-reject-probe", null, token);
+        ResponseEntity<String> failure = put("/api/v1/users/me/username", Map.of("userName", "obs-split-reject-probe"), token);
         assertThat(failure.getStatusCode().value()).isEqualTo(500);
         String failureReq = reqIdOf(awaitAccessLine("/api/v1/users/me/username", "status=500"));
 

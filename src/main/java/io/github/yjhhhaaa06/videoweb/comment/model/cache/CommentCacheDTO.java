@@ -35,8 +35,8 @@ import java.util.List;
  *   <li><b>roots LIST 里的元素</b>：{@code children == null}（主楼列表**不带**楼中楼）。</li>
  *   <li><b>replies HASH 的 field 值</b>：该主楼的 children，且**只存前 K=2 条**（T10-B 预览），
  *       与响应里 {@code children} 的内容**同源**（同一份截断结果既写缓存也用于组装）。</li>
- *   <li><b>缺省全量路径</b>（{@code getFullTree}）：children 全量随行（不占两键组，直接上溯建树）。</li>
  * </ul>
+ * （`T59` 前还有第三种"缺省全量整树"形态，已随端点单一形状退役。）
  * 把"roots 不带 children"与"replies 带前 K 条"混起来会导致响应里出现重复或缺失的楼中楼——
  * 这正是旧 pytest {@code test_comment_paging} 第 7 条专门盯的地方。
  */

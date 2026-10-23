@@ -4,6 +4,7 @@ import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.Public;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
+import io.github.yjhhhaaa06.videoweb.coupon.model.vo.CouponClaimVO;
 import io.github.yjhhhaaa06.videoweb.coupon.model.vo.CouponOrderVO;
 import io.github.yjhhhaaa06.videoweb.coupon.model.vo.CouponVO;
 import io.github.yjhhhaaa06.videoweb.coupon.service.CouponService;
@@ -68,8 +69,8 @@ public class CouponController {
     }
 
     /**
-     * 领券（claim，`T58` 起取代动词 grab），成功返回 16 位券码（{@code data} 是一个**纯字符串**，
-     * 不是一个对象——形状与 TV {@code writeSuccess(resp, couponCode)} 一致）。
+     * 领券（claim，`T58` 起取代动词 grab）。`T59` 起 {@code data} 是对象
+     * {@code {"couponCode": "…"}}（不再回**裸字符串**券码 —— 载荷面 §2.5）。
      *
      * <p>{@code couponId} 进路径（{@code @PathVariable}）：非数字由参数绑定归 400，
      * 不存在的 id 落到业务拒因（409 {@code COUPON_UNAVAILABLE}，deductStock 匹配不到行）。
@@ -77,8 +78,8 @@ public class CouponController {
      */
     @RequiresLogin
     @PostMapping("/api/v1/coupons/{id}/claims")
-    public ApiResponse<String> grab(@CurrentUserId long userId,
-                                    @PathVariable("id") long couponId) {
-        return ApiResponse.success(couponService.grabCoupon(couponId, userId));
+    public ApiResponse<CouponClaimVO> grab(@CurrentUserId long userId,
+                                           @PathVariable("id") long couponId) {
+        return ApiResponse.success(new CouponClaimVO(couponService.grabCoupon(couponId, userId)));
     }
 }

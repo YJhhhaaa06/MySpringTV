@@ -14,6 +14,8 @@ import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 
 import java.sql.PreparedStatement;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -149,8 +151,8 @@ class WatchLaterMoveTests extends AbstractHttpIntegrationTest {
         long video = insertVideoContent(me.id, "已在夹里的");
         long folder = insertFolder(me.id, "目标夹");
         // 先把内容真正收藏进目标夹（该夹 1 条 < 上限 3，容量闸会放行到插入那一步）
-        assertThat(postForm("/api/v1/favorites", me.token,
-                "contentId", String.valueOf(video), "folderId", String.valueOf(folder))
+        assertThat(post("/api/v1/favorites",
+                Map.of("contentId", video, "folderId", folder), me.token)
                 .getStatusCode().value()).isEqualTo(200);
         // 再加入稍后再看
         add(me.token, video);
@@ -188,14 +190,14 @@ class WatchLaterMoveTests extends AbstractHttpIntegrationTest {
     }
 
     private ResponseEntity<String> move(String token, long contentId, Long folderId) {
-        // `T58` 契约变更：contentId 进路径、folderId 留 form
+        // `T58` 契约变更：contentId 进路径
         // （PUT /api/v1/watch-later/{id}/folder，接口契约.md §2.3/§2.4）。
-        // ★ 不能再复用 send(...)：它恒 apply client.post()，会把方法静默换回 POST ⇒ 405。
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        // `T59` 载荷面：folderId 走 JSON body（缺省 = 默认夹）。
+        Map<String, Object> body = new LinkedHashMap<>();
         if (folderId != null) {
-            form.add("folderId", String.valueOf(folderId));
+            body.put("folderId", folderId);
         }
-        return putForm("/api/v1/watch-later/" + contentId + "/folder", form, token);
+        return put("/api/v1/watch-later/" + contentId + "/folder", body, token);
     }
 
     private ResponseEntity<String> postForm(String path, String token, String... kv) {

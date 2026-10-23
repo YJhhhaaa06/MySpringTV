@@ -25,10 +25,11 @@ import static org.mockito.Mockito.verify;
 /**
  * S5：comment **读路径**的 HTTP 契约测试（{@code /comment/show}、{@code /comment/replies}）。
  *
- * <h2>钉的是旧 pytest {@code test_comment_paging.py} 的全部契约</h2>
+ * <h2>钉的是旧 pytest {@code test_comment_paging.py} 的契约（`T59` 载荷面后）</h2>
  * <ul>
- *   <li><b>缺省（不传 page/pageSize）→ {@code data} 是全量数组</b>（children 全量随行 + {@code replyCount}）；
- *       传任一 → 分页信封，{@code total} = **主楼条数**；</li>
+ *   <li><b>唯一形状 = 分页信封</b>（《接口契约.md》§2.6）：{@code data = {list,total,page,pageSize,totalPages}}，
+ *       缺省 = {@code page=1&pageSize=200}，与显式传参**逐字节一致**；`T59` 前的"缺省全量数组"
+ *       两态已退役（`T59` 契约变更 —— 端点只许一种形状）；</li>
  *   <li>分页归一：{@code page} 缺省 → 1；{@code pageSize} 缺省 → **200**（评论域信封）、上限 **500**；</li>
  *   <li>每主楼 children ≤ **K=2**（预览）且带 {@code replyCount}（该主楼回复总数）；展开走
  *       {@code /comment/replies}，其 {@code total} 与 {@code replyCount} **同口径**；</li>
@@ -43,11 +44,11 @@ import static org.mockito.Mockito.verify;
  * {@code 游标翻页不重不漏} 用独立 oracle 钉住"页间不重不漏"（不因改实现而变化）。
  * <p>⚠️ 旧的 {@code page} 参数不再被识别（传了退化为第 1 页）；前端 {@code detail.js} 已同批改游标。
  *
- * <h2>★ 两类"看似 bug、实为规格"的行为（必须有测试钉住）</h2>
+ * <h2>★ 一类"看似 bug、实为规格"的行为（必须有测试钉住）</h2>
  * <ol>
- *   <li><b>内容不存在 / 评论区关闭 → 200 空</b>，不是 404/409。读评论不该因内容不可见而报错。</li>
- *   <li><b>缺省路径的 children 是"全量"、分页路径是"前 2 条"</b>——两条路径的 children 口径
- *       **刻意不同**（T8/T10-B）。若有人"统一"成同一个口径，两者之一必错。</li>
+ *   <li><b>内容不存在 / 评论区关闭 → 200 空信封</b>，不是 404/409。读评论不该因内容不可见而报错。</li>
+ *   <li><b>每主楼 children 只带前 K=2 条 + replyCount</b>——全量展开必须走
+ *       {@code /api/v1/comments/{id}/replies}（`T59` 起没有"缺省全量随行"这条捷径）。</li>
  * </ol>
  */
 class CommentReadTests extends AbstractContentIntegrationTest {
@@ -100,16 +101,22 @@ class CommentReadTests extends AbstractContentIntegrationTest {
     // ========================================================================
 
     @Test
-    @DisplayName("缺省：返回**全量数组**（children 全量随行 + replyCount）")
-    void 缺省返回全量数组() {
+    @DisplayName("缺省：也返回分页信封（page=1 / pageSize=200，children 仍截断为 K=2）")
+    void 缺省返回分页信封() {
         seed();
         JsonNode data = Envelope.data(get("/api/v1/contents/" + contentId + "/comments", null));
-        assertThat(data.isArray()).as("不传分页参数应保持全量数组（缺省兼容）").isTrue();
-        assertThat(data.size()).isEqualTo(5);
-        assertThat(rootIds(data)).isEqualTo(mainIds);
-        JsonNode root0 = data.get(0);
-        assertThat(root0.path("replyCount").asInt()).as("缺省数组也带 replyCount（T10-B）").isEqualTo(3);
-        assertThat(root0.path("children").size()).as("★缺省路径 children 是**全量**，不截断").isEqualTo(3);
+        assertThat(data.isObject()).as("`T59` 契约变更：缺省不再回数组，恒为分页信封").isTrue();
+        assertThat(data.path("page").asInt()).isEqualTo(1);
+        assertThat(data.path("pageSize").asInt()).as("评论域信封 200").isEqualTo(200);
+        assertThat(data.path("total").asInt()).as("total = 主楼条数").isEqualTo(5);
+        assertThat(rootIds(data.path("list"))).isEqualTo(mainIds);
+        JsonNode root0 = data.path("list").get(0);
+        assertThat(root0.path("replyCount").asInt()).as("缺省也带 replyCount（T10-B）").isEqualTo(3);
+        assertThat(root0.path("children").size()).as("★单一形状下 children 恒为前 K=2 条").isEqualTo(2);
+
+        JsonNode explicit = Envelope.data(
+                get("/api/v1/contents/" + contentId + "/comments?page=1&pageSize=200", null));
+        assertThat(explicit).as("缺省与显式传参逐字节一致").isEqualTo(data);
     }
 
     @Test
@@ -165,30 +172,32 @@ class CommentReadTests extends AbstractContentIntegrationTest {
     }
 
     @Test
-    @DisplayName("门禁：内容不存在 → 200 + 空；开关关闭 → 200 + 空（不是 404/409）")
+    @DisplayName("门禁：内容不存在 → 200 + 空信封；开关关闭 → 200 + 空信封（不是 404/409）")
     void 门禁返回空而不是报错() {
         seed();
         ResponseEntity<String> missing = get("/api/v1/contents/987654321/comments", null);
         assertThat(missing.getStatusCode().value()).as("内容不存在 ⇒ 200").isEqualTo(200);
-        assertThat(Envelope.data(missing).size()).isZero();
+        assertThat(Envelope.data(missing).path("list").size()).isZero();
+        assertThat(Envelope.data(missing).path("total").asInt()).isZero();
 
-        assertThat(Envelope.data(get("/api/v1/contents/" + contentId + "/comments", null)).size())
+        assertThat(Envelope.data(get("/api/v1/contents/" + contentId + "/comments", null)).path("list").size())
                 .as("前置：开启状态下 5 条主楼可见").isEqualTo(5);
 
         // ★ 必须走**真实端点**关闭——直改 JDBC 会绕过缓存失效，测出的只是"缓存陈旧"而不是"门禁生效"。
         //   这条链路同时是 S2 那笔账的闭环证明：CM-3 说"S5 搬 /content/commentEnabled 后即可闭环"。
-        assertThat(putQuery("/api/v1/contents/" + String.valueOf(contentId) + "/comment-enabled",query("enabled", "0"), authorToken)
-                .getStatusCode().value()).isEqualTo(200);
+        assertThat(put("/api/v1/contents/" + String.valueOf(contentId) + "/comment-enabled",
+                Map.of("enabled", false), authorToken).getStatusCode().value()).isEqualTo(200);
 
         JsonNode closed = Envelope.data(get("/api/v1/contents/" + contentId + "/comments", null));
-        assertThat(closed.size()).as("关闭后评论整体不可见").isZero();
+        assertThat(closed.path("list").size()).as("关闭后评论整体不可见").isZero();
+        assertThat(closed.path("total").asInt()).as("关闭后 total=0").isZero();
         JsonNode closedPaged = Envelope.data(
                 get("/api/v1/contents/" + contentId + "/comments?page=1&pageSize=10", null));
         assertThat(closedPaged.path("total").asInt()).as("关闭后分页信封 total=0").isZero();
 
-        assertThat(putQuery("/api/v1/contents/" + String.valueOf(contentId) + "/comment-enabled",query("enabled", "1"), authorToken)
-                .getStatusCode().value()).isEqualTo(200);
-        assertThat(Envelope.data(get("/api/v1/contents/" + contentId + "/comments", null)).size())
+        assertThat(put("/api/v1/contents/" + String.valueOf(contentId) + "/comment-enabled",
+                Map.of("enabled", true), authorToken).getStatusCode().value()).isEqualTo(200);
+        assertThat(Envelope.data(get("/api/v1/contents/" + contentId + "/comments", null)).path("list").size())
                 .as("重新开启即恢复（评论数据从未被删）").isEqualTo(5);
     }
 
@@ -206,12 +215,12 @@ class CommentReadTests extends AbstractContentIntegrationTest {
         long viewerId = userIdOf(VIEWER_PHONE);
         insertCommentLike(viewerId, mainIds.get(1));
 
-        JsonNode anonymous = Envelope.data(get("/api/v1/contents/" + contentId + "/comments", null));
+        JsonNode anonymous = Envelope.data(get("/api/v1/contents/" + contentId + "/comments", null)).path("list");
         for (JsonNode node : anonymous) {
             assertThat(node.path("isLiked").asBoolean()).isFalse();
         }
 
-        JsonNode loggedIn = Envelope.data(get("/api/v1/contents/" + contentId + "/comments", viewerToken));
+        JsonNode loggedIn = Envelope.data(get("/api/v1/contents/" + contentId + "/comments", viewerToken)).path("list");
         assertThat(loggedIn.get(0).path("isLiked").asBoolean()).isFalse();
         assertThat(loggedIn.get(1).path("isLiked").asBoolean()).as("只有第 2 条被点赞").isTrue();
         assertThat(loggedIn.get(2).path("isLiked").asBoolean()).isFalse();

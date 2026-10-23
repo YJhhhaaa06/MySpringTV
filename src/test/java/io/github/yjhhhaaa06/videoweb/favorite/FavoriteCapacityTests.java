@@ -5,16 +5,13 @@ import io.github.yjhhhaaa06.videoweb.support.Envelope;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestClient;
 
 import java.sql.PreparedStatement;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -338,43 +335,23 @@ class FavoriteCapacityTests extends AbstractHttpIntegrationTest {
     // ========================================================================
 
     private ResponseEntity<String> addFolder(String name, String token) {
-        return postForm("/api/v1/favorite-folders", form("name", name), token);
+        return post("/api/v1/favorite-folders", Map.of("name", name), token);
     }
 
     private ResponseEntity<String> addItem(String token, long contentId, Long folderId) {
-        MultiValueMap<String, String> f = form("contentId", contentId);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("contentId", contentId);
         if (folderId != null) {
-            f.add("folderId", String.valueOf(folderId));
+            body.put("folderId", folderId);
         }
-        return postForm("/api/v1/favorites", f, token);
+        return post("/api/v1/favorites", body, token);
     }
 
     private ResponseEntity<String> moveItem(String token, long fromFolderId, long toFolderId, long contentId) {
         // `T58` 契约变更：contentId 进路径（PUT /api/v1/favorites/{id}，接口契约.md §2.3/§2.4）。
-        MultiValueMap<String, String> f = form("fromFolderId", fromFolderId);
-        f.add("toFolderId", String.valueOf(toFolderId));
-        return putForm("/api/v1/favorites/" + contentId, f, token);
-    }
-
-    private ResponseEntity<String> postForm(String path, MultiValueMap<String, String> form, String token) {
-        return send(spec -> {
-            RestClient.RequestBodySpec request = spec.uri(path)
-                    .contentType(MediaType.APPLICATION_FORM_URLENCODED);
-            if (token != null) {
-                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-            }
-            return request.body(form);
-        });
-    }
-
-    private static MultiValueMap<String, String> form(String name, String value) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add(name, value);
-        return form;
-    }
-
-    private static MultiValueMap<String, String> form(String name, long value) {
-        return form(name, String.valueOf(value));
+        // `T59` 载荷面：from/to 走 JSON body。
+        return put("/api/v1/favorites/" + contentId,
+                Map.of("fromFolderId", fromFolderId, "toFolderId", toFolderId), token);
     }
 
     // ========================================================================

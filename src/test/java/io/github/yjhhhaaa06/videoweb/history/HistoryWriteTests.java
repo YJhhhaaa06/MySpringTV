@@ -10,6 +10,7 @@ import org.springframework.test.context.TestPropertySource;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -96,7 +97,7 @@ class HistoryWriteTests extends AbstractContentIntegrationTest {
     void 上报首次建行() {
         long contentId = insertVideoContent(authorId, "上报首次");
 
-        ResponseEntity<String> resp = put("/api/v1/contents/" + contentId + "/progress?progress=42", null, viewerToken);
+        ResponseEntity<String> resp = put("/api/v1/contents/" + contentId + "/progress", Map.of("progress", 42), viewerToken);
 
         assertThat(resp.getStatusCode().value()).as("上报应 200：%s", resp.getBody()).isEqualTo(200);
         assertThat(Envelope.msg(resp)).isEqualTo("success");
@@ -116,9 +117,9 @@ class HistoryWriteTests extends AbstractContentIntegrationTest {
     void 上报后到即新() {
         long contentId = insertVideoContent(authorId, "上报 LWW");
 
-        put("/api/v1/contents/" + contentId + "/progress?progress=100", null, viewerToken);
+        put("/api/v1/contents/" + contentId + "/progress", Map.of("progress", 100), viewerToken);
         flush();
-        put("/api/v1/contents/" + contentId + "/progress?progress=10", null, viewerToken);
+        put("/api/v1/contents/" + contentId + "/progress", Map.of("progress", 10), viewerToken);
         flush();
 
         assertThat(进度(contentId))
@@ -132,14 +133,14 @@ class HistoryWriteTests extends AbstractContentIntegrationTest {
         long contentId = insertVideoContent(authorId, "上报截断");
         setVideoDuration(contentId, 10);
 
-        ResponseEntity<String> exceeding = put("/api/v1/contents/" + contentId + "/progress?progress=999", null, viewerToken);
+        ResponseEntity<String> exceeding = put("/api/v1/contents/" + contentId + "/progress", Map.of("progress", 999), viewerToken);
         assertThat(exceeding.getStatusCode().value()).as("越界不报错").isEqualTo(200);
         flush();
         assertThat(进度(contentId)).as("截到 10").isEqualTo(10);
 
         // 时长未知（存量 / 解析失败）⇒ 原样存，不 clamp 到 0
         long unknownDuration = insertVideoContent(authorId, "上报无时长");
-        put("/api/v1/contents/" + unknownDuration + "/progress?progress=777", null, viewerToken);
+        put("/api/v1/contents/" + unknownDuration + "/progress", Map.of("progress", 777), viewerToken);
         flush();
         assertThat(进度(unknownDuration)).as("null 时长 ≠ 0 ⇒ 不截断").isEqualTo(777);
     }
@@ -148,14 +149,14 @@ class HistoryWriteTests extends AbstractContentIntegrationTest {
     @DisplayName("★重复上报同一进度仍然刷新 update_time（否则历史列表不会移到最前）")
     void 重复上报刷新更新时间() {
         long contentId = insertVideoContent(authorId, "上报时间");
-        put("/api/v1/contents/" + contentId + "/progress?progress=30", null, viewerToken);
+        put("/api/v1/contents/" + contentId + "/progress", Map.of("progress", 30), viewerToken);
         flush();
 
         // 把 update_time 拨回 2020（模拟"这条记录很久没动过"）
         jdbcTemplate.update("UPDATE watch_history SET update_time = '2020-01-01 00:00:00' "
                 + "WHERE user_id = ? AND content_id = ?", viewerId, contentId);
 
-        put("/api/v1/contents/" + contentId + "/progress?progress=30", null, viewerToken);
+        put("/api/v1/contents/" + contentId + "/progress", Map.of("progress", 30), viewerToken);
         flush();
 
         String updated = jdbcTemplate.queryForObject(
@@ -172,24 +173,24 @@ class HistoryWriteTests extends AbstractContentIntegrationTest {
         long videoId = insertVideoContent(authorId, "上报错误");
         long postId = insertPostContent(authorId, "上报图文");
 
-        ResponseEntity<String> negative = put("/api/v1/contents/" + videoId + "/progress?progress=-1", null, viewerToken);
+        ResponseEntity<String> negative = put("/api/v1/contents/" + videoId + "/progress", Map.of("progress", -1), viewerToken);
         assertThat(negative.getStatusCode().value()).isEqualTo(400);
         assertThat(Envelope.msg(negative)).isEqualTo("播放进度不能为负数");
 
-        ResponseEntity<String> post400 = put("/api/v1/contents/" + postId + "/progress?progress=1", null, viewerToken);
+        ResponseEntity<String> post400 = put("/api/v1/contents/" + postId + "/progress", Map.of("progress", 1), viewerToken);
         assertThat(post400.getStatusCode().value()).isEqualTo(400);
         assertThat(Envelope.msg(post400)).isEqualTo("只能记录视频的播放进度");
 
-        assertThat(put("/api/v1/contents/999999/progress?progress=1", null, viewerToken)
+        assertThat(put("/api/v1/contents/999999/progress", Map.of("progress", 1), viewerToken)
                 .getStatusCode().value()).as("不存在 ⇒ 404").isEqualTo(404);
 
         // 已软删：不能往"对外不可见"的内容里写历史
         long deletedId = insertVideoContent(authorId, "上报已删");
         jdbcTemplate.update("UPDATE content SET is_deleted = 1 WHERE id = ?", deletedId);
-        assertThat(put("/api/v1/contents/" + deletedId + "/progress?progress=1", null, viewerToken)
+        assertThat(put("/api/v1/contents/" + deletedId + "/progress", Map.of("progress", 1), viewerToken)
                 .getStatusCode().value()).as("已删 ⇒ 404").isEqualTo(404);
 
-        assertThat(put("/api/v1/contents/" + videoId + "/progress?progress=1", null, null)
+        assertThat(put("/api/v1/contents/" + videoId + "/progress", Map.of("progress", 1), null)
                 .getStatusCode().value()).as("匿名 ⇒ 401").isEqualTo(401);
 
         flush();

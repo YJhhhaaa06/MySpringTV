@@ -10,10 +10,9 @@ import org.mockito.Mockito;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
 
 import java.sql.PreparedStatement;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -127,15 +126,9 @@ class FavoriteTransactionTests extends AbstractHttpIntegrationTest {
 
     private ResponseEntity<String> moveItem(String token, long fromFolderId, long toFolderId, long contentId) {
         // `T58` 契约变更：contentId 进路径（PUT /api/v1/favorites/{id}，接口契约.md §2.3/§2.4）。
-        MultiValueMap<String, String> f = form("fromFolderId", fromFolderId);
-        f.add("toFolderId", String.valueOf(toFolderId));
-        return putForm("/api/v1/favorites/" + contentId, f, token);
-    }
-
-    private static MultiValueMap<String, String> form(String name, long value) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add(name, String.valueOf(value));
-        return form;
+        // `T59` 载荷面：from/to 走 JSON body。
+        return put("/api/v1/favorites/" + contentId,
+                Map.of("fromFolderId", fromFolderId, "toFolderId", toFolderId), token);
     }
 
     // ========================================================================

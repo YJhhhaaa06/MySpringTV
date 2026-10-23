@@ -7,18 +7,16 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
 
 import java.sql.PreparedStatement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -475,14 +473,11 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
     }
 
     // ========================================================================
-    // HTTP（写 = POST + form，T12 夹具改造起本类也用；与 FavoriteCacheTests 同款）
+    // HTTP（写 = POST + JSON body，`T59` 载荷面；与 FavoriteCacheTests 同款）
     // ========================================================================
 
     private ResponseEntity<String> addItem(long folderId, long contentId, String token) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("folderId", String.valueOf(folderId));
-        form.add("contentId", String.valueOf(contentId));
-        return postForm("/api/v1/favorites", form, token);
+        return post("/api/v1/favorites", Map.of("folderId", folderId, "contentId", contentId), token);
     }
 
     private ResponseEntity<String> removeItems(long folderId, List<Long> contentIds, String token) {
@@ -492,16 +487,5 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
             form.add("contentIds", String.valueOf(contentId));
         }
         return deleteQuery("/api/v1/favorites", form, token);
-    }
-
-    private ResponseEntity<String> postForm(String path, MultiValueMap<String, String> form, String token) {
-        return send(spec -> {
-            RestClient.RequestBodySpec request = spec.uri(path)
-                    .contentType(MediaType.APPLICATION_FORM_URLENCODED);
-            if (token != null) {
-                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-            }
-            return request.body(form);
-        });
     }
 }

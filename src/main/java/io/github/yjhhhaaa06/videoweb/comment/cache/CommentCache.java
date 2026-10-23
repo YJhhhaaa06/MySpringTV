@@ -179,24 +179,6 @@ public class CommentCache {
         return roots;
     }
 
-    /**
-     * 缺省**全量整树**（不传分页参数的兼容路径，T10-B）：DB 全量直取 + Java 侧上溯建树。
-     *
-     * <p>children 全量随行（缺省 = 全量语义，逐字节兼容旧数组响应）；
-     * **不占两键组**——前端早已改传大 chunk，缺省调用方只剩兼容场景。
-     *
-     * @return {@code null} = 确认无评论（调用方返回空数组）
-     */
-    public List<CommentCacheDTO> getFullTree(long contentId) {
-        // T26 信号②：缺省全量是**不走缓存**的兼容路径（恒 DB）——同样算"没走成缓存"
-        CacheMissSignal.mark();
-        List<CommentCacheDTO> rows = commentDao.getComments(contentId);
-        if (rows == null || rows.isEmpty()) {
-            return null;
-        }
-        return buildCommentTree(rows);
-    }
-
     /** 展平评论树为全部评论 id（含 children），供批量查询点赞状态。 */
     public List<Long> collectCommentIds(List<CommentCacheDTO> tree) {
         List<Long> ids = new ArrayList<>();
@@ -529,38 +511,8 @@ public class CommentCache {
     }
 
     // ========================================================================
-    // 内部：建树 / 失效 / 定位
+    // 内部：装配 / 失效 / 定位
     // ========================================================================
-
-    /** 楼中楼归一化建树（缺省全量路径用）：回复一律挂**主楼**（沿 parent 链上溯，防御存量多级链）。 */
-    private static List<CommentCacheDTO> buildCommentTree(List<CommentCacheDTO> rows) {
-        Map<Long, CommentCacheDTO> byId = new HashMap<>();
-        List<CommentCacheDTO> roots = new ArrayList<>();
-        for (CommentCacheDTO row : rows) {
-            row.setChildren(new ArrayList<>());
-            byId.put(row.getCommentId(), row);
-        }
-        for (CommentCacheDTO row : rows) {
-            Long parentId = row.getParentId();
-            if (parentId == null || parentId == 0) {
-                roots.add(row);
-                continue;
-            }
-            CommentCacheDTO parent = byId.get(parentId);
-            if (parent == null) {
-                continue;       // 父缺失（理论不可达，迁移前已归一）
-            }
-            while (parent.getParentId() != null && parent.getParentId() != 0) {
-                CommentCacheDTO ancestor = byId.get(parent.getParentId());
-                if (ancestor == null) {
-                    break;
-                }
-                parent = ancestor;
-            }
-            parent.getChildren().add(row);
-        }
-        return roots;
-    }
 
     /** 批量静默失效（数据 key + 空标记），best-effort **不抛出**。 */
     private void invalidateQuietly(String... dataKeys) {

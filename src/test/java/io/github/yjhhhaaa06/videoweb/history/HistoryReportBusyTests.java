@@ -13,6 +13,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import java.util.Map;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
@@ -75,7 +77,7 @@ class HistoryReportBusyTests extends AbstractContentIntegrationTest {
         doReturn(false).when(breaker).tryAcquire();
         reset(contentService);
 
-        ResponseEntity<String> resp = put("/api/v1/contents/" + contentId + "/progress?progress=10", null, viewerToken);
+        ResponseEntity<String> resp = put("/api/v1/contents/" + contentId + "/progress", Map.of("progress", 10), viewerToken);
 
         assertThat(resp.getStatusCode().value())
                 .as("★ 不降级直写库：故障瞬间把全部心跳压进 DB 正是本方案要避免的")

@@ -13,6 +13,7 @@ import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -150,7 +151,7 @@ class HistoryListTests extends AbstractContentIntegrationTest {
         insertHistory(viewerId, middle, 2, 20, "2020-01-01 00:00:00");
         insertHistory(viewerId, oldest, 30, 30, "2020-01-01 00:00:00");
 
-        ResponseEntity<String> report = put("/api/v1/contents/" + oldest + "/progress?progress=30", null, viewerToken);
+        ResponseEntity<String> report = put("/api/v1/contents/" + oldest + "/progress", Map.of("progress", 30), viewerToken);
         assertThat(report.getStatusCode().value()).as("上报应 200：%s", report.getBody()).isEqualTo(200);
         // ★ R-19：/report 只写缓冲 ⇒ 要看到 update_time 变化必须先落库
         post("/api/v1/history/flush", null, viewerToken);
@@ -442,7 +443,7 @@ class HistoryListTests extends AbstractContentIntegrationTest {
     @DisplayName("★列表不合并缓冲：只上报未 flush ⇒ 看不到；flush 后才出现")
     void 列表不合并缓冲() {
         long contentId = insertVideoContent(authorId, "只在缓冲里的视频");
-        put("/api/v1/contents/" + contentId + "/progress?progress=42", null, viewerToken);
+        put("/api/v1/contents/" + contentId + "/progress", Map.of("progress", 42), viewerToken);
 
         JsonNode before = Envelope.data(list(viewerToken, null, null));
         assertThat(before.path("total").asInt())

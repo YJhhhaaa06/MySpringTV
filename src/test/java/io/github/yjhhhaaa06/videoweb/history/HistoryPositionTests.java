@@ -9,6 +9,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.TestPropertySource;
 import tools.jackson.databind.JsonNode;
 
+import java.util.Map;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -81,7 +83,7 @@ class HistoryPositionTests extends AbstractContentIntegrationTest {
     void 有记录返回秒数() {
         long contentId = insertVideoContent(authorId, "续播视频");
 
-        ResponseEntity<String> report = put("/api/v1/contents/" + contentId + "/progress?progress=123", null, viewerToken);
+        ResponseEntity<String> report = put("/api/v1/contents/" + contentId + "/progress", Map.of("progress", 123), viewerToken);
         assertThat(report.getStatusCode().value()).as("前置写应 200：%s", report.getBody()).isEqualTo(200);
         // ★ R-19：/report 只写缓冲；本类验的是"已落库的进度能被读回"，故先 flush
         post("/api/v1/history/flush", null, viewerToken);
@@ -121,7 +123,7 @@ class HistoryPositionTests extends AbstractContentIntegrationTest {
     void 跨用户隔离() {
         String otherToken = registerAndGetToken(OTHER_PHONE, OTHER);
         long contentId = insertVideoContent(authorId, "共享视频");
-        put("/api/v1/contents/" + contentId + "/progress?progress=55", null, viewerToken);
+        put("/api/v1/contents/" + contentId + "/progress", Map.of("progress", 55), viewerToken);
         post("/api/v1/history/flush", null, viewerToken);
 
         assertThat(Envelope.data(position(viewerToken, contentId)).path("progress").asInt())
@@ -134,7 +136,7 @@ class HistoryPositionTests extends AbstractContentIntegrationTest {
     @DisplayName("鉴权：未登录 / 坏 token ⇒ 401（⚠️ HTTP 侧对 @RequiresLogin 是**假绿**）")
     void 需登录() {
         long contentId = insertVideoContent(authorId, "鉴权视频");
-        put("/api/v1/contents/" + contentId + "/progress?progress=1", null, viewerToken);
+        put("/api/v1/contents/" + contentId + "/progress", Map.of("progress", 1), viewerToken);
 
         // ⚠️ 假绿声明：401 由 @CurrentUserId 参数解析器兜出 ⇒ 去掉类级 @RequiresLogin 这两条**仍然绿**。
         //    注解是否在位只由 SecurityContractTests 求值（钉路由，不证明注解）。
@@ -158,11 +160,11 @@ class HistoryPositionTests extends AbstractContentIntegrationTest {
     @DisplayName("★R-20 不读缓冲：库里 500、缓冲里 900（未落库）⇒ 返回 500")
     void 缓冲里的新进度不参与续播() {
         long contentId = insertVideoContent(authorId, "缓冲不参与续播");
-        put("/api/v1/contents/" + contentId + "/progress?progress=500", null, viewerToken);
+        put("/api/v1/contents/" + contentId + "/progress", Map.of("progress", 500), viewerToken);
         post("/api/v1/history/flush", null, viewerToken);
 
         // 再上报一次但**不 flush**：这条只活在缓冲里（模拟"正在播 / 崩溃 / 还没退出"）
-        put("/api/v1/contents/" + contentId + "/progress?progress=900", null, viewerToken);
+        put("/api/v1/contents/" + contentId + "/progress", Map.of("progress", 900), viewerToken);
 
         assertThat(Envelope.data(position(viewerToken, contentId)).path("progress").asInt())
                 .as("★ R-20：续播只认已落库的值（读到 900 说明还在读缓冲）")

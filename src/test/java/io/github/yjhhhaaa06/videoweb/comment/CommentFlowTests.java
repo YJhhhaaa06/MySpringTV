@@ -40,7 +40,7 @@ class CommentFlowTests extends AbstractCommentIntegrationTest {
     // ==================== 发表：成功路径 ====================
 
     @Test
-    @DisplayName("发主楼评论：200 + data=\"评论成功\"；comment 落一行（parent_id 为空）、content.comment_count +1")
+    @DisplayName("发主楼评论：200 + 无 data（`T59`：写成功不再回文案）；comment 落一行（parent_id 为空）、content.comment_count +1")
     void 发主楼评论() {
         String token = registerAndGetToken(AUTHOR_PHONE, AUTHOR);
         long contentId = insertContent(userIdOf(AUTHOR_PHONE), true);
@@ -49,7 +49,7 @@ class CommentFlowTests extends AbstractCommentIntegrationTest {
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(Envelope.code(resp)).isEqualTo("OK");
-        assertThat(Envelope.data(resp).asString()).isEqualTo("评论成功");
+        assertThat(resp.getBody()).as("`T59` 起 data 不出现").doesNotContain("\"data\"");
 
         // 独立 oracle：不读接口回显，直接查列
         long commentId = findCommentId(contentId, "第一条评论");

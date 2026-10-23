@@ -4,12 +4,11 @@ import io.github.yjhhhaaa06.videoweb.support.Envelope;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
 import tools.jackson.databind.JsonNode;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -576,7 +575,7 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
     @DisplayName("未登录投币：401（本条对 @RequiresLogin 是假绿，判别力在 SecurityContractTests）")
     void 未登录投币被拒() {
         // 内容存在与否不影响：鉴权在参数解析 / 注解层就短路了。
-        ResponseEntity<String> resp = postForm("/api/v1/contents/1/coins", coinForm(1), null);
+        ResponseEntity<String> resp = post("/api/v1/contents/1/coins", Map.of("count", 1), null);
 
         // ⚠️ 这条 401 可能来自 @CurrentUserId 的参数解析器，而不是 @RequiresLogin ——
         //    机制是否生效只能由 SecurityContractTests 直接对 RequestMappingLookup 求值来证明
@@ -588,14 +587,9 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
 
     // ==================== 夹具 ====================
 
-    /** 投币端点：{@code POST /api/v1/contents/{id}/coins}（`T58` 起 {@code contentId} 在路径上），{@code count} 走 form。 */
+    /** 投币端点：{@code POST /api/v1/contents/{id}/coins}（`T58` 起 {@code contentId} 在路径上）；
+     *  `T59` 载荷面起 {@code count} 走 JSON body。 */
     private ResponseEntity<String> addCoin(String token, long contentId, int count) {
-        return postForm("/api/v1/contents/" + contentId + "/coins", coinForm(count), token);
-    }
-
-    private static MultiValueMap<String, String> coinForm(int count) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("count", String.valueOf(count));
-        return form;
+        return post("/api/v1/contents/" + contentId + "/coins", Map.of("count", count), token);
     }
 }

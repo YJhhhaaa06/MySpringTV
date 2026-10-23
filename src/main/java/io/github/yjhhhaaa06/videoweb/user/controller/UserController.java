@@ -6,18 +6,17 @@ import io.github.yjhhhaaa06.videoweb.common.security.Public;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import io.github.yjhhhaaa06.videoweb.user.model.dto.ChangePasswordRequest;
+import io.github.yjhhhaaa06.videoweb.user.model.dto.ChangeUserNameRequest;
 import io.github.yjhhhaaa06.videoweb.user.model.dto.LoginRequest;
 import io.github.yjhhhaaa06.videoweb.user.model.dto.RegisterRequest;
 import io.github.yjhhhaaa06.videoweb.user.model.vo.LoginVO;
 import io.github.yjhhhaaa06.videoweb.user.model.vo.UserInfoVO;
 import io.github.yjhhhaaa06.videoweb.user.service.UserService;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -97,16 +96,15 @@ public class UserController {
      * <p>审计口径同 {@link #changePassword}（{@code UserService.changeUserName} 亦为
      * {@code @Transactional}）。{@code target} 只记 {@code userId:N}，**不记新用户名**。
      *
-     * <p>★ {@code @NotBlank} 标在 {@code @RequestParam} 上：由 Spring 的**内置方法校验**生效
-     * （不需要类级 {@code @Validated}），失败时抛 {@code HandlerMethodValidationException}，
-     * 由 {@code GlobalExceptionHandler} 收口成 400 + {@code errors[field=userName]}（`T57`）。
-     * {@code message} 必须写死：约束默认文案随 Locale 变，不能进对外 body。
+     * <p>★ `T59` 载荷面：入参改为 JSON body {@code {"userName": "…"}}（约束在
+     * {@link ChangeUserNameRequest} 上，失败体仍由 `T57` 的出口产出
+     * {@code errors[field=userName]}）。
      */
     @RequiresLogin
     @PutMapping("/api/v1/users/me/username")
     public ApiResponse<Void> changeUserName(@CurrentUserId long userId,
-                                           @RequestParam @NotBlank(message = "用户名不能为空") String userName) {
-        userService.changeUserName(userId, userName);
+                                           @RequestBody @Valid ChangeUserNameRequest request) {
+        userService.changeUserName(userId, request.userName());
         AuditLog.success("user.changeUserName", userId, "userId:" + userId);
         return ApiResponse.success();
     }

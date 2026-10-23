@@ -5,6 +5,7 @@ import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import io.github.yjhhhaaa06.videoweb.common.web.PageParams;
+import io.github.yjhhhaaa06.videoweb.favorite.model.dto.MoveToFolderRequest;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.WatchLaterItemVO;
 import io.github.yjhhhaaa06.videoweb.favorite.service.WatchLaterService;
 import org.springframework.http.ResponseEntity;
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -95,7 +97,7 @@ public class WatchLaterController {
 
     /**
      * 加入稍后再看。端点 `T58` 起为 {@code PUT /api/v1/watch-later/{id}}（§2.4「幂等设置」：
-     * 重复加入 = 移到最前，状态收敛为"在池中"）。成功响应 {@code data} 是字符串「已加入稍后再看」。
+     * 重复加入 = 移到最前，状态收敛为"在池中"）。`T59` 起成功 = **200 + 无 data**。
      *
      * <p>★ <b>只收视频</b>：非视频内容 ⇒ 400「只能添加视频」、内容不存在 / 已软删 ⇒ 404。
      * ★ <b>重复加入 ⇒ 移到最前</b>（不新增、不报错）；★ <b>池已满（100）</b>时，加**新**内容 ⇒ 400，
@@ -105,9 +107,9 @@ public class WatchLaterController {
      */
     @RequiresLogin
     @PutMapping("/api/v1/watch-later/{id}")
-    public ApiResponse<String> add(@CurrentUserId long userId, @PathVariable("id") long contentId) {
+    public ApiResponse<Void> add(@CurrentUserId long userId, @PathVariable("id") long contentId) {
         watchLaterService.add(userId, contentId);
-        return ApiResponse.success("已加入稍后再看");
+        return ApiResponse.success();
     }
 
     /**
@@ -131,24 +133,25 @@ public class WatchLaterController {
      * 把一条内容从稍后再看**移入收藏夹**（**同事务**：加入目标夹 + 从池中移除）。
      * 端点 `T58` 起为 {@code PUT /api/v1/watch-later/{id}/folder}
      * （§2.4「幂等设置」+ §2.3「子资源」：目标夹是本条池项的一个属性，不是独立资源）。
-     * 成功响应 {@code data} 是字符串「已移动」。
+     * `T59` 起成功 = **200 + 无 data**，入参改为 JSON body {@code {"folderId": N}}。
      *
      * <p>口径：非视频 400 · 内容不存在 / 已软删 404 · 目标夹不存在 404 / 非我 403 / 已满 400 ·
      * ★ `T59` 起目标夹已有同内容 ⇒ **幂等成功**（只清稍后再看条目）。详见 {@code WatchLaterService.move}。
      *
      * <p>⚠️ 进路径的是 {@code contentId}（被移动的池项，§2.3"唯一标识被操作对象"）；
-     * {@code folderId} 留 form/query —— 它**可不传**（缺省 = 默认夹），搬进路径会把"没给"变成 404
+     * {@code folderId} 走 body 且**可不传**（缺省 = 默认夹）—— 搬进路径会把"没给"变成 404
      * （§2.3 的"缺参归 400"）。
      *
      * @param contentId 路径变量 {@code {id}}：内容 id；非数字 → 400
-     * @param folderId  目标夹；**缺省 = 默认夹（必要时懒建）**，同 {@code POST /api/v1/favorites}
+     * @param request   {@code folderId} 目标夹；**缺省 = 默认夹（必要时懒建）**，
+     *                  同 {@code POST /api/v1/favorites}
      */
     @RequiresLogin
     @PutMapping("/api/v1/watch-later/{id}/folder")
-    public ApiResponse<String> move(@CurrentUserId long userId,
-                                    @PathVariable("id") long contentId,
-                                    @RequestParam(required = false) Long folderId) {
-        watchLaterService.move(userId, contentId, folderId);
-        return ApiResponse.success("已移动");
+    public ApiResponse<Void> move(@CurrentUserId long userId,
+                                  @PathVariable("id") long contentId,
+                                  @RequestBody MoveToFolderRequest request) {
+        watchLaterService.move(userId, contentId, request.folderId());
+        return ApiResponse.success();
     }
 }

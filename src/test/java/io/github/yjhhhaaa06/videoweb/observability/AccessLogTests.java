@@ -189,7 +189,7 @@ class AccessLogTests extends AbstractObservabilityTest {
         clearLogs();
 
         ResponseEntity<String> response =
-                put("/api/v1/users/me/username?userName=obs-error-probe", null, token);
+                put("/api/v1/users/me/username", Map.of("userName", "obs-error-probe"), token);
         assertThat(response.getStatusCode().value())
                 .as("数据访问异常 ⇒ 500（HTTP 状态码正确化后不再是 200）")
                 .isEqualTo(500);

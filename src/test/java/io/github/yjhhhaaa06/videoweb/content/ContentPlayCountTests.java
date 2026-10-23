@@ -12,6 +12,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 
+import java.util.Map;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -92,7 +94,7 @@ class ContentPlayCountTests extends AbstractContentIntegrationTest {
                 .as("★ 缓存也仍 1").isEqualTo("1");
 
         // /report 只写进度，不是计数入口
-        assertThat(put("/api/v1/contents/" + contentId + "/progress?progress=30", null, viewerToken)
+        assertThat(put("/api/v1/contents/" + contentId + "/progress", Map.of("progress", 30), viewerToken)
                 .getStatusCode().value()).isEqualTo(200);
         assertThat(playCountColumn(contentId)).as("★ 独立 oracle：/report 没碰 play_count 列").isEqualTo(1);
         assertThat(detail(contentId).path("playCount").asLong())

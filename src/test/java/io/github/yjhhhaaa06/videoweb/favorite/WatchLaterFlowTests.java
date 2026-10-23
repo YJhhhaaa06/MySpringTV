@@ -13,7 +13,9 @@ import tools.jackson.databind.JsonNode;
 
 import java.sql.PreparedStatement;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -432,13 +434,14 @@ class WatchLaterFlowTests extends AbstractHttpIntegrationTest {
     }
 
     private ResponseEntity<String> move(String token, long contentId, Long folderId) {
-        // `T58` 契约变更：contentId 进路径、folderId 留 form
+        // `T58` 契约变更：contentId 进路径
         // （PUT /api/v1/watch-later/{id}/folder，接口契约.md §2.3/§2.4）。
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        // `T59` 载荷面：folderId 走 JSON body（缺省 = 默认夹）。
+        Map<String, Object> body = new LinkedHashMap<>();
         if (folderId != null) {
-            form.add("folderId", String.valueOf(folderId));
+            body.put("folderId", folderId);
         }
-        return putForm("/api/v1/watch-later/" + contentId + "/folder", form, token);
+        return put("/api/v1/watch-later/" + contentId + "/folder", body, token);
     }
 
     private static List<Long> contentIds(JsonNode list) {

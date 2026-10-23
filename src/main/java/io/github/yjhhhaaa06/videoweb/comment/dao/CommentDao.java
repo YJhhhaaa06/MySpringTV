@@ -162,18 +162,6 @@ public interface CommentDao {
     Long getContentIdByCommentId(@Param("commentId") long commentId);
 
     /**
-     * 缺省全量路径的整表查询（T10-B）：该内容**全部未删**评论，{@code comment_id} 升序。
-     *
-     * <p>TV: {@code SELECT c.*, u.username, r.username AS reply_to_username FROM comment c
-     * LEFT JOIN users u … LEFT JOIN users r … WHERE c.content_id=? AND c.is_deleted=0
-     * ORDER BY c.comment_id}
-     *
-     * <p>它只服务**不传分页参数**的兼容路径（{@code /comment/show} 缺省返回全量数组），
-     * 建树在 Java 侧（{@code CommentCache.buildCommentTree} 上溯归一）。不占两键组。
-     */
-    List<CommentCacheDTO> getComments(@Param("contentId") long contentId);
-
-    /**
      * 主楼窗口查询（keyset，T10-A）：{@code comment_id > afterCommentId} 升序取前 {@code limit} 条**主楼**。
      *
      * <p>TV: {@code WHERE c.content_id=? AND c.parent_id IS NULL AND c.is_deleted=0

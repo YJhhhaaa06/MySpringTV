@@ -11,19 +11,17 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
 
 import java.sql.PreparedStatement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -400,13 +398,10 @@ class FavoriteStatusShortCircuitTests extends AbstractHttpIntegrationTest {
         return Boolean.TRUE.equals(redis.hasKey(key));
     }
 
-    // ==================== 写端点（POST + form，同 favorite 域其它测试） ====================
+    // ==================== 写端点（`T59` 载荷面：POST + JSON body） ====================
 
     private ResponseEntity<String> addItem(long folderId, long contentId, String token) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("folderId", String.valueOf(folderId));
-        form.add("contentId", String.valueOf(contentId));
-        return postForm("/api/v1/favorites", form, token);
+        return post("/api/v1/favorites", Map.of("folderId", folderId, "contentId", contentId), token);
     }
 
     private ResponseEntity<String> removeItems(long folderId, List<Long> contentIds, String token) {
@@ -416,17 +411,6 @@ class FavoriteStatusShortCircuitTests extends AbstractHttpIntegrationTest {
             form.add("contentIds", String.valueOf(contentId));
         }
         return deleteQuery("/api/v1/favorites", form, token);
-    }
-
-    private ResponseEntity<String> postForm(String path, MultiValueMap<String, String> form, String token) {
-        return send(spec -> {
-            RestClient.RequestBodySpec request = spec.uri(path)
-                    .contentType(MediaType.APPLICATION_FORM_URLENCODED);
-            if (token != null) {
-                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-            }
-            return request.body(form);
-        });
     }
 
     private static List<String> names(JsonNode folders) {

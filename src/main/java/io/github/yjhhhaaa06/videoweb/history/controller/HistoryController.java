@@ -5,13 +5,16 @@ import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import io.github.yjhhhaaa06.videoweb.common.web.PageParams;
+import io.github.yjhhhaaa06.videoweb.history.model.dto.ReportProgressRequest;
 import io.github.yjhhhaaa06.videoweb.history.model.vo.HistoryItemVO;
 import io.github.yjhhhaaa06.videoweb.history.model.vo.HistoryPositionVO;
 import io.github.yjhhhaaa06.videoweb.history.service.HistoryService;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -120,7 +123,7 @@ public class HistoryController {
 
     /**
      * 上报播放进度：{@code PUT /api/v1/contents/{id}/progress}（`T58` 起 {@code contentId} 进路径；
-     * {@code progress} 单位**秒**，留 form/query）。
+     * `T59` 载荷面：{@code progress} 改为 JSON body {@code {"progress": N}}，单位**秒**）。
      *
      * <p>**PUT**（`T58` 契约变更，依据《接口契约.md》§2.4）：重复上报同一进度是幂等的
      * （后到即新，LWW 覆盖语义）。★ `R-19`（T51-2）起**只写 Redis 缓冲，不落库**：
@@ -130,13 +133,13 @@ public class HistoryController {
      * 压进数据库，正是本方案要避免的）。客户端应按 `Retry-After` 退避、收到 200 再恢复频率。
      *
      * @param contentId 内容 id（路径）
-     * @param progress  已看到的秒数（整数）；负数 ⇒ 400；超过时长按当前时长截断（不报错）
+     * @param request   已看到的秒数（整数）；负数 ⇒ 400；超过时长按当前时长截断（不报错）
      */
     @PutMapping("/api/v1/contents/{id}/progress")
     public ApiResponse<Void> report(@CurrentUserId long userId,
                                     @PathVariable("id") long contentId,
-                                    @RequestParam int progress) {
-        historyService.report(userId, contentId, progress);
+                                    @RequestBody @Valid ReportProgressRequest request) {
+        historyService.report(userId, contentId, request.progress());
         return ApiResponse.success();
     }
 
