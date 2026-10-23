@@ -27,11 +27,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <ul>
  *   <li>{@code SecurityContractTests} 断言 {@link RequestMappingLookup} 的**判定结果**
  *       （两个布尔量），但它**不经过过滤器**；</li>
- *   <li>{@code AdminSecurityTests} 断言**状态码**，但它的 8 条路径全在 {@code /api/admin} 下
+ *   <li>{@code AdminSecurityTests} 断言**状态码**，但它的 8 条路径全在 {@code /api/v1/admin} 下
  *       ⇒ 旧实现（路径前缀）与新实现（处理器注解）给出**完全相同**的 401/403，
  *       **它无法区分**"角色判据到底是前缀还是注解"。</li>
  * </ul>
- * 本类补的正是那条缝：把 {@code @RequiresAdmin} 标在一个**不在 {@code /api/admin} 下**的桩端点上，
+ * 本类补的正是那条缝：把 {@code @RequiresAdmin} 标在一个**不在 {@code /api/v1/admin} 下**的桩端点上，
  * 再直接驱动过滤器。若有人把角色判据改回路径前缀，{@code 非admin路径上的RequiresAdmin仍然生效} 立刻变红。
  *
  * <p>纯单元测试（不启容器、不连库）：过滤器依赖的四个协作者全部手工装配。
@@ -51,7 +51,7 @@ class JwtAuthFilterAuthzTests {
     private final ApiErrorWriter errorWriter = new ApiErrorWriter(objectMapper);
     private static final Probe PROBE = new Probe();
 
-    /** 用桩处理器构造过滤器：路径写死为 {@code /probe}，**故意不在 {@code /api/admin} 下**。 */
+    /** 用桩处理器构造过滤器：路径写死为 {@code /probe}，**故意不在 {@code /api/v1/admin} 下**。 */
     private JwtAuthFilter filterFor(String probeMethod) throws NoSuchMethodException {
         Method method = Probe.class.getMethod(probeMethod);
         HandlerMapping stub = request -> new HandlerExecutionChain(new HandlerMethod(PROBE, method));
@@ -88,7 +88,7 @@ class JwtAuthFilterAuthzTests {
     }
 
     @Test
-    @DisplayName("★角色判据跟着处理器走：@RequiresAdmin 在非 /api/admin 路径上同样生效（403）")
+    @DisplayName("★角色判据跟着处理器走：@RequiresAdmin 在非 /api/v1/admin 路径上同样生效（403）")
     void 非admin路径上的RequiresAdmin仍然生效() throws Exception {
         String normalToken = jwtService.generateToken(NORMAL_ID);
 

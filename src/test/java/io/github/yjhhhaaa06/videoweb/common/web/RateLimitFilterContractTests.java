@@ -346,13 +346,14 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("/api/admin（管理员）也过闸：200 且登录桶被扣 cost")
+    @DisplayName("/api/v1/admin（管理员）也过闸：200 且登录桶被扣 cost")
     void 管理员路径也过闸() {
         String token = registerAndGetToken("13800002502", "rlAdmin", "Password123");
         long userId = userIdOf("13800002502");
         jdbcTemplate.update("UPDATE users SET role = 1 WHERE id = ?", userId);
 
-        ResponseEntity<String> resp = get("/api/admin/content/list", token);
+        // `T58` 契约变更：GET /api/admin/content/list → GET /api/v1/admin/contents
+        ResponseEntity<String> resp = get("/api/v1/admin/contents", token);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         assertThat(tokensOf(rawOf("ratelimit:user:" + userId)))

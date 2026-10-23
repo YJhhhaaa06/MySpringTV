@@ -135,8 +135,8 @@ public interface ContentMediaDao {
      *
      * <p>TV: {@code select id,content_id,url,type,sort from content_media order by id}
      *
-     * <p>⚠️ 这是**无上限**全表查询（TV 原样）——它只被 {@code /api/admin/media/list} 与
-     * {@code /scan} 触发（管理员手工运维动作，非热路径）。
+     * <p>⚠️ 这是**无上限**全表查询（TV 原样）——它只被 {@code GET /api/v1/admin/media} 与
+     * {@code POST /api/v1/admin/media/scan} 触发（管理员手工运维动作，非热路径）。
      */
     List<ContentMedia> findAllMedia();
 

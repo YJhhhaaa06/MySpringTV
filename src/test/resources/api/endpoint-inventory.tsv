@@ -7,14 +7,14 @@
 # 列：METHOD <TAB> PATH <TAB> AUTH <TAB> RETURN
 # AUTH = PUBLIC（匿名可达） | LOGIN（需有效身份） | ADMIN（需管理员角色，蕴含登录）
 # 排序：PATH 升序，其次 METHOD 升序（保证 diff 可读）
-POST	/api/admin/comment/delete	ADMIN	ApiResponse<String>
-POST	/api/admin/content/hide	ADMIN	ApiResponse<String>
-GET	/api/admin/content/list	ADMIN	ApiResponse<List<AdminContentVO>>
-POST	/api/admin/content/unhide	ADMIN	ApiResponse<String>
-GET	/api/admin/media/list	ADMIN	ApiResponse<MediaAuditResult>
-GET	/api/admin/media/me	ADMIN	ApiResponse<Boolean>
-POST	/api/admin/media/restore	ADMIN	ApiResponse<RestoreResult>
-POST	/api/admin/media/scan	ADMIN	ApiResponse<MediaAuditResult>
+DELETE	/api/v1/admin/comments/{id}	ADMIN	ApiResponse<String>
+GET	/api/v1/admin/contents	ADMIN	ApiResponse<List<AdminContentVO>>
+DELETE	/api/v1/admin/contents/{id}/hidden	ADMIN	ApiResponse<String>
+PUT	/api/v1/admin/contents/{id}/hidden	ADMIN	ApiResponse<String>
+GET	/api/v1/admin/me	ADMIN	ApiResponse<Boolean>
+GET	/api/v1/admin/media	ADMIN	ApiResponse<MediaAuditResult>
+POST	/api/v1/admin/media/scan	ADMIN	ApiResponse<MediaAuditResult>
+PUT	/api/v1/admin/media/{id}	ADMIN	ApiResponse<RestoreResult>
 POST	/api/v1/comments	LOGIN	ApiResponse<String>
 DELETE	/api/v1/comments/{id}	LOGIN	ApiResponse<String>
 DELETE	/api/v1/comments/{id}/like	LOGIN	ApiResponse<String>

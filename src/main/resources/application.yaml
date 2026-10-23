@@ -435,8 +435,8 @@ video:
         "[POST /api/v1/contents/videos]": 10
         "[POST /api/v1/contents/posts]": 10
         "[PUT /api/v1/contents/{id}/media]": 10
-        "[POST /api/admin/media/scan]": 10
-        "[POST /api/admin/media/restore]": 10
+        "[POST /api/v1/admin/media/scan]": 10
+        "[PUT /api/v1/admin/media/{id}]": 10
         # —— 用户资料修改 ——
         "[PUT /api/v1/users/me/password]": 3
         "[PUT /api/v1/users/me/username]": 3
@@ -478,10 +478,12 @@ video:
         "[PUT /api/v1/contents/{id}/progress]": 1
         "[POST /api/v1/history/flush]": 3
         "[POST /api/v1/contents/{id}/play]": 1
-        # —— admin（人工操作、流量极小，但**无白名单** ⇒ 同样过闸计费）——
-        "[POST /api/admin/comment/delete]": 3
-        "[POST /api/admin/content/hide]": 3
-        "[POST /api/admin/content/unhide]": 3
+        # —— admin（人工操作、流量极小，但**无白名单** ⇒ 同样过闸计费；`T58` 起资源化：
+        #    删评论 = DELETE /comments/{id}、下架/恢复 = PUT|DELETE /contents/{id}/hidden，
+        #    权重值逐字保持）——
+        "[DELETE /api/v1/admin/comments/{id}]": 3
+        "[PUT /api/v1/admin/contents/{id}/hidden]": 3
+        "[DELETE /api/v1/admin/contents/{id}/hidden]": 3
 
 # ----------------------------------------------------------------------------
 # 可观测（第三批 T2 / 账 B3）：Actuator 端点暴露

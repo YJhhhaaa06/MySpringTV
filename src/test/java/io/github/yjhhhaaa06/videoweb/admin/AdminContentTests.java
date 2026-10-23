@@ -12,7 +12,8 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * S8：admin **内容运维**（{@code /api/admin/content/*}）的行为测试。
+ * S8：admin **内容运维**（`T58` 契约变更起为 {@code GET /api/v1/admin/contents} +
+ * {@code PUT|DELETE /api/v1/admin/contents/{id}/hidden}，原 {@code /api/admin/content/*}）的行为测试。
  *
  * <h2>语义翻译自哪些旧用例</h2>
  * 旧 pytest {@code test_hide_content.py}（一致性 + 边界两节）是本类的规格来源——
@@ -20,7 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <ul>
  *   <li>一致性：下架 → 详情 404 / 主页不列出 / 管理端 {@code hidden=true}；
  *       恢复 → 详情 200 且**媒体 URL 与计数逐字不变** / 主页重新列出 / {@code hidden=false}；</li>
- *   <li>边界：404（不存在）/ 409（重复下架、未下架恢复、已删除）/ 400（缺 contentId）/ 鉴权三角色。</li>
+ *   <li>边界：404（不存在）/ 409（重复下架、未下架恢复、已删除）/ 鉴权三角色。</li>
  * </ul>
  *
  * <h2>★ 为什么"下架后前台不可见"必须同时断三个面</h2>
@@ -55,7 +56,7 @@ class AdminContentTests extends AbstractAdminIntegrationTest {
         jdbcTemplate.update("UPDATE content SET is_deleted = 2 WHERE id = ?", hidden);
         jdbcTemplate.update("UPDATE content SET is_deleted = 1 WHERE id = ?", deleted);
 
-        ResponseEntity<String> resp = get("/api/admin/content/list", adminToken);
+        ResponseEntity<String> resp = get("/api/v1/admin/contents", adminToken);
 
         assertThat(resp.getStatusCode().value()).as("管理端清单应 200: %s", resp.getBody()).isEqualTo(200);
         JsonNode data = Envelope.data(resp);
@@ -106,15 +107,15 @@ class AdminContentTests extends AbstractAdminIntegrationTest {
         int commentCountBefore = before.path("commentCount").asInt();
         int likeCountBefore = before.path("likeCount").asInt();
 
-        // ---------- 下架 ----------
-        ResponseEntity<String> hide = post("/api/admin/content/hide?contentId=" + contentId, null, adminToken);
+        // ---------- 下架（`T58` 契约变更：POST /hide → PUT /contents/{id}/hidden）----------
+        ResponseEntity<String> hide = put("/api/v1/admin/contents/" + contentId + "/hidden", null, adminToken);
         assertThat(hide.getStatusCode().value()).as("下架应 200: %s", hide.getBody()).isEqualTo(200);
         assertThat(Envelope.data(hide).asString()).isEqualTo("下架成功");
 
         assertThat(get("/api/v1/contents/" + contentId, null).getStatusCode().value())
                 .as("下架后详情应 404").isEqualTo(404);
         assertThat(profileContentIds(authorId)).as("下架后作者主页不应再列出").doesNotContain(contentId);
-        assertThat(itemById(Envelope.data(get("/api/admin/content/list", adminToken)), contentId)
+        assertThat(itemById(Envelope.data(get("/api/v1/admin/contents", adminToken)), contentId)
                 .path("hidden").asBoolean()).as("管理端清单 hidden=true").isTrue();
 
         // 独立 oracle：状态确实落库为 2，且评论/点赞行数未变
@@ -122,8 +123,8 @@ class AdminContentTests extends AbstractAdminIntegrationTest {
         assertThat(commentRows(contentId)).as("下架不动评论").isEqualTo(1);
         assertThat(countLikeRows(contentId)).as("下架不动点赞记录").isEqualTo(1);
 
-        // ---------- 恢复 ----------
-        ResponseEntity<String> unhide = post("/api/admin/content/unhide?contentId=" + contentId, null, adminToken);
+        // ---------- 恢复（`T58` 契约变更：POST /unhide → DELETE /contents/{id}/hidden）----------
+        ResponseEntity<String> unhide = delete("/api/v1/admin/contents/" + contentId + "/hidden", adminToken);
         assertThat(unhide.getStatusCode().value()).as("恢复应 200: %s", unhide.getBody()).isEqualTo(200);
         assertThat(Envelope.data(unhide).asString()).isEqualTo("恢复成功");
 
@@ -134,7 +135,7 @@ class AdminContentTests extends AbstractAdminIntegrationTest {
         assertThat(after.path("likeCount").asInt()).isEqualTo(likeCountBefore);
 
         assertThat(profileContentIds(authorId)).as("恢复后作者主页应重新列出").contains(contentId);
-        assertThat(itemById(Envelope.data(get("/api/admin/content/list", adminToken)), contentId)
+        assertThat(itemById(Envelope.data(get("/api/v1/admin/contents", adminToken)), contentId)
                 .path("hidden").asBoolean()).as("管理端清单 hidden=false").isFalse();
         assertThat(contentIsDeletedColumn(contentId)).isEqualTo(0);
     }
@@ -144,61 +145,62 @@ class AdminContentTests extends AbstractAdminIntegrationTest {
     // ========================================================================
 
     @Test
-    @DisplayName("下架边界：不存在 404；重复下架 409；已删除 409；缺 contentId 400")
+    @DisplayName("下架边界：不存在 404；重复下架 409；已删除 409")
     void 下架_边界() {
         String adminToken = registerAdmin(ADMIN_PHONE, ADMIN);
         registerNormal(AUTHOR_PHONE, AUTHOR);
         long authorId = userIdOf(AUTHOR_PHONE);
 
         // 不存在 → 404
-        ResponseEntity<String> missing = post("/api/admin/content/hide?contentId=999999999", null, adminToken);
+        ResponseEntity<String> missing = put("/api/v1/admin/contents/999999999/hidden", null, adminToken);
         assertThat(missing.getStatusCode().value()).isEqualTo(404);
         assertThat(Envelope.msg(missing)).as("TV 文案逐字保留").isEqualTo("内容不存在");
 
         // 重复下架 → 409
         long contentId = insertContent(authorId, CONTENT_TYPE_VIDEO, "下架边界", "d", 1);
-        assertThat(post("/api/admin/content/hide?contentId=" + contentId, null, adminToken)
+        assertThat(put("/api/v1/admin/contents/" + contentId + "/hidden", null, adminToken)
                 .getStatusCode().value()).isEqualTo(200);
-        ResponseEntity<String> again = post("/api/admin/content/hide?contentId=" + contentId, null, adminToken);
+        ResponseEntity<String> again = put("/api/v1/admin/contents/" + contentId + "/hidden", null, adminToken);
         assertThat(again.getStatusCode().value()).isEqualTo(409);
         assertThat(Envelope.msg(again)).isEqualTo("内容已下架");
 
         // 已删除(1) → 409
         long deleted = insertContent(authorId, CONTENT_TYPE_VIDEO, "下架边界_已删", "d", 1);
         jdbcTemplate.update("UPDATE content SET is_deleted = 1 WHERE id = ?", deleted);
-        ResponseEntity<String> onDeleted = post("/api/admin/content/hide?contentId=" + deleted, null, adminToken);
+        ResponseEntity<String> onDeleted = put("/api/v1/admin/contents/" + deleted + "/hidden", null, adminToken);
         assertThat(onDeleted.getStatusCode().value()).isEqualTo(409);
         assertThat(Envelope.msg(onDeleted)).isEqualTo("内容已删除，无法下架");
 
-        // 缺 contentId → 400（旧版手写文案，新版走全局出口——契约差异见《决策留痕表》D-12）
-        assertThat(post("/api/admin/content/hide", null, adminToken).getStatusCode().value()).isEqualTo(400);
+        // `T58` 契约变更（接口契约.md §2.3）：contentId 进路径（PUT /contents/{id}/hidden）——
+        // 旧断言"缺 contentId → 400"的形态不可表达（少路径段 = 无路由匹配 = 404，
+        // 不再有"缺参"分支），按 §2.3 退役。
     }
 
     @Test
-    @DisplayName("恢复边界：不存在 404；未下架 409；已删除 409；缺 contentId 400")
+    @DisplayName("恢复边界：不存在 404；未下架 409；已删除 409")
     void 恢复_边界() {
         String adminToken = registerAdmin(ADMIN_PHONE, ADMIN);
         registerNormal(AUTHOR_PHONE, AUTHOR);
         long authorId = userIdOf(AUTHOR_PHONE);
 
-        ResponseEntity<String> missing = post("/api/admin/content/unhide?contentId=999999999", null, adminToken);
+        ResponseEntity<String> missing = delete("/api/v1/admin/contents/999999999/hidden", adminToken);
         assertThat(missing.getStatusCode().value()).isEqualTo(404);
         assertThat(Envelope.msg(missing)).isEqualTo("内容不存在");
 
         // 正常态（未下架）→ 409
         long normal = insertContent(authorId, CONTENT_TYPE_VIDEO, "恢复边界_正常", "d", 1);
-        ResponseEntity<String> onNormal = post("/api/admin/content/unhide?contentId=" + normal, null, adminToken);
+        ResponseEntity<String> onNormal = delete("/api/v1/admin/contents/" + normal + "/hidden", adminToken);
         assertThat(onNormal.getStatusCode().value()).isEqualTo(409);
         assertThat(Envelope.msg(onNormal)).isEqualTo("内容未下架");
 
         // 已删除(1) → 409
         long deleted = insertContent(authorId, CONTENT_TYPE_VIDEO, "恢复边界_已删", "d", 1);
         jdbcTemplate.update("UPDATE content SET is_deleted = 1 WHERE id = ?", deleted);
-        ResponseEntity<String> onDeleted = post("/api/admin/content/unhide?contentId=" + deleted, null, adminToken);
+        ResponseEntity<String> onDeleted = delete("/api/v1/admin/contents/" + deleted + "/hidden", adminToken);
         assertThat(onDeleted.getStatusCode().value()).isEqualTo(409);
         assertThat(Envelope.msg(onDeleted)).isEqualTo("内容已删除，无法恢复");
 
-        assertThat(post("/api/admin/content/unhide", null, adminToken).getStatusCode().value()).isEqualTo(400);
+        // `T58` 契约变更：缺 contentId → 400 分支随 contentId 进路径退役（同下架边界）。
     }
 
     // ========================================================================
@@ -220,7 +222,7 @@ class AdminContentTests extends AbstractAdminIntegrationTest {
         assertThat(indexContains(contentId)).as("前置：/start 之后内容应已进索引").isTrue();
 
         // 下架：此后**不再读任何接口**，直接查 Redis
-        assertThat(post("/api/admin/content/hide?contentId=" + contentId, null, adminToken)
+        assertThat(put("/api/v1/admin/contents/" + contentId + "/hidden", null, adminToken)
                 .getStatusCode().value()).isEqualTo(200);
 
         assertThat(cachedContentJson(contentId))
@@ -231,7 +233,7 @@ class AdminContentTests extends AbstractAdminIntegrationTest {
                 .isFalse();
 
         // 恢复：同样不读接口 ⇒ content key 只能来自 AFTER_COMMIT 的 REFRESH
-        assertThat(post("/api/admin/content/unhide?contentId=" + contentId, null, adminToken)
+        assertThat(delete("/api/v1/admin/contents/" + contentId + "/hidden", adminToken)
                 .getStatusCode().value()).isEqualTo(200);
 
         String cached = cachedContentJson(contentId);

@@ -41,7 +41,7 @@ import java.util.Set;
  *
  * <h2>覆盖范围（口径的唯一事实源 = {@code architecture/tech/rate-limit/限流.md} §三）</h2>
  * 除跳过清单外**全部过闸**：含匿名读接口、未映射路径（扫描流正是要防的对象之一）、
- * {@code /api/admin}（通过鉴权的管理员请求同样过闸）。**无任何白名单**（含管理员——
+ * {@code /api/v1/admin}（通过鉴权的管理员请求同样过闸）。**无任何白名单**（含管理员——
  * 管理端人工操作流量极小，不值得开"绕过口"）。
  * <p>跳过清单 = 精确 {@code /}、{@code /index.html}、{@code /favicon.ico}（浏览器默认请求，
  * 文件不存在也是 404）＋ 前缀 {@code /static/}（前端 18 文件）、{@code /actuator/}、

@@ -195,7 +195,7 @@ public class MediaAuditService {
     // ========================================================================
 
     /**
-     * 按数据库原文件名重新上传写回（{@code POST /api/admin/media/restore}）。
+     * 按数据库原文件名重新上传写回（{@code PUT /api/v1/admin/media/{id}}）。
      *
      * <h2>校验顺序（逐条保留——决定 400/404/400）</h2>
      * <pre>

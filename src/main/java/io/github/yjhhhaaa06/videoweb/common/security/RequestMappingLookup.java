@@ -42,7 +42,7 @@ import org.springframework.web.servlet.HandlerMapping;
  * 而路由匹配走解码后的 PathPattern —— 两个判据语义不同，且"新增 admin 端点必须落在
  * {@code /api/admin} 下"只是口头约定。现在角色要求写在控制器上，**规则与路由是同一份事实**。
  * 护栏：{@code SecurityContractTests#所有admin前缀控制器都必须标RequiresAdmin}
- * （扫描容器内全部 {@code @RestController}，落在 {@code /api/admin} 前缀却没标本注解 ⇒ 红）。
+ * （扫描容器内全部 {@code @RestController}，路由落在 {@code /api/v1/admin} 前缀却没标本注解 ⇒ 红）。
  *
  * <h2>⚠️ 2026-10-02（S3 期间）修复：本类曾**完全失效**</h2>
  * 原实现直接对 {@code handlerMapping.getHandler(request)} 的返回值做

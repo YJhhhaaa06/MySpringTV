@@ -184,20 +184,23 @@ class SecurityContractTests extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("S8：admin 8 端点判为需登录（TV 的 `/api/admin` 是**前缀**保护项 ⇒ 类级注解）")
+    @DisplayName("S8：admin 8 端点判为需登录（`T58` 起路由 = /api/v1/admin/**，仍由类级注解全覆盖）")
     void admin类级注解覆盖全部端点() {
         // ⚠️ 本组断言是 401/403 契约的**机制级**保证：三个 admin 控制器都标的是 @RequiresAdmin，
         //   它**蕴含**登录（见 RequiresAdmin蕴含需登录）——所以匿名访问这些端点得 401 而非 403。
         //   （旧实现靠额外标 @RequiresLogin 才能得到 401，漏标就会掉成 403。）
         //   端到端侧由 AdminSecurityTests 断言状态码，两者不可互相替代（SOP §2.5）。
-        assertThat(requiresLogin("GET", "/api/admin/content/list")).isTrue();
-        assertThat(requiresLogin("POST", "/api/admin/content/hide")).isTrue();
-        assertThat(requiresLogin("POST", "/api/admin/content/unhide")).isTrue();
-        assertThat(requiresLogin("POST", "/api/admin/comment/delete")).isTrue();
-        assertThat(requiresLogin("GET", "/api/admin/media/me")).isTrue();
-        assertThat(requiresLogin("GET", "/api/admin/media/list")).isTrue();
-        assertThat(requiresLogin("POST", "/api/admin/media/scan")).isTrue();
-        assertThat(requiresLogin("POST", "/api/admin/media/restore")).isTrue();
+        // `T58` 契约变更（接口契约.md §2.3/§2.4）：8 端点资源化到 /api/v1/admin/**，
+        //   commentId/contentId/mediaId 进路径 —— 路径变量**必须**给样本值（写 {id} 匹配不到
+        //   handler ⇒ 恒判 PUBLIC，假绿）。
+        assertThat(requiresLogin("GET", "/api/v1/admin/contents")).isTrue();
+        assertThat(requiresLogin("PUT", "/api/v1/admin/contents/1/hidden")).isTrue();
+        assertThat(requiresLogin("DELETE", "/api/v1/admin/contents/1/hidden")).isTrue();
+        assertThat(requiresLogin("DELETE", "/api/v1/admin/comments/1")).isTrue();
+        assertThat(requiresLogin("GET", "/api/v1/admin/me")).isTrue();
+        assertThat(requiresLogin("GET", "/api/v1/admin/media")).isTrue();
+        assertThat(requiresLogin("POST", "/api/v1/admin/media/scan")).isTrue();
+        assertThat(requiresLogin("PUT", "/api/v1/admin/media/1")).isTrue();
     }
 
     @Test
@@ -457,7 +460,7 @@ class SecurityContractTests extends AbstractIntegrationTest {
     void 非admin端点不得被判为需管理员() {
         // 真实端点对（不是桩）：一边是 3 个 admin 控制器，一边是同域之外的受保护端点。
         // 判别力：若实现把"是否 admin"写成恒 true（或仍按 /api/admin 之外的前缀误命中），下面三条立刻红。
-        assertThat(requiresAdmin("GET", "/api/admin/content/list")).isTrue();
+        assertThat(requiresAdmin("GET", "/api/v1/admin/contents")).isTrue();
         assertThat(requiresAdmin("GET", "/api/v1/contents/1/favorite"))
                 .as("收藏状态是私有视角但**不是**管理端点")
                 .isFalse();
@@ -470,20 +473,39 @@ class SecurityContractTests extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("★护栏：凡落在 /api/admin 前缀的控制器都必须标 @RequiresAdmin（漏标=只要求登录）")
+    @DisplayName("★护栏：凡路由落在 /api/v1/admin 前缀的控制器都必须标 @RequiresAdmin（漏标=只要求登录）")
     void 所有admin前缀控制器都必须标RequiresAdmin() {
         List<String> violations = new ArrayList<>();
         for (Map.Entry<String, Object> entry : applicationContext.getBeansWithAnnotation(RestController.class).entrySet()) {
             Class<?> type = ClassUtils.getUserClass(entry.getValue().getClass());
-            RequestMapping mapping = AnnotatedElementUtils.findMergedAnnotation(type, RequestMapping.class);
-            if (mapping == null) {
-                continue;
-            }
-            String[] paths = mapping.value().length > 0 ? mapping.value() : mapping.path();
+            // `T58` 契约变更：admin 三个控制器去掉了类级 @RequestMapping（路由全路径写在方法上）⇒
+            //   只扫类级映射会全部漏掉（本护栏变空转的假绿），故类级 + 方法级都收。
             boolean adminPath = false;
-            for (String path : paths) {
-                if (path.startsWith("/api/admin")) {
-                    adminPath = true;
+            RequestMapping classMapping = AnnotatedElementUtils.findMergedAnnotation(type, RequestMapping.class);
+            if (classMapping != null) {
+                String[] paths = classMapping.value().length > 0 ? classMapping.value() : classMapping.path();
+                for (String path : paths) {
+                    if (path.startsWith("/api/v1/admin")) {
+                        adminPath = true;
+                    }
+                }
+            }
+            if (!adminPath) {
+                for (Method method : type.getDeclaredMethods()) {
+                    RequestMapping mapping = AnnotatedElementUtils.findMergedAnnotation(method, RequestMapping.class);
+                    if (mapping == null) {
+                        continue;
+                    }
+                    String[] paths = mapping.value().length > 0 ? mapping.value() : mapping.path();
+                    for (String path : paths) {
+                        if (path.startsWith("/api/v1/admin")) {
+                            adminPath = true;
+                            break;
+                        }
+                    }
+                    if (adminPath) {
+                        break;
+                    }
                 }
             }
             if (adminPath && !AnnotatedElementUtils.hasAnnotation(type, RequiresAdmin.class)) {
@@ -494,7 +516,7 @@ class SecurityContractTests extends AbstractIntegrationTest {
         // 这条就是"角色权威源从路径前缀改成注解"的代价护栏：前缀不再自动兜底，
         // 靠它保证"新增 admin 控制器漏标注解"这件事**会红**，而不是静默降级成普通登录端点。
         assertThat(violations)
-                .as("这些控制器在 /api/admin 前缀下却没标 @RequiresAdmin ⇒ 非管理员也能访问")
+                .as("这些控制器的路由在 /api/v1/admin 前缀下却没标 @RequiresAdmin ⇒ 非管理员也能访问")
                 .isEmpty();
     }
 

@@ -61,10 +61,10 @@ import java.util.Set;
  *   <tr><td>{@code POST /api/upload/video}</td><td>{@link #addVideo}</td><td>{@code @Transactional}（S7）</td></tr>
  *   <tr><td>{@code POST /api/upload/post}</td><td>{@link #addPost}</td><td>{@code @Transactional}（S7）</td></tr>
  *   <tr><td>{@code POST /api/upload/replace}</td><td>{@link #replaceMedia}</td><td>{@code @Transactional}（S7）</td></tr>
- *   <tr><td>{@code GET /api/admin/content/list}</td><td>{@link #listContentForAdmin}</td>
+ *   <tr><td>{@code GET /api/v1/admin/contents}</td><td>{@link #listContentForAdmin}</td>
  *       <td>无（纯读，S8 去事务）</td></tr>
- *   <tr><td>{@code POST /api/admin/content/hide}</td><td>{@link #hideContent}</td><td>{@code @Transactional}（S8）</td></tr>
- *   <tr><td>{@code POST /api/admin/content/unhide}</td><td>{@link #unhideContent}</td><td>{@code @Transactional}（S8）</td></tr>
+ *   <tr><td>{@code PUT /api/v1/admin/contents/{id}/hidden}</td><td>{@link #hideContent}</td><td>{@code @Transactional}（S8）</td></tr>
+ *   <tr><td>{@code DELETE /api/v1/admin/contents/{id}/hidden}</td><td>{@link #unhideContent}</td><td>{@code @Transactional}（S8）</td></tr>
  * </table>
  *
  * <h2>提交后副作用统一走事件（G-3）</h2>
@@ -623,7 +623,7 @@ public class ContentService {
     // ========================================================================
 
     /**
-     * 管理端内容清单（{@code GET /api/admin/content/list}）：含正常与已下架，
+     * 管理端内容清单（{@code GET /api/v1/admin/contents}）：含正常与已下架，
      * **不含已删除(1)** 的内容（TV 的 {@code WHERE is_deleted IN (0,2)}）。
      *
      * <h2>★ 决策表 §四·S8：⚠️ 有意改进——去掉事务</h2>
@@ -631,7 +631,7 @@ public class ContentService {
      * （旧模型每次 DAO 调用都要一个 conn）。单条读无原子性语义，去掉后**对外行为逐字不变**，
      * 与 G-2（search）/ G-5（profile）同款处置。
      *
-     * <p>权限（{@code role == 1}）由 {@code JwtAuthFilter} 在 {@code /api/admin/*} 统一校验，
+     * <p>权限（{@code role == 1}）由 {@code JwtAuthFilter} 对 {@code @RequiresAdmin} 处理器统一校验，
      * 本方法不再重复判权（TV 原样）。
      */
     public List<AdminContentVO> listContentForAdmin() {
@@ -639,7 +639,7 @@ public class ContentService {
     }
 
     /**
-     * 管理员下架内容（{@code POST /api/admin/content/hide}）：{@code is_deleted} 0→2。
+     * 管理员下架内容（{@code PUT /api/v1/admin/contents/{id}/hidden}）：{@code is_deleted} 0→2。
      *
      * <h2>★ 决策表 §四·S8：✅ 保持单事务</h2>
      * 一个事务里两件事：① 前置校验（404 / 409，见 {@link #checkHideable}）
@@ -671,7 +671,7 @@ public class ContentService {
     }
 
     /**
-     * 管理员恢复内容（{@code POST /api/admin/content/unhide}）：{@code is_deleted} 2→0。
+     * 管理员恢复内容（{@code DELETE /api/v1/admin/contents/{id}/hidden}）：{@code is_deleted} 2→0。
      *
      * <p>决策同 {@link #hideContent}（✅ 保持单事务）。
      *

@@ -8,10 +8,8 @@ import org.springframework.core.io.Resource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestClient;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -134,25 +132,7 @@ public abstract class AbstractAdminIntegrationTest extends AbstractContentIntegr
         }
     }
 
-    // ==================== multipart（/media/restore 的请求形态） ====================
-
-    /**
-     * multipart POST。
-     *
-     * <p>手工拼 {@code MultiValueMap<String, Object>} 而**不用** {@code MultipartBodyBuilder}——
-     * 后者引用 {@code org.reactivestreams.Publisher}，本项目无 WebFlux/Reactive 依赖
-     * （与 {@code UploadFlowTests} 同一理由，见那里的类注释）。
-     */
-    protected ResponseEntity<String> postMultipart(String path, MultiValueMap<String, Object> form, String token) {
-        return send(spec -> {
-            RestClient.RequestBodySpec request = spec.uri(path)
-                    .contentType(MediaType.MULTIPART_FORM_DATA);
-            if (token != null) {
-                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-            }
-            return request.body(form);
-        });
-    }
+    // ==================== multipart（/media 恢复的请求形态；`T58` 起发请求用基类 putMultipart） ====================
 
     /** 空表单（{@code addText}/{@code addFilePart} 的载体）。 */
     protected static MultiValueMap<String, Object> multipartForm() {
