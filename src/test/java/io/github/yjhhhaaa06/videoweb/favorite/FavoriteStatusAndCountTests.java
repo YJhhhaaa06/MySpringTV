@@ -233,7 +233,8 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
         assertThat(addItem(folderB, content, me.token).getStatusCode().value()).isEqualTo(200);
 
         // 移出 A：B 里还有 ⇒ 仍"已收藏"，且 count 仍是 1（同一人还没绝迹）
-        assertThat(removeItems(folderA, List.of(content), me.token).getStatusCode().value()).isEqualTo(200);
+        assertThat(removeItems(folderA, List.of(content), me.token).getStatusCode().value())
+                .as("`T59`：删除 = 204").isEqualTo(204);
         JsonNode afterA = Envelope.data(status(me.token, content));
         assertThat(afterA.path("isFavorited").asBoolean()).isTrue();
         assertThat(names(afterA.path("folders"))).containsExactly("夹B");
@@ -241,7 +242,8 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
                 .as("同一人还在（别的夹里）⇒ 收藏数不变，仍是 1").isEqualTo(1L);
 
         // 全移出：回到未收藏
-        assertThat(removeItems(folderB, List.of(content), me.token).getStatusCode().value()).isEqualTo(200);
+        assertThat(removeItems(folderB, List.of(content), me.token).getStatusCode().value())
+                .as("`T59`：删除 = 204").isEqualTo(204);
         JsonNode empty = Envelope.data(status(me.token, content));
         assertThat(empty.path("isFavorited").asBoolean()).isFalse();
         assertThat(empty.path("folders").size()).isZero();

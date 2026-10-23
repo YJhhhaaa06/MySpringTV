@@ -103,13 +103,13 @@ class WatchLaterFlowTests extends AbstractHttpIntegrationTest {
         assertThat(item(data.path("list"), video).path("invalid").asBoolean()).isFalse();
         assertThat(item(data.path("list"), video).path("title").asString()).isEqualTo("往返视频");
 
-        assertThat(remove(me.token, video).getStatusCode().value()).isEqualTo(200);
+        assertThat(remove(me.token, video).getStatusCode().value()).as("`T59`：删除 = 204").isEqualTo(204);
         assertThat(oracleCount(me.id)).as("移出后池空").isZero();
         assertThat(Envelope.data(list(me.token, null, null)).path("list").size()).isZero();
 
-        // 幂等：再移出一次（本就不在池中）也照常 200（陈旧页面 / 双击）
+        // 幂等：再移出一次（本就不在池中）也照常 204（陈旧页面 / 双击）
         assertThat(remove(me.token, video).getStatusCode().value())
-                .as("remove 幂等：0 行不算错").isEqualTo(200);
+                .as("remove 幂等：0 行不算错").isEqualTo(204);
     }
 
     // ========================================================================
@@ -224,7 +224,8 @@ class WatchLaterFlowTests extends AbstractHttpIntegrationTest {
         assertThat(oracleCount(me.id)).isEqualTo(2L);
 
         assertThat(remove(me.token, alive, softDeleted).getStatusCode().value())
-                .as("★ 失效条目照常删得掉（不校验内容存在性，G11）").isEqualTo(200);
+                .as("★ 失效条目照常删得掉（不校验内容存在性，G11）；`T59`：删除 = 204")
+                .isEqualTo(204);
         assertThat(oracleCount(me.id)).as("两条都移出 ⇒ 池空").isZero();
     }
 

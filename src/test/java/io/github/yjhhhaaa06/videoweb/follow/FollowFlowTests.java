@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>4 个端点全部需登录（TV 的 {@code /follow} 是**前缀**保护项）→ 无 token 一律 401；</li>
  *   <li>{@code followedUserId} / {@code userId} 进路径后（`T58`）：可判定的参数档只剩"非法 id → 400"；
  *       旧用例"缺参 → 400"因"少了路径段就没有路由匹配"而**整条退役**（不改成 404 硬凑）；</li>
- *   <li>关注成功 {@code data="关注成功"}、取关成功 {@code data="已取关"}（TV {@code writeSuccess} 文案）；</li>
+ *   <li>关注成功无 data、取关成功 204 无体（`T59`：String 文案退役；重复 PUT/DELETE 幂等）；</li>
  *   <li>列表返回**分页信封**（T11-A 起缺省不再是全量数组），键集合 = {@code {list,total,page,pageSize,totalPages}}；</li>
  *   <li>顺序 = **按 id 升序**（TV 的 T7 注释："关注/粉丝列表顺序由此处决定"）；</li>
  *   <li>条目字段 = {@code {userId, username, isFollowed, isSelf}}。</li>
@@ -48,7 +48,7 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
 
         assertThat(resp.getStatusCode().value()).as("HTTP 状态码应与 body code 一致（200）").isEqualTo(200);
         assertThat(Envelope.code(resp)).isEqualTo("OK");
-        assertThat(Envelope.data(resp).asString()).as("TV writeSuccess 文案").isEqualTo("关注成功");
+        assertThat(Envelope.hasDataField(resp)).as("`T59`：成功但无数据 ⇒ 不出现 data").isFalse();
 
         assertThat(countFollowRows(b.id(), a.id())).as("关系行").isEqualTo(1L);
         assertThat(followCountColumn(b.id())).as("关注者的 follow_count").isEqualTo(1);
@@ -64,8 +64,8 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
 
         var resp = unfollow(a.id(), b.token());
 
-        assertThat(Envelope.code(resp)).isEqualTo("OK");
-        assertThat(Envelope.data(resp).asString()).isEqualTo("已取关");
+        assertThat(resp.getStatusCode().value()).as("`T59`：删除/取消 = 204").isEqualTo(204);
+        assertThat(resp.getBody()).as("204 必须无体").isNullOrEmpty();
         assertThat(countFollowRows(b.id(), a.id())).isZero();
         assertThat(followCountColumn(b.id())).isZero();
         assertThat(followerCountColumn(a.id())).isZero();
@@ -99,31 +99,32 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
     }
 
     @Test
-    @DisplayName("★重复关注 → 409「已关注，不可重复操作」，且计数**只加一次**（证明校验在读侧生效）")
-    void 重复关注_409且计数只加一次() {
+    @DisplayName("★重复关注 → 200 幂等，且计数**只加一次**（`T59` 契约变更，旧 409 退役）")
+    void 重复关注_200且计数只加一次() {
         TestUser a = register(PHONE_A, "flow-a");
         TestUser b = register(PHONE_B, "flow-b");
         assertThat(follow(a.id(), b.token()).getStatusCode().value()).isEqualTo(200);
 
         var resp = follow(a.id(), b.token());
 
-        assertThat(Envelope.code(resp)).isEqualTo("FOLLOW_ALREADY");
-        assertThat(Envelope.msg(resp)).isEqualTo("已关注，不可重复操作");
-        assertThat(countFollowRows(b.id(), a.id())).as("不得产生第二行（唯一键亦兜底）").isEqualTo(1L);
-        assertThat(followCountColumn(b.id())).as("计数只加一次 ⇒ 第二次被拦在写之前").isEqualTo(1);
+        assertThat(resp.getStatusCode().value()).isEqualTo(200);
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
+        assertThat(Envelope.hasDataField(resp)).as("幂等成功也无 data").isFalse();
+        assertThat(countFollowRows(b.id(), a.id())).as("不得产生第二行（唯一键兜底）").isEqualTo(1L);
+        assertThat(followCountColumn(b.id())).as("计数只加一次").isEqualTo(1);
         assertThat(followerCountColumn(a.id())).isEqualTo(1);
     }
 
     @Test
-    @DisplayName("取关未关注 → 409「未关注，不可取消」，且**不产生负计数**")
-    void 取关未关注_409且不产生负计数() {
+    @DisplayName("取关未关注 → 204 幂等，且**不产生负计数**（`T59` 契约变更，旧 409 退役）")
+    void 取关未关注_204且不产生负计数() {
         TestUser a = register(PHONE_A, "flow-a");
         TestUser b = register(PHONE_B, "flow-b");
 
         var resp = unfollow(a.id(), b.token());
 
-        assertThat(Envelope.code(resp)).isEqualTo("FOLLOW_NOT_FOLLOWING");
-        assertThat(Envelope.msg(resp)).isEqualTo("未关注，不可取消");
+        assertThat(resp.getStatusCode().value()).as("`T59`：删除/取消 = 204").isEqualTo(204);
+        assertThat(resp.getBody()).as("204 必须无体").isNullOrEmpty();
         assertThat(countFollowRows()).isZero();
         assertThat(followCountColumn(b.id())).isZero();
         assertThat(followerCountColumn(a.id())).isZero();
@@ -165,12 +166,12 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
     /**
      * ★ F-04 的尖锐场景（follow 侧，unsigned）：{@code follow} 有关系行、但两侧计数都停在 0。
      * 取关时若不设守卫，`0 + (-1)` 会因 UNSIGNED 下溢报 1690 → 500。
-     * 断言 200（不回滚、不失败）+ 关系行照删 + 两侧计数停在 0（守卫 block）。
+     * 断言 204（不回滚、不失败）+ 关系行照删 + 两侧计数停在 0（守卫 block）。
      *
      * <p><b>判别力</b>：去掉守卫 ⇒ 本用例因 500 变红；"正常 −1→0" 由 {@link #取关成功_关系行与双方计数各减一} 作对照。
      */
     @Test
-    @DisplayName("★取关：计数为 0 但关系行仍在 ⇒ 守卫拦住下溢，返回 200 而非 500（T34）")
+    @DisplayName("★取关：计数为 0 但关系行仍在 ⇒ 守卫拦住下溢，返回 204 而非 500（T34）")
     void 取关时计数为零不报500() {
         TestUser a = register(PHONE_A, "flow-a");
         TestUser b = register(PHONE_B, "flow-b");
@@ -181,7 +182,7 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
 
         var resp = unfollow(a.id(), b.token());
 
-        assertThat(resp.getStatusCode().value()).as("守卫拦住下溢；不得 500").isEqualTo(200);
+        assertThat(resp.getStatusCode().value()).as("守卫拦住下溢；不得 500").isEqualTo(204);
         assertThat(countFollowRows(b.id(), a.id())).as("关系行照删").isZero();
         assertThat(followCountColumn(b.id())).as("守卫 block：停在 0").isZero();
         assertThat(followerCountColumn(a.id())).as("守卫 block：停在 0").isZero();

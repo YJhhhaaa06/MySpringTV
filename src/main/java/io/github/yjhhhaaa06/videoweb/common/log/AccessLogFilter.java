@@ -2,6 +2,7 @@ package io.github.yjhhhaaa06.videoweb.common.log;
 
 import io.github.yjhhhaaa06.videoweb.common.config.LogProperties;
 import io.github.yjhhhaaa06.videoweb.common.security.JwtAuthFilter;
+import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -29,7 +30,9 @@ import java.io.IOException;
  *       {@code SYSTEM_DATABASE}…），<b>不再等于 status</b> —— 旧实现两者数值相同，属"两层信息重复"。
  *       <b>缺省 0</b> = 该请求**从未产生业务信封**（静态资源 / 未进 DispatcherServlet 的短路响应）。
  *       {@code 0} 不是合法的字符串码 ⇒ 哨兵与真实码永不冲突。这正是"静态资源与业务请求可区分"的判据
- *       （旧 pytest {@code test_static_resource_gets_code_zero} 的意图在此兑现）。</li>
+ *       （旧 pytest {@code test_static_resource_gets_code_zero} 的意图在此兑现）。
+ *       ★ `T59` 起 {@code 204} 是**业务成功但无信封**（删除/取消的契约）：这类响应没有 body 可读，
+ *       故在出口按 status 补 {@code OK} —— 静态资源不会返回 204，不会污染 {@code 0} 的判据。</li>
  * </ul>
  * 业务码由 {@link io.github.yjhhhaaa06.videoweb.common.web.BusinessCodeAdvice}（正常响应）
  * 与 {@link JwtAuthFilter} / {@code RateLimitFilter}（短路响应）写入请求属性 {@link #ATTR_BUSINESS_CODE}。
@@ -86,11 +89,14 @@ public class AccessLogFilter extends OncePerRequestFilter {
             long costMillis = (System.nanoTime() - startNanos) / 1_000_000;
             Object userId = request.getAttribute(JwtAuthFilter.ATTR_USER_ID);
             Object businessCode = request.getAttribute(ATTR_BUSINESS_CODE);
+            String code = businessCode instanceof String c
+                    ? c
+                    : (response.getStatus() == HttpServletResponse.SC_NO_CONTENT ? ApiResponse.OK : null);
             ACCESS_LOGGER.info(buildLine(
                     request.getMethod(),
                     path(request),
                     response.getStatus(),
-                    businessCode instanceof String code ? code : null,
+                    code,
                     userId instanceof Long id ? id : null,
                     costMillis,
                     logProperties.slowRequestMs()));

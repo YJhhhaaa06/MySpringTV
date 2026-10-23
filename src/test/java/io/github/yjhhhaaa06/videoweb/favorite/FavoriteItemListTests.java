@@ -418,7 +418,8 @@ class FavoriteItemListTests extends AbstractHttpIntegrationTest {
 
         // /api/v1/favorites 刻意**不校验内容存在性**（G11）⇒ 失效条目必须删得掉
         ResponseEntity<String> removed = remove(me.token, folder, softDeleted);
-        assertThat(removed.getStatusCode().value()).as("失效条目移出 ⇒ 200（不是 404）").isEqualTo(200);
+        assertThat(removed.getStatusCode().value())
+                .as("失效条目移出 ⇒ 204（不是 404；`T59`：删除无体）").isEqualTo(204);
 
         JsonNode after = Envelope.data(list(me.token, folder, null, null));
         assertThat(after.path("total").asLong()).as("total 减 1").isEqualTo(1L);

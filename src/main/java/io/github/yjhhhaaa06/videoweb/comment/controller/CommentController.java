@@ -12,6 +12,7 @@ import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import io.github.yjhhhaaa06.videoweb.common.web.PageParams;
 import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -108,15 +109,15 @@ public class CommentController {
     /**
      * 用户自删评论（软删除，不可恢复）。
      *
-     * <p>成功响应 {@code data} 是字符串 {@code "删除成功"}——沿袭 TV。
-     * 他人的评论 → 403；不存在/已删 → 404。
+     * <p>`T59` 起成功 = <b>204 无体</b>。他人的评论 → 403；不存在/已删 → 404
+     * （重复删除已软删评论仍是 404：既有"已软删亦视为不存在"口径，不改成 204 —— 见 §2.4 注）。
      */
     @RequiresLogin
     @DeleteMapping("/api/v1/comments/{id}")
-    public ApiResponse<String> delete(@CurrentUserId long userId,
-                                      @PathVariable("id") long commentId) {
+    public ResponseEntity<Void> delete(@CurrentUserId long userId,
+                                       @PathVariable("id") long commentId) {
         commentService.deleteCommentByUser(commentId, userId);
-        return ApiResponse.success("删除成功");
+        return ResponseEntity.noContent().build();
     }
 
     /**

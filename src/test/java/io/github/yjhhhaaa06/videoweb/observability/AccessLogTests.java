@@ -96,6 +96,27 @@ class AccessLogTests extends AbstractObservabilityTest {
     }
 
     @Test
+    @DisplayName("★ 204 成功（删除/取消）：无信封但属于业务成功 ⇒ 访问行 code=OK（`T59`；静态资源仍 0）")
+    void 成功取消_访问行记OK() {
+        String token = registerAndGetToken("13800009501", "obs-access-204", "abc123456");
+        long userId = userIdOf("13800009501");
+        jdbcTemplate.update("INSERT INTO content (user_id, type, title, description) VALUES (?, 1, ?, ?)",
+                userId, "obs-204-probe", "d");
+        Long contentId = jdbcTemplate.queryForObject(
+                "SELECT id FROM content WHERE title = ?", Long.class, "obs-204-probe");
+        assertThat(contentId).isNotNull();
+        clearLogs();
+
+        ResponseEntity<String> response = delete("/api/v1/contents/" + contentId + "/like", token);
+        assertThat(response.getStatusCode().value()).isEqualTo(204);
+
+        String line = awaitAccessLine("/api/v1/contents/" + contentId + "/like", "status=204");
+        assertThat(line)
+                .as("204 没有 body，业务码只能由 status 补 OK；静态资源不会返回 204 ⇒ 不会污染 code=0 判据")
+                .contains("code=OK ");
+    }
+
+    @Test
     @DisplayName("★ 静态资源：业务码缺省 0（test_static_resource_gets_code_zero 的意图）")
     void 静态资源_业务码为零() {
         Path probe = Path.of(AbstractIntegrationTest.testMediaRoot()).resolve(STATIC_PROBE);

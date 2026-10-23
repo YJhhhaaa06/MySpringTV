@@ -157,12 +157,14 @@ class FavoriteCountMaintenanceTests extends AbstractHttpIntegrationTest {
         assertThat(addItem(folderB, content, me.token).getStatusCode().value()).isEqualTo(200);
 
         // 移出 A：B 里还有 ⇒ 仍 1
-        assertThat(removeItems(folderA, List.of(content), me.token).getStatusCode().value()).isEqualTo(200);
+        assertThat(removeItems(folderA, List.of(content), me.token).getStatusCode().value())
+                .as("`T59`：删除 = 204").isEqualTo(204);
         assertThat(oracleDistinctUserCount(content)).isEqualTo(1L);
         assertThat(columnOf(content)).as("部分移出不减（同一人还在）").isEqualTo(1L);
 
         // 移出 B（最后一个）：聚合查不到行 ⇒ 必须补 0 写回 —— "清零"同样要落列
-        assertThat(removeItems(folderB, List.of(content), me.token).getStatusCode().value()).isEqualTo(200);
+        assertThat(removeItems(folderB, List.of(content), me.token).getStatusCode().value())
+                .as("`T59`：删除 = 204").isEqualTo(204);
         assertThat(oracleDistinctUserCount(content)).isZero();
         assertThat(columnOf(content))
                 .as("★ 清零也要落列：GROUP BY 聚合不出该内容，靠调用方补 0 —— 漏了这步列会停在 1")
@@ -236,7 +238,8 @@ class FavoriteCountMaintenanceTests extends AbstractHttpIntegrationTest {
 
         // 清掉前置 add 们的重算调用记录 —— 让后面的 verify 只反映 deleteFolder 这一次批量
         Mockito.reset(contentDao);
-        assertThat(deleteFolder(doomed, a.token).getStatusCode().value()).isEqualTo(200);
+        assertThat(deleteFolder(doomed, a.token).getStatusCode().value())
+                .as("`T59`：删除 = 204").isEqualTo(204);
 
         assertThat(oracleRecordCount(x)).as("X：甲的记录随夹删除（R-02）").isEqualTo(1L);
         assertThat(oracleDistinctUserCount(x)).isEqualTo(1L);

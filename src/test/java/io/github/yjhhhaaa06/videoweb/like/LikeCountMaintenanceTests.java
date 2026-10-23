@@ -68,7 +68,8 @@ class LikeCountMaintenanceTests extends AbstractLikeIntegrationTest {
                 .isEqualTo(countContentLikeRows(contentId))
                 .isEqualTo(2);
 
-        assertThat(cancelContentLike(contentId, viewerToken).getStatusCode().value()).isEqualTo(200);
+        assertThat(cancelContentLike(contentId, viewerToken).getStatusCode().value())
+                .as("`T59`：取消 = 204").isEqualTo(204);
         assertThat(contentLikeCountColumn(contentId))
                 .as("★ 取消后列 == 行数（回到 1）")
                 .isEqualTo(countContentLikeRows(contentId))
@@ -91,7 +92,7 @@ class LikeCountMaintenanceTests extends AbstractLikeIntegrationTest {
         assertThat(contentLikeCountValue(contentId)).as("前置：计数键已预热").isEqualTo("1");
 
         assertThat(delete("/api/v1/contents/" + contentId, authorToken)
-                .getStatusCode().value()).as("前置：作者删除成功").isEqualTo(200);
+                .getStatusCode().value()).as("前置：作者删除成功（`T59`：204）").isEqualTo(204);
 
         // ★ T44-1 核心：行物理删、列归零（去掉 deleteContent 里的 resetLikeCount ⇒ 此断言红：
         //   列残留 1，不变量对软删行破裂）

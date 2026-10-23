@@ -143,8 +143,8 @@ class WatchLaterMoveTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("★目标夹已有同内容 ⇒ 409（撞 uk_folder_content）；稍后再看条目保留（不是'移出后丢失'）")
-    void move目标夹已有同内容409() {
+    @DisplayName("★目标夹已有同内容 ⇒ 200 幂等（只清稍后再看条目，不重复插入）（`T59` 契约变更）")
+    void move目标夹已有同内容幂等() {
         TestUser me = register("13800007006", "重复用户");
         long video = insertVideoContent(me.id, "已在夹里的");
         long folder = insertFolder(me.id, "目标夹");
@@ -156,9 +156,9 @@ class WatchLaterMoveTests extends AbstractHttpIntegrationTest {
         add(me.token, video);
 
         assertThat(move(me.token, video, folder).getStatusCode().value())
-                .as("★ 目标夹已有同内容 ⇒ 409（同 PUT /api/v1/favorites/{id} 的幂等拒绝）").isEqualTo(409);
+                .as("★ 目标夹已有同内容 ⇒ 幂等成功（旧实现 409）").isEqualTo(200);
         assertThat(oracleWatchLaterRows(me.id, video))
-                .as("★ 事务回滚 ⇒ 稍后再看条目**保留**（B 站口径：移动失败不回退源）").isEqualTo(1L);
+                .as("★ 幂等路径仍完成'出稍后再看'（终态 = 在收藏夹、不在池）").isZero();
         assertThat(oracleFavoriteItemRows(folder, me.id, video)).as("目标夹仍只有原来的 1 行").isEqualTo(1L);
     }
 

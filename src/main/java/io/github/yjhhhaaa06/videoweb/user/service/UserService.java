@@ -255,11 +255,21 @@ public class UserService implements AdminChecker {
         userDao.updatePassword(userId, passwordEncoder.encode(request.newPassword()));
     }
 
-    /** 修改用户名。占用校验与更新同事务（同 U-2 口径）。 */
+    /**
+     * 修改用户名（`T59` 起**幂等设置**：改成同一个名字 = 200 no-op）。
+     *
+     * <p>占用校验与更新同事务（同 U-2 口径）。★ 必须先判"同值"再判占用：{@code isUsernameUsed}
+     * 的 SQL 是 {@code exists(where username = ?)}，**包含自己** ⇒ 不先判同值就会把
+     * "重复提交同一个名字"错报成 409 {@code USER_NAME_TAKEN}。
+     */
     @Transactional
     public void changeUserName(long userId, String newUsername) {
         if (newUsername == null || newUsername.isBlank()) {
             throw new ParamException(ErrorCode.PARAM_INVALID, "用户名不能为空");
+        }
+        User current = userDao.findByIdForLogin(userId);
+        if (current != null && newUsername.equals(current.getUsername())) {
+            return;   // 同值 PUT = 幂等成功，不发改名事件（没有变化）
         }
         if (userDao.isUsernameUsed(newUsername)) {
             throw new ConflictException(ErrorCode.USER_NAME_TAKEN, "用户名已被占用");

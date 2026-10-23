@@ -7,6 +7,7 @@ import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import io.github.yjhhhaaa06.videoweb.common.web.PageParams;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.WatchLaterItemVO;
 import io.github.yjhhhaaa06.videoweb.favorite.service.WatchLaterService;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -111,19 +112,19 @@ public class WatchLaterController {
 
     /**
      * 从稍后再看批量移出。端点 `T58` 起为 {@code DELETE /api/v1/watch-later}
-     * （§2.4「删除」；批量集合不进路径 —— 路径变量是单数寻址）。成功响应 {@code data} 是字符串「已移出」。
+     * （§2.4「删除」；批量集合不进路径 —— 路径变量是单数寻址）。`T59` 起成功 = <b>204 无体</b>。
      *
-     * <p>★ <b>不校验内容存在性</b>（同 G11：失效条目必须删得掉）、**幂等**（本就不在池中 ⇒ 照常 200）。
+     * <p>★ <b>不校验内容存在性</b>（同 G11：失效条目必须删得掉）、**幂等**（本就不在池中 ⇒ 照常 204）。
      *
      * @param contentIds 要移出的内容 id 集合；逗号分隔（{@code contentIds=1,2}）与重复参数
      *                   （{@code contentIds=1&contentIds=2}）Spring 都绑定；空 / 缺参 ⇒ 400
      */
     @RequiresLogin
     @DeleteMapping("/api/v1/watch-later")
-    public ApiResponse<String> remove(@CurrentUserId long userId,
-                                      @RequestParam List<Long> contentIds) {
+    public ResponseEntity<Void> remove(@CurrentUserId long userId,
+                                       @RequestParam List<Long> contentIds) {
         watchLaterService.remove(userId, contentIds);
-        return ApiResponse.success("已移出");
+        return ResponseEntity.noContent().build();
     }
 
     /**
@@ -132,8 +133,8 @@ public class WatchLaterController {
      * （§2.4「幂等设置」+ §2.3「子资源」：目标夹是本条池项的一个属性，不是独立资源）。
      * 成功响应 {@code data} 是字符串「已移动」。
      *
-     * <p>口径：非视频 400 · 内容不存在 / 已软删 404 · 目标夹不存在 404 / 非我 403 / 已满 400 /
-     * 已有同内容 409（**稍后再看条目保留**）。详见 {@code WatchLaterService.move}。
+     * <p>口径：非视频 400 · 内容不存在 / 已软删 404 · 目标夹不存在 404 / 非我 403 / 已满 400 ·
+     * ★ `T59` 起目标夹已有同内容 ⇒ **幂等成功**（只清稍后再看条目）。详见 {@code WatchLaterService.move}。
      *
      * <p>⚠️ 进路径的是 {@code contentId}（被移动的池项，§2.3"唯一标识被操作对象"）；
      * {@code folderId} 留 form/query —— 它**可不传**（缺省 = 默认夹），搬进路径会把"没给"变成 404

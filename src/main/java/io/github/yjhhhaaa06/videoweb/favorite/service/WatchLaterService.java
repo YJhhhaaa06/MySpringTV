@@ -134,16 +134,16 @@ public class WatchLaterService {
      *
      * <h2>它是一个事务内的"加入目标夹 + 从池中移除"</h2>
      * 两条写必须同进同退：只加入不移除 ⇒ 内容既在池里又在夹里（"移"没完成）；只移除不加入 ⇒ 内容丢了。
-     * "加入目标夹"**复用 {@link FavoriteService#addItem}**（内容存在性 / 目标夹归属 / 容量 /
+     * "加入目标夹"**复用 {@link FavoriteService#addItemIfAbsent}**（内容存在性 / 目标夹归属 / 容量 /
      * {@code favorite_count} 重算 / 缓存失效都在那里，见其注释）；它标了 {@code @Transactional}
      * （REQUIRED）⇒ **汇入本方法的事务**，与随后的删行同进同退。
      *
      * <h2>失败面（先后即契约）</h2>
      * <ol>
      *   <li><b>内容 404 / 非视频 400</b>：{@link #requireVideoContent}（同 {@link #add}）；</li>
-     *   <li><b>目标夹归属 404/403 · 已满 400 · 同内容 409 · 内容失效 404</b>：
-     *       全部由 {@code FavoriteService.addItem} 给出（口径同 {@code /api/v1/favorites}）；
-     *       ⚠️ 目标夹已有同内容 ⇒ 409 且**事务回滚 ⇒ 稍后再看条目保留**（不是"移出后丢失"）；</li>
+     *   <li><b>目标夹归属 404/403 · 已满 400 · 内容失效 404</b>：
+     *       由 {@code FavoriteService.addItemIfAbsent} 给出（口径同 {@code POST /api/v1/favorites}）；
+     *       ★ `T59` 起<b>目标夹已有同内容不再是 409</b>：幂等成功，只清稍后再看条目。</li>
      *   <li><b>从池中移除</b>：命中 0 行也算成功（幂等）。</li>
      * </ol>
      *
@@ -161,7 +161,8 @@ public class WatchLaterService {
     @Transactional
     public void move(long userId, long contentId, Long folderId) {
         requireVideoContent(contentId);
-        favoriteService.addItem(userId, folderId, contentId);
+        // ★ T59：幂等移入 —— 目标夹已有同内容也成功，不再 409（否则重复移动永远失败）
+        favoriteService.addItemIfAbsent(userId, folderId, contentId);
         watchLaterDao.deleteByUserAndContentIds(userId, List.of(contentId));
     }
 

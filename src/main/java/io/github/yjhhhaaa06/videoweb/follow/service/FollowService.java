@@ -75,18 +75,13 @@ public class FollowService {
     // ========================================================================
 
     /**
-     * 关注。
+     * 关注（`T59` 起**幂等设置**：重复 / 并发关注 = 200，不重复计数）。
      *
-     * <p>校验顺序与文案逐条保留 TV 口径（决定客户端拿到哪个 409）：
-     * <ol>
-     *   <li>关注自己 → {@code ConflictException("不能关注自己")}
-     *       —— TV 把这条放在事务**外**，新实现放在 {@code @Transactional} 方法内；
-     *       可观察行为不变（异常仍在任何写操作之前抛出）。</li>
-     *   <li>已关注 → {@code ConflictException("已关注，不可重复操作")}</li>
-     * </ol>
+     * <p>关注自己仍是 409（参数合法但语义不允许，不是幂等问题）。
      *
-     * <p>并发重复关注由唯一键 {@code follow.uk_user_follow} 兜底：撞键抛
-     * {@code DuplicateKeyException} → 全局出口 409（同 C-1 / U-2 / L-1 的映射点）。
+     * <p>★ 幂等靠 {@code INSERT IGNORE} + 受影响行数：唯一键 {@code uk_user_follow} 撞键返回 0 行
+     * ⇒ 视为"已关注"直接返回，**不加计数、不跑大V判定、不发事件**。
+     * 改前的"先查后写 + 409"在并发下本来就要靠唯一键兜底（撞键 → 409），现在两者统一成幂等。
      *
      * <p>大V滞回判定（{@link AutoBigVStateService#evaluate}）在**计数之后、同一事务内**调用：
      * fail-atomic（判定输入是刚写入的 DB 真值；失败则整体回滚）。详见决策表 F-6。
@@ -96,11 +91,9 @@ public class FollowService {
         if (userId == followedUserId) {
             throw new ConflictException(ErrorCode.FOLLOW_SELF, "不能关注自己");
         }
-        // 先检查是否已关注（TV 口径：先查后写，不用 INSERT IGNORE —— 后者会把 409 静默变成 200）
-        if (followDao.isFollowing(userId, followedUserId)) {
-            throw new ConflictException(ErrorCode.FOLLOW_ALREADY, "已关注，不可重复操作");
+        if (followDao.insertFollow(userId, followedUserId) == 0) {
+            return;
         }
-        followDao.insertFollow(userId, followedUserId);
         userDao.updateFollowCount(userId, 1);
         userDao.updateFollowerCount(followedUserId, 1);
         // feed3-T28-A：滞回判定紧接计数之后，判定输入是刚写入的 DB 真值；失败则整体回滚
@@ -110,24 +103,21 @@ public class FollowService {
     }
 
     /**
-     * 取关。
+     * 取关（`T59` 起**幂等取消**：未关注 / 重复取关 = 204，不产生负计数）。
      *
-     * <p>与 {@link #follow} 同构的镜像：自我取关 → {@code "不能取关自己"}；
-     * 未关注 → {@code "未关注，不可取消"}。
+     * <p>取关自己仍是 409（同关注方向的语义拒绝）。
      *
-     * <p>⚠️ 两处文案与内容侧/点赞侧**刻意不一致**（TV 原文如此，保留不动）：
-     * 关注域用"不可取消"（而 S3 的点赞域是"无法取消"）。没有理由在这一步顺手统一
-     * ——{@code msg} 虽不在冻结契约内，但"顺手统一"是无声的契约改动。
+     * <p>★ 按 {@code deleteFollow} 的受影响行数决定是否 −1、跑大V判定与发事件：0 行 = 本就没关注。
+     * 若无条件 −1，重复取关会把别人的关注从计数里扣掉（计数列是全局的）。
      */
     @Transactional
     public void unfollow(long userId, long followedUserId) {
         if (userId == followedUserId) {
             throw new ConflictException(ErrorCode.FOLLOW_SELF, "不能取关自己");
         }
-        if (!followDao.isFollowing(userId, followedUserId)) {
-            throw new ConflictException(ErrorCode.FOLLOW_NOT_FOLLOWING, "未关注，不可取消");
+        if (followDao.deleteFollow(userId, followedUserId) == 0) {
+            return;
         }
-        followDao.deleteFollow(userId, followedUserId);
         userDao.updateFollowCount(userId, -1);
         userDao.updateFollowerCount(followedUserId, -1);
         // 掉粉是滞回"降级"的唯一触发源

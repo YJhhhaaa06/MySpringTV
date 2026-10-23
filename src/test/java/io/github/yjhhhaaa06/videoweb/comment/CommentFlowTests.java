@@ -271,8 +271,8 @@ class CommentFlowTests extends AbstractCommentIntegrationTest {
 
         ResponseEntity<String> resp = deleteComment(mainId, authorToken);
 
-        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(Envelope.data(resp).asString()).isEqualTo("删除成功");
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(resp.getBody()).as("204 必须无体").isNullOrEmpty();
 
         // 独立 oracle
         assertThat(isCommentDeleted(mainId)).isTrue();
@@ -300,7 +300,7 @@ class CommentFlowTests extends AbstractCommentIntegrationTest {
 
         ResponseEntity<String> resp = deleteComment(doomed, otherToken);
 
-        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
         assertThat(isCommentDeleted(doomed)).isTrue();
         assertThat(isCommentDeleted(kept)).as("同楼其他回复不受影响").isFalse();
         assertThat(isCommentDeleted(mainId)).as("主楼不受影响").isFalse();
@@ -336,10 +336,10 @@ class CommentFlowTests extends AbstractCommentIntegrationTest {
         long commentId = findCommentId(contentId, "待删评论");
 
         assertThat(deleteComment(999_999_999L, token).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(deleteComment(commentId, token).getStatusCode()).isEqualTo(HttpStatus.OK);
-        // 再删一次：已软删 ⇒ 视为不存在
+        assertThat(deleteComment(commentId, token).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        // 再删一次：已软删 ⇒ 视为不存在（★ T59 边界：资源型删除不做 204 幂等，只有关系型取消才是）
         assertThat(deleteComment(commentId, token).getStatusCode())
-                .as("重复删除已软删的评论应 404（不是幂等 200）")
+                .as("重复删除已软删的评论仍 404（不是 204；见 接口契约.md §2.4 注）")
                 .isEqualTo(HttpStatus.NOT_FOUND);
     }
 

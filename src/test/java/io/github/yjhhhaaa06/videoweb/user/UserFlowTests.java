@@ -313,6 +313,25 @@ class UserFlowTests extends AbstractHttpIntegrationTest {
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
+    // ==================== 改用户名（T59：同值幂等） ====================
+
+    @Test
+    @DisplayName("★ 改成同一个用户名：200 幂等 no-op（不报 USER_NAME_TAKEN；`T59` 契约变更）")
+    void 改用户名同值幂等() {
+        post("/api/v1/users", Map.of("phone", PHONE, "username", USERNAME, "password", PASSWORD), null);
+        String token = Envelope.str(post("/api/v1/sessions",
+                Map.of("phone", PHONE, "password", PASSWORD), null), "token");
+
+        ResponseEntity<String> resp = put("/api/v1/users/me/username?userName=" + USERNAME, null, token);
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
+        assertThat(Envelope.hasDataField(resp)).as("改用户名成功无 data").isFalse();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT username FROM users WHERE phone = ?", String.class, PHONE))
+                .as("同值改名不产生任何变化").isEqualTo(USERNAME);
+    }
+
     // ==================== helpers ====================
 
     private long countUsers() {

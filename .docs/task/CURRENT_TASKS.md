@@ -310,6 +310,9 @@
   `ApiResponse<String|Void|Long|Boolean|Map<String,Object>|?>`（见各 Controller 返回类型）；
   `CommentController#show`（:135-145，无分页参数回 `List`、有参数回 `PageResult`）；
   `common/model/dto/PageResult` / `CursorResult`；`common/web/PageParams`；6 个用 `LocalDateTime` 的 VO。
+* ★ **执行期裁决（2026-10-23 用户）**：`T58` 移交的"幂等化"拆两半 ——
+  **天生幂等（重复 PUT=200 / DELETE=204）留本任务**（`T59-1` 已交付）；
+  **requestId / Idempotency-Key 去重另立专项**（登记 `R-24` 待拍板，本任务**不加** `requestId` 字段）。
 * **目标**：① 入参统一 JSON（multipart 除外），布尔/枚举用真类型；② 出参类型可枚举（无 `?` / `Map` / 裸 `String`）；
   ③ 分页收敛（同一端点只一种形状）；④ 时间格式与 **ID 表示**定稿（BIGINT 走 JSON number 的精度风险要表态）。
 * **红线边界**（`R-23`：前端不跟随，`static/` 不动）：`GET /api/v1/contents/{id}/comments` **必须**拆端点或定成一种形状，"两种都支持"不算解决；

@@ -425,7 +425,7 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
         assertThat(diskPathOf(coverUrl)).exists();
 
         ResponseEntity<String> resp = delete("/api/v1/contents/" + contentId, token);
-        assertThat(resp.getStatusCode().value()).isEqualTo(200);
+        assertThat(resp.getStatusCode().value()).as("`T59`：删除 = 204").isEqualTo(204);
 
         // DB 端：软删 + 媒体行清零（S5 已交付的行为）
         assertThat(jdbcTemplate.queryForObject(
@@ -457,7 +457,7 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
 
         ResponseEntity<String> resp = delete(
                 "/api/v1/contents/" + contentId + "/media?type=2&sort=1", token);
-        assertThat(resp.getStatusCode().value()).isEqualTo(200);
+        assertThat(resp.getStatusCode().value()).as("`T59`：删除 = 204").isEqualTo(204);
 
         // 删掉的是第 1 张：它的文件消失；第 2 张的文件仍在，且 sort 由 2 重排为 1
         assertThat(firstPath).as("被删图片的物理文件必须消失（A7）").doesNotExist();

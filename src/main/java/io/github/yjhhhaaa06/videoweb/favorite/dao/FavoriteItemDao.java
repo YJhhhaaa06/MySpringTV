@@ -118,6 +118,28 @@ public interface FavoriteItemDao {
                    @Param("contentId") long contentId);
 
     /**
+     * 幂等收藏一条（`T59`）：目标夹已有该内容 / 并发重复 ⇒ 0 行，调用方视为成功。
+     *
+     * <p>仅用于「幂等设置」语义的两个 PUT（{@code PUT /favorites/{id}} 的移动、
+     * {@code PUT /watch-later/{id}/folder}）；{@code POST /favorites} 仍走
+     * {@link #insertItem}（创建语义，重复 = 409）。
+     *
+     * @return 受影响行数（首次收进 1；已在目标夹 / 并发重复 0）
+     */
+    int insertItemIgnore(@Param("folderId") long folderId,
+                         @Param("userId") long userId,
+                         @Param("contentId") long contentId);
+
+    /**
+     * 该内容是否已在指定夹里（`T59` 幂等移动的判定）。
+     *
+     * <p>用于"目标夹已有 ⇒ 跳过容量判定与插入、只清源夹"——否则满夹时重复移动会被
+     * 容量闸误判成 400，幂等语义不成立。走 {@code uk_folder_content (folder_id, content_id)} 点查。
+     */
+    boolean existsByFolderAndContent(@Param("folderId") long folderId,
+                                     @Param("contentId") long contentId);
+
+    /**
      * 从一个夹里移出若干条收藏记录（T4：批量移出 + move 的源侧删除）。
      *
      * <p>★ <b>这条 SQL 刻意**不校验**内容存在性</b>（G11 红线）：直接按

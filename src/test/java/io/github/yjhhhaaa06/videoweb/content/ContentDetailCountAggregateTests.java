@@ -226,7 +226,7 @@ class ContentDetailCountAggregateTests extends AbstractContentIntegrationTest {
         redis.opsForValue().set(CacheKeys.contentFavoriteCount(contentId), "999");
 
         assertThat(delete("/api/v1/contents/" + contentId, authorToken)
-                .getStatusCode().value()).as("前置：作者删除").isEqualTo(200);
+                .getStatusCode().value()).as("前置：作者删除（`T59`：204）").isEqualTo(204);
 
         assertThat(get("/api/v1/contents/" + contentId, authorToken).getStatusCode().value())
                 .as("前置：详情 404").isEqualTo(404);

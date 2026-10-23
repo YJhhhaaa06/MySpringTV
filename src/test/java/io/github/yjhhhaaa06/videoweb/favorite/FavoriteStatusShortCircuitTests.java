@@ -271,7 +271,8 @@ class FavoriteStatusShortCircuitTests extends AbstractHttpIntegrationTest {
         assertThat(statusIsFavorited(video, me.token())).as("收藏弹窗").isTrue();
 
         // ③ 移出后：都回到 false
-        assertThat(removeItems(folder, List.of(video), me.token()).getStatusCode().value()).isEqualTo(200);
+        assertThat(removeItems(folder, List.of(video), me.token()).getStatusCode().value())
+                .as("`T59`：删除 = 204").isEqualTo(204);
         assertThat(detailIsFavorited(video, me.token())).as("详情页按钮").isFalse();
         assertThat(statusIsFavorited(video, me.token())).as("收藏弹窗").isFalse();
 

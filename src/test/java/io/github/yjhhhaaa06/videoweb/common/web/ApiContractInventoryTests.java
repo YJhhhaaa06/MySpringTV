@@ -151,18 +151,25 @@ class ApiContractInventoryTests extends AbstractIntegrationTest {
                 .isSubsetOf(Set.of("PUBLIC", "LOGIN", "ADMIN"));
     }
 
-    // ==================== 用例 3：出参统一信封（§2.5 的机器判据）====================
+    // ==================== 用例 3：出参形状（§2.5 的机器判据）====================
 
     @Test
-    @DisplayName("★ 出参统一：全部端点返回 ApiResponse<T>（T59 尚未清理的 ? / Map 见登记簿 RETURN 列）")
-    void 全部端点返回统一信封() {
+    @DisplayName("★ 出参形状统一：非 DELETE 返回 ApiResponse<T>；DELETE 返回 ResponseEntity<Void>（204 无体）")
+    void 出参形状统一() {
         List<String> offenders = scan().stream()
-                .filter(e -> !e.returns().startsWith("ApiResponse<"))
+                .filter(e -> {
+                    if ("DELETE".equals(e.method())) {
+                        // ★ T59：删除/取消 = 204 无 body，故 DELETE 必须走 ResponseEntity<Void>
+                        return !"ResponseEntity<Void>".equals(e.returns());
+                    }
+                    return !e.returns().startsWith("ApiResponse<");
+                })
                 .map(Endpoint::line)
                 .toList();
 
         assertThat(offenders)
-                .as("对外端点必须走统一信封 ApiResponse<T>（否则前端无法统一解包）")
+                .as("非 DELETE 必须走统一信封 ApiResponse<T>；DELETE 必须 204 无体（ResponseEntity<Void>）"
+                        + "——否则前端无法统一解包 / 无法区分空响应")
                 .isEmpty();
     }
 

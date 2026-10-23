@@ -37,7 +37,10 @@ import org.springframework.http.HttpStatus;
  * {@code WRONG_PASSWORD}（拆成 {@link #AUTH_BAD_CREDENTIALS} 与 {@link #AUTH_OLD_PASSWORD_WRONG}）、
  * {@code TOKEN_EXPIRED→AUTH_TOKEN_EXPIRED}、{@code FORBIDDEN/ACCESS_DENIED→AUTH_FORBIDDEN}、
  * {@code NOT_FOUND}（泛码，删：每个抛出点必须指名资源种类）、
- * {@code CONFLICT}（泛码，拆成具体原因）、{@code DUPLICATE_LIKE→LIKE_ALREADY_LIKED}、
+ * {@code CONFLICT}（泛码，拆成具体原因）、
+ * {@code DUPLICATE_LIKE}/{@code LIKE_ALREADY_LIKED}/{@code LIKE_NOT_LIKED}/
+ * {@code FOLLOW_ALREADY}/{@code FOLLOW_NOT_FOLLOWING}（删：`T59` 起点赞/关注是幂等 PUT/DELETE，
+ * 重复与反向操作都不再产生冲突码）、
  * {@code SERVER_ERROR→SYSTEM_INTERNAL}、{@code DATABASE_ERROR→SYSTEM_DATABASE}、
  * {@code SERVICE_UNAVAILABLE→SYSTEM_UNAVAILABLE}、
  * {@code INVALID_PHONE}/{@code CACHE_ERROR}（删，理由见各自位置）。
@@ -165,20 +168,8 @@ public enum ErrorCode {
 
     USER_NAME_TAKEN(HttpStatus.CONFLICT, "用户名已被占用"),
 
-    /** 不可重复点赞（409）—— 旧名 {@code DUPLICATE_LIKE}（死码）。前端据此纠正本地按钮态，必须独立成码。 */
-    LIKE_ALREADY_LIKED(HttpStatus.CONFLICT, "不可重复点赞"),
-
-    /** 未点赞却取消（409）—— 同上，前端据此纠正本地态。 */
-    LIKE_NOT_LIKED(HttpStatus.CONFLICT, "未点赞，无法取消"),
-
     /** 不能关注/取关自己（409）。 */
     FOLLOW_SELF(HttpStatus.CONFLICT, "不能关注自己"),
-
-    /** 已关注（409）—— 前端纠正本地态。 */
-    FOLLOW_ALREADY(HttpStatus.CONFLICT, "已关注，不可重复操作"),
-
-    /** 未关注却取关（409）—— 前端纠正本地态。 */
-    FOLLOW_NOT_FOLLOWING(HttpStatus.CONFLICT, "未关注，不可取消"),
 
     /** 对该稿件投币枚数已用完（409）—— 前端要把投币入口置灰。 */
     COIN_ALREADY_FULL(HttpStatus.CONFLICT, "对本稿件投币枚数已用完"),
@@ -193,10 +184,11 @@ public enum ErrorCode {
     FAVORITE_FOLDER_DEFAULT(HttpStatus.CONFLICT, "默认收藏夹不可删除"),
 
     /**
-     * 内容状态不允许该操作（409）：已删除无法下架 / 已下架 / 已删除无法恢复 / 未下架。
+     * 内容状态不允许该操作（409）：已删除无法下架 / 已删除无法恢复。
      *
-     * <p>四种原因共用一码的理由：处置相同（**重拉列表再判断**），差异只在文案；
-     * 它们全是后台运营动作，前端不需要按原因分支。
+     * <p>★ `T59` 起"已下架 / 未下架"不再产生本码：重复 PUT / DELETE 是幂等 no-op（200 / 204），
+     * 因为它们是**幂等设置**，不是状态冲突。剩下两种都属"资源本体已删，任何状态操作都不允许"。
+     * 前端处置相同（重拉列表再判断），故共用一个码。
      */
     CONTENT_STATUS_CONFLICT(HttpStatus.CONFLICT, "内容当前状态不允许该操作"),
 

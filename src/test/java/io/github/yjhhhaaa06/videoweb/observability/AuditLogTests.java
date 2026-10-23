@@ -89,7 +89,7 @@ class AuditLogTests extends AbstractAdminIntegrationTest {
             audit.clear();
             // `T58` 契约变更：POST /unhide → DELETE /api/v1/admin/contents/{id}/hidden
             assertThat(delete("/api/v1/admin/contents/" + contentId + "/hidden", adminToken)
-                    .getStatusCode().value()).isEqualTo(200);
+                    .getStatusCode().value()).as("`T59`：删除/取消 = 204").isEqualTo(204);
             String unhideLine = audit.awaitLine(l -> l.contains("action=admin.content.unhide"), "恢复审计行", AWAIT);
             assertThat(unhideLine)
                     .contains("operatorId=" + adminId)
@@ -115,7 +115,7 @@ class AuditLogTests extends AbstractAdminIntegrationTest {
             audit.clear();
             // `T58` 契约变更：POST /comment/delete → DELETE /api/v1/admin/comments/{id}
             assertThat(delete("/api/v1/admin/comments/" + commentId, adminToken)
-                    .getStatusCode().value()).isEqualTo(200);
+                    .getStatusCode().value()).as("`T59`：删除 = 204").isEqualTo(204);
             String line = audit.awaitLine(l -> l.contains("action=admin.comment.delete"), "删评论审计行", AWAIT);
             assertThat(line)
                     .contains("operatorId=" + adminId)

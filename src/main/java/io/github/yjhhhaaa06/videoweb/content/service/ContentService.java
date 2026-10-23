@@ -665,7 +665,17 @@ public class ContentService {
      */
     @Transactional
     public void hideContent(long contentId) {
-        checkHideable(contentId);
+        Integer state = contentDao.getContentStatus(contentId);
+        if (state == null) {
+            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
+        }
+        if (state == CONTENT_STATE_DELETED) {
+            throw new ConflictException(ErrorCode.CONTENT_STATUS_CONFLICT, "内容已删除，无法下架");
+        }
+        // ★ T59：已下架 = 幂等 no-op（重复 PUT = 200，不再 409「内容已下架」）
+        if (state == CONTENT_STATE_HIDDEN) {
+            return;
+        }
         contentDao.updateContentDeletedState(contentId, CONTENT_STATE_HIDDEN);
         events.publishEvent(ContentCacheChangedEvent.remove(contentId));
     }
@@ -673,7 +683,8 @@ public class ContentService {
     /**
      * 管理员恢复内容（{@code DELETE /api/v1/admin/contents/{id}/hidden}）：{@code is_deleted} 2→0。
      *
-     * <p>决策同 {@link #hideContent}（✅ 保持单事务）。
+     * <p>决策同 {@link #hideContent}（✅ 保持单事务）。★ `T59` 幂等：未下架 ⇒ no-op（重复 DELETE = 204，
+     * 不再 409「内容未下架」）；已删除仍 409（不是幂等问题）。
      *
      * <h2>提交后：只发 {@code REFRESH}（与 TV 逐字对齐）</h2>
      * TV 恢复后只调 {@code contentCache.refreshContent(contentId)}——**不碰**评论/点赞缓存
@@ -682,7 +693,17 @@ public class ContentService {
      */
     @Transactional
     public void unhideContent(long contentId) {
-        checkUnhideable(contentId);
+        Integer state = contentDao.getContentStatus(contentId);
+        if (state == null) {
+            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
+        }
+        if (state == CONTENT_STATE_DELETED) {
+            throw new ConflictException(ErrorCode.CONTENT_STATUS_CONFLICT, "内容已删除，无法恢复");
+        }
+        // ★ T59：未下架 = 幂等 no-op（重复 DELETE = 204，不再 409「内容未下架」）
+        if (state == CONTENT_STATE_NORMAL) {
+            return;
+        }
         contentDao.updateContentDeletedState(contentId, CONTENT_STATE_NORMAL);
         events.publishEvent(ContentCacheChangedEvent.refresh(contentId));
     }
@@ -693,38 +714,4 @@ public class ContentService {
     private static final int CONTENT_STATE_DELETED = 1;
     /** {@code content.is_deleted}：管理员下架。 */
     private static final int CONTENT_STATE_HIDDEN = 2;
-
-    /**
-     * 下架前置校验：存在且未被删除、未处于下架态。
-     *
-     * <p>⚠️ 与 TV 的**唯一差异**：TV 的 {@code getContentStatus} 用 {@code -1} 作"不存在"哨兵，
-     * 这里让 DAO 返回 {@code Integer}（无行 ⇒ {@code null}）并判 {@code null} ⇒ 404。
-     * 三条分支的**异常类型与文案逐字保留**（决定 404 / 409 / 409）。
-     */
-    private void checkHideable(long contentId) {
-        Integer state = contentDao.getContentStatus(contentId);
-        if (state == null) {
-            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
-        }
-        if (state == CONTENT_STATE_DELETED) {
-            throw new ConflictException(ErrorCode.CONTENT_STATUS_CONFLICT, "内容已删除，无法下架");
-        }
-        if (state == CONTENT_STATE_HIDDEN) {
-            throw new ConflictException(ErrorCode.CONTENT_STATUS_CONFLICT, "内容已下架");
-        }
-    }
-
-    /** 恢复前置校验：存在且未被删除、当前**处于**下架态（否则 409「内容未下架」）。 */
-    private void checkUnhideable(long contentId) {
-        Integer state = contentDao.getContentStatus(contentId);
-        if (state == null) {
-            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
-        }
-        if (state == CONTENT_STATE_DELETED) {
-            throw new ConflictException(ErrorCode.CONTENT_STATUS_CONFLICT, "内容已删除，无法恢复");
-        }
-        if (state == CONTENT_STATE_NORMAL) {
-            throw new ConflictException(ErrorCode.CONTENT_STATUS_CONFLICT, "内容未下架");
-        }
-    }
 }

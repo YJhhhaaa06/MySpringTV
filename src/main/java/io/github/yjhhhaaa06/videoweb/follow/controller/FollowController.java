@@ -7,6 +7,7 @@ import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import io.github.yjhhhaaa06.videoweb.common.web.PageParams;
 import io.github.yjhhhaaa06.videoweb.follow.model.vo.FollowUserVO;
 import io.github.yjhhhaaa06.videoweb.follow.service.FollowService;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -87,26 +88,26 @@ public class FollowController {
 
     /**
      * 关注：幂等设置"我关注了 {id} 这个人" ⇒ {@code PUT}（{@code 接口契约.md} §2.4）。
-     * 成功响应 {@code data} 是字符串 {@code "关注成功"}——沿袭 TV {@code writeSuccess(resp, "关注成功")}。
+     * 成功响应无 data（`T59`：`String` 文案退役）。
      *
-     * <p>关注自己 / 重复关注 → 409。
+     * <p>关注自己 → 409；★ `T59` 起重复 / 并发关注 = 200 no-op（不再 409 {@code FOLLOW_ALREADY}）。
      */
     @PutMapping("/api/v1/follows/{id}")
-    public ApiResponse<String> add(@CurrentUserId long userId, @PathVariable("id") long followedUserId) {
+    public ApiResponse<Void> add(@CurrentUserId long userId, @PathVariable("id") long followedUserId) {
         followService.follow(userId, followedUserId);
-        return ApiResponse.success("关注成功");
+        return ApiResponse.success();
     }
 
     /**
      * 取关：{@code cancel} = 撤销动作/状态（{@code 接口契约.md} §2.8），路径上就是删除这条关系 ⇒ {@code DELETE}。
-     * 成功响应 {@code data} 是字符串 {@code "已取关"}——沿袭 TV。
      *
-     * <p>取关自己 / 未关注 → 409。
+     * <p>取关自己 → 409；★ `T59` 起未关注 / 重复取关 = 204 no-op（不再 409 {@code FOLLOW_NOT_FOLLOWING}，
+     * 也不扣负计数）。
      */
     @DeleteMapping("/api/v1/follows/{id}")
-    public ApiResponse<String> remove(@CurrentUserId long userId, @PathVariable("id") long followedUserId) {
+    public ResponseEntity<Void> remove(@CurrentUserId long userId, @PathVariable("id") long followedUserId) {
         followService.unfollow(userId, followedUserId);
-        return ApiResponse.success("已取关");
+        return ResponseEntity.noContent().build();
     }
 
     /** 关注列表（路径上的 {@code id} 关注了谁）。{@code id} 非数字 → 400。 */

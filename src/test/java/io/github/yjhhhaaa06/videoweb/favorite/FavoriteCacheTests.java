@@ -303,7 +303,8 @@ class FavoriteCacheTests extends AbstractHttpIntegrationTest {
                 .isEqualTo(1L);
 
         // ③ ★ 从 X 移出：Y 里还在 ⇒ 仍"已收藏"、收藏数仍 1
-        assertThat(removeItems(folderX, List.of(content), me.token()).getStatusCode().value()).isEqualTo(200);
+        assertThat(removeItems(folderX, List.of(content), me.token()).getStatusCode().value())
+                .as("`T59`：删除 = 204").isEqualTo(204);
         assertThat(oracleRecordCount(content)).isEqualTo(1L);
         assertThat(favoriteService.isFavorited(me.id(), content))
                 .as("★ 无条件 SREM 会在这里答 false：'移出某个夹' **不等于** '取消收藏'")
@@ -319,7 +320,8 @@ class FavoriteCacheTests extends AbstractHttpIntegrationTest {
         assertThat(Envelope.data(statusViaHttp(content, me.token())).path("isFavorited").asBoolean()).isTrue();
 
         // ④ 最后一个夹也移出 ⇒ 回到未收藏、收藏数 0
-        assertThat(removeItems(folderY, List.of(content), me.token()).getStatusCode().value()).isEqualTo(200);
+        assertThat(removeItems(folderY, List.of(content), me.token()).getStatusCode().value())
+                .as("`T59`：删除 = 204").isEqualTo(204);
         assertThat(favoriteService.isFavorited(me.id(), content)).isFalse();
         assertThat(countViaHttp(content)).isZero();
         assertThat(oracleDistinctUserCount(content)).isZero();
@@ -368,7 +370,8 @@ class FavoriteCacheTests extends AbstractHttpIntegrationTest {
         assertThat(countViaHttp(c)).isEqualTo(1L);
         assertThat(favoriteService.isFavorited(me.id(), a)).isTrue();
 
-        assertThat(deleteFolder(doomed, me.token()).getStatusCode().value()).isEqualTo(200);
+        assertThat(deleteFolder(doomed, me.token()).getStatusCode().value())
+                .as("`T59`：删除 = 204").isEqualTo(204);
 
         assertThat(oracleDistinctUserCount(a)).as("DB 终态：a 的记录随夹一并删除（R-02）").isZero();
         assertThat(oracleDistinctUserCount(b)).isZero();
@@ -469,7 +472,8 @@ class FavoriteCacheTests extends AbstractHttpIntegrationTest {
         assertThat(favoriteService.isFavorited(me.id(), b)).isTrue();
 
         // ② remove ⇒ 成员集整体失效（key 被删）
-        assertThat(removeItems(folder, List.of(a), me.token()).getStatusCode().value()).isEqualTo(200);
+        assertThat(removeItems(folder, List.of(a), me.token()).getStatusCode().value())
+                .as("`T59`：删除 = 204").isEqualTo(204);
         assertThat(hasKey(USER_FAVORITE_SET_KEY + me.id()))
                 .as("移出后成员集整体失效（下次读回源）").isFalse();
         assertThat(favoriteService.isFavorited(me.id(), a)).isFalse();

@@ -551,6 +551,48 @@ public class FavoriteService {
     }
 
     /**
+     * 幂等收藏一条（`T59`，仅供 {@code PUT /watch-later/{id}/folder} 的「移入收藏夹」使用）。
+     *
+     * <p>与 {@link #addItem} 的差异**只在重复语义**：目标夹已有该内容 ⇒ 返回 false，
+     * 不报 409、不重复计数、也**不判容量**（满夹重复移动必须成功）。
+     * 创建语义的 {@code POST /favorites} 仍走 {@link #addItem}（重复 = 409）。
+     *
+     * <p>容量判定与插入之间仍可能有并发窗口（同 {@link #addItem} 既有口径），由
+     * {@code INSERT IGNORE} 兜"重复"，容量本身的竞态不在本方法新增。
+     *
+     * @return {@code true} = 本次真的新收进；{@code false} = 目标夹早已有（终态已达成）
+     */
+    @Transactional
+    public boolean addItemIfAbsent(long userId, Long folderId, long contentId) {
+        if (!contentDao.isContentExist(contentId)) {
+            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
+        }
+        long targetFolderId;
+        boolean targetIsDefault;
+        if (folderId == null) {
+            targetFolderId = ensureDefaultFolder(userId);
+            targetIsDefault = true;
+        } else {
+            FavoriteFolder target = requireOwnedFolder(userId, folderId);
+            targetFolderId = target.getId();
+            targetIsDefault = target.defaultFolder();
+        }
+        if (itemDao.existsByFolderAndContent(targetFolderId, contentId)) {
+            return false;
+        }
+        requireFolderCapacity(targetFolderId, targetIsDefault);
+        if (itemDao.insertItemIgnore(targetFolderId, userId, contentId) == 0) {
+            return false;   // 并发重复：另一事务已收进
+        }
+        recountFavoriteCounts(List.of(contentId));
+        AfterCommit.run(() -> {
+            favoriteCache.favoriteAdded(userId, contentId);
+            favoriteCache.invalidateFavoriteCount(contentId);
+        });
+        return true;
+    }
+
+    /**
      * 从一个夹移出若干条收藏记录（{@code DELETE /api/v1/favorites}，批量：夹内勾选多条一次移出）。
      *
      * <h2>★ 红线：本方法**不校验内容存在性**（G11，T4 最重要的口径）</h2>
@@ -615,11 +657,12 @@ public class FavoriteService {
      *
      * <h2>事务与顺序：先插后删（{@code @Transactional}）</h2>
      * 两条关系写（插入目标夹 + 从源夹删除）必须同进同退，否则留下"两边都有"或"两边都没有"。
-     * 先插后删让最常见的失败（目标夹已有同内容 ⇒ 撞 {@code uk_folder_content} ⇒ 409）
-     * 发生在删除之前 —— 409 时源夹原样保留；即便 DB 在删除一步出错，事务回滚也兜住。
+     * ★ `T59` 起**幂等移动**：目标夹已有同内容 ⇒ {@code INSERT IGNORE} 返回 0 行，视为成功，
+     * 只清源夹（不重复计数）；{@code from == to} ⇒ 直接 no-op（200）。
+     * 满夹时"目标已有"也照样成功——容量判定被跳过，否则重复移动会被误判成 400。
+     * ★ 插入仍先于删除：即便 DB 在删除一步出错，事务回滚也兜住；幂等路径不再需要 409 保源夹。
      * ★ T12 起事务里还有第三条语句：计数重算（{@link #recountFavoriteCounts}，见方法体注释
      * —— 任务书"三条路径"漏了 move，边缘态会打破不变量，用户 2026-10-12 拍板接入）。
-     * ★ {@code from == to} 不写专门分支：插入撞自己的唯一键 ⇒ 自然 409、什么都不变。
      *
      * <h2>口径细节</h2>
      * <ul>
@@ -638,7 +681,7 @@ public class FavoriteService {
      *
      * @param userId       当前登录用户
      * @param fromFolderId 源夹；不存在 → 404、不是我的 → 403
-     * @param toFolderId   目标夹；同上；已有同内容 → 409（源夹保留）、已达上限 → 400
+     * @param toFolderId   目标夹；同上；已有同内容 ⇒ 幂等成功（只清源夹）、已达上限 → 400
      * @param contentId    内容 id；不存在或已失效 → 404（条目留在源夹）
      */
     @Transactional
@@ -647,13 +690,23 @@ public class FavoriteService {
             throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
         }
         requireOwnedFolder(userId, fromFolderId);
+        // ★ T59：同夹 = 幂等 no-op（改前是插入撞自身唯一键的 409）
+        if (fromFolderId == toFolderId) {
+            return;
+        }
         // ★ 目标夹取回**实体**（不只是校验归属）：容量判定要它的 is_default（分流 500 / 5000）。
         FavoriteFolder target = requireOwnedFolder(userId, toFolderId);
-        // ★ 容量（T16）：判在目标夹归属之后、插入之前 —— 漏掉这条就能绕道 move 撑爆目标夹。
-        requireFolderCapacity(target.getId(), target.defaultFolder());
-        // 先插后删：见方法注释"事务与顺序"。
-        itemDao.insertItem(toFolderId, userId, contentId);
-        itemDao.deleteByFolderAndContentIds(fromFolderId, List.of(contentId));
+        int inserted = 0;
+        // ★ T59：目标已有 ⇒ 跳过容量与插入（满夹重复移动也必须成功），只清源夹。
+        if (!itemDao.existsByFolderAndContent(target.getId(), contentId)) {
+            // ★ 容量（T16）：判在目标夹归属之后、插入之前 —— 漏掉这条就能绕道 move 撑爆目标夹。
+            requireFolderCapacity(target.getId(), target.defaultFolder());
+            inserted = itemDao.insertItemIgnore(toFolderId, userId, contentId);
+        }
+        int deleted = itemDao.deleteByFolderAndContentIds(fromFolderId, List.of(contentId));
+        if (inserted == 0 && deleted == 0) {
+            return;   // 目标已有、源也没有 ⇒ 终态已达成，不动计数与缓存
+        }
         // ★ T12 计数重算（本事务内）。⚠️ 任务书原文只列 add / remove / deleteFolder 三条路径，
         //   但 move **必须**接入（用户 2026-10-12 拍板）：边缘态"源夹不含该内容"（陈旧页面 /
         //   前端传错 from）时插入照常成功、源侧删 0 行 ⇒ 等价于一次**新增收藏** —— 计数 +1，

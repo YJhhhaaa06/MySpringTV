@@ -125,8 +125,8 @@ class ErrorCodeContractTests {
                         ErrorCode.CONTENT_MEDIA_NOT_FOUND.getCode()))
                 .doesNotHaveDuplicates();
 
-        // 409 组：重复点赞 / 未点赞 必须分开（前端要纠正本地按钮态）
-        assertThat(ErrorCode.LIKE_ALREADY_LIKED.getCode()).isNotEqualTo(ErrorCode.LIKE_NOT_LIKED.getCode());
+        // 409 组：手机号占用 / 用户名占用 必须分开（前端提示不同；`T59` 起点赞/关注的冲突码已删）
+        assertThat(ErrorCode.USER_PHONE_TAKEN.getCode()).isNotEqualTo(ErrorCode.USER_NAME_TAKEN.getCode());
     }
 
     /** 读 {@code src/main/java} 全量源码（surefire 的 user.dir = 模块根）。 */

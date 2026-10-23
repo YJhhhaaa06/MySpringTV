@@ -4,7 +4,7 @@ import io.github.yjhhhaaa06.videoweb.comment.service.CommentService;
 import io.github.yjhhhaaa06.videoweb.common.log.AuditLog;
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresAdmin;
-import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
@@ -47,9 +47,9 @@ public class AdminCommentController {
      * 口径与理由见 {@code AdminContentController#hide}。
      */
     @DeleteMapping("/api/v1/admin/comments/{id}")
-    public ApiResponse<String> delete(@CurrentUserId long adminId, @PathVariable("id") long commentId) {
+    public ResponseEntity<Void> delete(@CurrentUserId long adminId, @PathVariable("id") long commentId) {
         commentService.deleteCommentByAdmin(commentId);
         AuditLog.success("admin.comment.delete", adminId, "commentId:" + commentId);
-        return ApiResponse.success("删除成功");
+        return ResponseEntity.noContent().build();
     }
 }

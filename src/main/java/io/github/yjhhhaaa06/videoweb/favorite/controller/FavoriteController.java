@@ -13,6 +13,7 @@ import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteFolderVO;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteStatusVO;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.PublicFavoriteFolderVO;
 import io.github.yjhhhaaa06.videoweb.favorite.service.FavoriteService;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -177,9 +178,9 @@ public class FavoriteController {
      */
     @RequiresLogin
     @DeleteMapping("/api/v1/favorite-folders/{id}")
-    public ApiResponse<String> removeFolder(@CurrentUserId long userId, @PathVariable("id") long folderId) {
+    public ResponseEntity<Void> removeFolder(@CurrentUserId long userId, @PathVariable("id") long folderId) {
         favoriteService.deleteFolder(userId, folderId);
-        return ApiResponse.success("删除成功");
+        return ResponseEntity.noContent().build();
     }
 
     // ==================== 夹列表（T2：读 = GET + query） ====================
@@ -313,11 +314,11 @@ public class FavoriteController {
      */
     @RequiresLogin
     @DeleteMapping("/api/v1/favorites")
-    public ApiResponse<String> removeItems(@CurrentUserId long userId,
-                                           @RequestParam long folderId,
-                                           @RequestParam List<Long> contentIds) {
+    public ResponseEntity<Void> removeItems(@CurrentUserId long userId,
+                                            @RequestParam long folderId,
+                                            @RequestParam List<Long> contentIds) {
         favoriteService.removeItems(userId, folderId, contentIds);
-        return ApiResponse.success("移出成功");
+        return ResponseEntity.noContent().build();
     }
 
     /**
@@ -327,8 +328,8 @@ public class FavoriteController {
      *
      * <p>独立端点而非前端的 remove + add 两连击：两次调用之间没有原子性，
      * add 失败会让条目从源夹消失（失效内容本该"不可移动但**保留原位**"，R-07）。
-     * 口径：失效内容 404、目标夹已有同内容 409（源夹保留）、from == to 也是 409、
-     * <b>目标夹已满 400</b>（T16 —— 不判就能"绕道 move 把夹撑爆"）；
+     * 口径：失效内容 404、★ `T59` 起目标夹已有同内容 ⇒ 幂等成功（只清源夹）、
+     * {@code from == to} ⇒ 幂等 no-op、<b>目标夹已满 400</b>（T16 —— 不判就能"绕道 move 把夹撑爆"）；
      * 两条写在同一事务（{@code FavoriteService.moveItem}）。
      *
      * <p>⚠️ 进路径的是 **{@code contentId}**（被移动的那条收藏，§2.3"唯一标识被操作对象"）；

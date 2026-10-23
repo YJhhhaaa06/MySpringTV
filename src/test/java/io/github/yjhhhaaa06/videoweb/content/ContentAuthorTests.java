@@ -61,7 +61,7 @@ class ContentAuthorTests extends AbstractContentIntegrationTest {
         assertThat(indexContains(contentId)).as("前置：内容在推荐索引里").isTrue();
 
         assertThat(deleteQuery("/api/v1/contents/" + String.valueOf(contentId), query(), token)
-                .getStatusCode().value()).isEqualTo(200);
+                .getStatusCode().value()).as("`T59`：删除 = 204").isEqualTo(204);
 
         // 四条独立 oracle
         assertThat(contentIsDeletedColumn(contentId)).as("① content.is_deleted = 1").isEqualTo(1);
@@ -80,7 +80,7 @@ class ContentAuthorTests extends AbstractContentIntegrationTest {
         long otherContentId = insertVideoContent(otherId, "别人的内容");
         assertThat(countMediaRows(otherContentId)).isPositive();
         assertThat(deleteQuery("/api/v1/contents/" + String.valueOf(otherContentId), query(), otherToken)
-                .getStatusCode().value()).isEqualTo(200);
+                .getStatusCode().value()).as("`T59`：删除 = 204").isEqualTo(204);
         assertThat(countMediaRows(contentId)).as("自己的那些行没有被「复活」").isZero();
     }
 
@@ -128,7 +128,7 @@ class ContentAuthorTests extends AbstractContentIntegrationTest {
 
         // 删中间那张
         assertThat(deleteQuery("/api/v1/contents/" + String.valueOf(contentId) + "/media",query("type", "2","sort", "2"), token)
-                .getStatusCode().value()).isEqualTo(200);
+                .getStatusCode().value()).as("`T59`：删除 = 204").isEqualTo(204);
 
         assertThat(mediaTypeSorts(contentId, MEDIA_TYPE_IMAGE))
                 .as("删中间后必须仍是 1..n 连续（sort=3 的那张被重排为 2）").containsExactly("2:1", "2:2");

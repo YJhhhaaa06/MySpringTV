@@ -6,6 +6,7 @@ import io.github.yjhhhaaa06.videoweb.common.security.RequiresAdmin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.AdminContentVO;
 import io.github.yjhhhaaa06.videoweb.content.service.ContentService;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -76,7 +77,7 @@ public class AdminContentController {
      * 下架内容（{@code PUT /api/v1/admin/contents/{id}/hidden}）：{@code is_deleted} 0→2。
      *
      * <p>不存在 → 404「内容不存在」；已删除 → 409「内容已删除，无法下架」；
-     * 已下架 → 409「内容已下架」。
+     * ★ `T59` 起已下架 → <b>200 no-op</b>（幂等设置；不再 409「内容已下架」）。
      * 提交后内容/评论/点赞三处缓存失效（由既有订阅方承接，见 {@code ContentService.hideContent}）。
      *
      * <p><b>T2 审计（B12）</b>：审计行写在 `contentService.hideContent` **返回之后**——
@@ -84,22 +85,23 @@ public class AdminContentController {
      * （若把审计写进事务方法体内，提交失败会留下一条"改过"的假留痕，那比没有留痕更坏）。
      */
     @PutMapping("/api/v1/admin/contents/{id}/hidden")
-    public ApiResponse<String> hide(@CurrentUserId long adminId, @PathVariable("id") long contentId) {
+    public ApiResponse<Void> hide(@CurrentUserId long adminId, @PathVariable("id") long contentId) {
         contentService.hideContent(contentId);
         AuditLog.success("admin.content.hide", adminId, "contentId:" + contentId);
-        return ApiResponse.success("下架成功");
+        return ApiResponse.success();
     }
 
     /**
      * 恢复内容（{@code DELETE /api/v1/admin/contents/{id}/hidden}）：{@code is_deleted} 2→0。
      *
-     * <p>不存在 → 404；已删除 → 409「内容已删除，无法恢复」；未下架 → 409「内容未下架」。
+     * <p>不存在 → 404；已删除 → 409「内容已删除，无法恢复」；
+     * ★ `T59` 起未下架 → <b>204 no-op</b>（幂等取消；不再 409「内容未下架」）。
      * 提交后重载内容缓存 + 索引（前台立即重新可见）。
      */
     @DeleteMapping("/api/v1/admin/contents/{id}/hidden")
-    public ApiResponse<String> unhide(@CurrentUserId long adminId, @PathVariable("id") long contentId) {
+    public ResponseEntity<Void> unhide(@CurrentUserId long adminId, @PathVariable("id") long contentId) {
         contentService.unhideContent(contentId);
         AuditLog.success("admin.content.unhide", adminId, "contentId:" + contentId);
-        return ApiResponse.success("恢复成功");
+        return ResponseEntity.noContent().build();
     }
 }

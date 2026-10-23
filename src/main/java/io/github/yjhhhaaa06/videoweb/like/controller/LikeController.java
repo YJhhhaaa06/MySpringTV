@@ -4,6 +4,7 @@ import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import io.github.yjhhhaaa06.videoweb.like.service.LikeService;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -21,17 +22,17 @@ import org.springframework.web.bind.annotation.RestController;
  *   <caption>TV → 新实现</caption>
  *   <tr><th>TV</th><th>新实现</th></tr>
  *   <tr><td>{@code @WebServlet("/like/*")} + {@code switch(pathInfo)} 分派</td>
- *       <td>{@code @RestController} + 8 个 {@code @PostMapping}/{@code @GetMapping}</td></tr>
+ *       <td>{@code @RestController} + {@code @PutMapping}/{@code @DeleteMapping}/{@code @GetMapping}</td></tr>
  *   <tr><td>{@code parseContentId(req)} / {@code parseCommentId(req)}：手写 isBlank + parseLong + catch</td>
- *       <td>{@code @RequestParam long}（缺参/非数字由 Spring 抛给 {@code GlobalExceptionHandler} → 400）</td></tr>
+ *       <td>{@code @PathVariable("id") long}（非数字 → 400；缺路径段 → 404，见 §2.3）</td></tr>
  *   <tr><td>{@code (Long) req.getAttribute("userId")}</td>
  *       <td>{@code @CurrentUserId}</td></tr>
  * </table>
  *
- * <p><b>路径与请求形态沿袭 TV</b>（决策⑧）：
- * 写操作是 {@code POST} + <b>{@code x-www-form-urlencoded}</b>（不是 JSON！参数在 form 里），
- * 读操作是 {@code GET} + query 参数。这条形态差异必须保留——旧 pytest 就是 form 提交的。
- * 用 {@code @RequestParam} 同时覆盖 form 与 query 两种位置，与 TV {@code req.getParameter} 等价。
+ * <p><b>请求形态</b>（`T58` 起按 {@code 接口契约.md} §2.4 定性）：
+ * 点赞是幂等设置 ⇒ {@code PUT}，取消是幂等取消 ⇒ {@code DELETE}，读 ⇒ {@code GET}；
+ * 被操作对象 id 一律在路径上，写端点**没有请求体**。
+ * 鉴权仍整类需登录（类级 {@code @RequiresLogin}）。
  *
  * <p><b>★ 鉴权：整类需登录（类级 {@code @RequiresLogin}）</b>——
  * TV {@code AuthFilter.PROTECTED_PREFIXES} 里是 <b>{@code "/like"}（前缀）</b>，
@@ -54,35 +55,36 @@ public class LikeController {
 
     // ==================== 内容点赞（`T58`：/contents/{id}/like） ====================
 
-    /** 点赞内容：幂等设置"我赞了这条" ⇒ PUT（§2.4）。 */
+    /** 点赞内容：幂等设置"我赞了这条" ⇒ PUT（§2.4）；重复 / 并发点赞 = 200 no-op（`T59`）。 */
     @PutMapping("/api/v1/contents/{id}/like")
-    public ApiResponse<String> likeContent(@CurrentUserId long userId, @PathVariable("id") long contentId) {
+    public ApiResponse<Void> likeContent(@CurrentUserId long userId, @PathVariable("id") long contentId) {
         likeService.likeContent(userId, contentId);
-        return ApiResponse.success("点赞成功");
+        return ApiResponse.success();
     }
 
     /**
      * 取消内容点赞：{@code cancel} = 撤销动作/状态（§2.8）——
      * ★ {@code unlike} 全站退役（本仓没有"点踩"，对外只说"取消点赞"）。
+     * `T59` 起重复取消 = 204 no-op（不报 409、不扣负计数）。
      */
     @DeleteMapping("/api/v1/contents/{id}/like")
-    public ApiResponse<String> cancelContentLike(@CurrentUserId long userId, @PathVariable("id") long contentId) {
+    public ResponseEntity<Void> cancelContentLike(@CurrentUserId long userId, @PathVariable("id") long contentId) {
         likeService.cancelContentLike(userId, contentId);
-        return ApiResponse.success("已取消点赞");
+        return ResponseEntity.noContent().build();
     }
 
-    /** 点赞评论：同内容侧，PUT 幂等设置。 */
+    /** 点赞评论：同内容侧，PUT 幂等设置（`T59`：重复 = 200 no-op）。 */
     @PutMapping("/api/v1/comments/{id}/like")
-    public ApiResponse<String> likeComment(@CurrentUserId long userId, @PathVariable("id") long commentId) {
+    public ApiResponse<Void> likeComment(@CurrentUserId long userId, @PathVariable("id") long commentId) {
         likeService.likeComment(userId, commentId);
-        return ApiResponse.success("点赞成功");
+        return ApiResponse.success();
     }
 
-    /** 取消评论点赞。 */
+    /** 取消评论点赞（`T59`：重复取消 = 204 no-op）。 */
     @DeleteMapping("/api/v1/comments/{id}/like")
-    public ApiResponse<String> cancelCommentLike(@CurrentUserId long userId, @PathVariable("id") long commentId) {
+    public ResponseEntity<Void> cancelCommentLike(@CurrentUserId long userId, @PathVariable("id") long commentId) {
         likeService.cancelCommentLike(userId, commentId);
-        return ApiResponse.success("已取消点赞");
+        return ResponseEntity.noContent().build();
     }
 
     // ==================== 读（GET + 单例关系 / 计数投影） ====================

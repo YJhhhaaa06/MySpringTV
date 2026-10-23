@@ -7,6 +7,7 @@ import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import io.github.yjhhhaaa06.videoweb.content.service.ContentService;
 import io.github.yjhhhaaa06.videoweb.upload.service.FileUploadService;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -134,13 +135,13 @@ public class ContentController {
      */
     @DeleteMapping("/api/v1/contents/{id}/media")
     @RequiresLogin
-    public ApiResponse<String> mediaDelete(@CurrentUserId long userId,
-                                           @PathVariable("id") long contentId,
-                                           @RequestParam int type,
-                                           @RequestParam int sort) {
+    public ResponseEntity<Void> mediaDelete(@CurrentUserId long userId,
+                                            @PathVariable("id") long contentId,
+                                            @RequestParam int type,
+                                            @RequestParam int sort) {
         String oldUrl = contentService.deleteMedia(contentId, userId, type, sort);
         fileUploadService.deleteFileByUrl(oldUrl);
-        return ApiResponse.success("删除成功");
+        return ResponseEntity.noContent().build();
     }
 
     /**
@@ -155,11 +156,11 @@ public class ContentController {
      */
     @DeleteMapping("/api/v1/contents/{id}")
     @RequiresLogin
-    public ApiResponse<String> delete(@CurrentUserId long userId, @PathVariable("id") long contentId) {
+    public ResponseEntity<Void> delete(@CurrentUserId long userId, @PathVariable("id") long contentId) {
         List<String> mediaUrls = contentService.deleteContent(contentId, userId);
         for (String url : mediaUrls) {
             fileUploadService.deleteFileByUrl(url);
         }
-        return ApiResponse.success("删除成功");
+        return ResponseEntity.noContent().build();
     }
 }

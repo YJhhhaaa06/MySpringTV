@@ -63,9 +63,11 @@
     </select>
 
     <!-- TV: addFollow —— INSERT INTO follow (user_id, followed_user_id) VALUES (?, ?)
-         ⚠️ 不是 INSERT IGNORE（幂等口径是"先查后抛 409"，见 DAO Javadoc）。 -->
+         ★ T59 契约变更：改 INSERT IGNORE —— PUT /follows/{id} 是幂等设置，
+           重复/并发关注撞 uk_user_follow 时返回 0 行（= 已关注，无副作用），不再 409。
+           调用方据受影响行数决定是否 +1 两侧计数、跑大V判定与发事件。 -->
     <insert id="insertFollow">
-        INSERT INTO follow (user_id, followed_user_id) VALUES (#{userId}, #{followedUserId})
+        INSERT IGNORE INTO follow (user_id, followed_user_id) VALUES (#{userId}, #{followedUserId})
     </insert>
 
     <!-- TV: deleteFollow —— DELETE FROM follow WHERE user_id = ? AND followed_user_id = ? -->

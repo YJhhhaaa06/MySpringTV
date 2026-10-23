@@ -324,7 +324,8 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
         insertItemRow(toDelete, me.id, GHOST_CONTENT_ID);   // 失效条目的记录也要被删掉
         insertItemRow(keep, me.id, 2002L);
 
-        assertThat(removeFolder(toDelete, me.token).getStatusCode().value()).isEqualTo(200);
+        assertThat(removeFolder(toDelete, me.token).getStatusCode().value())
+                .as("`T59`：删除 = 204").isEqualTo(204);
 
         // DB 终态（两条写必须同进同退）
         assertThat(folderExists(toDelete)).as("夹行已删").isFalse();
@@ -362,7 +363,8 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
         // ★ 而且这个自建夹**名字就叫「默认收藏夹」**（上面刚改的）⇒ 一次同时证明两件事：
         //   ① 删除端点本身可用；② 保护**来自 is_default 列，与名字无关**。
         assertThat(removeFolder(custom, me.token).getStatusCode().value())
-                .as("自建夹即使叫「默认收藏夹」也必须删得掉（反向钉死「判列不判名」）").isEqualTo(200);
+                .as("自建夹即使叫「默认收藏夹」也必须删得掉（反向钉死「判列不判名」）；`T59`：204")
+                .isEqualTo(204);
         assertThat(folderExists(custom)).isFalse();
     }
 
