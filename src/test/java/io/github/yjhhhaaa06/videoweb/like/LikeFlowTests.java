@@ -119,6 +119,24 @@ class LikeFlowTests extends AbstractLikeIntegrationTest {
     }
 
     @Test
+    @DisplayName("★幂等取消只作用于本人：另一人没赞过时取消 ⇒ 204，且不扣别人的计数（T59 对照夹）")
+    void 取消未点赞_不扣别人的计数() {
+        String aToken = registerAndGetToken(AUTHOR_PHONE, AUTHOR);
+        String bToken = registerAndGetToken(OTHER_PHONE, OTHER);
+        long contentId = insertContent(ANY_AUTHOR_ID);
+        likeContent(contentId, aToken);
+
+        ResponseEntity<String> resp = cancelContentLike(contentId, bToken);
+
+        assertThat(resp.getStatusCode()).as("B 没赞过 ⇒ 幂等 204").isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(countContentLikeRows(contentId, userIdOf(AUTHOR_PHONE)))
+                .as("A 的记录仍在").isEqualTo(1L);
+        assertThat(contentLikeCountColumn(contentId))
+                .as("★ 不得因为 B 的 no-op 取消而扣掉 A 的计数（去掉受影响行数守卫 ⇒ 本断言红）")
+                .isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("给不存在的内容点赞：404（旧 E-11）")
     void 内容不存在404() {
         String token = registerAndGetToken(OTHER_PHONE, OTHER);

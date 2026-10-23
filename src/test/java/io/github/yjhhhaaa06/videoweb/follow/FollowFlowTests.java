@@ -131,6 +131,24 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
     }
 
     @Test
+    @DisplayName("★幂等取关只作用于本人：C 没关注过 A 时取关 ⇒ 204，且不扣 B 的 follower_count（T59 对照夹）")
+    void 取关未关注_不扣别人的计数() {
+        TestUser a = register(PHONE_A, "flow-a");
+        TestUser b = register(PHONE_B, "flow-b");
+        TestUser c = register(PHONE_C, "flow-c");
+        assertThat(follow(a.id(), b.token()).getStatusCode().value()).isEqualTo(200);   // b → a
+
+        var resp = unfollow(a.id(), c.token());   // c 从未关注 a
+
+        assertThat(resp.getStatusCode().value()).as("C 没关注过 ⇒ 幂等 204").isEqualTo(204);
+        assertThat(countFollowRows(b.id(), a.id())).as("b→a 关系行仍在").isEqualTo(1L);
+        assertThat(followerCountColumn(a.id()))
+                .as("★ 不得因为 C 的 no-op 取关而扣掉 A 的 follower_count（去掉受影响行数守卫 ⇒ 本断言红）")
+                .isEqualTo(1);
+        assertThat(followCountColumn(c.id())).isZero();
+    }
+
+    @Test
     @DisplayName("未登录：4 个端点全部 401（TV 的 `/follow` 是**前缀**保护项，`T58` 后改由类级注解表达）")
     void 未登录全部401() {
         TestUser a = register(PHONE_A, "flow-a");
