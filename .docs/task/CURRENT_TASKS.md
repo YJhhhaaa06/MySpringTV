@@ -16,11 +16,11 @@
 
 ## 周期头（每窗开读）
 
-* ★ **当前状态：无在办任务** —— **接口契约规范化专项（`T54`–`T62`）已于 2026-10-24 收口**
-  （`T61` 搁置，`R-23`）。结论 / 编号的唯一活入口 =
-  [接口契约.md 附录「编号速查」](../architecture/tech/api/接口契约.md#附录编号速查每号一行结论)
-  ＋ 护栏与产物篇 [接口契约-护栏与Spec](../architecture/tech/api/接口契约-护栏与Spec.md)。
-* ★ **下一期：待开窗**（方向由用户定）。**下一编号** = 任务 **`T63`** / 决策 **`R-25`** / 问题 **`I-30`** / 结转 **`F-28`**。
+* ★ **当前状态：本期已开窗 —— 写接口幂等专项 P0（`T63`–`T65`）**。方向 = `CURRENT_NEEDS.md` `N4` §G
+  的三条结构性修复；同一来源的 **P1（通用 `Idempotency-Key`，`R-24`）仍待拍板**，不在本期。
+  上一专项（接口契约 `T54`–`T62`）结论见
+  [接口契约.md 附录「编号速查」](../architecture/tech/api/接口契约.md#附录编号速查每号一行结论)。
+* ★ **下一编号** = 任务 **`T66`** / 决策 **`R-25`** / 问题 **`I-30`** / 结转 **`F-28`**。
   开工前先读：`CURRENT_NEEDS.md`（本期范围与反面清单）· `FURTHER_ISSUES.md`（结转池）·
   `architecture/tech/api/接口契约.md`（现在的对外契约长什么样）。
 * ★ **回归基线**（2026-10-24，`T62` 后复跑）：默认集 **806/806 绿**（`-DexcludedGroups=resilience`），
@@ -99,7 +99,136 @@
 * **回写**：（完成后三句内写清改了什么、验证结果；探索过程不写）
 ```
 
-**本期无在办任务**（`T54`–`T62` 已收口）。结转项见下表。
+**本期在办：`T63`–`T65`**（幂等专项 P0，来源 `N4` §G）。P1（`R-24`）待拍板，不在本期。
+
+### T63 媒体删除改为稳定标识定位（来源 `N4` §G·P0-1）【待执行】
+
+> ⚠️ **先质疑（G14）**：
+> - **任务**：这是"幂等需求"还是"缺陷"？—— 两者都是。它在 P1 幂等键下会被掩盖（同 key 重放），
+>   但幂等键依赖客户端正确复用 key；改定位是**服务端结构性正确**，且顺手消掉一个"重试即丢用户图"的窗口
+>   ⇒ **不该等 P1**。
+> - **设计**：代价是**对外契约变更**（删图的选择参数）。若判定"改契约成本 > 丢一张图的概率"⇒ 停下回报。
+>   但现状是重试会**删除另一个对象**（不是重复自己那份），默认按"必须修"处理。
+
+* **入口线索**：`ContentController#mediaDelete`（`DELETE /api/v1/contents/{id}/media?type=&sort=`，
+  提交后 `deleteFileByUrl`）；`ContentService#deleteMedia`（`findOwnedMedia` → `deleteMediaByContentIdAndTypeSort`
+  → `compactImageSort`）；`ContentMediaMapper.xml#compactImageSort`（`sort=sort-1 where type=2 and sort>?`）；
+  详情装配 `ContentCache#buildContentMedia` + `jointUrl`（`imageUrls` 是 `List<String>`，**不含 mediaId**，
+  且可能带 `video.media.base-url` 前缀）；`FileUploadService#saveFile`（文件名 `UUID + 后缀`）与
+  `resolveAbsolutePath`（只认 `/upload/{dir}/{file}`，**带前缀直接返回 null ⇒ 静默不删**）；
+  测试 `ContentAuthorTests:130,152,157,161`（全部用 `query("type","2","sort",…)`）；
+  契约面 `接口契约.md` §2.5 的 DELETE 例外清单 + `openapi.yaml`。
+* **目标**：删图按**稳定标识**定位 ⇒ 重试只可能 404，**不再命中另一张图**；`sort` 退回"仅展示排序"。
+* **红线边界**：
+  - 不动 `content_media` schema（迁移逐字节冻结）。
+  - 仍只允许 `type=2`；`compactImageSort` 保留（前端"第 N 张"语义）。
+  - 资源型删除"第二次 404"不变（接口契约 §2.4①），**不得**改成 204。
+  - 归属/参数顺序不变：内容 404 → 非作者 403 → `type≠2` 400 → 媒体不存在 404。
+  - **本任务内 DELETE 只保留一套定位**（`type + 稳定标识`），不得再留 `sort` 入口。
+    ⚠️ 换源 `PUT /contents/{id}/media` **仍按 `type+sort`**（文件动作，接口契约 §2.4② 已冻结）——
+    这是**既存形态、本任务不修**，但要在回写里登记残留："删完第 N 张后 `sort` 前移，原 `sort=N+1` 的换源会指向下一张"。
+  - ★ **删除语句必须按"查出来的 `mediaId`"删，且判 affected rows**（0 行 ⇒ 404）。
+    只把**查询**换成稳定标识、删除仍按 `sort` 是**无效修复**：查完到删之间若有别的请求压缩过 `sort`，照样删错行。
+  - ★ **`url` 唯一性不是 DB 约束**（`content_media` 只有 PK 与 `idx_content_id`；存量数据 url 也不是 UUID）。
+    查询必须 `ORDER BY id LIMIT 1`（或显式处理多行），**不得**假定唯一 —— 否则命中多行会 `TooManyResultsException` ⇒ 500。
+  - ★ **`url` 必须先归一化**：入参可能带 `video.media.base-url` 前缀（客户端拿到的就是拼好的值），
+    比较前剥离前缀；**物理删除只用 DB 行的 url**，绝不用客户端传值。
+* **强制探索**：① 载体二选一并写判据 —— **`?url=`（本任务取此路：详情零变更，url 是生成后不再复用的业务键）**
+  vs `?mediaId=`（真代理键，但详情媒体形状必须带 id ⇒ `imageUrls` 破坏性改造或并列数组 + `openapi.yaml` 变更）。
+  推翻条件：出现"同内容内 url 重复"或"客户端必须按 id 操作" ⇒ 改 `mediaId` 并同步详情形状；
+  ② grep 现存依赖 `type+sort` 的调用方 —— 已核实：`ContentAuthorTests` **会红**（须按 G8 写依据）、
+  `endpoint-inventory.tsv` **不含 query 列**、`RateLimitWeightTableTests` 按**路由模式**查表、`PayloadShapeContractTests`
+  不覆盖 `imageUrls` ⇒ 后三者**不受影响**（别再改它们）；旧 SPA `static/**/editWork.js` 调的是 T58 前的旧路径，早已 404（`R-23`）；
+  ③ `+` 在 query 里会被解成空格：UUID 与存量文件名都不含 `+`，写一句"入参须 URL-encode"即可，不加机制。
+* **验收**：
+  - ★ **重试用例（本任务的存在理由）**：3 张图，删第 2 张后**重发完全相同的请求** ⇒ 第二次 **404**，
+    且第 3 张**仍在**（终态 url 集合 = 原第 1、3 张）。反向验证：定位改回 `sort` ⇒ 本用例必红（只剩第 1 张）。
+  - ★ **并发双删同一标识**：恰好一个 204、一个 404，且剩余 `sort` 仍是 1..n 连续（打红"不看 affected rows / 再压一次"）。
+  - 鉴权/归属/参数四条路径逐条保持（含 `type≠2` 400）；`base-url` 非空时带前缀的 url 也能删中（归一化）。
+  - 契约面：`openapi.yaml` 重生成 + **review diff**，正确开关是 **`-Dapi.openapi.write=true`**
+    （登记簿是 `-Dapi.contract.write=true`；⚠️ 写成 `-Dapi.*.write=true` 会静默不生成）；§2.5 例外清单同步。
+  - `run_tests.py` 全量 + `--group resilience` 绿。
+* **回写**：
+
+### T64 重复领券返回原券码（来源 `N4` §G·P0-3）【待执行】
+
+> ⚠️ **先质疑（G14）**：
+> - **任务**：409 是"正确拒绝"，改 200 会掩盖真错吗？—— 只有"**本人已领过这张券**"才 200。
+> - **设计**：`I-25` 拒绝过"catch 1062 再翻译"。本任务**不是**推翻它 —— 不猜唯一键，改为**回查订单表**
+>   （确定事实）。若认为"多一次点查不值"，停下回报。
+> - ★ **优先级必须先定**（否则用例自相矛盾）：**回查在前** —— 已领过 ⇒ 200 + 原码，**与库存 / 时间窗无关**；
+>   只有**未领过**的人才可能因库存 0 / 未开始 / 已结束拿 409。
+
+* **入口线索**：`CouponService#grabCoupon`（`@Transactional`：`deductStock` → `insertOrder`）；
+  `CouponDao`（**无** `(coupon,user)` 窄查询 ⇒ 需新增）+ `CouponMapper.xml`；`CouponController#grab` → `CouponClaimVO`；
+  `GlobalExceptionHandler`（`DuplicateKeyException` → 409 `SYSTEM_DUPLICATE_KEY`）；
+  测试 `CouponFlowTests`（重复领券 409 断言）+ ★ **`CouponConcurrencyTests:88-112`**（8 线程断言"1 成功 + 其余全是
+  `DuplicateKeyException` + stock 减 1"，**改完必红，要一并改写**）；文档 `接口契约.md` §2.2「已知代价·第二例」
+  ＋ ★ 同篇 **`:73` / `:95` 的 409 例子清单**（含"重复收藏、重复领券"）＋ `CURRENT_ISSUES.md` 的 `I-25` 行。
+* **目标**：同 `(coupon,user)` 重复领券 ⇒ **200 + 原券码**（幂等重放）；码不变、库存不重复扣、订单仍 1 行。
+* **红线边界**：
+  - **禁止猜键**：不能 catch 后一律当"已领"（`uk_coupon_code` 撞车是真故障）。
+  - **可判定为重复的路径（先查命中）不得扣库存**。
+  - ★ **并发窗口下允许先扣，但撞键必须整笔回滚**（异常穿出事务边界）；
+    **回查必须发生在原事务结束之后**（按结果重入新事务，或拆到无事务的编排层）。
+    这不是可选项：① 在事务内 catch 住异常再查询并正常返回，`deductStock` 会**随事务提交**；
+    ② MySQL 默认 RR 下，同事务内的一致性读**看不到赢家刚提交的行** ⇒ 回查拿到 null。
+  - **不得**用 `SELECT … FOR UPDATE` 串行化（本仓已排除该手法，见 `FavoriteItemMapper.xml` 的死锁注释）。
+  - 不得在同类自调用上加 `@Transactional`（CM-2 同款坑）。
+  - 券码形状（16 位大写 hex）与 `CouponClaimVO` 形状不变；回查**不过滤 `coupon_order.status`**
+    （该列目前只读不写，2=已使用 尚无写入方）—— 按"不过滤"实现并登记为已知边界。
+* **强制探索**：① 并发窗口下"赢家必已提交"这一前提是否成立（撞键时 loser 的 INSERT 要等到赢家提交才会报 1062）
+  ⇒ 决定"回查一定能命中"可用；② `I-25` 的销账怎么写（"改成回查"而非"开始判 1062"）；
+  ③ 是否有更省的形态（先查命中 ⇒ 直接返回；未命中 ⇒ 走原有扣减 + 插入，撞键时**整体重试一次**）。
+* **验收**：
+  - 顺序两连：第 1 次 200 得码 A；第 2 次 **200 且 `couponCode == A`**；`coupon_order` 1 行、`coupon.stock` 只减 1。
+  - ★ **优先级用例**：领一次后把券改成**已结束**（或把 stock 改 0）→ 再领 ⇒ **仍 200 且同码**（打红"先判时间窗/库存"）。
+  - ★ **并发**（改写 `CouponConcurrencyTests`）：同 user 8 线程 ⇒ **8 条全 200、券码只有 1 个不同值**、
+    `stock` 减 1、订单 1 行。反向：去掉回查 ⇒ 出现 409 ⇒ 红。
+    ⚠️ 若实测**不可达**（例如 RR 下回查仍拿不到）⇒ 按 G3 **停下回报**，不许把期望值改成实测值（那正是迎合）。
+  - 真失败不变（**未领过者**）：库存 0 / 未开始 / 已结束 ⇒ 409；不存在的 couponId ⇒ 409。
+  - 契约跟随三处：`接口契约.md` §2.2 的 `I-25` 改**已销账**、`:73`/`:95` 的 409 例子删掉"重复领券"、
+    `CURRENT_ISSUES.md` 的 `I-25` 行同步；`CouponFlowTests` 的 409 用例注明依据。
+* **回写**：
+
+### T65 重复收藏改为幂等成功（来源 `N4` §G·P0-4）【待执行】
+
+> ⚠️ **先质疑（G14）**：
+> - **任务**：`T59` 已把 like / follow / watch-later / 收藏移动做成幂等，`POST /favorites` 是漏网的一条
+>   ⇒ 需求成立，且与 `T59` 口径一致。
+> - **设计**：★ **「夹已满 + 重复收藏」从 400 变 200 不是"复用 `addItemIfAbsent` 的连带变更"，而是目标的强制结果**
+>   —— 只要目标写"重复 = 200"，实现就必须在抛出 400 之前知道它是重复；任何保留 400 的写法都会让
+>   "首次 200、重试 400"这对响应不幂等（`N4` 的两层判据）。**所以没有"保留 400 同时幂等"这条路**；
+>   要么接受 200，要么放弃本任务。
+
+* **入口线索**：`FavoriteService#addItem` / `#addItemIfAbsent`（`insertItemIgnore` + `existsByFolderAndContent`）；
+  ★ **`#moveItem` 里还有第三份内联实现**（`existsByFolderAndContent` → `requireFolderCapacity` → `insertItemIgnore`）；
+  `FavoriteItemDao`；`FavoriteController#addItem`；断言点 `FavoriteItemWriteTests:94-113`（重复 409）、
+  `FavoriteCapacityTests:286-303`（满夹 + 重复 400）；`ErrorCode` 里"收藏按唯一键兜底"的注释。
+* **目标**：重复收藏 = **200**（终态已达成），不重复插入、不重复计数重算；与 `T59` 的 like/follow 同口径。
+* **红线边界**：
+  - 不变量 `favorite_count == COUNT(DISTINCT user_id)` 仍成立（重复不得再 +1）。
+  - 失败面不变：内容失效 404 / 他人夹 403 / 夹不存在 404 / **加新内容**时夹满 400。
+  - ★ **重复判定必须在容量判定之前**（否则满夹重试仍 400 —— 见"先质疑"）。省查询的写法：
+    "满夹分支才查重、未满直接插"，不要为每次收藏都多一次 `exists`。
+  - 并发判据靠 `INSERT IGNORE` + affected rows，不得只靠"先查后插"。
+  - 既有 409 用例属**契约跟随**（G8 例外），用例注释必须写依据（`N4` §G / `T65`）。
+  - `PUT /watch-later/{id}/folder` 依赖的"满夹重复移动必须成功"不得回退。
+* **强制探索**：① 三份"幂等加入"判据（`addItem` / `addItemIfAbsent` / `moveItem` 内联）如何收敛 ——
+  要么抽一个私有方法，要么写明第三份为什么不收；② 重复路径上的副作用实际只有三件事
+  （`favoriteAdded` 的 SADD、`invalidateFavoriteCount` 的 DEL、`recountFavoriteCounts` 的绝对值重算），
+  **三者本身都幂等、且本域写路径没有任何 `publishEvent`** ⇒ 不要用"缓存事件只发一次"做验收（那是断言内部调用，
+  违反纪律①，也证明不了用户可见的重复副作用）；③ `favorite.md:227` 写着"目标夹已有同内容 409"，
+  这是 `T59` 之后**既存漂移**，本任务顺带修正。
+* **验收**：
+  - 连发两次同 `(user, folder, content)` ⇒ **两次 200**；`favorite_item` **1 行**、
+    `content.favorite_count` **直查 = 1**（不读接口回显，独立 oracle）。
+  - ★ **并发两线程**同 `(user, folder, content)` ⇒ 两个 200、`favorite_item` 恰 1 行、`favorite_count` = 1。
+    （没有这条，"靠 `INSERT IGNORE` 不得只靠先查后插"这条红线**无法被判红**。）
+  - 满夹 + 重复 ⇒ **200**（新口径显式用例）；满夹 + 新内容 ⇒ 400（不变）。
+  - 对照夹具：另一用户 / 另一内容 / 另一夹不受影响（去掉 `WHERE` 项必红）。
+  - 全量 + resilience 绿；`ErrorCode` 与 `favorite.md` 的过期口径同批改。
+* **回写**：
 
 ---
 
@@ -111,7 +240,8 @@
 | 来源 | 事项 | 去向（决定人 + 日期） |
 |------|------|---------------------|
 | 接口契约专项（2026-10-24 收口） | **`T61` 前端适配层** —— 原目标"旧 SPA 不挂" | **搁置**（`R-23`，2026-10-23）：旧 SPA 随前端重制整体删除 ⇒ 不为将死代码续命；是否改成"重制前的消费样例"由重制期重定 |
-| 接口契约专项（2026-10-24 收口） | **`R-24` 客户端幂等键（requestId / Idempotency-Key）** | **待拍板**（`CURRENT_NEEDS.md` §三）；`T59` 未加死字段。推翻条件 = 出现真实重复提交事故或重制明确要求 |
+| 接口契约专项（2026-10-24 收口） | **`R-24` 通用客户端幂等键（`Idempotency-Key`）** —— 本期 P1 | **待拍板**（`CURRENT_NEEDS.md` §三）。**范围已定**（`N4` §G）：评论 / 视频 / 图文 / 投币 4 端点；载体 / 存储 / 严格性待定。P0 三条已入 `T63`–`T65`，**不阻塞本条**。推翻条件 = 前端重制不做自动重试 |
+| 幂等专项开窗（2026-10-24） | **收藏夹重名**（`POST /favorite-folders` 重试会建两个同名夹） | **留池**（`N4` §G·P2）：重名是 `T16` 有意允许的业务（加唯一键会破业务），且夹可改名可删、影响面小 |
 | 接口契约专项（2026-10-24 收口） | **`I-27` 上传超限 / 畸形 multipart 仍是 500** | **待裁决**（是否新增 413 类别）⇒ 已结转 `FURTHER_ISSUES.md`（保留原编号） |
 | 接口契约专项（2026-10-24 收口） | **`I-28` 并发投币撞封顶偶发 500**（MySQL 死锁被兜成 500，既存竞态） | **待排期**（下期小任务：Service 死锁重试 *或* 缩小事务持锁面）⇒ 已结转 `FURTHER_ISSUES.md` |
 | 本期收口复核（2026-10-21） | 下表三行**逐行复核：全部维持原决定**，无一条满足其推翻条件 | **维持**（本行不删；下期收尾再复核） |
