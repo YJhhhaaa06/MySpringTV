@@ -198,9 +198,11 @@ public enum ErrorCode {
     /**
      * DB 唯一键竞态兜底（409）。
      *
-     * <p>业务层已先查重，并发下仍可能撞唯一键（{@code users.phone} / {@code users.username} /
-     * 点赞、收藏、关注的联合唯一键）。{@code GlobalExceptionHandler} 拿到的是
-     * {@code DuplicateKeyException}，**无法知道撞的是哪个键** —— 硬猜会把「用户名占用」错报成「手机号占用」。
+     * <p>业务层已先查重，并发下仍可能撞唯一键（{@code users.phone} / {@code users.username}）。
+     * ★ 点赞 / 关注（`T59`）与收藏（`T65`）的联合唯一键**不再落到本码**：它们的重复是幂等
+     * 终态（{@code INSERT IGNORE} 的 0 行 = 成功），不产生 409。
+     * {@code GlobalExceptionHandler} 拿到的是 {@code DuplicateKeyException}，**无法知道撞的是哪个键**
+     * —— 硬猜会把「用户名占用」错报成「手机号占用」。
      * 故用 SYSTEM 前缀如实表达「基础设施层冲突，值已存在」。
      * <p>★ 优惠券自 `T64` 起只剩 {@code uk_coupon_code}（券码随机撞车）会落到本码：
      * 重复领券改为**回查订单表**后返回原券码，不再进 409。

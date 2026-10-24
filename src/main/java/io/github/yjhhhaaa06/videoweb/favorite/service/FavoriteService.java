@@ -79,7 +79,7 @@ import java.util.Set;
  * **本类的 public 入口**上，别标在同类内部调用的私有方法上（自调用绕过代理 ⇒ 静默失效）。
  * <ul>
  *   <li>{@link #moveItem} —— **两条写必须同进同退**（插入目标夹 + 从源夹删除）⇒
- *       {@code @Transactional}；先插后删：目标夹撞唯一键（409）时源夹必然未动；</li>
+ *       {@code @Transactional}；先插后删：目标夹插入失败（容量 400 / DB 出错）时源夹必然未动；</li>
  *   <li>{@link #deleteFolder} —— **两条写必须同进同退**（删条目 + 删夹）⇒ {@code @Transactional}；</li>
  *   <li>{@link #addItem} / {@link #removeItems} —— 一期各自只有一条写、**刻意不加事务**
  *       （§四"纯读/单写不为取连接套事务"）；★ **T12 起升级为 {@code @Transactional}**：
@@ -467,9 +467,9 @@ public class FavoriteService {
      *   <li><b>容量 → 400</b>（T16）：目标夹已达上限（默认夹 {@code defaultFolderMaxItems} =
      *       5000 / 自建夹 {@code customFolderMaxItems} = 500，**按 {@code is_default} 分流**）
      *       ⇒ 400。★ <b>排在归属之后</b>，理由见下节；</li>
-     *   <li><b>重复收藏 → 409</b>：不预查，撞唯一键 {@code uk_folder_content} 由
-     *       {@code DuplicateKeyException} 全局映射（并发安全，"幂等拒绝"——
-     *       第二次收藏不产生副作用、也不算错误状态被 500 化）。</li>
+     *   <li><b>重复收藏 → 200（终态已达成）</b>：`T65` 起与 `T59` 的 like / follow 同口径 ——
+     *       不重复插入、不重复计数重算、不刷新缓存，响应与首次成功**逐字相同**。
+     *       判据是 {@code INSERT IGNORE} 的受影响行数（并发安全），**不是**"先查后插"。</li>
      * </ol>
      *
      * <h2>★ 为什么容量 400 判在"夹归属 403/404"<b>之后</b>（T16 的关键口径）</h2>
@@ -486,11 +486,20 @@ public class FavoriteService {
      * ⇒ 口径定为"<b>参数型 400 先于归属；状态型 400 后于归属</b>"，两类各按自己的理由排序，
      * 而不是把"400"当成一个整体。★ 由用例钉住：往**他人已满的夹** add ⇒ <b>403（不是 400）</b>。
      *
-     * <h2>★ 满夹时"重复收藏"返回 400 而非 409（已知副作用，T16 钉住）</h2>
-     * 容量检查在 {@code insertItem} <b>之前</b>，而"重复"是靠撞 {@code uk_folder_content}
-     * <b>自然产生</b>的（不预查）⇒ 夹已满时，"这条内容其实早就在夹里"也照样得到 400。
-     * 想反过来（先判重复）就必须"先查后插"—— 那正是本仓明确拒绝的形态（并发下必漏 + 多一次查询）。
-     * ⇒ 取"夹满 ⇒ 一律 400"这个<b>更简单、不变量更强</b>的口径，并用"现行为钉子"式用例写死。
+     * <h2>★ `T65`：满夹时先判"重不重复"，再决定 200 还是 400</h2>
+     * 只要"重复收藏 = 200"，容量闸就**必须**在报 400 之前知道"这条其实早在夹里"——
+     * 否则同一条请求首次 200、重试（此时夹已被自己塞满）400，这对响应**不幂等**，
+     * 自动重试的客户端会拿到一个与事实矛盾的结果（`N4` §G·P0-4）。
+     * 具体做法（见 {@link #insertIdempotent}）：**只在满夹分支**才多一次
+     * {@code existsByFolderAndContent} 点查 —— 未满路径不为"判重复"多一次查询，
+     * 重复由 {@code INSERT IGNORE} 的 0 行兜住（并发下先查后插必然漏，故它**只用来省一次写**
+     * 与让"满夹重复"成功，不承担并发正确性）。
+     *
+     * <h2>★ 三份"幂等加入"收敛到一处（`T65`）</h2>
+     * 本方法 / {@link #addItemIfAbsent} / {@link #moveItem} 原先各写一份
+     * （{@code existsByFolderAndContent} → 容量 → {@code insertItemIgnore}），口径容易分叉。
+     * 现统一由 {@link #insertIdempotent} 承担"容量 + 重复 + 插入 + 重算 + 缓存"，
+     * 三者只在**入口校验与返回值用途**上有差别（见各方法注释）。
      *
      * <h2>★ {@code folderId == null}：默认夹懒建（R-01 的唯一落点）</h2>
      * favorite-需求.md §二：「收藏时没选夹，内容自动进默认收藏夹」。新用户**没有任何途径**
@@ -514,6 +523,37 @@ public class FavoriteService {
      */
     @Transactional
     public void addItem(long userId, Long folderId, long contentId) {
+        // ★ `T65`：与 {@link #addItemIfAbsent} 同一份实现 —— 重复 = 终态已达成（200）。
+        addItemIdempotent(userId, folderId, contentId);
+    }
+
+    /**
+     * 收藏一条内容并返回"是否真的新收进"（`T65` 起与 {@link #addItem} 同一份实现）。
+     *
+     * <p>★ <b>历史</b>：`T59` 时它只服务 {@code PUT /watch-later/{id}/folder}，且与 {@code addItem}
+     * 的唯一差别是"重复 ⇒ 返回 false 而不是 409"。`T65` 把 {@code POST /favorites} 也改成幂等成功后，
+     * 两者的**校验顺序与失败面完全一致**，差别只剩"要不要那个布尔值"——
+     * 故保留本方法只为调用方（{@code WatchLaterService} 需要它区分"移入了新的 / 早已在夹里"），
+     * 语义口径与 {@link #addItem} **逐条相同**（404 / 403 / 400 / 重复 200）。
+     *
+     * <p>容量判定与插入之间仍可能有并发窗口（同 {@link #addItem} 既有口径），由
+     * {@code INSERT IGNORE} 兜"重复"，容量本身的竞态不在本方法新增。
+     *
+     * @return {@code true} = 本次真的新收进；{@code false} = 目标夹早已有（终态已达成）
+     */
+    @Transactional
+    public boolean addItemIfAbsent(long userId, Long folderId, long contentId) {
+        return addItemIdempotent(userId, folderId, contentId);
+    }
+
+    /**
+     * 收藏的唯一实现（`T65`）：入口校验（内容 404 → 夹 404/403 / 懒建）→ {@link #insertIdempotent}。
+     *
+     * <p>⚠️ 私有，被两个 public 入口调用 ⇒ 事务边界在 public 那两处（自调用绕过代理）。
+     *
+     * @return {@code true} = 新收进；{@code false} = 目标夹早已有
+     */
+    private boolean addItemIdempotent(long userId, Long folderId, long contentId) {
         if (!contentDao.isContentExist(contentId)) {
             throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
         }
@@ -529,67 +569,7 @@ public class FavoriteService {
             targetFolderId = target.getId();
             targetIsDefault = target.defaultFolder();
         }
-        // ★ 容量（T16）：判在**归属之后、插入之前** —— 理由见方法注释"为什么容量 400 判在归属之后"。
-        //   懒建路径同样过这一关：刚建出来的默认夹必然是 0 条（空表索引点查）——
-        //   省掉它就要区分"刚建 / 本来就存在"，多一个分支不值得省一次 COUNT。
-        requireFolderCapacity(targetFolderId, targetIsDefault);
-        itemDao.insertItem(targetFolderId, userId, contentId);
-        // ★ T12 计数重算（本事务内）：插入已生效 ⇒ 聚合看到"收完之后"的状态。
-        //   409 路径在上一步就抛了（事务回滚），不会走到这里 ⇒ 被拒的请求不留计数痕迹。
-        recountFavoriteCounts(List.of(contentId));
-        // ★ T11 缓存（提交后）：本方法**有事务**（T12 起）⇒ AfterCommit 登记 afterCommit 回调，
-        //   回滚则整个回调不执行。409 路径同样不会走到这里 ⇒ 被拒的请求不留缓存痕迹。
-        //   ① 成员侧走**唯一**的条件写 SADD：收藏的变化是**单调**的（收藏过 ⇒ 写后仍收藏过；
-        //      "收进第二个夹"时 SADD 是幂等 no-op）⇒ 不需要知道"他以前是否收藏过这条"；
-        //   ② 计数侧一律 DEL：本方法可能把收藏数 +1，也可能**不变**（该内容他已在别的夹），
-        //      而我们不为此多查一次库 —— 失效让读回源永远给出正确答案（T12 后回源读列，
-        //      而列已被上面那次重算与本事务对齐）。
-        AfterCommit.run(() -> {
-            favoriteCache.favoriteAdded(userId, contentId);
-            favoriteCache.invalidateFavoriteCount(contentId);
-        });
-    }
-
-    /**
-     * 幂等收藏一条（`T59`，仅供 {@code PUT /watch-later/{id}/folder} 的「移入收藏夹」使用）。
-     *
-     * <p>与 {@link #addItem} 的差异**只在重复语义**：目标夹已有该内容 ⇒ 返回 false，
-     * 不报 409、不重复计数、也**不判容量**（满夹重复移动必须成功）。
-     * 创建语义的 {@code POST /favorites} 仍走 {@link #addItem}（重复 = 409）。
-     *
-     * <p>容量判定与插入之间仍可能有并发窗口（同 {@link #addItem} 既有口径），由
-     * {@code INSERT IGNORE} 兜"重复"，容量本身的竞态不在本方法新增。
-     *
-     * @return {@code true} = 本次真的新收进；{@code false} = 目标夹早已有（终态已达成）
-     */
-    @Transactional
-    public boolean addItemIfAbsent(long userId, Long folderId, long contentId) {
-        if (!contentDao.isContentExist(contentId)) {
-            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
-        }
-        long targetFolderId;
-        boolean targetIsDefault;
-        if (folderId == null) {
-            targetFolderId = ensureDefaultFolder(userId);
-            targetIsDefault = true;
-        } else {
-            FavoriteFolder target = requireOwnedFolder(userId, folderId);
-            targetFolderId = target.getId();
-            targetIsDefault = target.defaultFolder();
-        }
-        if (itemDao.existsByFolderAndContent(targetFolderId, contentId)) {
-            return false;
-        }
-        requireFolderCapacity(targetFolderId, targetIsDefault);
-        if (itemDao.insertItemIgnore(targetFolderId, userId, contentId) == 0) {
-            return false;   // 并发重复：另一事务已收进
-        }
-        recountFavoriteCounts(List.of(contentId));
-        AfterCommit.run(() -> {
-            favoriteCache.favoriteAdded(userId, contentId);
-            favoriteCache.invalidateFavoriteCount(contentId);
-        });
-        return true;
+        return insertIdempotent(userId, targetFolderId, targetIsDefault, contentId);
     }
 
     /**
@@ -659,7 +639,8 @@ public class FavoriteService {
      * 两条关系写（插入目标夹 + 从源夹删除）必须同进同退，否则留下"两边都有"或"两边都没有"。
      * ★ `T59` 起**幂等移动**：目标夹已有同内容 ⇒ {@code INSERT IGNORE} 返回 0 行，视为成功，
      * 只清源夹（不重复计数）；{@code from == to} ⇒ 直接 no-op（200）。
-     * 满夹时"目标已有"也照样成功——容量判定被跳过，否则重复移动会被误判成 400。
+     * 满夹时"目标已有"也照样成功 —— `T65` 起容量闸在满夹分支**先判重复**，重复即"终态已达成"，
+     * 否则重复移动会被误判成 400，而 `T65` 的 add 口径恰好相反（首次 200、重试 200）。
      * ★ 插入仍先于删除：即便 DB 在删除一步出错，事务回滚也兜住；幂等路径不再需要 409 保源夹。
      * ★ T12 起事务里还有第三条语句：计数重算（{@link #recountFavoriteCounts}，见方法体注释
      * —— 任务书"三条路径"漏了 move，边缘态会打破不变量，用户 2026-10-12 拍板接入）。
@@ -696,15 +677,11 @@ public class FavoriteService {
         }
         // ★ 目标夹取回**实体**（不只是校验归属）：容量判定要它的 is_default（分流 500 / 5000）。
         FavoriteFolder target = requireOwnedFolder(userId, toFolderId);
-        int inserted = 0;
-        // ★ T59：目标已有 ⇒ 跳过容量与插入（满夹重复移动也必须成功），只清源夹。
-        if (!itemDao.existsByFolderAndContent(target.getId(), contentId)) {
-            // ★ 容量（T16）：判在目标夹归属之后、插入之前 —— 漏掉这条就能绕道 move 撑爆目标夹。
-            requireFolderCapacity(target.getId(), target.defaultFolder());
-            inserted = itemDao.insertItemIgnore(toFolderId, userId, contentId);
-        }
+        // ★ T59 + T65：与 add 共用同一份"幂等加入" —— 目标已有 ⇒ false（不插、不重算、不碰缓存），
+        //   满夹时重复也照样成功；新内容且满夹 ⇒ 容量 400（这里抛，源夹必然未动）。
+        boolean inserted = insertIdempotent(userId, target.getId(), target.defaultFolder(), contentId);
         int deleted = itemDao.deleteByFolderAndContentIds(fromFolderId, List.of(contentId));
-        if (inserted == 0 && deleted == 0) {
+        if (!inserted && deleted == 0) {
             return;   // 目标已有、源也没有 ⇒ 终态已达成，不动计数与缓存
         }
         // ★ T12 计数重算（本事务内）。⚠️ 任务书原文只列 add / remove / deleteFolder 三条路径，
@@ -1130,7 +1107,7 @@ public class FavoriteService {
      *       那是 <b>不可自愈</b>的死局（且会重演 I-08 的前端互锁）。★ 由用例钉住
      *       （"19 个自建夹 + 1 个默认夹 ⇒ 还能建第 20 个"）；</li>
      *   <li><b>400 而不是 409</b>：与"夹名空 / 格式非法 ⇒ 400"同族（{@code favorite.md} §八）；
-     *       409 在本域留给"撞唯一键的重复收藏"与"默认夹不可删"两处；</li>
+     *       409 在本域只剩"默认夹不可删"一处（`T65` 起重复收藏是 200、不再撞键报错）；</li>
      *   <li>⚠️ <b>软上限</b>：本方法与随后的 {@code INSERT} 之间没有锁 ⇒ 真并发下可越界
      *       （≤ 并发请求数、越界后自限）。用户 2026-10-14 拍板接受 ——
      *       完整论证（含"为什么不上用户行锁"）见 {@link FavoriteLimitProperties} 类注释。</li>
@@ -1149,9 +1126,29 @@ public class FavoriteService {
     }
 
     /**
-     * 夹内条目上限（T16）：目标夹已达上限 ⇒ 400「收藏夹已满」。
+     * **幂等加入一个夹的唯一出口**（`T65`）：容量（T16）→ 重复判定 → 插入 → 计数重算 → 缓存失效。
      *
-     * <h2>四条口径</h2>
+     * <p>三个调用方（{@link #addItem} / {@link #addItemIfAbsent} / {@link #moveItem}）原先各有一份
+     * "existsByFolderAndContent → 容量 → insertItemIgnore"的内联实现，口径分叉的风险高于复用成本
+     * ⇒ 收敛到这里。三者只在**入口校验**（move 要先校验源夹 / 同夹 no-op）与**返回值用途**上有差别。
+     *
+     * <h2>★ 顺序：满夹时先判重复，再报 400（`T65` 的目标强制项）</h2>
+     * "重复 ⇒ 200"要求实现在抛 400 之前识别出"它其实已经在夹里"—— 否则同一条请求
+     * 首次 200、重试 400（重试时夹已被自己塞满），响应不幂等。
+     * <ul>
+     *   <li><b>未满</b>：不查重，直接 {@code INSERT IGNORE} —— 重复由返回 0 行表达（并发安全）；</li>
+     *   <li><b>已满</b>：先 {@code existsByFolderAndContent}（一次索引点查）⇒ 命中即终态已达成
+     *       （返回 false，不报 400）；未命中才 400。这一支只在满夹时发生，**不给每次收藏加查询**。</li>
+     * </ul>
+     * ⚠️ 先查**不承担并发正确性**（并发下两个事务都可能查到"没有"）—— 判据仍是
+     * {@code insertItemIgnore} 的受影响行数：0 行 ⇒ 别的请求已收进 ⇒ 同样返回 false。
+     *
+     * <h2>★ 重复路径的副作用只有一个：什么都不做</h2>
+     * 返回 false 时**不**跑 {@link #recountFavoriteCounts}、**不**登记 {@link AfterCommit}
+     * —— 计数列与缓存都停留在"首次成功"的那份终态上（本域写路径没有任何事件发布，
+     * 缓存是直接调 {@link FavoriteCache}，而 SADD / DEL / 绝对值重算三者本身都幂等）。
+     *
+     * <h2>容量口径（T16，原 {@code requireFolderCapacity} 的四条不变）</h2>
      * <ul>
      *   <li>★ <b>两档分流</b>：默认夹 {@code defaultFolderMaxItems}（5000）、自建夹
      *       {@code customFolderMaxItems}（500）—— 判据是目标夹行的 {@code is_default}，
@@ -1170,16 +1167,44 @@ public class FavoriteService {
      * 分出 400 / 403，等于给他人夹（含私密夹）的夹内尺寸开探测口
      * （完整论证见 {@link #addItem} 的"为什么容量 400 判在归属之后"节）。
      *
-     * @param folderId 目标夹（调用方保证：已校验存在且属于当前用户）
+     * <h2>计数的两条写与缓存的时机（T12 / T11）</h2>
+     * 插入成功后才有第二条写（{@link #recountFavoriteCounts}，本事务内 —— 列与明细必须同进同退）
+     * 与缓存动作（{@link AfterCommit}，提交后才碰）：
+     * ① 成员侧走**唯一**的条件写 SADD：收藏的变化是**单调**的（收藏过 ⇒ 写后仍收藏过；
+     * "收进第二个夹"时 SADD 是幂等 no-op）⇒ 不需要知道"他以前是否收藏过这条"；
+     * ② 计数侧一律 DEL：本次可能把收藏数 +1，也可能**不变**（该内容他已在别的夹），
+     * 而我们不为此多查一次库 —— 失效让读回源永远给出正确答案。
+     *
+     * @param userId    收藏人（调用方保证等于该夹的归属用户）
+     * @param folderId  目标夹（调用方保证：存在、属于当前用户）
      * @param isDefault 目标夹是否为默认夹（分流两档上限）
+     * @param contentId 内容 id（调用方保证内容存在且未失效）
+     * @return {@code true} = 本次真的新收进；{@code false} = 目标夹早已有（终态已达成，无任何副作用）
      */
-    private void requireFolderCapacity(long folderId, boolean isDefault) {
+    private boolean insertIdempotent(long userId, long folderId, boolean isDefault, long contentId) {
         int max = isDefault ? limits.defaultFolderMaxItems() : limits.customFolderMaxItems();
         if (itemDao.countByFolderId(folderId) >= max) {
+            // ★ 满夹：先判"是不是重复"（否则重复重试会得到与首次矛盾的 400）。
+            if (itemDao.existsByFolderAndContent(folderId, contentId)) {
+                return false;
+            }
             throw new ParamException(ErrorCode.FAVORITE_FOLDER_FULL, isDefault
                     ? "默认收藏夹已满（最多 " + max + " 条）"
                     : "收藏夹已满（最多 " + max + " 条）");
         }
+        if (itemDao.insertItemIgnore(folderId, userId, contentId) == 0) {
+            return false;   // 并发重复：另一事务已收进（先查不承担并发正确性，这一行才是判据）
+        }
+        // ★ T12 计数重算（本事务内）：插入已生效 ⇒ 聚合看到"收完之后"的状态。
+        //   容量 400 与重复路径在上两步就返回了 ⇒ 被拒 / 已达成态的请求不留计数痕迹。
+        recountFavoriteCounts(List.of(contentId));
+        // ★ T11 缓存（提交后）：本方法跑在调用方事务里 ⇒ AfterCommit 登记 afterCommit 回调，
+        //   回滚则整个回调不执行。重复路径不会走到这里 ⇒ 不留缓存痕迹。
+        AfterCommit.run(() -> {
+            favoriteCache.favoriteAdded(userId, contentId);
+            favoriteCache.invalidateFavoriteCount(contentId);
+        });
+        return true;
     }
 
     /**

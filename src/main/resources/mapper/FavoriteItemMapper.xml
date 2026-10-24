@@ -5,8 +5,8 @@
 <!--
   收藏记录 Mapper（表 favorite_item，V2 建）。
 
-  T2 落"删夹一并删条目"这一条（R-02）；T4 补入收藏（insertItem）与移出
-  （deleteByFolderAndContentIds，批量移出 + move 的源侧删除共用）；
+  T2 落"删夹一并删条目"这一条（R-02）；T4 补入收藏（裸 INSERT；★ T65 起重复收藏改为幂等成功
+  ⇒ 只留 insertItemIgnore）与移出（deleteByFolderAndContentIds，批量移出 + move 的源侧删除共用）；
   T5 补入状态（findFoldersByUserAndContent）与计数（单内容实时 COUNT；★ T12 读路径切列时
   已退役删除，oracle 口径由测试 SQL 承接，批量形态见下面 countDistinctUsersByContentIds）；
   T6 补入夹内分页（countByFolderId + findPageByFolderId）—— 本仓纪律是**不提前写无主 SQL**。
@@ -29,18 +29,13 @@
         DELETE FROM favorite_item WHERE folder_id = #{folderId}
     </delete>
 
-    <!-- 收藏一条内容进一个夹（T4：/favorite/add 与 /favorite/move 共用）。
-         ⚠️ 撞 uk_folder_content ⇒ DuplicateKeyException ⇒ 全局出口 409（重复收藏幂等拒绝），
-           不写"先查后插"。user_id 是冗余列（归属已由 service 校验"夹是我的"）。
+    <!-- 幂等收藏一条（`T59` 引入；★ `T65` 起是**全部**收藏写路径的唯一插入语句）。
+         目标夹已有同内容 / 并发重复 ⇒ 0 行，调用方视为"终态已达成"（POST /favorites 的重复
+         也回 200）；判据是**受影响行数**，不是"先查后插"。
+         ⚠️ 不得改回裸 INSERT：那会让并发重复撞 uk_folder_content ⇒ 409，把 `T65` 的幂等口径打掉。
+         user_id 是冗余列（归属已由 service 校验"夹是我的"）。
          ⚠️ 内容存在性由 service 先校验（ContentDao.isContentExist 带 is_deleted = 0），
            本 SQL 不碰 content 表 —— 「失效不可移入」由校验自然产生，别在这里写分支。 -->
-    <insert id="insertItem">
-        INSERT INTO favorite_item (folder_id, user_id, content_id)
-        VALUES (#{folderId}, #{userId}, #{contentId})
-    </insert>
-
-    <!-- ★ T59：幂等移动专用（PUT /favorites/{id} 与 PUT /watch-later/{id}/folder）。
-         目标夹已有同内容 / 并发重复 ⇒ 0 行，调用方视为成功；POST /favorites 仍走 insertItem（409）。 -->
     <insert id="insertItemIgnore">
         INSERT IGNORE INTO favorite_item (folder_id, user_id, content_id)
         VALUES (#{folderId}, #{userId}, #{contentId})

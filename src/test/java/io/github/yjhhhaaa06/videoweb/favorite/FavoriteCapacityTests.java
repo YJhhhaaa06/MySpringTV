@@ -29,7 +29,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       （往他人已满的夹 add ⇒ <b>403 而非 400</b>）；</li>
  *   <li>★ <b>20 上限不拦默认夹懒建</b>（满 20 个自建夹的用户，不选夹收藏仍 ⇒ 200 且默认夹建出来）
  *       —— 这是最尖锐的一条：若被拦住就是**不可自愈**的死局（重演 I-08 的互锁）；</li>
- *   <li>★ 满夹时"重复收藏"⇒ <b>400 而非 409</b>（已知副作用的钉子，见 {@code FavoriteService.addItem}）；</li>
+ *   <li>★ 满夹时"重复收藏"⇒ <b>200</b>（`T65` 目标强制口径：重复必须在容量 400 之前被识别，
+ *       见 {@code 满夹时重复收藏也返回200}）；同夹加**新**内容仍 400；</li>
  *   <li>★ <b>条数只看目标夹</b>：源夹已满而目标夹未满 ⇒ 移入必须成功（误数源夹 / 数全局都会红）。</li>
  * </ul>
  *
@@ -59,7 +60,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>去掉 {@code createFolder} 的夹数判定 ⇒ <b>4 例红</b>（自建夹个数上限 · 默认夹不计入个数上限 ·
  *       夹名非法先于个数上限 · 夹数上限不拦默认夹懒建）；</li>
  *   <li>去掉 {@code addItem} / {@code moveItem} 的容量判定 ⇒ <b>4 例红</b>（自建夹条数上限 ·
- *       默认夹条数上限与自建夹分流 · 满夹时重复收藏返回 400 · 移动到已满的夹被拒）；</li>
+ *       默认夹条数上限与自建夹分流 · 满夹时重复收藏也返回200（后半段"新内容仍 400"） ·
+ *       移动到已满的夹被拒）；</li>
  *   <li>把夹数 SQL 的 {@code AND is_default = 0} 去掉（改成数全部夹）⇒ <b>1 例红</b>（默认夹不计入个数上限）；</li>
  *   <li>把容量判定挪到夹归属<b>之前</b> ⇒ <b>1 例红</b>（他人已满的夹返回 403 而非 400）；</li>
  *   <li>★ <b>去掉夹数 SQL 的 {@code user_id} 谓词</b>（改成数全站自建夹）⇒ <b>1 例红</b>（自建夹个数上限）；</li>
@@ -75,8 +77,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@code FavoriteSchemaTests} 的索引全集断言。
  * ⚠️ <b>读注入结果时注意判别力的分布</b>：① "默认夹不计入个数上限"会被**两种**注入打红 ——
  * 第 1 条（判定整体被拿掉时，它后半段"再建一个必须 400"的**对照断言**失败）与第 3 条（谓词写宽时，
- * 它前半段"'第 20 个自建夹' 必须 200"失败）；② "满夹时重复收藏 400" 只由 {@code addItem} 那条打红
+ * 它前半段"'第 20 个自建夹' 必须 200"失败）；② "满夹时重复收藏也返回200" 只由 {@code addItem} 那条打红
  * （{@code move} 那条与它无关）。⇒ 别只看"红了几例"，要能指出**是哪一条断言先倒**。
+ * <p>★ `T65` 的两条注入：把"满夹分支先判重复"删掉 ⇒ 本类
+ * {@code 满夹时重复收藏也返回200} 的前半段变红；把 {@code insertItemIgnore} 换回裸 {@code INSERT}
+ * ⇒ 同一条用例的 200 会变成 409（另一条打在 {@code FavoriteConcurrencyTests} 上）。
  */
 class FavoriteCapacityTests extends AbstractHttpIntegrationTest {
 
@@ -282,24 +287,47 @@ class FavoriteCapacityTests extends AbstractHttpIntegrationTest {
         assertThat(oracleItemCount(othersFullFolder)).as("别人的夹不得被写入").isEqualTo(CUSTOM_FOLDER_MAX_ITEMS);
     }
 
+    /**
+     * ★ <b>口径变更（`N4` §G·P0-4 / `T65`）：满夹 + 重复收藏 = 200，不是 400</b> ★
+     *
+     * <p>这是**目标强制的连带变更**，不是把 400 当漏洞放过：只要"重复收藏 = 200"，
+     * 实现就必须在抛 400 之前认出"这条早在夹里"——否则同一条请求**首次 200、重试 400**
+     * （重试时夹已被自己塞满），自动重试的客户端拿到的是一对互相矛盾的响应。
+     * 旧口径（T16 钉的"满夹一律 400"）在 `T65` 面前必须让位。
+     *
+     * <p>⚠️ 同一条用例的后半段钉住**另一半没变**：同一个满夹里加**新**内容仍是 400
+     * —— 少了它，"容量闸整个被拿掉"与"只是重复分支放行"在断言上无法区分。
+     */
     @Test
-    @DisplayName("★满夹时重复收藏 ⇒ 400 而非 409（已知副作用的钉子：容量先于撞唯一键）")
-    void 满夹时重复收藏返回400() {
+    @DisplayName("★满夹 + 重复收藏 ⇒ 200（T65 目标强制口径）；满夹 + 新内容 ⇒ 仍 400")
+    void 满夹时重复收藏也返回200() {
         TestUser me = register("13800007009", "重复用户");
         long folder = insertFolder(me.id, "已满的夹", 0);
         long content = insertContent(me.id);
+        long anotherContent = insertContent(me.id);
         // 前 499 条是背景，第 500 条就是本用例要重复收藏的那条内容
         insertItemsBulk(folder, me.id, 850001L, CUSTOM_FOLDER_MAX_ITEMS - 1);
         insertItemRow(folder, me.id, content);
+        // 夹具走直插（5000 行的另一档靠它提速）⇒ 冗余列不会被写路径维护；这里手工补成"该内容
+        // 已被这 1 个人收藏"的终态，好让"重复不得 +1"这条断言真的有判别力（0 → 0 什么也证明不了）。
+        jdbcTemplate.update("UPDATE content SET favorite_count = 1 WHERE id = ?", content);
 
         ResponseEntity<String> resp = addItem(me.token, content, folder);
 
-        // ★ 这是**有意为之**的取舍（不是缺陷）：要保住 409 就得"先查后插"——本仓明确拒绝的形态
-        //   （并发下必漏 + 多查一次）。故取"夹满 ⇒ 一律 400"这个更简单、不变量更强的口径，
-        //   并把现行为钉死，免得将来被无声改掉。
         assertThat(resp.getStatusCode().value())
-                .as("夹已满 ⇒ 400（先判容量、后撞唯一键；未满时同一条请求仍是 409）").isEqualTo(400);
-        assertThat(oracleItemCount(folder)).as("400 之后行数不变").isEqualTo(CUSTOM_FOLDER_MAX_ITEMS);
+                .as("★ 满夹 + 重复 ⇒ 200：首次与重试必须同解（旧口径 400 已作废，见方法注释）")
+                .isEqualTo(200);
+        assertThat(oracleItemCount(folder)).as("重复不得插入第二行，夹仍是 500 条").isEqualTo(CUSTOM_FOLDER_MAX_ITEMS);
+        assertThat(itemRowCount(folder, content)).as("该内容在夹里仍恰一行").isOne();
+        assertThat(favoriteCountOf(content)).as("重复收藏不得让 favorite_count +1（1 → 1）").isEqualTo(1L);
+
+        // 另一半口径没变：满夹里加**新**内容仍是 400（对照断言，缺它就无法区分"容量闸被整体拿掉"）
+        ResponseEntity<String> fresh = addItem(me.token, anotherContent, folder);
+        assertThat(fresh.getStatusCode().value())
+                .as("★ 满夹 + 新内容 ⇒ 400（容量闸仍然在）").isEqualTo(400);
+        assertThat(Envelope.code(fresh)).isEqualTo("FAVORITE_FOLDER_FULL");
+        assertThat(itemRowCount(folder, anotherContent)).as("被拒的新内容不得落行").isZero();
+        assertThat(oracleItemCount(folder)).isEqualTo(CUSTOM_FOLDER_MAX_ITEMS);
     }
 
     // ========================================================================
@@ -436,6 +464,14 @@ class FavoriteCapacityTests extends AbstractHttpIntegrationTest {
                 "SELECT COUNT(*) FROM favorite_item WHERE folder_id = ? AND content_id = ?",
                 Long.class, folderId, contentId);
         return n == null ? 0L : n;
+    }
+
+    /** ★ 独立 oracle：直查冗余列 {@code content.favorite_count}（不读接口回显、不读缓存）。 */
+    private long favoriteCountOf(long contentId) {
+        Long n = jdbcTemplate.queryForObject(
+                "SELECT favorite_count FROM content WHERE id = ?", Long.class, contentId);
+        assertThat(n).as("内容行应存在（contentId=%s）", contentId).isNotNull();
+        return n;
     }
 
     /** ★ 独立 oracle：该用户的**自建夹**个数（与实现那条 SQL 各自推导，不共用）。 */
