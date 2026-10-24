@@ -56,6 +56,7 @@ io.github.yjhhhaaa06.videoweb
 | 缓存 | **显式封装层**（不用 `@Cacheable`）：单写 DB 真相 + 写后失效 + 读 miss 回源 | [缓存与数据一致性](tech/cache/缓存与数据一致性.md) |
 | 韧性 | 熔断在 `RedisOps.guarded` 收口；单飞只接 miss 回填；降级路径各域既有 | [韧性](tech/resilience/韧性.md) |
 | 限流 | **令牌桶**：用户桶（per-key，无条件扣）+ 服务器桶（全局，条件扣），两桶不要求同时扣；429 + `Retry-After` | [限流](tech/rate-limit/限流.md) |
+| 幂等 | **`Idempotency-Key` + 响应快照 + 占位状态机**：重发不重复写、并拿回首次响应；独立 filter（限流内侧），只覆盖 4 个写端点 | [写接口幂等](tech/idempotency/写接口幂等.md)（测试与契约见 [测试与契约](tech/idempotency/写接口幂等-测试与契约.md)） |
 | MQ | 拓扑/重连/重试+DLQ/预取交框架原生；发布不等 confirm；投递三态 + 补偿缓冲 | [MQ与投递可靠性](tech/mq/MQ与投递可靠性.md) |
 | 可观测 | 日志四输出端 + MDC 请求标识 + 出口一处脱敏 + Micrometer 打点 + 审计 | [可观测](tech/observability/可观测.md) |
 | 安全 | 自研 `JwtAuthFilter` + `@Public` / `@RequiresLogin` / `@RequiresAdmin`（**默认拒绝**；Spring Security **已拍板不迁**，F-01/F-02） | [安全与鉴权](tech/security/安全与鉴权.md)（代价见 [已知代价](tech/security/安全与鉴权-已知代价.md)） |
@@ -74,6 +75,7 @@ io.github.yjhhhaaa06.videoweb
 | **加缓存 / 改缓存口径**（三态、空标记、key 命名、失效） | [缓存与数据一致性](tech/cache/缓存与数据一致性.md) | 缓存口径变更 |
 | 处理 **Redis 故障 / 惊群 / 降级** | [韧性](tech/resilience/韧性.md) | 熔断 / 单飞口径变更 |
 | **加限流 / 调阈值 / 改 429 契约** | [限流](tech/rate-limit/限流.md) | 限流口径、桶参数、权重表变更 |
+| ★ **让某个写端点"重试不重复"**（幂等键 / 重放 / 新增 `Idempotency-Key`） | [写接口幂等](tech/idempotency/写接口幂等.md)（用例与契约见 [测试与契约](tech/idempotency/写接口幂等-测试与契约.md)） | 端点幂等类别变更 / 新增 `KEYED` 端点 |
 | **发消息 / 加消费者** | [MQ与投递可靠性](tech/mq/MQ与投递可靠性.md) | 拓扑 / 投递语义变更 |
 | 加**日志 / 指标 / 审计** | [可观测](tech/observability/可观测.md) | 观测形态变更 |
 | 动**鉴权**（端点是否需登录、管理员判定） | [安全与鉴权](tech/security/安全与鉴权.md) | 鉴权链变更 |
@@ -99,7 +101,7 @@ io.github.yjhhhaaa06.videoweb
 > ★ **每个横切面一个目录**（2026-10-18 起，与 `domain/<域>/` 同款）：`tech/<面>/<面>.md`
 > ＋（可选）`tech/<面>/<面>-已知代价.md`。目录名用英文短名（`security` / `rate-limit` /
 > `observability` / `cache` / `resilience` / `mq` / `events` / `transaction` /
-> `module-boundary` / `data-evolution` / `api`），**文件名保持中文**（代码注释按基名解析，目录无关）。
+> `module-boundary` / `data-evolution` / `api` / `idempotency`），**文件名保持中文**（代码注释按基名解析，目录无关）。
 
 | 文档 | 讲什么 | **不讲什么**（去向） |
 |---|---|---|
