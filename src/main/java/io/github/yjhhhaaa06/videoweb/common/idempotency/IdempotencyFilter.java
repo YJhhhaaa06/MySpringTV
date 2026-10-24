@@ -56,7 +56,7 @@ import java.util.regex.Pattern;
  * ⚠️ <b>不要</b>并进 {@link RateLimitFilter}：两种 fail-open 的风险等级不同
  * （限流不可用 = 放行；幂等不可用 = 重试会重复写），混进一个 {@code catch} 就再也分不清档位。
  *
- * <h2>判定流程（设计篇 §五 / §七 / §九）</h2>
+ * <h2>判定流程（写接口幂等.md §五 / §七 / §九）</h2>
  * <pre>{@code
  * 查表（非 KEYED ⇒ 直接放行）→ 缺 key ⇒ 放行且不占位 → 非法 key ⇒ 400
  *   → ACQUIRE（命中 DONE ⇒ 校验指纹后重放；命中 PENDING ⇒ 轮询 2×100 ms 后 409）
@@ -123,7 +123,7 @@ public class IdempotencyFilter extends OncePerRequestFilter {
     /** key 合法形态：字符集排除 {@code :} 与 {@code /}，故 {@code idem:{slug}:{uid}:{key}} 的边界唯一可解析。 */
     private static final Pattern CLIENT_KEY = Pattern.compile("[A-Za-z0-9._-]{1,64}");
 
-    /** {@code missing_key} 日志的按端点节流窗口（设计篇 §七：按端点 5 min）。 */
+    /** {@code missing_key} 日志的按端点节流窗口（写接口幂等.md §七：按端点 5 min）。 */
     private static final long MISSING_KEY_LOG_INTERVAL_MILLIS = 5 * 60 * 1000L;
 
     /** 409 的 {@code Retry-After}：短轮询已等过 {@code poll.attempts × interval-millis}，再给 1 s。 */
@@ -228,7 +228,7 @@ public class IdempotencyFilter extends OncePerRequestFilter {
     }
 
     /**
-     * 占到位之后的正常路径（设计篇 §5.1 的伪代码，逐行对应）。
+     * 占到位之后的正常路径（写接口幂等.md §5.1 的伪代码，逐行对应）。
      *
      * <p>★ 顺序不可调：{@code COMPLETE}（写快照）在 {@code copyBodyToResponse()}（flush）<b>之前</b>。
      * 反过来会让"响应已发出但快照没写"成为可能 ⇒ 客户端重试时重新执行。
@@ -329,7 +329,7 @@ public class IdempotencyFilter extends OncePerRequestFilter {
     }
 
     /**
-     * 占位 + 短轮询（设计篇 §五："命中 {@code PENDING} ⇒ 2×100 ms，仍 PENDING ⇒ 409"）。
+     * 占位 + 短轮询（写接口幂等.md §五："命中 {@code PENDING} ⇒ 2×100 ms，仍 PENDING ⇒ 409"）。
      *
      * <p>⚠️ 休眠占的是 Tomcat 工作线程（本仓未启用虚拟线程、worker max=200），
      * 故只在**真并发同 key** 的冲突路径上、最多 {@code attempts × interval-millis}；
@@ -458,7 +458,7 @@ public class IdempotencyFilter extends OncePerRequestFilter {
     }
 
     /**
-     * 缺 key 的日志<b>按端点 5 min 节流</b>（设计篇 §七）。
+     * 缺 key 的日志<b>按端点 5 min 节流</b>（写接口幂等.md §七）。
      *
      * <p>为什么节流：缺 key 是"客户端选择"而不是异常，按请求打会放大 {@code system.log}；
      * 频次由指标 {@code idempotency.decisions{result=missing_key}} 全量承载。

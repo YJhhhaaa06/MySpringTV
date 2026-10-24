@@ -18,7 +18,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * }</pre>
  *
  * <p>★ <b>端点级的 {@code PENDING} TTL 不在这里</b>：它是"该端点业务耗时"的属性，
- * 跟着 {@link IdempotencyScope.Entry#pendingTtlSeconds()} 走（设计篇 §十 末段）。
+ * 跟着 {@link IdempotencyScope.Entry#pendingTtlSeconds()} 走（写接口幂等.md §十 末段）。
  *
  * @param ttl    已固化结果 / 墓碑的存活时间
  * @param poll   命中 {@code PENDING} 时的短轮询参数（⚠️ 占用容器工作线程，见 §十三 第 9 条）

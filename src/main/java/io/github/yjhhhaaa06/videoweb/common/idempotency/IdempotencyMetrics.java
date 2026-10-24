@@ -26,7 +26,7 @@ import org.springframework.stereotype.Component;
  * <p>★ <b>不记</b> {@code clientKey} 原文与快照 body（前者是客户端可控串、后者含业务数据）；
  * 维度只有 {@code result}。
  * <p>★ {@code missing_key} 是"服务端分不清忘了带与选择不带"这条已知代价的<b>唯一观测口</b>
- * （设计篇 §十三 第 6 条）——它的量级决定将来要不要讨论强制开关。
+ * （写接口幂等.md §十三 第 6 条）——它的量级决定将来要不要讨论强制开关。
  *
  * <h2>失败不得影响业务</h2>
  * 与 {@code RateLimitMetrics} 同款：{@code counter(...).increment()} 只是进程内对象上的加一，

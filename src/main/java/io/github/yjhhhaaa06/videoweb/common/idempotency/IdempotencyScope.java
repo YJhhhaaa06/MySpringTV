@@ -82,7 +82,7 @@ public final class IdempotencyScope {
      */
     private static final Map<String, Entry> TABLE = Map.ofEntries(
             // ========================================================================
-            // KEYED：效果层非幂等、客户端又必须知道"成没成 / 成的是哪一条"（设计篇 §三）
+            // KEYED：效果层非幂等、客户端又必须知道"成没成 / 成的是哪一条"（写接口幂等.md §三）
             // ========================================================================
             entry("POST /api/v1/comments", keyed("comment", 30)),
             entry("POST /api/v1/contents/videos", keyed("video", 120)),
@@ -95,7 +95,7 @@ public final class IdempotencyScope {
             entry("POST /api/v1/admin/media/scan", natural()),
             entry("POST /api/v1/contents/{id}/play", natural()),
             entry("POST /api/v1/coupons/{id}/claims", natural()),   // 重复领券由 CouponService 回查订单返原券码（结构性修复）
-            // 灰色地带：重名合法（业务规则），重试会**多建一个夹**；设计篇 §三 明确不在覆盖范围。
+            // 灰色地带：重名合法（业务规则），重试会**多建一个夹**；写接口幂等.md §三 明确不在覆盖范围。
             entry("POST /api/v1/favorite-folders", natural()),
             entry("POST /api/v1/favorites", natural()),             // 重复收藏撞 uk_folder_content ⇒ 幂等终态
             entry("POST /api/v1/history/flush", natural()),
