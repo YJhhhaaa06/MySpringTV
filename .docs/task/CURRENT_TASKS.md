@@ -16,13 +16,14 @@
 
 ## 周期头（每窗开读）
 
-* ★ **当前状态：本期 P0 ✅ 已交付 —— `T63`/`T64`/`T65`（写接口幂等结构性修复）**。
-  同一来源的 **P1（通用 `Idempotency-Key`，`R-24`）仍待拍板**，不在本期；专项未收口（等 P1 拍板后决定是否并入）。
-  上一专项（接口契约 `T54`–`T62`）结论见
+* ★ **当前状态：本期 = 幂等专项 P1（`R-24` 已拍板 2026-10-24）** —— `T66` / `T67` / `T68` **待执行**。
+  设计 = [写接口幂等](../architecture/tech/idempotency/写接口幂等.md)（用例与对外契约见
+  [测试与契约](../architecture/tech/idempotency/写接口幂等-测试与契约.md)）。
+  上一窗口 P0（`T63`–`T65`）已交付；更早的接口契约专项（`T54`–`T62`）结论见
   [接口契约.md 附录「编号速查」](../architecture/tech/api/接口契约.md#附录编号速查每号一行结论)。
-* ★ **下一编号** = 任务 **`T66`** / 决策 **`R-25`** / 问题 **`I-30`** / 结转 **`F-28`**。
+* ★ **下一编号** = 任务 **`T69`** / 决策 **`R-25`** / 问题 **`I-30`** / 结转 **`F-28`**。
   开工前先读：`CURRENT_NEEDS.md`（本期范围与反面清单）· `FURTHER_ISSUES.md`（结转池）·
-  `architecture/tech/api/接口契约.md`（现在的对外契约长什么样）。
+  `architecture/tech/idempotency/写接口幂等.md`（设计）· `architecture/tech/api/接口契约.md`（现在的对外契约长什么样）。
 * ★ **回归基线**（2026-10-24，`T65` 后复跑）：默认集 **811 例**（`-DexcludedGroups=resilience`）——
   全量首跑 **1 例红**：`CoinAddTests#并发各投一枚不突破封顶`（`[500, 200]`，即 `I-28` 的既存死锁抖动，
   **非本次引入**；隔离复跑 **19/19 绿**）；其余全绿。`resilience` 组 **41/41 绿**。
@@ -100,7 +101,110 @@
 * **回写**：（完成后三句内写清改了什么、验证结果；探索过程不写）
 ```
 
-**本期：`T63`–`T65` ✅ 已交付**（幂等专项 P0，来源 `N4` §G）。P1（`R-24`）待拍板，不在本期。
+**本期：`T66`–`T68`（幂等专项 P1，来源 `R-24`）【待执行】** —— 设计 = [写接口幂等](../architecture/tech/idempotency/写接口幂等.md)；
+用例与对外契约 = [测试与契约](../architecture/tech/idempotency/写接口幂等-测试与契约.md)。
+**上一窗口 `T63`–`T65` ✅ 已交付**（卡片保留在下方作留痕）。
+
+### T66 幂等骨架 + 评论端点接入（来源 `R-24` / `N5` / 设计篇 §三–§十一）【待执行】
+
+> ⚠️ **先质疑（G14）**：
+> - **任务**：骨架与第一个端点能否分开做？—— **不建议**：只交付骨架时没有任何 `KEYED` 端点生效，
+>   它是"有代码无生效路径"的一步，既拿不到端到端验收，也违反"不上机制的字段就是死字段"的既有口径。
+>   故合并；内部可按 G1 自拆为多个 commit（骨架 / 接入 / 契约），**每个必须可编译**。
+> - **设计**：★ **注册表必须一次填满**（完整性测试要求全部非 GET 端点显式登记）。这意味着
+>   `video` / `post` 一旦登记成 `KEYED` 就**立即生效** ⇒ 本任务必须给它们各跑一条冒烟（同 key 重发不重复建内容），
+>   完整矩阵留 `T68`。若认为"分批生效"更安全 ⇒ 停下回报：那需要一个"未启用"的第三档，
+>   而设计已明确**不设第三档**（多一档就多一条判定规则）。
+
+* **入口线索**：
+  - 新增包 `common/idempotency/`：`IdempotencyScope`（注册表，键 = `"<方法> <路由模式>"`）、
+    `IdempotencyProperties`（前缀 `video.idempotency`）、`IdempotencyRedisOps extends RedisOps`（3 个 Lua）、
+    `IdempotencyStore`（状态机 + 降级）、`IdempotencyFilter`（`@Order(RateLimitFilter.RATE_LIMIT_ORDER + 10)`）、
+    `IdempotencyMetrics`。
+  - `common/cache/CacheKeys` 加 `idempotency(slug, userId, clientKey)`（形状 `idem:{slug}:{uid}:{key}`）。
+  - `common/exception/ErrorCode` 加 3 个码（400 `IDEMPOTENCY_KEY_INVALID` / 409 `IDEMPOTENCY_IN_PROGRESS` /
+    422 `IDEMPOTENCY_KEY_CONFLICT`）；`ErrorCodeContractTests` 要求**每个码有产码点**。
+  - `CommentController#add`（现为 `ApiResponse<Void>`）+ `CommentService#addComment`（现为 `void`）+
+    新增 `comment/model/vo/CommentCreatedVO`（`N5`）。
+  - 注册表扫描口径照 `RateLimitWeightTableTests#完整性_全部非GET端点都已登记`
+    （`RequestMappingHandlerMapping#getHandlerMethods` + `getPatternValues`），**并补它缺的反向断言**。
+  - 契约面：`接口契约.md`（评论响应形状）、`openapi.yaml`（`-Dapi.openapi.write=true`）、
+    `endpoint-inventory.tsv`（`-Dapi.contract.write=true`）—— 生成后**必须 review diff**。
+* **目标**：`POST /api/v1/comments` 具备完整幂等语义（效果层 + 响应层）；注册表覆盖全部非 GET 端点；
+  缺 key 放行、非法 key 400、同 key 不同 body 422、PENDING 短轮询后 409 四条旁路可用。
+* **红线边界**：
+  - `@Order` 必须是 `RATE_LIMIT_ORDER + 10`（鉴权 / 限流之内侧）；**不得**挪进 `RateLimitFilter`。
+  - **快照先于 `copyBodyToResponse()`**；`COMPLETE` / `RELEASE` 必须 **owner CAS**（禁无条件写）。
+  - 缺 key **不得写占位**；只固化 **2xx**；错误响应绝不进快照。
+  - 注册表 `NATURAL` 必须逐条真判断（判据：重试不改 DB 终态 **且** 响应可判）；备注只写灰色地带。
+  - 不改 schema；不动 `src/main/resources/static/**`；不加 `require-key` 开关；不复用 `X-Request-Id`。
+  - 评论 `data` 改 `{"commentId": N}` 属**对外契约变更** ⇒ 相关用例注释写明依据（G8 例外条款）。
+* **强制探索**：① `ContentCachingRequestWrapper` 在"handler 没读 body"时缓存为空 —— 2xx 路径是否必然已读？
+  取不到 fp 时怎么处理（登记为"无 fp"而非"fp 不匹配"）；② `IdempotencyFilter` 的 `finally` 与
+  `RateLimitFilter` 的 `settleMissPenalty` 的执行顺序（会不会在重放路径上误补扣）；
+  ③ 短轮询 `sleep` 占的是容器线程：核实本仓 Tomcat 线程池配置，判断 2×100 ms 是否可接受（必要时写进已知代价）；
+  ④ `endpoint-inventory.tsv` 是否记录**响应形状**（不记则只需改接口契约 + openapi，别多改）。
+* **验收**：
+  - 注册表四条断言全绿（`seen` sanity / `missing` / `methodUnlimited` / **`stale`**）。
+  - 评论 6 条用例（同 key 重发返回同一 `commentId` + `Idempotent-Replayed` / 副作用只 +1（独立 oracle 直查 DB）/
+    并发同 key 只执行一次 / 同 key 异 body 422 且零副作用 / 失败后同 key 可重试 / 缺 key 放行不建键 + 非法 key 400）。
+  - `video` / `post` **冒烟各一条**：同 key 重发 ⇒ 内容只有一条（全矩阵归 `T68`）。
+  - 反向验证至少 3 条真红：去掉 `COMPLETE` 的 owner 条件 ⇒ 并发用例红；`RELEASE` 改无条件写 ⇒ 断连场景红；
+    快照挪到 flush 之后 ⇒ 断连场景红。
+  - 契约面 review diff：只有评论响应从 `{}` 变 `{"commentId":N}`；`openapi.yaml` / 登记簿无其他漂移。
+  - 全量 `run_tests.py` + `--group resilience` 绿。
+* **回写**：（完成后三句内写清改了什么、验证结果；探索过程不写）
+
+### T67 投币端点接入幂等（来源 `R-24` / 设计篇 §三）【待执行】
+
+> ⚠️ **先质疑（G14）**：
+> - **任务**：投币已有"封顶 2 枚"的兜底，还需要幂等吗？—— **需要**：封顶只挡超上限，
+>   `count=1` 的重试正好落在合法区间（会真扣第二次）。封顶 ≠ 幂等。
+> - **设计**：★ **投币是累加语义**（两台设备各投 1 枚 = 2 枚，是两次独立意图）。
+>   若实现为了"更严格"改成按 `(user, content)` 去重，就是**改业务行为** ⇒ 已被明确否决。
+>   本任务只按 `Idempotency-Key` 去重，**不得**引入任何基于内容的去重键。
+
+* **入口线索**：`CoinController#add`、`CoinService#add`（`@Transactional`，返回 `CoinBalanceVO`）·
+  `CoinAddTests`（含 `#并发各投一枚不突破封顶`，即 `I-28` 的既存抖动）· 设计篇 §三 coin 行 / §九 指纹。
+* **目标**：同 key 重试 ⇒ 只扣 1 枚、第二次返回**同一 `balance`**；**不同 key 各投 1 ⇒ 累计 2 枚**。
+* **红线边界**：
+  - 不得改"目标累计量（set）"语义；不得按 `contentId` / `(user, content)` 做去重。
+  - `PENDING` TTL 用注册表里的 30 s；快照含 `balance`（重放要能判成功）。
+  - `I-28` 的并发死锁抖动不属本任务：并发用例偶发红时，按"隔离复跑"判定，**不许**把期望值改成实测值。
+* **强制探索**：① 同一用户对同一内容的**两个不同 key** 是否真的走到两条独立业务路径（不要被缓存或
+  `uk_user_content` 提前拦住）；② 重放时 `balance` 是"首次那一刻的余额"——这个语义是否要在契约里写明。
+* **验收**：
+  - 6 条通用用例 + ★ **两个不同 key 各投 1 ⇒ 最终累计 2 枚、作者收益只加两次**（反向：把 key 换成
+    `contentId` ⇒ 本用例必红）。
+  - 同 key 重试：`content_coin` 行数不变、`users.coin_deci` 只减一次、`content.coin_count` 只 +1（独立 oracle）。
+  - 全量 + resilience 绿。
+* **回写**：（同上）
+
+### T68 上传两条接入幂等（来源 `R-24` / 设计篇 §三、§九）【待执行】
+
+> ⚠️ **先质疑（G14）**：
+> - **任务**：上传类已有 `T63` 的稳定标识删图，幂等键是否重复劳动？—— 不重复：`T63` 解决"重试删错行"，
+>   本任务解决"重试多发一条内容"。两者互补。
+> - **设计**：multipart **算不出指纹** ⇒ "同 key 换文件"不会被识别，只能靠 key 本身。这是**有意接受的代价**
+>   （读文件进内存更贵），登记在设计篇 §十三 第 3 条；若认为必须识别 ⇒ 停下回报（要改上传通路为流式摘要）。
+
+* **入口线索**：`UploadController#uploadVideo` / `#uploadPost`（`ApiResponse<ContentCreatedVO>`）·
+  `ContentService#addVideo` / `#addPost`（各自单 `@Transactional`）· `FileUploadService#saveFile`（UUID 文件名）·
+  设计篇 §五（`PENDING` 120 s）、§九（不包装 request）。
+* **目标**：两条 multipart 端点具备完整幂等语义，且**第二次请求不落任何文件**（filter 早于解析）。
+* **红线边界**：
+  - **不包装 request**（`ContentCachingRequestWrapper` 会把文件读进内存）；不参与指纹比对。
+  - `PENDING` TTL = 注册表里的 120 s（上传耗时远大于评论）。
+  - 快照 ≤ 64 KB（`{"contentId":N}` 远小于此，超限即降级不幂等并记 ERROR）。
+  - **孤儿文件清理不属本任务**（`T63` 已登记相关残留）。
+* **强制探索**：① 第二次请求"文件没落盘"怎么**可观察地**断言（扫 `upload` 目录文件数，而不是断言"没调用
+  `saveFile`"——后者是断言内部调用）；② 首次请求失败时已落盘的文件是否会被重试再写一份（会 ⇒ 登记，不在本任务修）。
+* **验收**：
+  - 6 条通用用例（两条端点各一遍）。
+  - ★ 第二次同 key 请求 ⇒ **上传目录文件数不变**、`content` / `content_media` 行数不变（独立 oracle）。
+  - 反向：把 filter 移到 `DispatcherServlet` 之后（或删掉占位的前置性）⇒ 文件数用例必红。
+  - 全量 + resilience 绿。
+* **回写**：（同上）
 
 ### T63 媒体删除改为稳定标识定位（来源 `N4` §G·P0-1）【已完成】
 
@@ -261,7 +365,7 @@
 | 来源 | 事项 | 去向（决定人 + 日期） |
 |------|------|---------------------|
 | 接口契约专项（2026-10-24 收口） | **`T61` 前端适配层** —— 原目标"旧 SPA 不挂" | **搁置**（`R-23`，2026-10-23）：旧 SPA 随前端重制整体删除 ⇒ 不为将死代码续命；是否改成"重制前的消费样例"由重制期重定 |
-| 接口契约专项（2026-10-24 收口） | **`R-24` 通用客户端幂等键（`Idempotency-Key`）** —— 本期 P1 | **待拍板**（`CURRENT_NEEDS.md` §三）。**范围已定**（`N4` §G）：评论 / 视频 / 图文 / 投币 4 端点；载体 / 存储 / 严格性待定。P0 三条已入 `T63`–`T65`，**不阻塞本条**。推翻条件 = 前端重制不做自动重试 |
+| 接口契约专项（2026-10-24 收口） | **`R-24` 通用客户端幂等键（`Idempotency-Key`）** —— 原记"本期 P1" | ✅ **已开窗**（2026-10-24，`R-24` 已拍板）⇒ `T66`–`T68`。设计 = [写接口幂等](../architecture/tech/idempotency/写接口幂等.md)。推翻条件 = 前端重制不做自动重试 / 只对 5xx 重试 / 重试窗口 > 3 min |
 | 幂等专项开窗（2026-10-24） | **收藏夹重名**（`POST /favorite-folders` 重试会建两个同名夹） | **留池**（`N4` §G·P2）：重名是 `T16` 有意允许的业务（加唯一键会破业务），且夹可改名可删、影响面小 |
 | 接口契约专项（2026-10-24 收口） | **`I-27` 上传超限 / 畸形 multipart 仍是 500** | **待裁决**（是否新增 413 类别）⇒ 已结转 `FURTHER_ISSUES.md`（保留原编号） |
 | 接口契约专项（2026-10-24 收口） | **`I-28` 并发投币撞封顶偶发 500**（MySQL 死锁被兜成 500，既存竞态） | **待排期**（下期小任务：Service 死锁重试 *或* 缩小事务持锁面）⇒ 已结转 `FURTHER_ISSUES.md` |
