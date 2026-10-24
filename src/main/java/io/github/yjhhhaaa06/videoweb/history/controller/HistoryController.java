@@ -38,11 +38,12 @@ import org.springframework.web.bind.annotation.RestController;
  * {@code SecurityContractTests#history写端点需登录} 直接对 {@code RequestMappingLookup} 求值守着
  * （HTTP 侧 401 是假绿：{@code @CurrentUserId} 解析器自己会抛 401）。
  *
- * <h2>请求形态：写 {@code POST|PUT} + {@code x-www-form-urlencoded}、读 {@code GET} + query</h2>
- * {@code @RequestParam} 同时覆盖 form 与 query；report 是 **PUT**（幂等覆盖 / LWW，§2.4）。
+ * <h2>请求形态：写 {@code POST|PUT} + JSON body（进度字段）、读 {@code GET} + query</h2>
+ * `T59` 起进度覆盖走 JSON body（{@code ReportProgressRequest}）；{@code play} / {@code flush} 无入参；
+ * report 是 **PUT**（幂等覆盖 / LWW，§2.4）。
  *
  * <h2>成功信封</h2>
- * 写端点返回空数据体（{@code {"code":200,"msg":"success"}}）；历史列表返回分页信封，
+ * 写端点返回 {@code ApiResponse<Void>}（{@code {"code":"OK","msg":"success"}}，无 {@code data}）；历史列表返回分页信封，
  * 续播位置返回 {@code {"progress":N}}。错误码见 {@code history.md} §八
  * （400 负进度 / 图文、404 内容不存在、401 未登录）。
  *

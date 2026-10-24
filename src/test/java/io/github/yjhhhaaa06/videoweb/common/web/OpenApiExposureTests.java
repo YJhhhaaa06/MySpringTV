@@ -38,7 +38,7 @@ class OpenApiExposureTests extends AbstractIntegrationTest {
     void 文档端点不暴露() {
         assertThat(environment.getProperty("springdoc.api-docs.enabled"))
                 .as("`application.yaml` 的 springdoc.api-docs.enabled 必须是 false —— "
-                        + "打开就等于给每个登录用户一个完整 API 面（口径见 接口契约.md §2.10）")
+                        + "打开就等于给每个登录用户一个完整 API 面（口径见 接口契约-护栏与Spec.md §二）")
                 .isEqualTo("false");
 
         assertThat(context.getBeanNamesForType(OpenApiWebMvcResource.class))

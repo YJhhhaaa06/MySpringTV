@@ -36,12 +36,13 @@
 | 端点 | 何时调 | 语义（对客户端） |
 |---|---|---|
 | `POST /api/v1/contents/{id}/play` | **开始播放时一次** | 播放量去重计数；幂等，重复调不报错 |
-| `PUT /api/v1/contents/{id}/progress?progress=` | **播放中定期**（§三） | 只进缓冲；`progress` 单位**秒**，整数 |
+| `PUT /api/v1/contents/{id}/progress`（body `{"progress": N}`） | **播放中定期**（§三） | 只进缓冲；`progress` 单位**秒**，整数 |
 | `POST /api/v1/history/flush` | **暂停 / 退出 / 切页**（§四） | 把**本用户全部**缓冲同步落库；无参数 |
 | `GET /api/v1/contents/{id}/progress` | **播放器初始化** | `{progress}`；无记录返回 `0`，不 404 |
 | `GET /api/v1/history?page=&pageSize=` | **历史记录页** | 分页；`pageSize` 默认 20、上限 100 |
 
-- 写端点收 `x-www-form-urlencoded`（`@RequestParam`），token 一律走 `Authorization` 头。
+- 写端点收 **JSON body**（`T59` 起）：只有 `PUT …/progress` 有字段 `{"progress": N}`，`/play`、`/flush` 无入参；
+  token 一律走 `Authorization` 头。
 - 全部端点**需要登录**（类级 `@RequiresLogin`）；未登录 ⇒ 401，不要拿 401 当"没有记录"。
 - ⚠️ `/flush` **没有 `contentId` 参数**：它写的是该用户缓冲里的**全部**内容。所以"退出时要落库最后一段进度"
   必须先 `/report` 再 `/flush`（§四.2 的顺序问题）。

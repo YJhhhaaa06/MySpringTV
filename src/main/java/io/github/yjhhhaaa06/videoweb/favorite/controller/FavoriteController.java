@@ -75,19 +75,18 @@ import java.util.List;
  * **成对**断言 + 两条公开端点 {@code false} 的断言 ——
  * 否则"整个收藏域被放行"与"逐端点声明正确"在断言上无法区分）。
  *
- * <h2>请求形态：写 {@code POST/PUT/DELETE} + {@code x-www-form-urlencoded}、读 {@code GET} + query</h2>
- * 沿袭 {@code /like/*} 与 {@code /follow/*} 的既有风格（见 T1 时本类的注释）。
- * 收藏是新域、**没有 TV 老前端要兼容**，选 form 而非 JSON 的理由只有一条：
- * 与同类的"容器域"（like/follow）保持一致，且 {@code @RequestParam} 同时覆盖 form 与 query
- * 两种位置（旧 pytest/前端两种调法都不会 400）。
- * `T58` 只把**被寻址的标识**搬进路径（{@code @PathVariable}），其余字段仍在 query/form。
+ * <h2>请求形态：写 {@code POST/PUT} + JSON body、{@code DELETE} + query、读 {@code GET} + query</h2>
+ * `T58` 把**被寻址的标识**搬进路径（{@code @PathVariable}）；`T59` 再把**其余写字段**从 query/form
+ * 迁到 JSON body，{@code DELETE} 一律不带 body（批量选择参数走 query）—— 统一口径见
+ * {@code 接口契约.md} §2.5。
+ * ⚠️ 早期"沿袭 like/follow 用 form"的理由与 {@code @RequestParam} 覆盖两种位置的便利，都随
+ * `T59` 作废：**别照旧注释写新端点**。
  *
  * <h2>成功信封</h2>
- * 三个写端点返回**中文文案字符串**（{@code data} 是字符串），与 {@code PUT /api/v1/contents/{id}/like}
- * 等同类写路径、{@code DELETE /api/v1/comments/{id}} 逐字同款；
- * {@code GET /api/v1/favorite-folders} 的 {@code data}
- * 是**数组**（空态是 {@code []}，不是 404、不是缺 {@code data} 键）。形状与理由见
- * {@code FavoriteFolderVO} 的类注释。
+ * 写端点**不再返回文案**（`T59` 定稿）：有 body 的成功 = {@code ApiResponse<Void>}（无 {@code data} 键），
+ * 删除 / 取消 = {@code 204} 无 body（旧"中文文案字符串当 {@code data}"的口径已作废，见 §2.5）；
+ * {@code GET /api/v1/favorite-folders} 的 {@code data} 是**数组**（空态 {@code []}，不是 404、
+ * 不是缺 {@code data} 键），形状与理由见 {@code FavoriteFolderVO} 的类注释。
  *
  * <h2>错误码</h2>
  * 404 夹不存在 / 内容不存在或已失效（add / move） · 403 不是自己的夹 ·
@@ -174,7 +173,8 @@ public class FavoriteController {
     }
 
     /**
-     * 删除收藏夹（**夹内收藏记录一并删除**，R-02）。成功响应 {@code data} 是字符串「删除成功」。
+     * 删除收藏夹（**夹内收藏记录一并删除**，R-02）。成功 = {@code 204} 无 body；
+     * ⚠️ 资源型删除：**第二次仍 404**（"已删亦视为不存在"，§2.4 边界①）。
      *
      * <p>★ <b>默认夹 → 409，夹与其条目都原样保留</b>（favorite-需求.md §二「删不掉」）。
      * 前端理应不给默认夹渲染删除按钮，但后端这道闸不依赖前端（契约测试守着）。
@@ -298,7 +298,7 @@ public class FavoriteController {
     /**
      * 从指定夹移出收藏（**批量**：夹内勾选多条一次移出）。端点
      * `T58` 起为 {@code DELETE /api/v1/favorites}
-     * （§2.4「删除」）。成功响应 {@code data} 是字符串「移出成功」。
+     * （§2.4「删除」）。成功 = {@code 204} 无 body；幂等（重复移出同样 204）。
      *
      * <p>★ <b>本端点不校验内容存在性</b>（G11 红线 —— 失效条目必须删得掉），
      * 且幂等：记录已不存在（陈旧页面）也照常 200、删除 0 行不算错。
@@ -329,7 +329,7 @@ public class FavoriteController {
     /**
      * 把一条收藏从源夹挪到目标夹。端点 `T58` 起为 {@code PUT /api/v1/favorites/{id}}
      * （§2.4「幂等设置」—— 同一 (contentId, from, to) 重复提交结果不变）。
-     * 成功响应 {@code data} 是字符串「移动成功」。
+     * 成功 = {@code ApiResponse<Void>}（200，无 {@code data}）；同参重复提交结果不变（§2.4）。
      *
      * <p>独立端点而非前端的 remove + add 两连击：两次调用之间没有原子性，
      * add 失败会让条目从源夹消失（失效内容本该"不可移动但**保留原位**"，R-07）。

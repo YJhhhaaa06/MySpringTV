@@ -136,13 +136,13 @@ filesort。新索引**前三列就是排序键**，第四列 `progress_seconds` 
 
 ## 三、端点契约
 
-写 = `PUT` / `POST` + `x-www-form-urlencoded`，读 = `GET` + query（沿袭 `/like/*`、`/watchlater/*`
-—— `T58` 后两域已资源化为 `/api/v1/...`；进度覆盖幂等 ⇒ PUT，播放 / flush 是动作 ⇒ POST，见 `接口契约.md` §2.4）。
+写 = `PUT` / `POST` + **JSON body**（`T59` 起，见 [`接口契约.md`](../../tech/api/接口契约.md) §2.5）、读 = `GET` + query。
+进度覆盖幂等 ⇒ PUT，播放 / flush 是动作 ⇒ POST（见该篇 §2.4）；旧的 form 表单形态已随 `T59` 作废。
 `HistoryController` **类级 `@RequiresLogin`**：五个端点都只对当前登录用户有意义。
 
 | 端点 | 入参 | 出参（`data`） | 说明 |
 |---|---|---|---|
-| `PUT /api/v1/contents/{id}/progress` | `contentId`（进路径）、`progress`（秒，整数） | 无（`msg="success"`） | **只写 Redis 缓冲、不落库**；后到即新（LWW）；按当前时长 clamp；Redis 不可用 ⇒ **503 + `Retry-After`** |
+| `PUT /api/v1/contents/{id}/progress` | 路径 `{id}` + JSON body `{"progress"}`（秒，整数） | 无（`msg="success"`） | **只写 Redis 缓冲、不落库**；后到即新（LWW）；按当前时长 clamp；Redis 不可用 ⇒ **503 + `Retry-After`** |
 | `POST /api/v1/history/flush` | 无（`userId` 取自登录态） | 无（`msg="success"`） | 把**该用户全部**脏缓冲**同步**落库（退出信号）；落库失败仍 **200**（数据留缓冲等兜底） |
 | `POST /api/v1/contents/{id}/play` | `contentId`（进路径） | 无（`msg="success"`） | 首播去重后 `play_count + 1`；行不存在则建行（progress=0） |
 | `GET /api/v1/history` | `page`、`pageSize` | `PageResult<HistoryItemVO>` | 按 `update_time DESC, content_id DESC`；缺省 20 / 上限 100 |
@@ -461,6 +461,9 @@ filesort；新索引前三列即排序键（前向索引扫描）：
 > 追溯用，**读文档不必读本表**。每号一行结论；未完成的任务不收编（滚动见 `task/CURRENT_TASKS.md`）；
 > 逐条论证与失败尝试走 git。`T45`–`T53` 的结论 = 下面各行 + 本篇正文；过程 commit 见
 > `CURRENT_TASKS.md` 周期头的区间。
+> ⚠️ **表里的端点路径是"当时"的形态**：`T58` 起全站资源化为 `/api/v1/**`（`T59` 又统一了入参 / 出参形状）。
+> 本表**不逐行改写** —— 改了就把"留痕"改成假记录；**当前路径以 [接口契约](../../tech/api/接口契约.md) §2.3
+> 与 `src/test/resources/api/openapi.yaml` 为准**。
 
 | 编号 | 一句话 | 详见 |
 |---|---|---|

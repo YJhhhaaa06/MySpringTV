@@ -490,7 +490,7 @@ video:
         "[DELETE /api/v1/admin/contents/{id}/hidden]": 3
 
 # ----------------------------------------------------------------------------
-# OpenAPI spec 导出（T60 / 口径见 `architecture/tech/api/接口契约.md` §2.10）
+# OpenAPI spec 导出（T60 / 口径见 `architecture/tech/api/接口契约-护栏与Spec.md` §二）
 #
 # ★ 生产**不注册文档端点**（`/v3/api-docs` 不存在），spec 只在测试里生成并入库。
 #   理由：本仓的默认拒绝靠「命中的处理器带 `@Public`」（RequestMappingLookup），

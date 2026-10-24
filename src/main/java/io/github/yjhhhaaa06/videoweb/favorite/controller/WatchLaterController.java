@@ -38,9 +38,9 @@ import java.util.List;
  * （{@code FavoriteController} 的类注释已专门记录这个教训）。判别力由
  * {@code SecurityContractTests.watchlater四端点需登录} 直接对 {@code RequestMappingLookup} 求值守着。
  *
- * <h2>请求形态：写 {@code PUT/DELETE} + {@code x-www-form-urlencoded}、读 {@code GET} + query</h2>
- * 完全沿袭收藏域的既有风格（{@code @RequestParam} 同时覆盖 form 与 query 两种位置）；
- * `T58` 只把被寻址的 {@code contentId} 搬进路径。
+ * <h2>请求形态：写 {@code PUT} + 可选 JSON body、{@code DELETE} + query、读 {@code GET} + query</h2>
+ * `T58` 把被寻址的 {@code contentId} 搬进路径；`T59` 把"移进哪个夹"改成 JSON body
+ * （缺 body 时按缺省字段处理，不把"忘写 body"变 400），{@code DELETE} 的批量选择参数走 query。
  *
  * <h2>★ 红线：除本清单外，任何地方都看不出"某视频是否在稍后再看中"</h2>
  * 本类**没有**状态查询端点（旧的 {@code /watchlater/status} 从未存在、`T58` 也不新增），
@@ -48,7 +48,8 @@ import java.util.List;
  * {@code /contents/{id}/favorite} / 任何 {@code Content*VO} 里（favorite-需求.md §六）。
  *
  * <h2>成功信封 / 错误码</h2>
- * 三个写端点返回**中文文案字符串**（{@code data} 是字符串；与收藏域三条写路径同款）。
+ * 写端点**不再返回文案**（`T59`）：{@code add} / {@code move} = {@code ApiResponse<Void>}（无 {@code data}），
+ * {@code remove} = {@code 204} 无 body。
  * 400 非视频 / 空 {@code contentIds} / 池已满（新增内容） / 缺参 · 404 内容不存在或已软删（add、move）
  * 或目标夹不存在（move） · 403 目标夹不是自己的（move） · 409 目标夹已有同内容（move，稍后再看保留）
  * · 401 未登录。口径与理由见 {@code WatchLaterService} 类注释。

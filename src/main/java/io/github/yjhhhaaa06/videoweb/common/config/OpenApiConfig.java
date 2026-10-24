@@ -40,7 +40,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * OpenAPI spec 的**唯一装配点**（`T60`）。口径见 {@code architecture/tech/api/接口契约.md} §2.10。
+ * OpenAPI spec 的**唯一装配点**（`T60`）。口径见 {@code architecture/tech/api/接口契约-护栏与Spec.md} §二。
  *
  * <h2>本类负责什么</h2>
  * <ol>
@@ -280,7 +280,7 @@ public class OpenApiConfig {
                 responses.addApiResponse("401", refResponse("Unauthorized"));
                 // ★ 403 的**第二个来源**是"所有权校验"（各域 Service 抛 `ForbiddenException`），
                 //   它无法从注解推导（`@RequiresLogin` 只说"要登录"，不说"只许动自己的"）。
-                //   ⇒ 按 §2.10 的"类别级可能域"口径：只要需要身份，就可能因所有权 403，一律声明。
+                //   ⇒ 按《接口契约-护栏与Spec》§二 的"类别级可能域"口径：只要需要身份就可能因所有权 403，一律声明。
                 //   代价 = 少数端点会多一个永不触发的分支；换来"不会漏"（漏了前端没兜底可写）。
                 responses.addApiResponse("403", refResponse("Forbidden"));
             }

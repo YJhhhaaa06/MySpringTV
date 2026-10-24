@@ -44,12 +44,12 @@ CREATE TABLE IF NOT EXISTS `content_coin` (
 
 ## 二、端点契约
 
-写 = `POST` + `x-www-form-urlencoded`、读 = `GET` + query —— 沿袭 `/like/*`、`/favorite/*` 的既有风格
-（`T58` 后两域路径已资源化为 `/api/v1/{contents,comments}/{id}/like[-count]`、`/api/v1/favorites` 等）。
+写 = `POST` + **JSON body**（`T59` 起全站统一，见 [`接口契约.md`](../../tech/api/接口契约.md) §2.5）、读 = `GET` + query。
+⚠️ 旧的"`POST` + form 表单"形态已随 `T58`（路径资源化）/ `T59`（入参 JSON 化）作废。
 
 | 端点 | 鉴权 | 入参 | 出参（`data`） | msg |
 |---|---|---|---|---|
-| `POST /api/v1/contents/{id}/coins` | `@RequiresLogin` | `contentId`（进路径）、`count`（`1` 或 `2`） | `{ "balance": 1.5 }` | 「投币成功」 |
+| `POST /api/v1/contents/{id}/coins` | `@RequiresLogin` | 路径 `{id}` + JSON body `{"count": 1\|2}` | `{ "balance": 1.5 }` | 「投币成功」 |
 | `POST /api/v1/users/me/check-ins` | `@RequiresLogin` | — | `{ "balance": 1.5, "credited": true }` | 「签到成功」/「今日已签到」 |
 
 - ★ **不新增"投币状态"读端点**：`0/1/2` 随**详情**内嵌（§六）。这是与 like / favorite **有意的不同**
@@ -277,6 +277,9 @@ UPDATE users SET coin_deci = coin_deci + 10, last_sign_date = :today
 > ★ 本表**每号一行**，是本域代码 / 测试 / 文档注释里 `F-##` / `R-##` / `T#` 的**活解析入口**。
 > **逐条论证**随正文进 git；**收编只许一行结论**（纪律见 `AGENTS.md`「文档与引用纪律」）。
 > ⚠️ 未完成的任务**不收编**（滚动见 `task/CURRENT_TASKS.md`）。
+> ⚠️ **表里的端点路径是"当时"的形态**：`T58` 起全站资源化为 `/api/v1/**`（`T59` 又统一了入参 / 出参形状）。
+> 本表**不逐行改写** —— 改了就把"留痕"改成假记录；**当前路径以 [接口契约](../../tech/api/接口契约.md) §2.3
+> 与 `src/test/resources/api/openapi.yaml` 为准**。
 
 **需求 / 决策 `F-##` · `R-##`**
 

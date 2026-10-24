@@ -32,7 +32,7 @@ import java.util.TreeSet;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * OpenAPI spec 的导出与形状护栏（`T60`）。口径见 {@code architecture/tech/api/接口契约.md} §2.10。
+ * OpenAPI spec 的导出与形状护栏（`T60`）。口径见 {@code architecture/tech/api/接口契约-护栏与Spec.md} §二。
  *
  * <h2>spec 的定位：产物，不是源</h2>
  * 代码是**唯一事实源**，本类只是把 springdoc 扫出来的结果落盘成 {@code api/openapi.yaml}。
@@ -216,7 +216,7 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
                         problems.add(row.method() + " " + row.path() + " —— 需登录却漏了 401");
                     }
                     // 403 **不禁止**：所有权校验（`ForbiddenException`）散在各域 Service 里，
-                    // 无法从"要不要登录"推导 ⇒ spec 故意放宽到"需身份就可能 403"（§2.10 类别级可能域）。
+                    // 无法从"要不要登录"推导 ⇒ spec 故意放宽到"需身份就可能 403"（《护栏与Spec》§二 类别级可能域）。
                 }
                 case "ADMIN" -> {
                     if (!codes.contains("401") || !codes.contains("403")) {
@@ -240,7 +240,7 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
         }
 
         assertThat(problems)
-                .as("spec 的响应类别与运行期契约不一致（读法见 §2.10：类别是可能域，但不许自相矛盾）")
+                .as("spec 的响应类别与运行期契约不一致（读法见《护栏与Spec》§二：类别是可能域，但不许自相矛盾）")
                 .isEmpty();
     }
 
