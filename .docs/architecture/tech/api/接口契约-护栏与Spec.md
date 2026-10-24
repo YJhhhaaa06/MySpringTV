@@ -85,7 +85,7 @@
 
 - **其它形状（`T60-2`）**：`ResponseEntity<Void>` ⇒ **204，且不留 200**；`@RequestPart` / `MultipartFile`
   端点 ⇒ requestBody **必须是 `multipart/form-data`**（声明成 JSON，前端就会按 JSON 传文件）；
-  错误体由 `ApiError` / `ApiFieldError` / **`ErrorCode`（41 项枚举）** 三个组件承担，逐端点只写一行
+  错误体由 `ApiError` / `ApiFieldError` / **`ErrorCode`（44 项枚举）** 三个组件承担，逐端点只写一行
   `$ref`（否则 67 端点 × 6 类别会把 spec 撑爆，且改一处文案要改 400 处）；
   `servers` 固定 `/`（离线产物不能钉 `localhost`）；`operationId` 由方法名自动生成（同名带 `_2` 后缀），
   **不作为契约**（会随同名方法增减而变，按 path + method 调用）。
