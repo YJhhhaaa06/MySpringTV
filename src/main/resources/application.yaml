@@ -490,6 +490,35 @@ video:
         "[DELETE /api/v1/admin/contents/{id}/hidden]": 3
 
 # ----------------------------------------------------------------------------
+# OpenAPI spec 导出（T60 / 口径见 `architecture/tech/api/接口契约.md` §2.10）
+#
+# ★ 生产**不注册文档端点**（`/v3/api-docs` 不存在），spec 只在测试里生成并入库。
+#   理由：本仓的默认拒绝靠「命中的处理器带 `@Public`」（RequestMappingLookup），
+#   而 springdoc 的文档端点是它自己的 `@RestController` —— 我们**加不上注解**。
+#   于是只有两条路：给它开白名单（违反红线 §2.1）或干脆不暴露。取后者：
+#   匿名面为零，端点登记簿仍是 67 条，`SecurityContractTests` / 权重表全都不用动。
+#
+# ★ packages-to-scan 必须与 `ApiContractInventoryTests.BASE_PACKAGE` 同口径：
+#   不限定会扫进 Spring Boot 的 `/error` 与 springdoc 自己的端点 ⇒ spec 比登记簿多几条，
+#   "集合相等"这条验收就废了。
+# ----------------------------------------------------------------------------
+springdoc:
+  api-docs:
+    enabled: false
+  packages-to-scan: io.github.yjhhhaaa06.videoweb
+  # diff 稳定性：键按字母序输出。不排序时键序跟随扫描/哈希顺序，
+  # 同一份代码两次生成都可能不同 ⇒ 入库的 spec 每次契约变更都会产生整文件噪声，
+  # "review spec diff" 这件事就失去意义（T60-1 实测口径）。
+  writer-with-order-by-keys: true
+  # 默认 produces 从 `*/*` 收成 `application/json`：全站出参都是 JSON（multipart 只影响请求侧），
+  # 留着 `*/*` 等于让前端自己去猜。
+  default-produces-media-type: application/json
+  # 不让 springdoc 自动给每个端点塞一套通用 4xx 响应：
+  # 错误响应由 `OperationCustomizer` 按各端点的鉴权档位显式推导（T60-2），
+  # 保持"spec 只声明真会发生的事"。
+  override-with-generic-response: false
+
+# ----------------------------------------------------------------------------
 # 可观测（第三批 T2 / 账 B3）：Actuator 端点暴露
 # 只开 health 与 metrics —— 观测面要"看得见"，但不该顺手把 env/beans/heapdump
 # 这类**能读到配置与内存**的端点在无认证的情况下开出去（本项目尚无 Security 链，C3/C4）。

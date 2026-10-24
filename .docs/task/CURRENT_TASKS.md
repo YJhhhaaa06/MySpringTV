@@ -24,8 +24,9 @@
   [安全与鉴权.md](../architecture/tech/security/安全与鉴权.md)（鉴权链）·
   [限流.md](../architecture/tech/rate-limit/限流.md)（`cost.base` 权重表口径）。
   ★ **代码注释只引这些篇 + `类#方法`**；不得引用任何草稿 / 本登记台。
-* ★ **编号**：`T54`–`T62`（9 项，可自拆子任务）。**`T54`–`T59` ✅（2026-10-22 → 10-23）**，
-  余 `T60`（OpenAPI）待执行 / `T61` 搁置（`R-23`：前端不跟随）/ `T62`（收口）。
+* ★ **编号**：`T54`–`T62`（9 项，可自拆子任务）。**`T54`–`T59` ✅（2026-10-22 → 10-23）**、
+  **`T60-1` ✅（10-24）**，余 `T60-2`/`T60-3`（OpenAPI 形状 / 收口）/ `T61` 搁置（`R-23`：前端不跟随）/
+  `T62`（收口）。
   **下一编号从 `T63` 起**，`R-21`/`R-22` 之后的决策从 `R-23` 起（**`R-23` = 前端不跟随**，2026-10-23；
   `R-24` = requestId 去重另立专项，待拍板）。
 * ★ **执行约定**：一任务一 commit（G1）；每 commit 可编译且自带验收测试 + 反向验证。
@@ -34,9 +35,9 @@
 * ★ **顺序纪律（本专项特有）**：`T54` → `T55`/`T56`/`T57`（错误面）→ `T58`/`T59`（路由面 / 载荷面）→
   `T60` → `T61` → `T62`。**码表不定就改码 = 改两遍；路径不定就改形状 = 前端映射表重写两次。**
   路由一改，限流权重表（键是 `"[POST /x]"`）、安全契约测试、前端调用点**必须同一 commit 跟上**。
-* **回归基线**（2026-10-22，**`T57` 后复跑**）：默认集 **788/788 绿**（`--excludedGroups=resilience`），
-  `resilience` 组另跑 **41/41 绿** ⇒ 合计 **829/829**（`T56` 后是 818，`T57` 新增 11 例：
-  `ValidationErrorContractTests`；`UploadFlowTests#缺必填part为400` 在原用例上补断言，不增条数）。
+* **回归基线**（2026-10-24，**`T60-1` 后复跑**）：默认集 **800/800 绿**（`-DexcludedGroups=resilience`），
+  `resilience` 组另跑 **41/41 绿** ⇒ 合计 **841/841**（`T59` 后是 797 + 41 = 838，`T60-1` 新增 3 例：
+  `OpenApiSpecExportTests`）。
   ⚠️ 本环境跑全量需 `DB_POOL_MAX_SIZE=4`（否则 Testcontainers MySQL 报 `Too many connections`）。
 * ★ **本专项不动 schema**（纯 HTTP 层）⇒ 不产生 Flyway 迁移；若执行中发现必须动表，先停下登记 `I-##`。
 
@@ -344,21 +345,44 @@
 
 ### 接口契约专项：交付与收口（`T60`–`T62`）
 
-#### T60 OpenAPI 导出（来源 前端重制需要 / 设计 §〇）【待执行】
+#### T60 OpenAPI 导出（来源 前端重制需要 / 设计 §〇）【执行中 —— `T60-1` ✅ 2026-10-24，`T60-2`/`T60-3` 待做】
 
 > ⚠️ **先质疑（G14）**：
 > - **任务**：一个学习项目要 OpenAPI 是不是"为了简历加个依赖"？—— 有真实用途：重制的前端要按契约写调用，
 >   spec 比 markdown 可靠；且能反过来校验 `T54` 清单。
 > - **设计**：会不会产生"第二事实源"？—— 会，故定位死：**代码是源、spec 是产物**，不一致时以代码为准并修注解。
 
-* **入口线索**：`pom.xml`；`common/config/SecurityPassthroughConfig`（默认拒绝，文档端点必须显式放行）；
-  `SecurityContractTests`（放行口必须进契约用例）。
-* **目标**：springdoc 接入，`/v3/api-docs` 可匿名读；导出静态 spec 供重制使用；端点集与 `T54` 清单对齐。
-* **红线边界**：文档端点**必须**走 `@Public`（不能靠"路径白名单"绕过默认拒绝）；spec 里的错误码要与 `T55` 码表一致；
-  **不许**为了"文档好看"改运行时行为。
-* **强制探索**：springdoc 与 Boot 4.1 的兼容性（版本矩阵）；`@CurrentUserId` 这类自定义解析器在 spec 里怎么表达（不该出现在参数表）。
-* **验收**：`/v3/api-docs` 的 path+method 集合 == `T54` 清单集合（差异即红）；匿名可读且不影响鉴权默认拒绝（未放行的新路径仍 401）。
-* **回写**：
+* ★ **执行期裁决（2026-10-24 用户拍板；完整口径落 `接口契约.md` §2.10）**：
+  1. **文档端点 = 生产不暴露**（`api-docs.enabled=false`），spec 只在测试里由 bean 直接生成（不走 HTTP）。
+     否决"自写 `@Public` 外壳"：`ApiContractInventoryTests` 强制"非 DELETE 返 `ApiResponse<T>`"，
+     外壳返裸 JSON 会让守卫红 ⇒ 只能开豁免 = 为一个调试面拆护栏。收益：匿名面为零、登记簿仍 **67**、安全契约/权重表不动。
+  2. **spec 入库**（`src/test/resources/api/openapi.yaml`）。判据 = **"diff 有没有信息"**，不是"能不能重建"。
+     连带：§2.3 的 67 条清单与 spec 重复 ⇒ `T60-3` 降级为"规则 + 指针"。
+  3. **零注解**：错误响应/鉴权面/204 由 `OperationCustomizer`（**必须带 `HandlerMethod`**）+ `OpenApiCustomizer` 推导，
+     不许给 67 个 controller 加注解；唯一允许的注解面 = **单位/精度看不出来**的字段（例 `coin` 十分位）。
+* **入口线索**：`pom.xml`；`common/config/OpenApiConfig`；`ApiContractInventoryTests`（对齐基线 / 扫描面口径）；
+  `springdoc-openapi-starter-webmvc-api:3.1.1`（3.x 才是 Boot 4 线）。
+  ★ **更正原线索**：默认拒绝在 `RequestMappingLookup` + `JwtAuthFilter`，`SecurityPassthroughConfig` 是 `permitAll()`。
+* **目标**：spec 可从代码生成并入库、与 `T54` 登记簿对齐；形状与运行期一致（错误响应 / 204 / multipart / 时间 / ID）。
+  ⚠️ 原目标"`/v3/api-docs` 可匿名读"已被裁决①取代。
+* **红线边界**：错误码可追溯到 `ErrorCode` 枚举；**不许**为了"文档好看"改运行时行为（加 `consumes` / `@ResponseStatus` 都算）；
+  `packages-to-scan` 与 `BASE_PACKAGE` 同口径；spec 只许由生成命令写，不许手改。
+* **强制探索**：`@CurrentUserId` 怎么不进参数表（已解）；`ResponseEntity<Void>` 为何没推成 204；
+  `@RequestPart` 为何渲染成 `application/json`；`operationId`（`delete_2`）是否随扫描序变化；
+  ★ `servers` 覆盖不掉 —— `OpenApiCustomizer` 在 `calculateServerUrl` **之前**跑。
+* **验收**：path+method 集合 == `T54` 清单（差异即红）；重生成与入库逐字一致；`userId` 不在参数表；匿名面为零。
+* **拆分**：`T60-1` 导出机制 + 三条护栏（✅）；`T60-2` 形状定稿（错误响应 / 204 / multipart / `operationId` / `servers`，
+  并删掉 spec `description` 的中间态段）；`T60-3` 文档收口（§2.10 · §2.3 去重 · §〇 进度）。
+* **回写（`T60-1` ✅ 2026-10-24）**：交付 `pom.xml` 依赖 + `application.yaml` 的 `springdoc:` 段
+  （关端点 / `packages-to-scan` / 键排序 / `produces: application/json`）+ `OpenApiConfig`（info + 忽略 `@CurrentUserId`）
+  + `OpenApiSpecExportTests` 三例 + `openapi.yaml`（**67 条** / 60 KB）。
+  ★ 入库判据实测：连续两次生成**逐字相同**，改一处值 diff 恰好 1 行 ⇒ 键序稳定，入库成立。
+  反向验证三处真红（摘忽略 ⇒ 41 个端点带假 `userId`；登记簿注入假端点 ⇒ 集合红；改代码不重生成 ⇒ 快照红）。
+  ⚠️ 踩坑：`openapiYaml(request, null, locale)` 会 NPE（第二参是 **docs 路径**不是 group）。
+  ⚠️ 本切片是**中间态**（错误响应 / 204 / multipart / `operationId` / `servers` 未定稿），已在 spec `description` 明写
+  "不要据此写前端"，`T60-2` 收口时删除。
+
+
 
 #### T61 前端适配层（来源 `R-21` §1.2 / `INDEX.md` §一 ①）【搁置 —— 去向：随前端重制定（`R-23`）】
 
