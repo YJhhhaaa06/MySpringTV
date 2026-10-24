@@ -1056,11 +1056,10 @@ paths:
           type: integer
           format: int32
       - in: query
-        name: sort
+        name: url
         required: true
         schema:
-          type: integer
-          format: int32
+          type: string
       responses:
         "204":
           description: 已生效，无响应体

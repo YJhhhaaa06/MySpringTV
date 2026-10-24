@@ -109,23 +109,33 @@ public class ContentController {
     }
 
     /**
-     * 作者删除单条媒体（{@code POST /content/mediaDelete?contentId=&type=&sort=}）。
+     * 作者删除单条媒体（{@code DELETE /api/v1/contents/{id}/media?type=2&url=…}）。
      *
      * <p>{@code type} 缺失/非法 → 400（TV 文案 {@code "type不能为空"} / {@code "type格式错误，应为 1/2/3"}）；
-     * {@code sort} 缺失/非法 → 400；{@code type != 2} → 400 {@code "仅支持删除图片"}（在 Service 里）；
+     * {@code url} 缺失 → 400（与 {@code type} 缺参同一条出口，见 `T57` 校验失败体）；
+     * {@code type != 2} → 400 {@code "仅支持删除图片"}（在 Service 里）；
      * 非作者 → 403；媒体不存在 → 404 {@code "媒体资源不存在"}。
      *
-     * <p>★ <b>S7 补回（A7 兑现）</b>：Service 把被删媒体的 url 返回出来，此处**提交后**调
+     * <p>★ <b>`T63`：选择参数 {@code sort} → {@code url}</b>。{@code sort} 是**可变位置**
+     * （删完一张就被 {@code compactImageSort} 前移），重试"删第 N 张"会删掉**原来的第 N+1 张**
+     * 且仍回 204。{@code url} 是上传后不再复用的稳定标识（文件名 UUID，
+     * 换源会换新 url）⇒ 重试只可能 404，符合 `接口契约.md` §2.4①"已删视为不存在"。
+     * 依据：《接口契约.md》§2.4① 与 §2.5（DELETE 的选择参数走 query）。
+     *
+     * <p>⚠️ {@code url} **刻意不加 {@code @NotBlank}**：缺参与 {@code type} 缺参必须走同一条
+     * 400 出口，加约束会新增一条校验文案（= 新契约面）。
+     *
+     * <p>★ <b>S7 补回（A7 兑现）</b>：Service 把被删媒体的 url（**DB 行原值**）返回出来，此处**提交后**调
      * {@code deleteFileByUrl} 清理物理文件（尽力而为：非法 URL / 文件不存在静默忽略）。
-     * S5 交付时因 upload 域未迁移而裁剪，补回位置即此（见《决策表》G-7 与《遗留台账》A7）。
+     * 带 {@code video.media.base-url} 前缀的入参在 Service 里已被剥离，物理删除不会拿到前缀值。
      */
     @DeleteMapping("/api/v1/contents/{id}/media")
     @RequiresLogin
     public ResponseEntity<Void> mediaDelete(@CurrentUserId long userId,
                                             @PathVariable("id") long contentId,
                                             @RequestParam int type,
-                                            @RequestParam int sort) {
-        String oldUrl = contentService.deleteMedia(contentId, userId, type, sort);
+                                            @RequestParam String url) {
+        String oldUrl = contentService.deleteMedia(contentId, userId, type, url);
         fileUploadService.deleteFileByUrl(oldUrl);
         return ResponseEntity.noContent().build();
     }

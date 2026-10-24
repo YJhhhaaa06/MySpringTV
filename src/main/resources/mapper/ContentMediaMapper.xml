@@ -45,9 +45,19 @@
         where content_id=#{contentId} and type=#{type} and sort=#{sort}
     </select>
 
-    <!-- TV: delete from content_media where content_id=? and type=? and sort=? -->
-    <delete id="deleteMediaByContentIdAndTypeSort">
-        delete from content_media where content_id=#{contentId} and type=#{type} and sort=#{sort}
+    <!-- T63：删图的前置定位——按稳定标识 url 查（`sort` 是可变位置，重试会命中下一张）。
+         ★ 必须 `order by id limit 1`：content_media 没有 (content_id,url) 唯一键、存量 url 也不是 UUID，
+         命中多行时若返回 List 会抛 TooManyResultsException ⇒ 500。取最小 id 那行。 -->
+    <select id="findMediaByContentTypeUrl" resultMap="contentMediaMap">
+        select id,content_id,url,type,sort,duration_seconds from content_media
+        where content_id=#{contentId} and type=#{type} and url=#{url}
+        order by id limit 1
+    </select>
+
+    <!-- TV: delete from content_media where id=? —— T63 起有消费者（作者删图，按查出来的代理键删）。
+         只换查询不换删除是无效修复：查完到删之间若有别的请求压缩过 sort，按 sort 删照样删错行。 -->
+    <delete id="deleteMediaById">
+        delete from content_media where id=#{mediaId}
     </delete>
 
     <!-- TV: update content_media set sort=sort-1 where content_id=? and type=2 and sort>?
