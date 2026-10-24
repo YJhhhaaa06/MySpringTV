@@ -101,7 +101,7 @@
 
 **本期在办：`T63`–`T65`**（幂等专项 P0，来源 `N4` §G）。P1（`R-24`）待拍板，不在本期。
 
-### T63 媒体删除改为稳定标识定位（来源 `N4` §G·P0-1）【待执行】
+### T63 媒体删除改为稳定标识定位（来源 `N4` §G·P0-1）【已完成】
 
 > ⚠️ **先质疑（G14）**：
 > - **任务**：这是"幂等需求"还是"缺陷"？—— 两者都是。它在 P1 幂等键下会被掩盖（同 key 重放），
@@ -147,8 +147,12 @@
   - 鉴权/归属/参数四条路径逐条保持（含 `type≠2` 400）；`base-url` 非空时带前缀的 url 也能删中（归一化）。
   - 契约面：`openapi.yaml` 重生成 + **review diff**，正确开关是 **`-Dapi.openapi.write=true`**
     （登记簿是 `-Dapi.contract.write=true`；⚠️ 写成 `-Dapi.*.write=true` 会静默不生成）；§2.5 例外清单同步。
-  - `run_tests.py` 全量 + `--group resilience` 绿。
-* **回写**：
+  - 全量 `run_tests.py` + `--group resilience` 绿。
+* **回写**：契约 `DELETE …/media?type=&sort=` → `?type=&url=`（保留 `type` 保错误顺序、不加 `@NotBlank` 不新增文案）；
+  Service 改为 **url 归一化 → 按 url 查代理键（`order by id limit 1`，该表无 `(content_id,url)` 唯一键）→ 按 id 删 + 判 affected rows（0 ⇒ 404）→ 用被删行 `sort` 压缩**，
+  并删掉 `deleteMediaByContentIdAndTypeSort` 消除双入口。定向 6/6、全量 **808** + resilience **41** 绿，spec 仅该端点参数变化（2 插 3 删）。
+  反向验证两处真红：查询忽略 `url` ⇒ 重试回 **204**（删错行）；忽略 affected rows ⇒ 并发双删 **204/204**。
+  ⚠️ 残留：`video.media.base-url` 前缀分支**无集成用例覆盖**（`stripMediaBaseUrl` 只有代码）；换源 `PUT …/media` 仍按 `type+sort`，删图后换源会指向下一张（既存形态、本任务不修）。
 
 ### T64 重复领券返回原券码（来源 `N4` §G·P0-3）【待执行】
 
