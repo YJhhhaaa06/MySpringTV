@@ -4,12 +4,11 @@ import io.github.yjhhhaaa06.videoweb.support.Envelope;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
 import tools.jackson.databind.JsonNode;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -66,10 +65,10 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
         setCoinDeci(voter.id(), 10);                       // 1.0 枚，够投 1 枚
         long contentId = insertVideoContent(author.id(), "读面详情视频");
 
-        assertThat(postForm("/coin/add", coinForm(contentId, 1), voter.token()).getStatusCode().value())
+        assertThat(post("/api/v1/contents/" + contentId + "/coins", Map.of("count", 1), voter.token()).getStatusCode().value())
                 .as("前置：投币必须成功，否则本用例没有判别力").isEqualTo(200);
 
-        ResponseEntity<String> resp = get("/search/IdSearch?contentId=" + contentId, voter.token());
+        ResponseEntity<String> resp = get("/api/v1/contents/" + contentId, voter.token());
         assertThat(resp.getStatusCode().value()).as("%s", resp.getBody()).isEqualTo(200);
         JsonNode data = Envelope.data(resp);
 
@@ -99,7 +98,7 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
         TestUser viewer = registerUser("13900004012", "coinread_post_viewer");
         long contentId = insertPostContent(author.id(), "读面详情图文");
 
-        JsonNode data = Envelope.data(get("/search/IdSearch?contentId=" + contentId, viewer.token()));
+        JsonNode data = Envelope.data(get("/api/v1/contents/" + contentId, viewer.token()));
 
         JsonNode interaction = data.path("interaction");
         assertThat(interaction.isObject()).as("登录 ⇒ interaction 是对象").isTrue();
@@ -124,7 +123,7 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
         TestUser author = registerUser("13900004003", "coinread_anon_author");
         long contentId = insertVideoContent(author.id(), "读面匿名视频");
 
-        ResponseEntity<String> resp = get("/search/IdSearch?contentId=" + contentId, null);
+        ResponseEntity<String> resp = get("/api/v1/contents/" + contentId, null);
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         JsonNode data = Envelope.data(resp);
 
@@ -159,13 +158,13 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
         setCoinDeci(voter.id(), 10);
         long contentId = insertVideoContent(author.id(), "coinreadlist 读面列表内容");
 
-        assertThat(postForm("/coin/add", coinForm(contentId, 1), voter.token()).getStatusCode().value())
+        assertThat(post("/api/v1/contents/" + contentId + "/coins", Map.of("count", 1), voter.token()).getStatusCode().value())
                 .as("前置：先给内容投 1 枚，确保计数非零（否则'没有键'与'值是 0'分不清）")
                 .isEqualTo(200);
         assertThat(coinCountOf(contentId)).as("前置：DB 计数为 1").isEqualTo(1);
 
         // ---- /start（登录）：interaction.coin 仍恒 null；coinCount 键不存在 ----
-        JsonNode startItem = itemOf(Envelope.data(get("/start", voter.token())), contentId);
+        JsonNode startItem = itemOf(Envelope.data(get("/api/v1/contents/recommended", voter.token())), contentId);
         assertThat(startItem.path("interaction").isObject())
                 .as("登录 ⇒ interaction 仍是对象").isTrue();
         assertThat(startItem.path("interaction").path("coin").isNull())
@@ -177,7 +176,7 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
 
         // ---- /search/keywordSearch（登录）：同上 ----
         JsonNode searchItem = itemOf(
-                Envelope.data(get("/search/keywordSearch?keyword=coinreadlist", voter.token())).path("list"),
+                Envelope.data(get("/api/v1/contents?keyword=coinreadlist", voter.token())).path("list"),
                 contentId);
         assertThat(searchItem.path("interaction").path("coin").isNull())
                 .as("★ /search 的 coin 也恒 null").isTrue();
@@ -196,12 +195,12 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
         setCoinDeci(voter.id(), 10);
         long contentId = insertVideoContent(author.id(), "读面主页内容");
 
-        assertThat(postForm("/coin/add", coinForm(contentId, 1), voter.token()).getStatusCode().value())
+        assertThat(post("/api/v1/contents/" + contentId + "/coins", Map.of("count", 1), voter.token()).getStatusCode().value())
                 .as("前置：投币成功").isEqualTo(200);
         assertThat(coinCountOf(contentId)).isEqualTo(1);
 
         JsonNode page = Envelope.data(
-                get("/profile?userId=" + author.id(), voter.token())).path("contentPage");
+                get("/api/v1/users/" + author.id(), voter.token())).path("contentPage");
         JsonNode item = itemOf(page.path("list"), contentId);
         assertThat(item.path("interaction").isObject()).as("登录 ⇒ interaction 是对象").isTrue();
         assertThat(item.path("interaction").path("coin").isNull())
@@ -222,7 +221,7 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
 
         // 详情
         JsonNode detailInteraction = Envelope.data(
-                get("/search/IdSearch?contentId=" + contentId, viewer.token())).path("interaction");
+                get("/api/v1/contents/" + contentId, viewer.token())).path("interaction");
         assertThat(keysOf(detailInteraction))
                 .as("★ 详情子对象键集：恰好四维（T40 起多出 coin）")
                 .containsExactlyInAnyOrder("isLiked", "isFavorited", "isFollowed", "coin");
@@ -230,7 +229,7 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
                 .as("视频详情：coin 是数量（未投过 ⇒ 0）").isTrue();
 
         // 列表面（/start）
-        JsonNode listInteraction = itemOf(Envelope.data(get("/start", viewer.token())), contentId)
+        JsonNode listInteraction = itemOf(Envelope.data(get("/api/v1/contents/recommended", viewer.token())), contentId)
                 .path("interaction");
         assertThat(keysOf(listInteraction))
                 .as("★ 列表面子对象键集：同样恰好四维（coin 键在、值是 null）")
@@ -252,16 +251,16 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
         long contentId = insertVideoContent(author.id(), "读面缓存视频");
 
         // 暖缓存：此时 user:coinAmount 会落**空标记**、content:coinCount 会落 "0"
-        JsonNode before = Envelope.data(get("/search/IdSearch?contentId=" + contentId, voter.token()));
+        JsonNode before = Envelope.data(get("/api/v1/contents/" + contentId, voter.token()));
         assertThat(before.path("interaction").path("coin").asInt()).isZero();
         assertThat(before.path("coinCount").asLong()).isZero();
 
-        assertThat(postForm("/coin/add", coinForm(contentId, 1), voter.token()).getStatusCode().value())
+        assertThat(post("/api/v1/contents/" + contentId + "/coins", Map.of("count", 1), voter.token()).getStatusCode().value())
                 .isEqualTo(200);
 
         // 不重启、不手动清缓存：读面必须立刻反映已提交的写。
         // 若 CoinChangedListener 不在 AFTER_COMMIT 条件写两个 key（或不清空标记），这里会读到 0。
-        JsonNode after = Envelope.data(get("/search/IdSearch?contentId=" + contentId, voter.token()));
+        JsonNode after = Envelope.data(get("/api/v1/contents/" + contentId, voter.token()));
         assertThat(after.path("interaction").path("coin").asInt())
                 .as("★ 我投了几枚 = 1（命中缓存新值 / 空标记已清）").isEqualTo(1);
         assertThat(after.path("coinCount").asLong())
@@ -279,14 +278,6 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
     // ========================================================================
     // 夹具
     // ========================================================================
-
-    /** 投币端点：{@code POST + form}，带 {@code contentId} / {@code count}（同 CoinAddTests）。 */
-    private static MultiValueMap<String, String> coinForm(long contentId, int count) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("contentId", String.valueOf(contentId));
-        form.add("count", String.valueOf(count));
-        return form;
-    }
 
     /** 从列表节点里取指定 id 的条目（找不到直接失败——防"夹具没造上 / 被读面跳过"的假绿）。 */
     private static JsonNode itemOf(JsonNode list, long contentId) {

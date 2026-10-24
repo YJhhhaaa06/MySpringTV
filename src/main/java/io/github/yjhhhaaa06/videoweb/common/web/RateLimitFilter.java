@@ -7,7 +7,6 @@ import io.github.yjhhhaaa06.videoweb.common.cache.RateLimitRedisOps;
 import io.github.yjhhhaaa06.videoweb.common.cache.RateLimitScriptException;
 import io.github.yjhhhaaa06.videoweb.common.config.RateLimitProperties;
 import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
-import io.github.yjhhhaaa06.videoweb.common.log.AccessLogFilter;
 import io.github.yjhhhaaa06.videoweb.common.security.JwtAuthFilter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -15,11 +14,9 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.annotation.Order;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.web.servlet.HandlerMapping;
 import org.springframework.web.filter.OncePerRequestFilter;
-import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.util.List;
@@ -44,7 +41,7 @@ import java.util.Set;
  *
  * <h2>覆盖范围（口径的唯一事实源 = {@code architecture/tech/rate-limit/限流.md} §三）</h2>
  * 除跳过清单外**全部过闸**：含匿名读接口、未映射路径（扫描流正是要防的对象之一）、
- * {@code /api/admin}（通过鉴权的管理员请求同样过闸）。**无任何白名单**（含管理员——
+ * {@code /api/v1/admin}（通过鉴权的管理员请求同样过闸）。**无任何白名单**（含管理员——
  * 管理端人工操作流量极小，不值得开"绕过口"）。
  * <p>跳过清单 = 精确 {@code /}、{@code /index.html}、{@code /favicon.ico}（浏览器默认请求，
  * 文件不存在也是 404）＋ 前缀 {@code /static/}（前端 18 文件）、{@code /actuator/}、
@@ -54,11 +51,11 @@ import java.util.Set;
  * （429 掉视频文件与 429 掉 CSS 是同一类事故），登记 {@code I-19}；
  * 业务上传端点是 {@code POST /api/upload/*}，与本前缀零交集，不受影响。
  *
- * <h2>★ 429 出口：与 {@code JwtAuthFilter#writeError} 同款形态</h2>
- * 过滤器在 DispatcherServlet 之前，{@code @RestControllerAdvice} 覆盖不到 ⇒ 自写
- * {@link ApiResponse}；并**补记** {@link AccessLogFilter#ATTR_BUSINESS_CODE}——否则 429 的
- * 访问行记成 {@code code=0}，与静态资源混为一谈，访问日志三态塌成两态。
- * 另带 {@code Retry-After} 响应头（秒，向上取整；令牌桶天生知道自己何时补齐）。
+ * <h2>★ 429 出口：形状委托 {@link ApiErrorWriter}</h2>
+ * 过滤器在 DispatcherServlet 之前，{@code @RestControllerAdvice} 覆盖不到 ⇒ 必须在过滤器内写响应；
+ * 但**产物形状不在这里拼**（{@code T56}）：信封、内容类型、业务码属性补记、以及
+ * {@code Retry-After}（秒，向上取整；令牌桶天生知道自己何时补齐）一律交给
+ * {@link ApiErrorWriter#write}——否则"加一个错误字段要改三处、漏一处不会有测试变红"。
  *
  * <h2>★ fail-open：两种失败都放行，但日志分两档</h2>
  * Redis 不可达 / 熔断打开（{@code guarded} 快速失败）⇒ **放行**（可用性优先，
@@ -120,21 +117,19 @@ public class RateLimitFilter extends OncePerRequestFilter {
      */
     private static final List<String> SKIP_PREFIXES = List.of("/static/", "/actuator/", "/upload/");
 
-    private static final String HEADER_RETRY_AFTER = "Retry-After";
-
     private final RateLimitProperties properties;
     private final RateLimitRedisOps ops;
     private final RateLimitMetrics metrics;
-    private final ObjectMapper objectMapper;
+    private final ApiErrorWriter errorWriter;
 
     public RateLimitFilter(RateLimitProperties properties,
                            RateLimitRedisOps ops,
                            RateLimitMetrics metrics,
-                           ObjectMapper objectMapper) {
+                           ApiErrorWriter errorWriter) {
         this.properties = properties;
         this.ops = ops;
         this.metrics = metrics;
-        this.objectMapper = objectMapper;
+        this.errorWriter = errorWriter;
     }
 
     @Override
@@ -298,7 +293,14 @@ public class RateLimitFilter extends OncePerRequestFilter {
      * 必须看同一个字符串，否则两套口径（未解码未规范化的前提见 {@link #isSkipped}）。
      */
     private double costOf(HttpServletRequest request) {
-        Integer weight = properties.cost().base().get(request.getMethod() + " " + pathOf(request));
+        // ★ `T58` 起路径含 {id} 变量：必须以**命中的路由模式**查表，不能用原始 URI ——
+        //   否则 "[PUT /api/v1/contents/{id}/like]" 永远命不中、静默落 default-base
+        //   （完整性用例只比对 handler 模式，抓不到这种沉默失效 ⇒ 契约用例 4 专钉此处）。
+        //   属性由 JwtAuthFilter 里的 RequestMappingLookup#resolve 触发的 getHandler 顺带写入；
+        //   未映射 / 不可解析时没有属性 ⇒ 退回原始路径（口径仍是"未登记 ⇒ 兜底"）。
+        Object bestMatchingPattern = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
+        String lookupPath = bestMatchingPattern != null ? bestMatchingPattern.toString() : pathOf(request);
+        Integer weight = properties.cost().base().get(request.getMethod() + " " + lookupPath);
         return weight != null ? weight : properties.cost().defaultBase();
     }
 
@@ -334,20 +336,16 @@ public class RateLimitFilter extends OncePerRequestFilter {
     }
 
     /**
-     * 429 短路出口（{@code JwtAuthFilter#writeError} 同款：自写信封 + 补记业务码属性，
-     * 理由见类注释「429 出口」）。另带 {@code Retry-After} 头（秒；放行路径不写此头）。
+     * 429 短路出口：状态、信封、{@code Retry-After} 与业务码属性**全部**委托
+     * {@link ApiErrorWriter}（{@code T56} 起形状只有一份）。
+     *
+     * <p>本方法剩下的唯一语义是"用 {@link ErrorCode#RATE_LIMITED} + 桶算出的秒数"——
+     * 也就是"限流器拒绝时对外说什么"，而不是"怎么说"。
      */
     private void writeTooManyRequests(HttpServletRequest request,
                                       HttpServletResponse response,
                                       long retryAfterSeconds) throws IOException {
-        int code = ErrorCode.RATE_LIMITED.getCode();
-        request.setAttribute(AccessLogFilter.ATTR_BUSINESS_CODE, code);
-        HttpStatus status = HttpStatus.resolve(code);
-        response.setStatus((status == null ? HttpStatus.INTERNAL_SERVER_ERROR : status).value());
-        response.setHeader(HEADER_RETRY_AFTER, String.valueOf(retryAfterSeconds));
-        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        response.setCharacterEncoding("UTF-8");
-        objectMapper.writeValue(response.getWriter(),
-                ApiResponse.error(code, ErrorCode.RATE_LIMITED.getMessage()));
+        errorWriter.write(request, response, ErrorCode.RATE_LIMITED,
+                ErrorCode.RATE_LIMITED.getMessage(), ApiErrorWriter.retryAfter(retryAfterSeconds));
     }
 }

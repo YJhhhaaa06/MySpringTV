@@ -2,6 +2,7 @@ package io.github.yjhhhaaa06.videoweb.common.security;
 
 import io.github.yjhhhaaa06.videoweb.common.config.JwtProperties;
 import io.github.yjhhhaaa06.videoweb.common.log.AccessLogFilter;
+import io.github.yjhhhaaa06.videoweb.common.web.ApiErrorWriter;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -26,11 +27,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <ul>
  *   <li>{@code SecurityContractTests} 断言 {@link RequestMappingLookup} 的**判定结果**
  *       （两个布尔量），但它**不经过过滤器**；</li>
- *   <li>{@code AdminSecurityTests} 断言**状态码**，但它的 8 条路径全在 {@code /api/admin} 下
+ *   <li>{@code AdminSecurityTests} 断言**状态码**，但它的 8 条路径全在 {@code /api/v1/admin} 下
  *       ⇒ 旧实现（路径前缀）与新实现（处理器注解）给出**完全相同**的 401/403，
  *       **它无法区分**"角色判据到底是前缀还是注解"。</li>
  * </ul>
- * 本类补的正是那条缝：把 {@code @RequiresAdmin} 标在一个**不在 {@code /api/admin} 下**的桩端点上，
+ * 本类补的正是那条缝：把 {@code @RequiresAdmin} 标在一个**不在 {@code /api/v1/admin} 下**的桩端点上，
  * 再直接驱动过滤器。若有人把角色判据改回路径前缀，{@code 非admin路径上的RequiresAdmin仍然生效} 立刻变红。
  *
  * <p>纯单元测试（不启容器、不连库）：过滤器依赖的四个协作者全部手工装配。
@@ -46,13 +47,15 @@ class JwtAuthFilterAuthzTests {
     /** 只有 {@link #ADMIN_ID} 是管理员 —— 与 {@code users.role == 1} 同义。 */
     private final AdminChecker adminChecker = userId -> userId == ADMIN_ID;
     private final ObjectMapper objectMapper = JsonMapper.builder().build();
+    /** `T56`：错误信封形状的唯一写出点（本类只关心 401/403 的分工，但仍要给出真实协作者）。 */
+    private final ApiErrorWriter errorWriter = new ApiErrorWriter(objectMapper);
     private static final Probe PROBE = new Probe();
 
-    /** 用桩处理器构造过滤器：路径写死为 {@code /probe}，**故意不在 {@code /api/admin} 下**。 */
+    /** 用桩处理器构造过滤器：路径写死为 {@code /probe}，**故意不在 {@code /api/v1/admin} 下**。 */
     private JwtAuthFilter filterFor(String probeMethod) throws NoSuchMethodException {
         Method method = Probe.class.getMethod(probeMethod);
         HandlerMapping stub = request -> new HandlerExecutionChain(new HandlerMethod(PROBE, method));
-        return new JwtAuthFilter(jwtService, adminChecker, objectMapper, new RequestMappingLookup(stub));
+        return new JwtAuthFilter(jwtService, adminChecker, errorWriter, new RequestMappingLookup(stub));
     }
 
     private Outcome call(JwtAuthFilter filter, String token) throws Exception {
@@ -85,7 +88,7 @@ class JwtAuthFilterAuthzTests {
     }
 
     @Test
-    @DisplayName("★角色判据跟着处理器走：@RequiresAdmin 在非 /api/admin 路径上同样生效（403）")
+    @DisplayName("★角色判据跟着处理器走：@RequiresAdmin 在非 /api/v1/admin 路径上同样生效（403）")
     void 非admin路径上的RequiresAdmin仍然生效() throws Exception {
         String normalToken = jwtService.generateToken(NORMAL_ID);
 
@@ -98,8 +101,8 @@ class JwtAuthFilterAuthzTests {
         assertThat(out.status()).isEqualTo(403);
         assertThat(out.body()).as("403 信封文案（沿袭 TV「无权访问」）").contains("无权访问");
         assertThat(out.businessCode())
-                .as("过滤器短路时补记业务码，否则访问日志的 code 会记成 0（三态塌两态）")
-                .isEqualTo(403);
+                .as("过滤器短路时补记业务码，否则访问日志的 code 会记成 0（三态塌两态）；T55 起是字符串码")
+                .isEqualTo("AUTH_FORBIDDEN");
     }
 
     @Test
@@ -111,7 +114,7 @@ class JwtAuthFilterAuthzTests {
         assertThat(out.status())
                 .as("若把 ②③ 两段顺序互换（或缺'admin 蕴含登录'），这里会变成 403")
                 .isEqualTo(401);
-        assertThat(out.businessCode()).isEqualTo(401);
+        assertThat(out.businessCode()).isEqualTo("AUTH_UNAUTHORIZED");
     }
 
     @Test

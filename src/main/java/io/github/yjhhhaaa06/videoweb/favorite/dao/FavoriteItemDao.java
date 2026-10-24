@@ -57,7 +57,7 @@ import java.util.Set;
  *       重复收藏**撞唯一键** ⇒ {@code DuplicateKeyException} ⇒ 全局出口 409，
  *       不靠"先查后插"（并发下先查后插必然漏）。</li>
  *   <li>{@code idx_user_content (user_id, content_id)} —— 按人去重（上条口径 4）与
- *       {@code /favorite/status} 的成员判定。</li>
+ *       {@code /api/v1/contents/{id}/favorite} 的成员判定。</li>
  *   <li>{@code idx_folder_time (folder_id, create_time)} —— 夹内列表按收藏时间倒序分页（T6）。</li>
  * </ul>
  *
@@ -92,7 +92,7 @@ public interface FavoriteItemDao {
     int deleteByFolderId(@Param("folderId") long folderId);
 
     /**
-     * 收藏一条内容进一个夹（T4，{@code POST /favorite/add} 与 {@code POST /favorite/move} 共用）。
+     * 收藏一条内容进一个夹（T4，{@code POST /api/v1/favorites} 与 {@code PUT /api/v1/favorites/{id}} 共用）。
      *
      * <h2>三条口径（写调用方前先读）</h2>
      * <ol>
@@ -116,6 +116,28 @@ public interface FavoriteItemDao {
     int insertItem(@Param("folderId") long folderId,
                    @Param("userId") long userId,
                    @Param("contentId") long contentId);
+
+    /**
+     * 幂等收藏一条（`T59`）：目标夹已有该内容 / 并发重复 ⇒ 0 行，调用方视为成功。
+     *
+     * <p>仅用于「幂等设置」语义的两个 PUT（{@code PUT /favorites/{id}} 的移动、
+     * {@code PUT /watch-later/{id}/folder}）；{@code POST /favorites} 仍走
+     * {@link #insertItem}（创建语义，重复 = 409）。
+     *
+     * @return 受影响行数（首次收进 1；已在目标夹 / 并发重复 0）
+     */
+    int insertItemIgnore(@Param("folderId") long folderId,
+                         @Param("userId") long userId,
+                         @Param("contentId") long contentId);
+
+    /**
+     * 该内容是否已在指定夹里（`T59` 幂等移动的判定）。
+     *
+     * <p>用于"目标夹已有 ⇒ 跳过容量判定与插入、只清源夹"——否则满夹时重复移动会被
+     * 容量闸误判成 400，幂等语义不成立。走 {@code uk_folder_content (folder_id, content_id)} 点查。
+     */
+    boolean existsByFolderAndContent(@Param("folderId") long folderId,
+                                     @Param("contentId") long contentId);
 
     /**
      * 从一个夹里移出若干条收藏记录（T4：批量移出 + move 的源侧删除）。
@@ -146,7 +168,7 @@ public interface FavoriteItemDao {
                                     @Param("contentIds") List<Long> contentIds);
 
     /**
-     * 某内容**收在我的哪些夹**（T5，{@code GET /favorite/status} 的 {@code folders}）。
+     * 某内容**收在我的哪些夹**（T5，{@code GET /api/v1/contents/{id}/favorite} 的 {@code folders}）。
      *
      * <h2>判据是 {@code (user_id, content_id)}，不是"按夹判"</h2>
      * 同一内容可以躺在我的多个夹里（唯一键是 {@code (folder_id, content_id)}），故"在哪些夹"
@@ -182,11 +204,11 @@ public interface FavoriteItemDao {
                                                             @Param("contentId") long contentId);
 
     // ========================================================================
-    // 夹内分页（T6：GET /favorite/list）
+    // 夹内分页（T6：GET /api/v1/favorites）
     // ========================================================================
 
     /**
-     * 夹内收藏记录总数（T6，{@code GET /favorite/list} 的 {@code total}）——
+     * 夹内收藏记录总数（T6，{@code GET /api/v1/favorites} 的 {@code total}）——
      * 数的是 **{@code favorite_item} 行**，不是"还能打开的内容"。
      *
      * <h2>★ 为什么 {@code total} 必须<b>包含</b>失效条目</h2>
@@ -280,7 +302,7 @@ public interface FavoriteItemDao {
      * <h2>★ 与 {@link #findFoldersByUserAndContent} 的区别：**不 JOIN**、只判存在</h2>
      * "我是否收藏过" ⟺ 存在一条 {@code (user_id, content_id)} 的记录 —— **不需要**知道
      * 收在哪些夹，也就不需要 JOIN {@code favorite_folder}（那条 JOIN 只是为取夹名，
-     * 服务 {@code /favorite/status} 的"收在哪些夹"）。本查询两列**等值**，正好命中
+     * 服务 {@code /api/v1/contents/{id}/favorite} 的"收在哪些夹"）。本查询两列**等值**，正好命中
      * {@code idx_user_content (user_id, content_id)} 的点查。
      *
      * <h2>口径：判"记录存在"，与收藏数同侧</h2>

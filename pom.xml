@@ -55,6 +55,25 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
+        <!-- ==================== API 契约导出（T60 / 接口契约.md §2.10） ====================
+             用途：**在测试期**扫描真实 handler 生成 OpenAPI spec，入库为对外契约快照
+             （`src/test/resources/api/openapi.yaml`）。
+
+             ⚠️ 只引 `-webmvc-api`（只出 json/yaml），**不引 `-webmvc-ui`**：
+                Swagger UI 是一组静态资源，而本仓的默认拒绝只对 `@Controller` 端点生效
+                （RequestMappingLookup）⇒ UI 面无法用 `@Public` 表达，等于凭空开一个匿名面。
+             生产另外用 `springdoc.api-docs.enabled=false` 把文档端点整体关掉
+             ⇒ 匿名面为零，鉴权/登记簿/权重表三处都不用动。
+
+             ⚠️ Boot 父 POM **不托管** springdoc，必须显式版本：3.x 才是 Boot 4 线
+                （3.1.1 的父 POM 定向 spring-boot 4.1.0），2.x 只到 Boot 3。
+                写 2.x 会启动失败或静默错版。 -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-api</artifactId>
+            <version>3.1.1</version>
+        </dependency>
+
         <!-- ==================== 韧性：Redis 熔断（第三批 T3 / 账 B4） ====================
              TV 自研 cache/RedisCircuitBreaker（CLOSED→OPEN→HALF_OPEN 状态机）随 cache 包一起被裁，
              《迁移参照系》§三 的处置依据是"Resilience4j 接管"——但**从未接管** ⇒ 登记为 B4。

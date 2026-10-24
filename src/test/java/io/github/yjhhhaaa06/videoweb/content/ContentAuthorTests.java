@@ -53,15 +53,15 @@ class ContentAuthorTests extends AbstractContentIntegrationTest {
         insertContentLike(authorId, contentId);
 
         // 预热三处缓存：内容 key / 评论两键组 / 类型分区索引
-        assertThat(get("/search/IdSearch?contentId=" + contentId, token).getStatusCode().value()).isEqualTo(200);
-        get("/comment/show?contentId=" + contentId + "&page=1&pageSize=10", token);
-        get("/start", null);
+        assertThat(get("/api/v1/contents/" + contentId, token).getStatusCode().value()).isEqualTo(200);
+        get("/api/v1/contents/" + contentId + "/comments?page=1&pageSize=10", token);
+        get("/api/v1/contents/recommended", null);
         assertThat(cachedContentJson(contentId)).as("前置：内容 key 已缓存").isNotNull();
         assertThat(redis.hasKey(rootsKey(contentId))).as("前置：评论 roots 已装载").isTrue();
         assertThat(indexContains(contentId)).as("前置：内容在推荐索引里").isTrue();
 
-        assertThat(postQuery("/content/delete", query("contentId", String.valueOf(contentId)), token)
-                .getStatusCode().value()).isEqualTo(200);
+        assertThat(deleteQuery("/api/v1/contents/" + String.valueOf(contentId), query(), token)
+                .getStatusCode().value()).as("`T59`：删除 = 204").isEqualTo(204);
 
         // 四条独立 oracle
         assertThat(contentIsDeletedColumn(contentId)).as("① content.is_deleted = 1").isEqualTo(1);
@@ -79,8 +79,8 @@ class ContentAuthorTests extends AbstractContentIntegrationTest {
         // 反向对照：别人的内容不受影响（排除"删除清空全库"的假绿）
         long otherContentId = insertVideoContent(otherId, "别人的内容");
         assertThat(countMediaRows(otherContentId)).isPositive();
-        assertThat(postQuery("/content/delete", query("contentId", String.valueOf(otherContentId)), otherToken)
-                .getStatusCode().value()).isEqualTo(200);
+        assertThat(deleteQuery("/api/v1/contents/" + String.valueOf(otherContentId), query(), otherToken)
+                .getStatusCode().value()).as("`T59`：删除 = 204").isEqualTo(204);
         assertThat(countMediaRows(contentId)).as("自己的那些行没有被「复活」").isZero();
     }
 
@@ -94,8 +94,7 @@ class ContentAuthorTests extends AbstractContentIntegrationTest {
         long main = insertMainComment(contentId, authorId, "评论");
         insertContentLike(authorId, contentId);
 
-        ResponseEntity<String> forbidden = postQuery("/content/delete",
-                query("contentId", String.valueOf(contentId)), otherToken);
+        ResponseEntity<String> forbidden = deleteQuery("/api/v1/contents/" + String.valueOf(contentId),query(), otherToken);
         assertThat(forbidden.getStatusCode().value()).isEqualTo(403);
         assertThat(Envelope.msg(forbidden)).isEqualTo("只能操作自己的作品");
         assertThat(contentIsDeletedColumn(contentId)).as("403 时内容不得被软删").isZero();
@@ -103,9 +102,9 @@ class ContentAuthorTests extends AbstractContentIntegrationTest {
         assertThat(countLikeRows(contentId)).as("403 时点赞行不得被删").isEqualTo(1);
         assertThat(countSoftDeletedComments(contentId)).as("403 时评论不得被软删").isZero();
 
-        assertThat(postQuery("/content/delete", query("contentId", "987654321"), authorToken)
+        assertThat(deleteQuery("/api/v1/contents/" + "987654321", query(), authorToken)
                 .getStatusCode().value()).isEqualTo(404);
-        assertThat(postQuery("/content/delete", query("contentId", String.valueOf(contentId)), null)
+        assertThat(deleteQuery("/api/v1/contents/" + String.valueOf(contentId), query(), null)
                 .getStatusCode().value()).as("未登录 ⇒ 401").isEqualTo(401);
         assertThat(main).isPositive();
     }
@@ -128,9 +127,8 @@ class ContentAuthorTests extends AbstractContentIntegrationTest {
         assertThat(mediaTypeSorts(contentId, MEDIA_TYPE_IMAGE)).containsExactly("2:1", "2:2", "2:3");
 
         // 删中间那张
-        assertThat(postQuery("/content/mediaDelete",
-                query("contentId", String.valueOf(contentId), "type", "2", "sort", "2"), token)
-                .getStatusCode().value()).isEqualTo(200);
+        assertThat(deleteQuery("/api/v1/contents/" + String.valueOf(contentId) + "/media",query("type", "2","sort", "2"), token)
+                .getStatusCode().value()).as("`T59`：删除 = 204").isEqualTo(204);
 
         assertThat(mediaTypeSorts(contentId, MEDIA_TYPE_IMAGE))
                 .as("删中间后必须仍是 1..n 连续（sort=3 的那张被重排为 2）").containsExactly("2:1", "2:2");
@@ -140,7 +138,7 @@ class ContentAuthorTests extends AbstractContentIntegrationTest {
                 .containsExactly("/upload/image/a.jpg", "/upload/image/c.jpg", "/upload/cover/x.png");
 
         // 详情回读：imageUrls 只剩两张（提交后 REFRESH 生效）
-        assertThat(Envelope.data(get("/search/IdSearch?contentId=" + contentId, token))
+        assertThat(Envelope.data(get("/api/v1/contents/" + contentId, token))
                 .path("imageUrls").size()).isEqualTo(2);
     }
 
@@ -151,19 +149,16 @@ class ContentAuthorTests extends AbstractContentIntegrationTest {
         long authorId = userIdOf(AUTHOR_PHONE);
         long contentId = insertVideoContent(authorId, "视频内容");
 
-        ResponseEntity<String> video = postQuery("/content/mediaDelete",
-                query("contentId", String.valueOf(contentId), "type", "1", "sort", "1"), token);
+        ResponseEntity<String> video = deleteQuery("/api/v1/contents/" + String.valueOf(contentId) + "/media",query("type", "1","sort", "1"), token);
         assertThat(video.getStatusCode().value()).isEqualTo(400);
         assertThat(Envelope.msg(video)).isEqualTo("仅支持删除图片");
         assertThat(countMediaRows(contentId)).as("400 时不得删除任何行").isEqualTo(2);
 
-        ResponseEntity<String> missing = postQuery("/content/mediaDelete",
-                query("contentId", String.valueOf(contentId), "type", "2", "sort", "9"), token);
+        ResponseEntity<String> missing = deleteQuery("/api/v1/contents/" + String.valueOf(contentId) + "/media",query("type", "2","sort", "9"), token);
         assertThat(missing.getStatusCode().value()).isEqualTo(404);
         assertThat(Envelope.msg(missing)).isEqualTo("媒体资源不存在");
 
-        assertThat(postQuery("/content/mediaDelete",
-                query("contentId", String.valueOf(contentId), "type", "2", "sort", "1"), null)
+        assertThat(deleteQuery("/api/v1/contents/" + String.valueOf(contentId) + "/media",query("type", "2","sort", "1"), null)
                 .getStatusCode().value()).as("未登录 ⇒ 401").isEqualTo(401);
     }
 

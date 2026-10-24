@@ -15,7 +15,9 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * S8：admin **媒体审计与恢复**（{@code /api/admin/media/*}）的行为测试。
+ * S8：admin **媒体审计与恢复**（`T58` 契约变更起为 {@code GET /api/v1/admin/media} +
+ * {@code POST /api/v1/admin/media/scan} + {@code PUT /api/v1/admin/media/{id}}，
+ * 原 {@code /api/admin/media/*}）的行为测试。
  *
  * <h2>语义翻译自哪些旧用例</h2>
  * 旧 pytest {@code test_admin.py}（{@code TestMediaOps}）：scan 结构、restore 的 400/404 错误路径、
@@ -72,7 +74,7 @@ class MediaAuditTests extends AbstractAdminIntegrationTest {
         long contentB = insertContent(authorId, CONTENT_TYPE_IMAGE, "扫描B_纯文字", "d", 2);
 
         try {
-            ResponseEntity<String> resp = post("/api/admin/media/scan", null, adminToken);
+            ResponseEntity<String> resp = post("/api/v1/admin/media/scan", null, adminToken);
             assertThat(resp.getStatusCode().value()).as("扫描应 200: %s", resp.getBody()).isEqualTo(200);
 
             JsonNode data = Envelope.data(resp);
@@ -131,7 +133,7 @@ class MediaAuditTests extends AbstractAdminIntegrationTest {
     }
 
     @Test
-    @DisplayName("/media/list 与 /media/scan 是同一个实现（TV 原样：两者都写库）")
+    @DisplayName("/media 与 /media/scan 是同一个实现（TV 原样：两者都写库）")
     void 扫描_两个端点同实现() {
         String adminToken = registerAdmin(ADMIN_PHONE, ADMIN);
         registerNormal(AUTHOR_PHONE, AUTHOR);
@@ -139,8 +141,8 @@ class MediaAuditTests extends AbstractAdminIntegrationTest {
         insertMedia(insertContent(authorId, CONTENT_TYPE_VIDEO, "同实现", "d", 1),
                 "/upload/image/same_impl.jpg", MEDIA_TYPE_IMAGE, 1);
 
-        JsonNode viaGet = Envelope.data(get("/api/admin/media/list", adminToken));
-        JsonNode viaPost = Envelope.data(post("/api/admin/media/scan", null, adminToken));
+        JsonNode viaGet = Envelope.data(get("/api/v1/admin/media", adminToken));
+        JsonNode viaPost = Envelope.data(post("/api/v1/admin/media/scan", null, adminToken));
 
         assertThat(viaGet.path("total").asInt()).isEqualTo(1);
         assertThat(viaPost.path("total").asInt()).isEqualTo(1);
@@ -152,44 +154,45 @@ class MediaAuditTests extends AbstractAdminIntegrationTest {
     // ========================================================================
 
     @Test
-    @DisplayName("恢复错误路径：缺 mediaId 400；缺文件 400；媒体不存在 404；URL 非法 400；扩展名不匹配 400")
+    @DisplayName("恢复错误路径：缺文件 400；媒体不存在 404；URL 非法 400；扩展名不匹配 400")
     void 恢复_错误路径() {
         String adminToken = registerAdmin(ADMIN_PHONE, ADMIN);
         registerNormal(AUTHOR_PHONE, AUTHOR);
         long authorId = userIdOf(AUTHOR_PHONE);
 
-        // 1) 缺 mediaId → 400（走全局缺参出口；旧版是 parseMediaId 的 ParamException，同为 400）
-        assertThat(post("/api/admin/media/restore", null, adminToken).getStatusCode().value()).isEqualTo(400);
+        // `T58` 契约变更（接口契约.md §2.3）：mediaId 进路径（PUT /media/{id}）——
+        // 旧断言"缺 mediaId → 400"的形态不可表达（少路径段 = 无路由匹配 = 404，
+        // 不再有"缺参"分支），按 §2.3 退役。
 
-        // 2) 有 mediaId、但缺 file part → 400「请选择要恢复的文件」（multipart 请求，part 名不是 file）
+        // 1) 有 mediaId、但缺 file part → 400「请选择要恢复的文件」（multipart 请求，part 名不是 file）
         MultiValueMap<String, Object> noFile = multipartForm();
         addFilePart(noFile, "dummy", "x.txt", "x".getBytes(StandardCharsets.UTF_8), "text/plain");
         ResponseEntity<String> missingFile =
-                postMultipart("/api/admin/media/restore?mediaId=1", noFile, adminToken);
+                putMultipart("/api/v1/admin/media/1", noFile, adminToken);
         assertThat(missingFile.getStatusCode().value()).isEqualTo(400);
         assertThat(Envelope.msg(missingFile)).isEqualTo("请选择要恢复的文件");
 
-        // 3) 媒体不存在 → 404
+        // 2) 媒体不存在 → 404
         MultiValueMap<String, Object> oneFile = multipartForm();
         addFilePart(oneFile, "file", "restore.mp4", "x".getBytes(StandardCharsets.UTF_8), "video/mp4");
         ResponseEntity<String> notFound =
-                postMultipart("/api/admin/media/restore?mediaId=999999999", oneFile, adminToken);
+                putMultipart("/api/v1/admin/media/999999999", oneFile, adminToken);
         assertThat(notFound.getStatusCode().value()).isEqualTo(404);
         assertThat(Envelope.msg(notFound)).isEqualTo("媒体资源不存在: mediaId=999999999");
 
-        // 4) URL 非法（目录段不是 video/image/cover）→ 400
+        // 3) URL 非法（目录段不是 video/image/cover）→ 400
         long badUrlMedia = insertMedia(authorId, "/upload/other/bad.mp4", MEDIA_TYPE_VIDEO, 1);
-        ResponseEntity<String> badUrl = postMultipart(
-                "/api/admin/media/restore?mediaId=" + badUrlMedia, oneFile, adminToken);
+        ResponseEntity<String> badUrl = putMultipart(
+                "/api/v1/admin/media/" + badUrlMedia, oneFile, adminToken);
         assertThat(badUrl.getStatusCode().value()).isEqualTo(400);
         assertThat(Envelope.msg(badUrl)).isEqualTo("媒体 URL 不合法，无法定位文件: /upload/other/bad.mp4");
 
-        // 5) 扩展名不匹配 → 400
+        // 4) 扩展名不匹配 → 400
         long mp4Media = insertMedia(authorId, "/upload/video/ext_check.mp4", MEDIA_TYPE_VIDEO, 1);
         MultiValueMap<String, Object> aviFile = multipartForm();
         addFilePart(aviFile, "file", "wrong.avi", "x".getBytes(StandardCharsets.UTF_8), "video/x-msvideo");
         ResponseEntity<String> extMismatch =
-                postMultipart("/api/admin/media/restore?mediaId=" + mp4Media, aviFile, adminToken);
+                putMultipart("/api/v1/admin/media/" + mp4Media, aviFile, adminToken);
         assertThat(extMismatch.getStatusCode().value()).isEqualTo(400);
         assertThat(Envelope.msg(extMismatch)).isEqualTo("文件扩展名不匹配，目标需要 .mp4");
     }
@@ -216,8 +219,8 @@ class MediaAuditTests extends AbstractAdminIntegrationTest {
         addFilePart(form, "file", "uploaded.mp4", payload, "video/mp4");
 
         try {
-            ResponseEntity<String> resp = postMultipart(
-                    "/api/admin/media/restore?mediaId=" + mediaId, form, adminToken);
+            ResponseEntity<String> resp = putMultipart(
+                    "/api/v1/admin/media/" + mediaId, form, adminToken);
 
             assertThat(resp.getStatusCode().value()).as("恢复应 200: %s", resp.getBody()).isEqualTo(200);
             JsonNode data = Envelope.data(resp);

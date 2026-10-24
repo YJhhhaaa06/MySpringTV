@@ -3,19 +3,23 @@ package io.github.yjhhhaaa06.videoweb.comment.controller;
 import io.github.yjhhhaaa06.videoweb.comment.model.dto.AddCommentRequest;
 import io.github.yjhhhaaa06.videoweb.comment.model.vo.CommentVO;
 import io.github.yjhhhaaa06.videoweb.comment.service.CommentService;
+import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.common.model.dto.CursorResult;
+import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.Public;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import io.github.yjhhhaaa06.videoweb.common.web.PageParams;
 import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -45,9 +49,15 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p><b>为什么 {@code commentId} 不加 {@code @Positive}</b>：① TV 对 {@code commentId=0}
  * 的行为是走到 SQL 后 404（不是 400），加了会把 404 变成 400，属行为改动；
- * ② 约束注解标在 {@code @RequestParam} 上需要类级 {@code @Validated} 才生效，
- * 缺了就是**看着像保证、实际不校验**的隐式失效——不如不加，依赖 Spring 自带的
- * "缺参 → {@code MissingServletRequestParameterException} → 400"（这条路必定生效）。
+ * ② 加了它会多一条与 TV 不一致的拒绝路径（TV 没有这个校验）——不如不加，
+ * 依赖 Spring 自带的"缺参 → {@code MissingServletRequestParameterException} → 400"（这条路必定生效）。
+ *
+ * <p>⚠️ 历史注释更正（`T57` 复核）：这里曾写"约束注解标在 {@code @RequestParam} 上需要类级
+ * {@code @Validated} 才生效"。那是 Spring 6.1 之前的 AOP 路线；本仓（Boot 4.1 / Framework 7）
+ * 走的是**内置方法校验**，注解不加 {@code @Validated} 也生效，失败抛
+ * {@code HandlerMethodValidationException}（由 {@code GlobalExceptionHandler} 收口成 400 + {@code errors[]}）。
+ * 实例见 {@code UserController#changeUserName}，契约见
+ * {@code ValidationErrorContractTests#请求参数上的约束生效}。
  *
  * <p><b>鉴权（SOP 步骤 6：用 {@code @RequiresLogin} 声明，不去改任何路径清单）</b>——
  * 依据 TV {@code AuthFilter} 复核：{@code PROTECTED_EXACT} 含
@@ -64,7 +74,6 @@ import org.springframework.web.bind.annotation.RestController;
  * （★ <b>T14 起为游标（keyset）分页</b>：入参 {@code cursor}、出参加 {@code nextCursor}，见方法注释）。
  */
 @RestController
-@RequestMapping("/comment")
 public class CommentController {
 
     /** T10-B：评论域 pageSize 上限（大 chunk 前端承载；T19 起各域自持常量）。 */
@@ -88,60 +97,54 @@ public class CommentController {
     /**
      * 发表评论（主楼或楼中楼回复）。
      *
-     * <p>成功响应 {@code data} 是字符串 {@code "评论成功"}——沿袭 TV {@code writeSuccess(resp, "评论成功")}。
+     * <p>`T59` 起成功 = **200 + 无 data**（不再回「评论成功」文案）；
+     * 新评论的标识由客户端重新拉列表获得（本仓不提供单条评论详情端点）。
      */
     @RequiresLogin
-    @PostMapping("/add")
-    public ApiResponse<String> add(@CurrentUserId long userId,
-                                   @RequestBody @Valid AddCommentRequest request) {
+    @PostMapping("/api/v1/comments")
+    public ApiResponse<Void> add(@CurrentUserId long userId,
+                                 @RequestBody @Valid AddCommentRequest request) {
         commentService.addComment(userId, request);
-        return ApiResponse.success("评论成功");
+        return ApiResponse.success();
     }
 
     /**
      * 用户自删评论（软删除，不可恢复）。
      *
-     * <p>成功响应 {@code data} 是字符串 {@code "删除成功"}——沿袭 TV。
-     * 他人的评论 → 403；不存在/已删 → 404。
+     * <p>`T59` 起成功 = <b>204 无体</b>。他人的评论 → 403；不存在/已删 → 404
+     * （重复删除已软删评论仍是 404：既有"已软删亦视为不存在"口径，不改成 204 —— 见 §2.4 注）。
      */
     @RequiresLogin
-    @PostMapping("/delete")
-    public ApiResponse<String> delete(@CurrentUserId long userId,
-                                      @RequestParam long commentId) {
+    @DeleteMapping("/api/v1/comments/{id}")
+    public ResponseEntity<Void> delete(@CurrentUserId long userId,
+                                       @PathVariable("id") long commentId) {
         commentService.deleteCommentByUser(commentId, userId);
-        return ApiResponse.success("删除成功");
+        return ResponseEntity.noContent().build();
     }
 
     /**
-     * 评论列表（{@code GET /comment/show?contentId=[&page][&pageSize]}）。
+     * 评论列表（{@code GET /api/v1/contents/{id}/comments}）。
      *
-     * <h2>★ 缺省与分页是**两种响应形状**（T8 的冻结兼容契约）</h2>
+     * <h2>★ `T59` 起**只有一种形状**：{@code PageResult<CommentVO>}</h2>
      * <pre>
-     * 不传 page 也不传 pageSize  → data = **全量数组**（children 全量随行；逐字节兼容改造前）
-     * 传了任一个               → data = **分页信封** {list,total,page,pageSize,totalPages}
-     *                            total = **主楼条数**；每主楼 children ≤ K=2 + replyCount
+     * data = {list,total,page,pageSize,totalPages} —— 恒为分页信封
+     * total = **主楼条数**；每主楼 children ≤ K=2 + replyCount（展开走 /comments/{id}/replies）
      * </pre>
-     * 判据不能用"page 是否等于 1"（无法区分"没传"与"显式传 page=1"）
-     * ——故两个参数都收 {@code String} 并逐个判 {@code null}（TV 的 {@code hasPagingParams} 同款）。
+     * `T59` 前"不传分页参数回全量数组、传了回信封"的两态**退役**（《接口契约.md》§2.6
+     * "同一端点只许一种形状"）：缺省 = {@code page=1&pageSize=200}，与显式传参**逐字节一致**。
      *
      * <p>分页归一：{@code page} 缺省/非数字/≤0 → 1；{@code pageSize} 缺省/非数字/≤0 → **200**；
      * 超上限 → **500**；其它原样回显。
      *
-     * <p>缺 {@code contentId} / 非法 → 400；内容不存在 / 评论区已关 → **200 + 空**（不是 404/409，
+     * <p>内容不存在 / 评论区已关 ⇒ **200 + 空信封**（不是 404/409，
      * 见 {@code CommentService.getCommentsForContent} 的门禁说明）。
      */
     @Public
-    @GetMapping("/show")
-    public ApiResponse<?> show(@CurrentUserId(required = false) Long userId,
-                               @RequestParam(required = false) Long contentId,
-                               @RequestParam(required = false) String page,
-                               @RequestParam(required = false) String pageSize) {
-        if (contentId == null) {
-            throw new ParamException("contentId不能为空");
-        }
-        if (page == null && pageSize == null) {
-            return ApiResponse.success(commentService.getCommentsForContent(contentId, userId));
-        }
+    @GetMapping("/api/v1/contents/{id}/comments")
+    public ApiResponse<PageResult<CommentVO>> show(@CurrentUserId(required = false) Long userId,
+                                                   @PathVariable("id") Long contentId,
+                                                   @RequestParam(required = false) String page,
+                                                   @RequestParam(required = false) String pageSize) {
         return ApiResponse.success(commentService.getCommentsForContent(contentId, userId,
                 PageParams.normalizePage(page),
                 PageParams.normalizePageSize(pageSize, COMMENT_PAGE_SIZE_MAX, COMMENT_PAGE_SIZE_DEFAULT)));
@@ -167,14 +170,11 @@ public class CommentController {
      * 非法 / 越界 {@code cursor} → 静默归一到 0 或空页（**不报错**，见 {@code PageParams.normalizeCursor}）。
      */
     @Public
-    @GetMapping("/replies")
+    @GetMapping("/api/v1/comments/{id}/replies")
     public ApiResponse<CursorResult<CommentVO>> replies(@CurrentUserId(required = false) Long userId,
-                                                        @RequestParam(required = false) Long rootId,
+                                                        @PathVariable("id") Long rootId,
                                                         @RequestParam(required = false) String cursor,
                                                         @RequestParam(required = false) String pageSize) {
-        if (rootId == null) {
-            throw new ParamException("rootId不能为空");
-        }
         return ApiResponse.success(commentService.getRepliesForRoot(rootId, userId,
                 PageParams.normalizeCursor(cursor),
                 PageParams.normalizePageSize(pageSize, COMMENT_PAGE_SIZE_MAX, COMMENT_PAGE_SIZE_DEFAULT)));

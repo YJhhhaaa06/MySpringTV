@@ -19,7 +19,8 @@ import org.springframework.web.bind.annotation.RestController;
  * <table>
  *   <caption>TV → 新实现</caption>
  *   <tr><th>TV</th><th>新实现</th></tr>
- *   <tr><td>{@code @WebServlet("/feed")} + {@code doGet}</td><td>{@code @RestController} + {@code @GetMapping("/feed")}</td></tr>
+ *   <tr><td>{@code @WebServlet("/feed")} + {@code doGet}</td><td>{@code @RestController} + {@code @GetMapping("/api/v1/feed")}
+ *       （`T58` 契约变更，依据《接口契约.md》§2.3）</td></tr>
  *   <tr><td>{@code (Long) req.getAttribute("userId")}</td><td>{@code @CurrentUserId long userId}</td></tr>
  *   <tr><td>{@code BaseServletUtil.parsePage / parsePageSize(req, 100, 100)}</td>
  *       <td>{@link PageParams}（口径逐字相同）</td></tr>
@@ -30,7 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
  * {@code old-project/.../filter/AuthFilter.java:25}）——它含 <b>{@code "/feed"}</b>。
  * （2026-10-03 更正：此处原写 {@code PROTECTED_EXACT}，属误记；单端点场景下两种口径行为等价，
  * 故无契约差异，仅依据写错。）故本端点需登录，用**类级**注解声明（与 {@code /follow}、{@code /like} 同款；
- * 未来若 {@code /feed/**} 加子路径，类级声明自动覆盖，不会漏）。
+ * 未来若 {@code /api/v1/feed/**} 加子路径，类级声明自动覆盖，不会漏）。
  *
  * <h2>分页契约（域级上限/信封均 100，与 follow/search/profile 同口径）</h2>
  * TV 的 {@code FEED_PAGE_SIZE_MAX=100} / {@code FEED_PAGE_SIZE_DEFAULT=100} 逐字承接
@@ -54,11 +55,11 @@ public class FeedController {
     }
 
     /**
-     * 关注动态流（{@code GET /feed}）。
+     * 关注动态流（{@code GET /api/v1/feed}）。
      *
      * <p>返回 {@code PageResult<ContentVO>}，信封形状 {@code {list,total,page,pageSize,totalPages}}。
      */
-    @GetMapping("/feed")
+    @GetMapping("/api/v1/feed")
     public ApiResponse<PageResult<ContentVO>> feed(@CurrentUserId long userId,
                                                    @RequestParam(required = false) String page,
                                                    @RequestParam(required = false) String pageSize) {

@@ -13,9 +13,12 @@
 -->
 <mapper namespace="io.github.yjhhhaaa06.videoweb.like.dao.ContentLikeDao">
 
-    <!-- TV: INSERT INTO content_like (user_id, content_id) VALUES (?, ?) -->
+    <!-- TV: INSERT INTO content_like (user_id, content_id) VALUES (?, ?)
+         ★ T59 契约变更：改 INSERT IGNORE —— PUT /contents/{id}/like 是幂等设置，
+           重复/并发点赞撞 uk_user_content 时返回 0 行（= 已赞，无副作用），不再 409。
+           调用方据受影响行数决定是否 +1 计数与发事件。 -->
     <insert id="addLike">
-        INSERT INTO content_like (user_id, content_id) VALUES (#{userId}, #{contentId})
+        INSERT IGNORE INTO content_like (user_id, content_id) VALUES (#{userId}, #{contentId})
     </insert>
 
     <!-- TV: DELETE FROM content_like WHERE user_id = ? AND content_id = ? -->

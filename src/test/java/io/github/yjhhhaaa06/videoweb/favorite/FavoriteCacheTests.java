@@ -14,8 +14,6 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -23,10 +21,10 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestClient;
 
 import java.sql.PreparedStatement;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -58,7 +56,8 @@ import static org.mockito.Mockito.verify;
  * 那两类的夹具在 T12 前是**直改 DB**（绕开服务写路径），因此它们的 {@code @BeforeEach} 清 Redis；
  * ★ **T12 起那两类凡"要让 count 看见"的夹具也改走真实写路径**（列只由写路径的重算维护）——
  * 分工变为：它们钉"判存在 / 计数口径"，本类钉**缓存自身的时序与失效**
- * （写路径 = {@code POST /favorite/{add,remove,move,folder/remove}}）—— 两边分工，不互相伪装。
+ * （写路径 = {@code POST /api/v1/favorites}、{@code DELETE /api/v1/favorites}、
+ * {@code PUT /api/v1/favorites/{id}}、{@code DELETE /api/v1/favorite-folders/{id}}}）—— 两边分工，不互相伪装。
  * 本类仍保留的直插夹具共 4 处（冷 miss 回填 / 删夹回滚 / 无事务写点用例的预热行 / folders 不缓存），
  * 全部只服务**成员集**路径，对列无感知。
  *
@@ -302,7 +301,8 @@ class FavoriteCacheTests extends AbstractHttpIntegrationTest {
                 .isEqualTo(1L);
 
         // ③ ★ 从 X 移出：Y 里还在 ⇒ 仍"已收藏"、收藏数仍 1
-        assertThat(removeItems(folderX, List.of(content), me.token()).getStatusCode().value()).isEqualTo(200);
+        assertThat(removeItems(folderX, List.of(content), me.token()).getStatusCode().value())
+                .as("`T59`：删除 = 204").isEqualTo(204);
         assertThat(oracleRecordCount(content)).isEqualTo(1L);
         assertThat(favoriteService.isFavorited(me.id(), content))
                 .as("★ 无条件 SREM 会在这里答 false：'移出某个夹' **不等于** '取消收藏'")
@@ -318,7 +318,8 @@ class FavoriteCacheTests extends AbstractHttpIntegrationTest {
         assertThat(Envelope.data(statusViaHttp(content, me.token())).path("isFavorited").asBoolean()).isTrue();
 
         // ④ 最后一个夹也移出 ⇒ 回到未收藏、收藏数 0
-        assertThat(removeItems(folderY, List.of(content), me.token()).getStatusCode().value()).isEqualTo(200);
+        assertThat(removeItems(folderY, List.of(content), me.token()).getStatusCode().value())
+                .as("`T59`：删除 = 204").isEqualTo(204);
         assertThat(favoriteService.isFavorited(me.id(), content)).isFalse();
         assertThat(countViaHttp(content)).isZero();
         assertThat(oracleDistinctUserCount(content)).isZero();
@@ -367,7 +368,8 @@ class FavoriteCacheTests extends AbstractHttpIntegrationTest {
         assertThat(countViaHttp(c)).isEqualTo(1L);
         assertThat(favoriteService.isFavorited(me.id(), a)).isTrue();
 
-        assertThat(deleteFolder(doomed, me.token()).getStatusCode().value()).isEqualTo(200);
+        assertThat(deleteFolder(doomed, me.token()).getStatusCode().value())
+                .as("`T59`：删除 = 204").isEqualTo(204);
 
         assertThat(oracleDistinctUserCount(a)).as("DB 终态：a 的记录随夹一并删除（R-02）").isZero();
         assertThat(oracleDistinctUserCount(b)).isZero();
@@ -468,7 +470,8 @@ class FavoriteCacheTests extends AbstractHttpIntegrationTest {
         assertThat(favoriteService.isFavorited(me.id(), b)).isTrue();
 
         // ② remove ⇒ 成员集整体失效（key 被删）
-        assertThat(removeItems(folder, List.of(a), me.token()).getStatusCode().value()).isEqualTo(200);
+        assertThat(removeItems(folder, List.of(a), me.token()).getStatusCode().value())
+                .as("`T59`：删除 = 204").isEqualTo(204);
         assertThat(hasKey(USER_FAVORITE_SET_KEY + me.id()))
                 .as("移出后成员集整体失效（下次读回源）").isFalse();
         assertThat(favoriteService.isFavorited(me.id(), a)).isFalse();
@@ -480,7 +483,7 @@ class FavoriteCacheTests extends AbstractHttpIntegrationTest {
     // ========================================================================
 
     @Test
-    @DisplayName("★Redis 不可用：三个读都降级直查 DB 且不抛；/favorite/count 接口不 500")
+    @DisplayName("★Redis 不可用：三个读都降级直查 DB 且不抛；/api/v1/contents/{id}/favorite-count 接口不 500")
     void Redis不可用降级查DB且接口不500() {
         TestUser me = register("13900001211", "t11-degrade");
         long content = insertContent(me.id());
@@ -508,7 +511,7 @@ class FavoriteCacheTests extends AbstractHttpIntegrationTest {
 
         assertThat(favoriteService.getFavoriteCount(content)).isEqualTo(1L);
 
-        ResponseEntity<String> resp = get("/favorite/count?contentId=" + content, null);
+        ResponseEntity<String> resp = get("/api/v1/contents/" + content + "/favorite-count", null);
         assertThat(resp.getStatusCode().value()).as("★ 缓存只是加速器：Redis 挂掉不许让接口 500").isEqualTo(200);
         assertThat(Envelope.data(resp).asLong()).isEqualTo(1L);
     }
@@ -542,7 +545,7 @@ class FavoriteCacheTests extends AbstractHttpIntegrationTest {
     // ========================================================================
 
     @Test
-    @DisplayName("★/favorite/status 的 folders 不被缓存：Redis 里不得出现任何 folders 相关 key")
+    @DisplayName("★/api/v1/contents/{id}/favorite 的 folders 不被缓存：Redis 里不得出现任何 folders 相关 key")
     void folders不被缓存() {
         // ⚠️ T15 之后本用例名要说清一件事："folders 不被缓存"**不等于**"本端点必查 DB" ——
         //    getFavoriteStatus 的"未收藏"分支会先问 FavoriteCache.isFavorited，命中 ⇒ folders 根本不查
@@ -666,21 +669,18 @@ class FavoriteCacheTests extends AbstractHttpIntegrationTest {
     // ==================== HTTP ====================
 
     private ResponseEntity<String> statusViaHttp(long contentId, String token) {
-        return get("/favorite/status?contentId=" + contentId, token);
+        return get("/api/v1/contents/" + contentId + "/favorite", token);
     }
 
     /** 收藏数（走**接口**，用于验证"接口回显与缓存一致"，同时它与 oracle 对查）。 */
     private long countViaHttp(long contentId) {
-        ResponseEntity<String> resp = get("/favorite/count?contentId=" + contentId, null);
+        ResponseEntity<String> resp = get("/api/v1/contents/" + contentId + "/favorite-count", null);
         assertThat(resp.getStatusCode().value()).as("count 匿名可访问").isEqualTo(200);
         return Envelope.data(resp).asLong();
     }
 
     private ResponseEntity<String> addItem(long folderId, long contentId, String token) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("folderId", String.valueOf(folderId));
-        form.add("contentId", String.valueOf(contentId));
-        return postForm("/favorite/add", form, token);
+        return post("/api/v1/favorites", Map.of("folderId", folderId, "contentId", contentId), token);
     }
 
     private ResponseEntity<String> removeItems(long folderId, List<Long> contentIds, String token) {
@@ -689,32 +689,18 @@ class FavoriteCacheTests extends AbstractHttpIntegrationTest {
         for (Long contentId : contentIds) {
             form.add("contentIds", String.valueOf(contentId));
         }
-        return postForm("/favorite/remove", form, token);
+        return deleteQuery("/api/v1/favorites", form, token);
     }
 
     private ResponseEntity<String> moveItem(long fromFolderId, long toFolderId, long contentId, String token) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("fromFolderId", String.valueOf(fromFolderId));
-        form.add("toFolderId", String.valueOf(toFolderId));
-        form.add("contentId", String.valueOf(contentId));
-        return postForm("/favorite/move", form, token);
+        // `T58` 契约变更：contentId 进路径（PUT /api/v1/favorites/{id}，接口契约.md §2.3/§2.4）。
+        // `T59` 载荷面：源夹/目标夹走 JSON body。
+        return put("/api/v1/favorites/" + contentId,
+                Map.of("fromFolderId", fromFolderId, "toFolderId", toFolderId), token);
     }
 
     private ResponseEntity<String> deleteFolder(long folderId, String token) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("folderId", String.valueOf(folderId));
-        return postForm("/favorite/folder/remove", form, token);
-    }
-
-    /** 收藏域写端点是 POST + form（{@code @RequestParam}）—— 与 like / follow 域写端点同形态。 */
-    private ResponseEntity<String> postForm(String path, MultiValueMap<String, String> form, String token) {
-        return send(spec -> {
-            RestClient.RequestBodySpec request = spec.uri(path)
-                    .contentType(MediaType.APPLICATION_FORM_URLENCODED);
-            if (token != null) {
-                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-            }
-            return request.body(form);
-        });
+        // `T58` 契约变更：DELETE + 夹 id 进路径（接口契约.md §2.3/§2.4）。
+        return delete("/api/v1/favorite-folders/" + folderId, token);
     }
 }

@@ -97,7 +97,7 @@ class AdminTransactionTests extends AbstractAdminIntegrationTest {
         doThrow(new IllegalStateException("boom: 模拟内容级聚合回写失败"))
                 .when(contentDao).updateFileExists(anyLong(), anyBoolean(), any());
 
-        ResponseEntity<String> resp = post("/api/admin/media/scan", null, adminToken);
+        ResponseEntity<String> resp = post("/api/v1/admin/media/scan", null, adminToken);
         assertThat(resp.getStatusCode().value()).as("非业务异常 → 500").isEqualTo(500);
 
         assertThat(mediaFileExistsColumn(media1))
@@ -129,8 +129,8 @@ class AdminTransactionTests extends AbstractAdminIntegrationTest {
         addFilePart(form, "file", "uploaded.mp4", "restored".getBytes(StandardCharsets.UTF_8), "video/mp4");
 
         try {
-            ResponseEntity<String> resp = postMultipart(
-                    "/api/admin/media/restore?mediaId=" + mediaId, form, adminToken);
+            ResponseEntity<String> resp = putMultipart(
+                    "/api/v1/admin/media/" + mediaId, form, adminToken);
             assertThat(resp.getStatusCode().value()).isEqualTo(500);
 
             // ① 媒体行的回写被回滚（有事务才有这个结果）

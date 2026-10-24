@@ -5,7 +5,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * 「收在哪个夹」的条目（{@code GET /favorite/status} 的 {@code folders} 元素）。
+ * 「收在哪个夹」的条目（{@code GET /api/v1/contents/{id}/favorite} 的 {@code folders} 元素）。
  *
  * <h2>★ 为什么单独一个 VO，不复用 {@link FavoriteFolderVO} / {@link PublicFavoriteFolderVO}</h2>
  * 三个形状服务三个不同的读者视角（本域一贯的"一篇只服务一个读者视角"落法）：
@@ -20,7 +20,7 @@ import lombok.NoArgsConstructor;
  * 复用 {@code FavoriteFolderVO} 会把 {@code itemCount}（每夹总条目数，与"这条内容"无关）和
  * {@code isPrivate} 一起带出来 —— 那是噪声，且将来给它加字段会**自动**流进本端点。
  *
- * <p>JSON（{@code /favorite/status} 的 {@code data.folders} 数组元素）：
+ * <p>JSON（{@code /api/v1/contents/{id}/favorite} 的 {@code data.folders} 数组元素）：
  * <pre>
  * {"id":1,"name":"默认收藏夹"}
  * </pre>

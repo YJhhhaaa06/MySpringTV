@@ -68,23 +68,23 @@ content.favorite_count bigint（V2 加列 / V3 回填；冗余列，见 §四）
 
 | 端点 | 鉴权 | 作用 |
 |---|---|---|
-| `POST /favorite/folder/add` | 登录 | 新建收藏夹（超**个数**上限 ⇒ 400） |
-| `POST /favorite/folder/update` | 登录 | 改名 / 简介 / 私密开关（**部分更新**） |
-| `POST /favorite/folder/remove` | 登录 | 删除（**默认夹拒删 409**；夹内条目**同事务一并删**） |
-| `GET /favorite/folder/list` | 登录 | 我的全部夹（含私密）+ 每夹条数 |
-| `GET /favorite/folder/public?userId=X` | **匿名** | 某人的**公开**夹（名称 + 条数 + `id`） |
-| `GET /favorite/folder/items?folderId=X` | **匿名** | 打开**他人公开夹**看内容（§十） |
-| `POST /favorite/add` | 登录 | 收进指定夹（`folderId` 缺省 = 默认夹**懒建**） |
-| `POST /favorite/remove` | 登录 | 从指定夹移出（**支持批量**） |
-| `POST /favorite/move` | 登录 | 移到其它夹 |
-| `GET /favorite/status` | 登录 | 我对某内容是否已收藏（含所在夹） |
-| `GET /favorite/count` | **匿名** | 某内容的收藏数 |
-| `GET /favorite/list` | 登录 | 夹内内容分页（收藏时间倒序） |
-| `GET /watchlater/list` | 登录 | 稍后再看清单（`create_time` 倒序） |
-| `POST /watchlater/{add,remove,move}` | 登录 | 加入 / 移出 / 挪进普通夹（§九） |
+| `POST /api/v1/favorite-folders` | 登录 | 新建收藏夹（超**个数**上限 ⇒ 400） |
+| `PUT /api/v1/favorite-folders/{id}` | 登录 | 改名 / 简介 / 私密开关（**部分更新**） |
+| `DELETE /api/v1/favorite-folders/{id}` | 登录 | 删除（**默认夹拒删 409**；夹内条目**同事务一并删**） |
+| `GET /api/v1/favorite-folders` | 登录 | 我的全部夹（含私密）+ 每夹条数 |
+| `GET /api/v1/users/{id}/favorite-folders` | **匿名** | 某人的**公开**夹（名称 + 条数 + `id`） |
+| `GET /api/v1/favorite-folders/{id}/items` | **匿名** | 打开**他人公开夹**看内容（§十） |
+| `POST /api/v1/favorites` | 登录 | 收进指定夹（`folderId` 缺省 = 默认夹**懒建**） |
+| `DELETE /api/v1/favorites` | 登录 | 从指定夹移出（**支持批量**） |
+| `PUT /api/v1/favorites/{id}` | 登录 | 移到其它夹 |
+| `GET /api/v1/contents/{id}/favorite` | 登录 | 我对某内容是否已收藏（含所在夹） |
+| `GET /api/v1/contents/{id}/favorite-count` | **匿名** | 某内容的收藏数 |
+| `GET /api/v1/favorites` | 登录 | 夹内内容分页（收藏时间倒序） |
+| `GET /api/v1/watch-later` | 登录 | 稍后再看清单（`create_time` 倒序） |
+| `PUT /api/v1/watch-later/{id}`（加入）/ `DELETE /api/v1/watch-later`（移出）/ `PUT /api/v1/watch-later/{id}/folder`（挪夹） | 登录 | 加入 / 移出 / 挪进普通夹（§九） |
 
 - ⚠️ 鉴权**逐端点**声明；收藏与稍后再看两组**绝不加类级** `@RequiresLogin` ——
-  那会连带坏掉 `/folder/public`、`/folder/items` 两条**匿名契约**。
+  那会连带坏掉 `GET /api/v1/users/{id}/favorite-folders`、`GET /api/v1/favorite-folders/{id}/items` 两条**匿名契约**。
 - ⚠️ 分页参数名 = `page` + `pageSize`（与全项目其余分页端点一致；早期草稿的 `size` **不采用**）。
 - 🔑 **"我的"与"他人的"拆成两个端点**：把"他人视角"做成**独立且危险的路径**，才能单独写
   "去掉 `is_private = 0` 就变红"的契约测试；混在一个端点里靠"传没传 `userId`"分流，分支写错即**直接泄露私密夹**。
@@ -127,7 +127,7 @@ content.favorite_count bigint（V2 加列 / V3 回填；冗余列，见 §四）
 | `remove`（移出） | **不校验** —— 直接按 `(folder_id, content_id)` 删行 | **移得掉** ✅（`G11` **长期红线**） |
 | `add` / `move`（移入 / 移动） | 校验（`isContentExist` 的 SQL 带 `is_deleted = 0`） | **自然被拒** ✅ |
 
-- ⚠️ **别照搬 `/profile` 口径**：`ProfileService` 对已删内容是"**跳过、total 不变**"（分页出空洞）；
+- ⚠️ **别照搬 `GET /api/v1/users/{id}` 的口径**：`ProfileService` 对已删内容是"**跳过、total 不变**"（分页出空洞）；
   收藏夹按 B 站是"**返回占位条目**"（条数连续）—— 两者不同，**别复用同一段填充逻辑**。
 - ⚠️ R-11 之后"列表失效集" ⊋ "`add`/`move` 拒收集"的边缘态**已拍板接受**（无 API 可达）
   ⇒ 代价台账见 [favorite-已知代价](./favorite-已知代价.md)。
@@ -136,7 +136,7 @@ content.favorite_count bigint（V2 加列 / V3 回填；冗余列，见 §四）
 
 ## 六、互动态（`interaction` 子对象）
 
-- **详情**（`GET /search/IdSearch`，路径与参数**不变**）响应内嵌子对象：
+- **详情**（`GET /api/v1/contents/{id}`，`T58` 后 `contentId` 进路径）响应内嵌子对象：
   `interaction: { isLiked, isFavorited, isFollowed }`；**匿名 ⇒ `interaction` 为 `null`**（`R-10`，**二期唯一有意 breaking**）。
 - `ContentVO`（列表面）与 `ContentDetailVO`（详情面）**逐字段同形**（`R-13`，T13 交付）
   ⇒ 互动态在全仓**只有一处定义**、前端一套读法。
@@ -149,10 +149,10 @@ content.favorite_count bigint（V2 加列 / V3 回填；冗余列，见 §四）
 
 | 面 | 维度 | 登录时该条目的 `interaction` |
 |---|---|---|
-| `/start` | `{关注}` | `{isLiked: null, isFavorited: null, isFollowed: …}` |
-| `/search/keywordSearch` | **空集（0 维）** | 三维全 `null` |
-| `/feed` / `/profile.contentPage` | `{赞}` | `{isLiked: …, isFavorited: null, isFollowed: null}` |
-| `/search/IdSearch`（详情） | 三维 | 三维恒非 `null` ⇒ **详情 JSON 逐字不变** |
+| `GET /api/v1/contents/recommended` | `{关注}` | `{isLiked: null, isFavorited: null, isFollowed: …}` |
+| `GET /api/v1/contents`（搜索列表） | **空集（0 维）** | 三维全 `null` |
+| `GET /api/v1/feed` / `GET /api/v1/users/{id}`（主页） | `{赞}` | `{isLiked: …, isFavorited: null, isFollowed: null}` |
+| `GET /api/v1/contents/{id}`（详情） | 三维 | 三维恒非 `null` ⇒ **详情 JSON 逐字不变** |
 
 - ⚠️ `interaction` **只能挂 `ContentVO`**，**绝不进 `ContentCacheDTO`** —— 那是**缓存形状**，
   互动态是**请求态**，进缓存即**跨用户污染**。
@@ -175,7 +175,7 @@ content.favorite_count bigint（V2 加列 / V3 回填；冗余列，见 §四）
   计数侧**一律 `DEL`** —— 根因见 `I-11`（夹内唯一 ⇒ 不是"±1"关系）。
 - ★ **提交后钩子**：`TransactionSynchronizationManager`（**有同步则登记、无则立即执行**），**不建 `favorite.event`**
   —— `addItem` / `removeItems` 刻意**无事务**，`@TransactionalEventListener` 会**静默丢弃**。
-- ★ **`/favorite/status` 短路**（`F-17`，T15）：`isFavorited` 为 false ⇒ 返回 `{false, []}`、**不查库**；
+- ★ **`GET /api/v1/contents/{id}/favorite` 短路**（`F-17`，T15）：`isFavorited` 为 false ⇒ 返回 `{false, []}`、**不查库**；
   **miss 走 DB + 回填**；Redis 挂 ⇒ **降级走 DB**。⚠️ 判据是"**移除一个每请求、不自愈的查库口子**"，**不是安全收益**。
 - ⚠️ 三态 / 空标记 / 单飞 / 熔断等**机制**见 [缓存与数据一致性](../../tech/cache/缓存与数据一致性.md) · [韧性](../../tech/resilience/韧性.md)。
 - ⚠️ **"限流在场"曾是本设计的前提**（§3.7 原话）⇒ **强度已下降**：最尖锐的"匿名 + 17ms 聚合"已由冗余列消除，
@@ -192,7 +192,7 @@ content.favorite_count bigint（V2 加列 / V3 回填；冗余列，见 §四）
 | 自建夹内容上限 | **500**（`custom-folder-max-items`） |
 | 自建夹**个数**上限 | **20**（`custom-folder-max-count`）；默认夹不计入 |
 
-- ⚠️ **数字数的是 `favorite_item` 行**（**含失效条目**）—— 与 `FavoriteFolderVO#itemCount`、`/favorite/list` 的 `total` **同一口径**。
+- ⚠️ **数字数的是 `favorite_item` 行**（**含失效条目**）—— 与 `FavoriteFolderVO#itemCount`、`GET /api/v1/favorites` 的 `total` **同一口径**。
 - ⚠️ **配置常量、不进 schema**（改数不动代码）；绑定期**校验"必须为正"**（`int` 原生类型键名写错会静默绑成 0 ⇒ 每次新增都 400，故**故意响亮失败**）。
 - **超限 ⇒ 400**。判定点 = `createFolder`（个数）· `addItem`（目标夹）· `moveItem`（**目标夹** —— 漏它就能"绕道 move 把夹撑爆"）。
 - ★ **顺序口径 —— 按类型分家**：**参数型 400**（夹名空 / 超长 / 格式非法）**先于**归属 403/404（不碰库）；
@@ -217,7 +217,7 @@ content.favorite_count bigint（V2 加列 / V3 回填；冗余列，见 §四）
 |---|---|
 | **只能加视频** | `add` / `move` 要求 `type = 1` 且未软删：不存在 / 已软删 ⇒ **404**；存在但非视频 ⇒ **400**「只能添加视频」 |
 | **重复添加 ⇒ 移到最前** | `INSERT … ON DUPLICATE KEY UPDATE create_time = CURRENT_TIMESTAMP`（撞 `uk_user_content`）⇒ 不新增行、不改 `id`、只刷时间。排序 `create_time DESC, id DESC` |
-| **除清单外无状态面** | ★ **红线**：**不新增** `/watchlater/status`、**不**把"是否在稍后再看"塞进 `interaction` / `/favorite/status` / 任何 `Content*VO` |
+| **除清单外无状态面** | ★ **红线**：**不新增** watch-later 的"是否加入"状态端点、**不**把"是否在稍后再看"塞进 `interaction` / `GET /api/v1/contents/{id}/favorite` / 任何 `Content*VO` |
 
 - **`add` 容量（**100**，`watch-later-max-items`）**：判据用 `COUNT(*) WHERE user_id = ? AND content_id <> ?`（**排除自身**）
   ⇒ "已在池中再次加入"（移到最前）**已满时仍成功**，只有"加**新**内容且已满"才 400 —— 同 §八 的**状态型 400、软上限**。
@@ -233,7 +233,7 @@ content.favorite_count bigint（V2 加列 / V3 回填；冗余列，见 §四）
 ## 十、他人公开夹"点开看内容"（⚠️ 破公开面键集）
 
 - `PublicFavoriteFolderVO` **加 `id`**（一期刻意只给"名称 + 数量"、不含 `id`，本次是**兑现一期预告**）。
-- 新端点 `GET /favorite/folder/items?folderId=X`：**匿名可访问**（**逐端点**声明，**绝不**类级 `@RequiresLogin`）。
+- 新端点 `GET /api/v1/favorite-folders/{id}/items`：**匿名可访问**（**逐端点**声明，**绝不**类级 `@RequiresLogin`）。
 - ★ **私密夹与不存在的夹同一拒绝口径 = `404`「收藏夹不存在」（同码同文案、不可区分）**
   —— 选 `404` 而非 `403`：本域 `403` 的语义是"**存在但不是我的**"，与"**不公开**"不是一回事；
   **不能**先返回 200 再空列表（那会让"私密"变成**可探测的**）。
@@ -250,6 +250,9 @@ content.favorite_count bigint（V2 加列 / V3 回填；冗余列，见 §四）
 > **完整论证**（当初为什么这么定、代价与边界）在
 > [收藏功能-编号索引.md（归档全文）](../../../archive/favorite-2026-10-15/收藏功能-编号索引.md)（**只读追溯**）。
 > ⚠️ 纪律：**收编进本表只许一行结论**；理由随正文进 archive / git（防再膨胀）。
+> ⚠️ **表里的端点路径是"当时"的形态**：`T58` 起全站资源化为 `/api/v1/**`（`T59` 又统一了入参 / 出参形状）。
+> 本表**不逐行改写** —— 改了就把"留痕"改成假记录；**当前路径以 [接口契约](../../tech/api/接口契约.md) §2.3
+> 与 `src/test/resources/api/openapi.yaml` 为准**。
 
 **任务 `T#`**（`T1`–`T15` = 收藏一期 / 二期 / 第 3 张清单；`T16`–`T19` = 第 4 张清单；`T20` = 收藏专项收口；`T21` 起 = 第 5 张清单）
 
@@ -289,7 +292,7 @@ content.favorite_count bigint（V2 加列 / V3 回填；冗余列，见 §四）
 | R-05 | 公开 / 私密**一期就给**（`is_private` 建表即带，零成本） | §二 |
 | R-06 | `favorite_count` 一期**实时 `COUNT`**、列只建不用（现成验收 oracle） | §四 |
 | R-07 | 失效条目：**计入**视频数 / **可移出、不可移入或移动** / 收藏数仍算 | §五 |
-| R-08 | 「私密」的可观察落点 = **独立端点** `GET /favorite/folder/public?userId=X` | §三 |
+| R-08 | 「私密」的可观察落点 = **独立端点** `GET /favorite/folder/public?userId=X`（`T58` 后为 `GET /api/v1/users/{id}/favorite-folders`） | §三 |
 | R-09 | 默认夹唯一 = **`default_uniq` VIRTUAL 生成列 + `uk_user_default`** | §二 |
 | R-10 | 详情互动态 = **内嵌 `interaction` 子对象**（**不拆接口**；匿名 ⇒ `null`） | §六 |
 | R-11 | 失效口径「**看不了 ≈ 失效**」（四类统一折叠，走装载契约） | §五 |
@@ -323,7 +326,7 @@ content.favorite_count bigint（V2 加列 / V3 回填；冗余列，见 §四）
 | G7 | 一期**不许写缓存、不许做冗余计数增量维护** | ✅ 二期已解除（T11 / T12） |
 | G9 | `favorite` 域**必须登记** `ArchitectureTests.DOMAINS`（否则规则是**永远绿的假绿**） | ✅ 已落地 |
 | G10 | 🚫 **收藏不得接 feed**（不发 `ContentPublishedEvent`、不调 `FeedDelivery`） | **长期红线**（无实现可去掉 ⇒ 靠 review） |
-| G11 | ★ `/favorite/remove` **不得校验内容存在性**（否则失效条目**永远清不掉**） | **长期红线**（§五） |
+| G11 | ★ `DELETE /api/v1/favorites` **不得校验内容存在性**（否则失效条目**永远清不掉**） | **长期红线**（§五） |
 | G12 | ★ 夹内列表**分页按 `favorite_item` 行**（不是按"内容"） | **长期红线**（§五） |
 | G8 | 一期测试只断**可观察行为**、二期换实现时**测试不许改** | 跨期元约定（例外仅 `R-10` / `I-12`） |
 | G13 | 清单只给方向与红线、**不写死实现步骤** | 跨期元约定 |

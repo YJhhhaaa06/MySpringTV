@@ -203,7 +203,7 @@ class FollowCacheTests extends AbstractFollowIntegrationTest {
         assertThat(keysWithPrefix(FOLLOWER_KEY)).as("同上：粉丝集也不得创建").isEmpty();
 
         // DB 是真理源，读回来必须正确
-        assertThat(Envelope.code(getFollowing(b.id(), b.token()))).isEqualTo(200);
+        assertThat(Envelope.code(getFollowing(b.id(), b.token()))).isEqualTo("OK");
         assertThat(followingSetContains(b.id(), a.id())).as("读 miss 后回填成员").isTrue();
         assertThat(ttlSecondsOf(FOLLOWING_KEY + b.id())).as("回填必须带 TTL（-1 = 永不过期，是缺陷）")
                 .isPositive();
@@ -220,7 +220,7 @@ class FollowCacheTests extends AbstractFollowIntegrationTest {
     void 空标记让无关注的用户不再回源DB() {
         TestUser a = register(PHONE_A, "cache-a");
 
-        assertThat(Envelope.code(getFollowing(a.id(), a.token()))).isEqualTo(200);
+        assertThat(Envelope.code(getFollowing(a.id(), a.token()))).isEqualTo("OK");
 
         assertThat(hasKey(EMPTY_PREFIX + FOLLOWING_KEY + a.id())).as("应写下空标记").isTrue();
         assertThat(hasKey(FOLLOWING_KEY + a.id())).as("空集不建数据 key").isFalse();
@@ -234,7 +234,7 @@ class FollowCacheTests extends AbstractFollowIntegrationTest {
         //   它必须留在 clearInvocations **之后**（挪到前面会被一起清掉 ⇒ 哨兵静默失效）。
         followDao.findAllFollowedUserIds(OTHER_USER_ID);
 
-        assertThat(Envelope.code(getFollowing(a.id(), a.token()))).isEqualTo(200);
+        assertThat(Envelope.code(getFollowing(a.id(), a.token()))).isEqualTo("OK");
         verify(followDao, never()).findAllFollowedUserIds(eq(a.id()));
         // 窗口读的 loader 也必须没被调用（T4 起 miss 走的是这条）——
         // ⚠️ **本用例的决定性判据是下一行**（窗口读路径只会走窗口 loader）；上一行是冗余防御，
@@ -265,12 +265,12 @@ class FollowCacheTests extends AbstractFollowIntegrationTest {
         insertFollowRow(b.id(), a.id());
         insertFollowRow(b.id(), c.id());
 
-        assertThat(Envelope.code(getFollowing(b.id(), b.token()))).isEqualTo(200);   // 第一次：miss → 回填
+        assertThat(Envelope.code(getFollowing(b.id(), b.token()))).isEqualTo("OK");   // 第一次：miss → 回填
         Mockito.clearInvocations(followDao);
         // ★ 干扰行（"另一人"）：同 {@link #空标记让无关注的用户不再回源DB()} —— 断言只对被测用户有意义
         followDao.findAllFollowedUserIds(OTHER_USER_ID);
 
-        assertThat(Envelope.code(getFollowing(b.id(), b.token()))).isEqualTo(200);   // 第二次：命中
+        assertThat(Envelope.code(getFollowing(b.id(), b.token()))).isEqualTo("OK");   // 第二次：命中
         verify(followDao, never()).findAllFollowedUserIds(eq(b.id()));
         verify(followDao, never()).findFollowedUserIdsWindow(eq(b.id()), anyLong(), anyInt());
     }
@@ -316,7 +316,7 @@ class FollowCacheTests extends AbstractFollowIntegrationTest {
 
         var resp = getFollowing(b.id(), b.token());
 
-        assertThat(Envelope.code(resp)).isEqualTo(200);
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
         assertThat(Envelope.data(resp).path("total").asInt()).as("降级时 total 取计数列").isEqualTo(1);
         assertThat(Envelope.data(resp).path("list").get(0).path("userId").asLong()).isEqualTo(a.id());
         assertThat(Envelope.data(resp).path("list").get(0).path("isFollowed").asBoolean())
@@ -353,8 +353,8 @@ class FollowCacheTests extends AbstractFollowIntegrationTest {
      */
     private void prewarmBothSides(TestUser b, TestUser a, TestUser c) {
         insertFollowRow(b.id(), c.id());
-        assertThat(Envelope.code(getFollowing(b.id(), b.token()))).isEqualTo(200);
-        assertThat(Envelope.code(getFollowers(a.id(), b.token()))).isEqualTo(200);
+        assertThat(Envelope.code(getFollowing(b.id(), b.token()))).isEqualTo("OK");
+        assertThat(Envelope.code(getFollowers(a.id(), b.token()))).isEqualTo("OK");
 
         assertThat(followingSetContains(b.id(), c.id())).as("预热①：b 的关注集含 c").isTrue();
         assertThat(zCard(FOLLOWING_KEY + b.id())).isEqualTo(1L);

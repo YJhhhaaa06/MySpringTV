@@ -143,7 +143,7 @@ public class CacheAside extends RedisOps {
      * 批量 Cache-Aside 读：一趟 pipeline 拉全部 key（EXISTS 空标记 + GET + 续期），
      * 三态语义与单 key {@link #get} **完全一致**。
      *
-     * <p>为什么必须批量：内容列表（`/start` / `/search` / `/profile`）一次要读十到上百条内容，
+     * <p>为什么必须批量：内容列表（首页 / 搜索 / 主页三个列表面）一次要读十到上百条内容，
      * 逐条往返会让"页成本 ∝ 条数 × 3"；TV 的 T8 引 {@code getBatch} 就是为了这一条。
      *
      * <p><b>装载合并</b>（TV 第五期 T2）：miss 子集与整批降级子集走一次

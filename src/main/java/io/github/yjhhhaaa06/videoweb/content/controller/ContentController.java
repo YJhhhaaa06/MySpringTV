@@ -1,14 +1,19 @@
 package io.github.yjhhhaaa06.videoweb.content.controller;
 
-import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
+import io.github.yjhhhaaa06.videoweb.content.model.dto.CommentEnabledRequest;
+import io.github.yjhhhaaa06.videoweb.content.model.dto.UpdateContentRequest;
 import io.github.yjhhhaaa06.videoweb.content.service.ContentService;
 import io.github.yjhhhaaa06.videoweb.upload.service.FileUploadService;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
+import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -54,9 +59,11 @@ import java.util.List;
  * {@code "contentId格式错误"}（同为 400）。新实现交给 Spring 的参数绑定 ⇒ 走全局出口的
  * **统一文案**（{@code "参数错误"}）。**HTTP 状态码与 body 的 code 不变（400）**，
  * 只有 {@code msg} 变化——与 S1（coupon）删掉 1062 判断后的同类差异，已记入决策表与提交信息。
+ * <p>★ `T57` 起这类错误不再是"只有一句话"：出口统一给 {@code errors:[{field,code,message}]}
+ * （{@code field=contentId}，文案如 {@code 缺少必填参数} / {@code 参数类型不正确}），
+ * {@code msg} 变成该条的摘要。差异仍然存在（TV 的原话没有保留），但**机器已经能定位到参数**了。
  */
 @RestController
-@RequestMapping("/content")
 public class ContentController {
 
     private final ContentService contentService;
@@ -68,52 +75,37 @@ public class ContentController {
     }
 
     /**
-     * 作者开关自己作品的评论区（{@code POST /content/commentEnabled?contentId=X&enabled=0|1}）。
+     * 作者开关自己作品的评论区（{@code PUT /api/v1/contents/{id}/comment-enabled}）。
      *
-     * <p>{@code enabled} 接受 {@code 1/true/0/false}（大小写不敏感、两端空白忽略）。
-     * 缺失 → 400 {@code "enabled不能为空"}；其它值 → 400 {@code "enabled格式错误，应为 0/1 或 true/false"}。
+     * <p>`T59` 载荷面：入参改为 JSON body {@code {"enabled": true|false}}（布尔真类型，
+     * 依据《接口契约.md》§2.5）；旧的 {@code 1/true/0/false} 字符串形态退役。
+     * 缺 {@code enabled} → 400「enabled不能为空」；非布尔 → 400「参数取值不合法」。
      *
      * <p>非作者 → 403；内容不存在/已软删 → 404；未登录 → 401。
      */
-    @PostMapping("/commentEnabled")
+    @PutMapping("/api/v1/contents/{id}/comment-enabled")
     @RequiresLogin
-    public ApiResponse<String> commentEnabled(@CurrentUserId long userId,
-                                              @RequestParam long contentId,
-                                              @RequestParam(required = false) String enabled) {
-        if (enabled == null || enabled.isEmpty()) {
-            throw new ParamException("enabled不能为空");
-        }
-        Boolean value = parseEnabled(enabled);
-        if (value == null) {
-            throw new ParamException("enabled格式错误，应为 0/1 或 true/false");
-        }
-        contentService.setCommentEnabled(contentId, userId, value);
-        return ApiResponse.success("操作成功");
+    public ApiResponse<Void> commentEnabled(@CurrentUserId long userId,
+                                            @PathVariable("id") long contentId,
+                                            @RequestBody @Valid CommentEnabledRequest request) {
+        contentService.setCommentEnabled(contentId, userId, request.enabled());
+        return ApiResponse.success();
     }
 
     /**
-     * 作者编辑标题/简介（{@code POST /content/update?contentId=X&title=&description=}）。
+     * 作者编辑标题/简介（{@code PUT /api/v1/contents/{id}}）。
      *
-     * <p>标题空 → 400 {@code "标题不能为空"}；标题 >50 → 400；简介 >5000 → 400；
-     * 非作者 → 403；内容不存在 → 404。
+     * <p>`T59` 载荷面：入参改为 JSON body {@code {"title": "…", "description": "…"}}
+     * （依据《接口契约.md》§2.5）；标题空 → 400「标题不能为空」；标题 >50 → 400；
+     * 简介 >5000 → 400；非作者 → 403；内容不存在 → 404。
      */
-    @PostMapping("/update")
+    @PutMapping("/api/v1/contents/{id}")
     @RequiresLogin
-    public ApiResponse<String> update(@CurrentUserId long userId,
-                                      @RequestParam long contentId,
-                                      @RequestParam(required = false) String title,
-                                      @RequestParam(required = false) String description) {
-        contentService.updateContentInfo(contentId, userId, title, description);
-        return ApiResponse.success("操作成功");
-    }
-
-    /** TV {@code parseEnabled} 逐字：{@code 1/true} → TRUE，{@code 0/false} → FALSE，其它 → null。 */
-    private static Boolean parseEnabled(String value) {
-        return switch (value.trim().toLowerCase()) {
-            case "1", "true" -> Boolean.TRUE;
-            case "0", "false" -> Boolean.FALSE;
-            default -> null;
-        };
+    public ApiResponse<Void> update(@CurrentUserId long userId,
+                                    @PathVariable("id") long contentId,
+                                    @RequestBody UpdateContentRequest request) {
+        contentService.updateContentInfo(contentId, userId, request.title(), request.description());
+        return ApiResponse.success();
     }
 
     /**
@@ -127,15 +119,15 @@ public class ContentController {
      * {@code deleteFileByUrl} 清理物理文件（尽力而为：非法 URL / 文件不存在静默忽略）。
      * S5 交付时因 upload 域未迁移而裁剪，补回位置即此（见《决策表》G-7 与《遗留台账》A7）。
      */
-    @PostMapping("/mediaDelete")
+    @DeleteMapping("/api/v1/contents/{id}/media")
     @RequiresLogin
-    public ApiResponse<String> mediaDelete(@CurrentUserId long userId,
-                                           @RequestParam long contentId,
-                                           @RequestParam int type,
-                                           @RequestParam int sort) {
+    public ResponseEntity<Void> mediaDelete(@CurrentUserId long userId,
+                                            @PathVariable("id") long contentId,
+                                            @RequestParam int type,
+                                            @RequestParam int sort) {
         String oldUrl = contentService.deleteMedia(contentId, userId, type, sort);
         fileUploadService.deleteFileByUrl(oldUrl);
-        return ApiResponse.success("删除成功");
+        return ResponseEntity.noContent().build();
     }
 
     /**
@@ -148,13 +140,13 @@ public class ContentController {
      * url 列表，此处提交后逐个清物理文件。**磁盘文件随作品一并消失**从此成立
      * （此前为"DB 行删了、磁盘文件残留"的有意裁剪）。
      */
-    @PostMapping("/delete")
+    @DeleteMapping("/api/v1/contents/{id}")
     @RequiresLogin
-    public ApiResponse<String> delete(@CurrentUserId long userId, @RequestParam long contentId) {
+    public ResponseEntity<Void> delete(@CurrentUserId long userId, @PathVariable("id") long contentId) {
         List<String> mediaUrls = contentService.deleteContent(contentId, userId);
         for (String url : mediaUrls) {
             fileUploadService.deleteFileByUrl(url);
         }
-        return ApiResponse.success("删除成功");
+        return ResponseEntity.noContent().build();
     }
 }

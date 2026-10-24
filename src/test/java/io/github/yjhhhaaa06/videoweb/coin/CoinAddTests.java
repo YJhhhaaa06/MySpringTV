@@ -4,12 +4,11 @@ import io.github.yjhhhaaa06.videoweb.support.Envelope;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
 import tools.jackson.databind.JsonNode;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -196,7 +195,7 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
         ResponseEntity<String> resp = addCoin(voter.token(), contentId, 1);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(400);
-        assertThat(Envelope.code(resp)).isEqualTo(400);
+        assertThat(Envelope.code(resp)).isEqualTo("COIN_INSUFFICIENT");
         assertThat(Envelope.msg(resp)).as("文案冻结：「硬币不足」").isEqualTo("硬币不足");
 
         // ★ 零副作用 = 封顶写（INSERT IGNORE + 条件累加）已发生，但被事务一起撤回。
@@ -273,7 +272,7 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
         ResponseEntity<String> resp = addCoin(voter.token(), contentId, 1);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(409);
-        assertThat(Envelope.code(resp)).isEqualTo(409);
+        assertThat(Envelope.code(resp)).isEqualTo("COIN_ALREADY_FULL");
         assertThat(Envelope.msg(resp)).as("文案冻结（B站）：「对本稿件投币枚数已用完」")
                 .isEqualTo("对本稿件投币枚数已用完");
 
@@ -343,6 +342,7 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
         assertThat(resp.getStatusCode().value()).isEqualTo(400);
         assertThat(Envelope.msg(resp))
                 .as("★顺序 3>4：把自投检查提前会答「不能给自己投币」").isEqualTo("该内容不支持投币");
+                assertThat(Envelope.code(resp)).as("码也必须唯一表达原因（T55）").isEqualTo("COIN_NOT_SUPPORTED");
         assertThat(countCoinRows()).isZero();
         assertThat(coinDeciOf(author.id())).isEqualTo(20);
     }
@@ -361,6 +361,7 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
         assertThat(resp.getStatusCode().value())
                 .as("★顺序 4>5：把封顶检查提前会答 409").isEqualTo(400);
         assertThat(Envelope.msg(resp)).isEqualTo("不能给自己投币");
+        assertThat(Envelope.code(resp)).as("码也必须唯一表达原因（T55）").isEqualTo("COIN_SELF_FORBIDDEN");
         assertThat(amountOf(author.id(), contentId)).isEqualTo(2);
         assertThat(coinCountOf(contentId)).isEqualTo(2);
         assertThat(coinDeciOf(author.id())).isEqualTo(20);
@@ -399,6 +400,7 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
 
         assertThat(resp.getStatusCode().value()).isEqualTo(400);
         assertThat(Envelope.msg(resp)).as("文案冻结：「不能给自己投币」").isEqualTo("不能给自己投币");
+        assertThat(Envelope.code(resp)).isEqualTo("COIN_SELF_FORBIDDEN");
         assertThat(countCoinRows()).isZero();
         assertThat(coinCountOf(contentId)).isZero();
         assertThat(coinDeciOf(author.id())).isEqualTo(20);
@@ -573,29 +575,21 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
     @DisplayName("未登录投币：401（本条对 @RequiresLogin 是假绿，判别力在 SecurityContractTests）")
     void 未登录投币被拒() {
         // 内容存在与否不影响：鉴权在参数解析 / 注解层就短路了。
-        MultiValueMap<String, String> form = coinForm(1L, 1);
-
-        ResponseEntity<String> resp = postForm("/coin/add", form, null);
+        ResponseEntity<String> resp = post("/api/v1/contents/1/coins", Map.of("count", 1), null);
 
         // ⚠️ 这条 401 可能来自 @CurrentUserId 的参数解析器，而不是 @RequiresLogin ——
         //    机制是否生效只能由 SecurityContractTests 直接对 RequestMappingLookup 求值来证明
         //    （AGENTS.md「测试纪律」④）。
         assertThat(resp.getStatusCode().value()).isEqualTo(401);
-        assertThat(Envelope.code(resp)).isEqualTo(401);
+        assertThat(Envelope.code(resp)).isEqualTo("AUTH_UNAUTHORIZED");
         assertThat(Envelope.hasDataField(resp)).as("错误信封不含 data 键").isFalse();
     }
 
     // ==================== 夹具 ====================
 
-    /** 投币端点：{@code POST + form}，带 {@code contentId} / {@code count}。 */
+    /** 投币端点：{@code POST /api/v1/contents/{id}/coins}（`T58` 起 {@code contentId} 在路径上）；
+     *  `T59` 载荷面起 {@code count} 走 JSON body。 */
     private ResponseEntity<String> addCoin(String token, long contentId, int count) {
-        return postForm("/coin/add", coinForm(contentId, count), token);
-    }
-
-    private static MultiValueMap<String, String> coinForm(long contentId, int count) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("contentId", String.valueOf(contentId));
-        form.add("count", String.valueOf(count));
-        return form;
+        return post("/api/v1/contents/" + contentId + "/coins", Map.of("count", count), token);
     }
 }

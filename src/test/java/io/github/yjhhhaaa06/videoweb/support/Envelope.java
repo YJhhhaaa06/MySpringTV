@@ -38,8 +38,8 @@ public final class Envelope {
     /**
      * 取整个 {@code data} 节点。
      *
-     * <p>用于 {@code data} 本身不是对象的端点——例如 {@code /coupon/grab} 的 {@code data}
-     * 是一个**纯字符串**券码，{@code /coupon/list} 的 {@code data} 是**数组**。
+     * <p>用于 {@code data} 本身不是对象的端点——例如 {@code POST /api/v1/coupons/{id}/claims} 的 {@code data}
+     * 是一个**纯字符串**券码，{@code GET /api/v1/coupons} 的 {@code data} 是**数组**。
      * {@link #str} 走的是 {@code data.<field>} 路径，对这两种形状取不到值，故需要本方法。
      */
     public static JsonNode data(ResponseEntity<String> response) {
@@ -50,8 +50,18 @@ public final class Envelope {
         return parse(response).path("data").path(field).asLong();
     }
 
-    public static int code(ResponseEntity<String> response) {
-        return parse(response).path("code").asInt();
+    /**
+     * 取业务码（**字符串**，如 {@code "AUTH_BAD_CREDENTIALS"}、成功为 {@code "OK"}）。
+     *
+     * <p>★ `T55` 起码不再是 HTTP 状态码的数字副本：断言必须写**具体码**，
+     * 只写数字会退回到"两层信息重复"的旧形态（也编译不过 —— {@code String} 与 {@code int} 不同型）。
+     */
+    public static String code(ResponseEntity<String> response) {
+        JsonNode node = parse(response).path("code");
+        if (node.isMissingNode() || node.isNull()) {
+            return null;
+        }
+        return node.asString();
     }
 
     public static String msg(ResponseEntity<String> response) {
@@ -61,5 +71,20 @@ public final class Envelope {
 
     public static boolean hasDataField(ResponseEntity<String> response) {
         return parse(response).has("data");
+    }
+
+    /**
+     * 取字段级错误数组（`T57`，契约 §2.5）：{@code errors:[{field,code,message}]}。
+     *
+     * <p>缺失时返回 {@link JsonNode} 的 missing node（{@code isMissingNode() == true}），
+     * 与"存在但为空数组"可区分 —— 这正是"只有校验族才出现 {@code errors}"这条契约的判别点。
+     */
+    public static JsonNode errors(ResponseEntity<String> response) {
+        return parse(response).path("errors");
+    }
+
+    /** 该响应是否带了 {@code errors} 字段（存在 ≠ 非空）。 */
+    public static boolean hasErrorsField(ResponseEntity<String> response) {
+        return parse(response).has("errors");
     }
 }

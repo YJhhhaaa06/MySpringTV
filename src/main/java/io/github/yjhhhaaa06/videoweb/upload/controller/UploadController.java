@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.upload.controller;
 
 import io.github.yjhhhaaa06.videoweb.common.exception.BusinessException;
+import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
@@ -8,21 +9,23 @@ import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import io.github.yjhhhaaa06.videoweb.content.service.ContentService;
 import io.github.yjhhhaaa06.videoweb.upload.model.UploadResult;
 import io.github.yjhhhaaa06.videoweb.upload.model.UploadType;
+import io.github.yjhhhaaa06.videoweb.upload.model.vo.ContentCreatedVO;
+import io.github.yjhhhaaa06.videoweb.upload.model.vo.MediaReplacedVO;
 import io.github.yjhhhaaa06.videoweb.upload.service.FileUploadService;
 import io.github.yjhhhaaa06.videoweb.upload.service.Mp4DurationReader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.OptionalInt;
 
 /**
@@ -59,7 +62,6 @@ import java.util.OptionalInt;
  * （TV 同样如此；回收工具属媒体审计面 S8）。
  */
 @RestController
-@RequestMapping("/api/upload")
 @RequiresLogin
 public class UploadController {
 
@@ -85,13 +87,13 @@ public class UploadController {
      * 结果随 {@code addVideo} 一起进事务。**解析失败不阻断发布**（{@code null} = 未知），
      * 理由见 {@code history.md} §六.2：时长只服务"进度百分比"，异常 mp4 不应变成新的失败点。
      */
-    @PostMapping("/video")
-    public ApiResponse<Map<String, Object>> uploadVideo(@CurrentUserId long userId,
-                                                       @RequestParam(required = false) String title,
-                                                       @RequestParam(required = false) String description,
-                                                       @RequestParam(required = false) String categoryId,
-                                                       @RequestPart("video") MultipartFile video,
-                                                       @RequestPart("cover") MultipartFile cover) {
+    @PostMapping("/api/v1/contents/videos")
+    public ApiResponse<ContentCreatedVO> uploadVideo(@CurrentUserId long userId,
+                                                     @RequestParam(required = false) String title,
+                                                     @RequestParam(required = false) String description,
+                                                     @RequestParam(required = false) String categoryId,
+                                                     @RequestPart("video") MultipartFile video,
+                                                     @RequestPart("cover") MultipartFile cover) {
         String t = requireTitle(title);
         String d = normalizeDescription(description, 1000, "简介不得超过1000字");
         int category = parseCategoryId(categoryId);
@@ -103,7 +105,7 @@ public class UploadController {
             coverResult = fileUploadService.saveFile(cover, UploadType.COVER);
             long contentId = contentService.addVideo(userId, t, d, category,
                     videoResult.url(), coverResult.url(), readDuration(videoResult));
-            return ApiResponse.success(Map.of("contentId", contentId));
+            return ApiResponse.success(new ContentCreatedVO(contentId));
         } catch (BusinessException e) {
             deleteQuietly(videoResult);
             deleteQuietly(coverResult);
@@ -122,13 +124,13 @@ public class UploadController {
      * <p>校验：标题非空且 ≤50；简介空则置 {@code "-"}、否则 ≤10000（**注意与视频的 1000 不同**，
      * TV 原样）；{@code categoryId} 同视频。多图按 part 出现顺序写 {@code sort} 1..n。
      */
-    @PostMapping("/post")
-    public ApiResponse<Map<String, Object>> uploadPost(@CurrentUserId long userId,
-                                                      @RequestParam(required = false) String title,
-                                                      @RequestParam(required = false) String description,
-                                                      @RequestParam(required = false) String categoryId,
-                                                      @RequestPart(value = "cover", required = false) MultipartFile cover,
-                                                      @RequestPart(value = "image", required = false) List<MultipartFile> images) {
+    @PostMapping("/api/v1/contents/posts")
+    public ApiResponse<ContentCreatedVO> uploadPost(@CurrentUserId long userId,
+                                                    @RequestParam(required = false) String title,
+                                                    @RequestParam(required = false) String description,
+                                                    @RequestParam(required = false) String categoryId,
+                                                    @RequestPart(value = "cover", required = false) MultipartFile cover,
+                                                    @RequestPart(value = "image", required = false) List<MultipartFile> images) {
         String t = requireTitle(title);
         String d = normalizeDescription(description, 10000, "内容不得超过10000字");
         int category = parseCategoryId(categoryId);
@@ -154,7 +156,7 @@ public class UploadController {
             }
 
             long contentId = contentService.addPost(userId, t, d, category, coverUrl, imageUrls);
-            return ApiResponse.success(Map.of("contentId", contentId));
+            return ApiResponse.success(new ContentCreatedVO(contentId));
         } catch (BusinessException e) {
             savedPaths.forEach(fileUploadService::deleteFileQuietly);
             throw e;
@@ -175,19 +177,19 @@ public class UploadController {
      * {@code type == 2/3} 传 {@code null} 且 Service **不调用**更新 —— 换封面不能清空视频时长。
      * 只在上传时解析会留"时长永远停在旧值"的显式不一致，所以两个调用点都要接。
      */
-    @PostMapping("/replace")
-    public ApiResponse<Map<String, Object>> replace(@CurrentUserId long userId,
-                                                   @RequestParam long contentId,
-                                                   @RequestParam int type,
-                                                   @RequestParam int sort,
-                                                   @RequestPart(value = "file", required = false) MultipartFile file) {
+    @PutMapping("/api/v1/contents/{id}/media")
+    public ApiResponse<MediaReplacedVO> replace(@CurrentUserId long userId,
+                                                @PathVariable("id") long contentId,
+                                                @RequestParam int type,
+                                                @RequestParam int sort,
+                                                @RequestPart(value = "file", required = false) MultipartFile file) {
         UploadType uploadType = UploadType.fromMediaType(type);
         if (uploadType == null) {
-            throw new ParamException("type 不合法，应为 1/2/3");
+            throw new ParamException(ErrorCode.UPLOAD_TYPE_INVALID, "type 不合法，应为 1/2/3");
         }
         // 缺文件 / 空文件 → TV 文案逐字保留（旧实现显式判 null 与 size<=0，同为 400）
         if (file == null || file.getSize() <= 0) {
-            throw new ParamException("请选择要替换的文件");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "请选择要替换的文件");
         }
 
         UploadResult result = null;
@@ -197,7 +199,7 @@ public class UploadController {
             String oldUrl = contentService.replaceMedia(contentId, userId, type, sort, result.url(), duration);
             // 旧文件清理：DB 已提交、尽力而为（失败只记 WARNING，不影响响应）
             fileUploadService.deleteFileByUrl(oldUrl);
-            return ApiResponse.success(Map.of("url", result.url()));
+            return ApiResponse.success(new MediaReplacedVO(result.url()));
         } catch (BusinessException e) {
             deleteQuietly(result);
             throw e;
@@ -232,10 +234,10 @@ public class UploadController {
 
     private static String requireTitle(String title) {
         if (title == null || title.isBlank()) {
-            throw new ParamException("标题不能为空");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "标题不能为空");
         }
         if (title.length() > 50) {
-            throw new ParamException("标题不得超过50字");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "标题不得超过50字");
         }
         return title;
     }
@@ -246,7 +248,7 @@ public class UploadController {
             return "-";
         }
         if (description.length() > maxLength) {
-            throw new ParamException(message);
+            throw new ParamException(ErrorCode.PARAM_INVALID, message);
         }
         return description;
     }
@@ -260,7 +262,7 @@ public class UploadController {
      */
     private static int parseCategoryId(String categoryId) {
         if (categoryId == null || categoryId.length() > 1 || !categoryId.matches("^[0-9]+$")) {
-            throw new ParamException("暂时没有这个分区");
+            throw new ParamException(ErrorCode.CONTENT_CATEGORY_INVALID, "暂时没有这个分区");
         }
         return Integer.parseInt(categoryId);
     }

@@ -90,7 +90,7 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
         addVideoPart(form);
         addCoverPart(form);
 
-        ResponseEntity<String> resp = postMultipart("/api/upload/video", form, token);
+        ResponseEntity<String> resp = postMultipart("/api/v1/contents/videos", form, token);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         long contentId = Envelope.num(resp, "contentId");
@@ -122,8 +122,8 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
         assertThat(Files.size(diskPathOf(coverUrl))).isEqualTo(sourceSize(FIXTURE_COVER));
 
         // ---- 读回（旧 smoke S-08 的意图：上传后详情能看到 videoUrl）----
-        ResponseEntity<String> detail = get("/search/IdSearch?contentId=" + contentId, null);
-        assertThat(Envelope.code(detail)).isEqualTo(200);
+        ResponseEntity<String> detail = get("/api/v1/contents/" + contentId, null);
+        assertThat(Envelope.code(detail)).isEqualTo("OK");
         assertThat(Envelope.str(detail, "videoUrl")).endsWith(videoUrl);
     }
 
@@ -140,7 +140,7 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
         addImagePart(form);
         addImagePart(form);
 
-        ResponseEntity<String> resp = postMultipart("/api/upload/post", form, token);
+        ResponseEntity<String> resp = postMultipart("/api/v1/contents/posts", form, token);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         long contentId = Envelope.num(resp, "contentId");
@@ -165,7 +165,7 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
             assertThat(Files.size(path)).isEqualTo(sourceSize(fixture));
         }
 
-        ResponseEntity<String> detail = get("/search/IdSearch?contentId=" + contentId, null);
+        ResponseEntity<String> detail = get("/api/v1/contents/" + contentId, null);
         assertThat(Envelope.data(detail).path("imageUrls")).hasSize(2);
     }
 
@@ -179,7 +179,7 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
         addText(form, "categoryId", "0");
         // 不传 description、cover、image
 
-        ResponseEntity<String> resp = postMultipart("/api/upload/post", form, token);
+        ResponseEntity<String> resp = postMultipart("/api/v1/contents/posts", form, token);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         long contentId = Envelope.num(resp, "contentId");
@@ -204,7 +204,7 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
         addText(blankTitle, "categoryId", "1");
         addVideoPart(blankTitle);
         addCoverPart(blankTitle);
-        assertThat(Envelope.msg(postMultipart("/api/upload/video", blankTitle, token)))
+        assertThat(Envelope.msg(postMultipart("/api/v1/contents/videos", blankTitle, token)))
                 .isEqualTo("标题不能为空");
 
         // 标题 >50
@@ -213,7 +213,7 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
         addText(longTitle, "categoryId", "1");
         addVideoPart(longTitle);
         addCoverPart(longTitle);
-        assertThat(Envelope.msg(postMultipart("/api/upload/video", longTitle, token)))
+        assertThat(Envelope.msg(postMultipart("/api/v1/contents/videos", longTitle, token)))
                 .isEqualTo("标题不得超过50字");
 
         // 视频简介 >1000
@@ -223,7 +223,7 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
         addText(longVideoDesc, "categoryId", "1");
         addVideoPart(longVideoDesc);
         addCoverPart(longVideoDesc);
-        assertThat(Envelope.msg(postMultipart("/api/upload/video", longVideoDesc, token)))
+        assertThat(Envelope.msg(postMultipart("/api/v1/contents/videos", longVideoDesc, token)))
                 .isEqualTo("简介不得超过1000字");
 
         // 图文简介 >10000（与视频的 1000 不同——TV 原样）
@@ -231,7 +231,7 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
         addText(longPostDesc, "title", "t");
         addText(longPostDesc, "description", "d".repeat(10001));
         addText(longPostDesc, "categoryId", "0");
-        assertThat(Envelope.msg(postMultipart("/api/upload/post", longPostDesc, token)))
+        assertThat(Envelope.msg(postMultipart("/api/v1/contents/posts", longPostDesc, token)))
                 .isEqualTo("内容不得超过10000字");
 
         // 分区非法（多位数字）
@@ -240,7 +240,7 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
         addText(badCategory, "categoryId", "12");
         addVideoPart(badCategory);
         addCoverPart(badCategory);
-        assertThat(Envelope.msg(postMultipart("/api/upload/video", badCategory, token)))
+        assertThat(Envelope.msg(postMultipart("/api/v1/contents/videos", badCategory, token)))
                 .isEqualTo("暂时没有这个分区");
 
         // ★ 所有失败都发生在落盘之前 ⇒ 文件数零增长
@@ -267,7 +267,7 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
         }, "application/octet-stream");
         addCoverPart(form);
 
-        ResponseEntity<String> resp = postMultipart("/api/upload/video", form, token);
+        ResponseEntity<String> resp = postMultipart("/api/v1/contents/videos", form, token);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(400);
         assertThat(Envelope.msg(resp)).isEqualTo("文件类型不支持");
@@ -284,9 +284,14 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
         addText(form, "categoryId", "1");
         addCoverPart(form); // 只有 cover，没有 video
 
-        ResponseEntity<String> resp = postMultipart("/api/upload/video", form, token);
+        ResponseEntity<String> resp = postMultipart("/api/v1/contents/videos", form, token);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(400);
+        // `T57`（契约 §2.5）：缺 part 与缺参/类型不匹配同一形状——errors[field=part 名]。
+        // part 名由 MissingServletRequestPartException 携带，不靠解析文案。
+        assertThat(Envelope.errors(resp).size()).as("一条字段级错误：%s", resp.getBody()).isEqualTo(1);
+        assertThat(Envelope.errors(resp).get(0).path("field").asString()).isEqualTo("video");
+        assertThat(Envelope.errors(resp).get(0).path("message").asString()).isEqualTo("缺少必填部分");
     }
 
     // ==================== 3. 换源（replace） ====================
@@ -303,8 +308,7 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
 
         MultiValueMap<String, Object> form = newForm();
         addFilePart(form, "file", fixture(FIXTURE_COVER), "image/png");
-        ResponseEntity<String> resp = postMultipart(
-                "/api/upload/replace?contentId=" + contentId + "&type=3&sort=1", form, token);
+        ResponseEntity<String> resp = putMultipart("/api/v1/contents/" + contentId + "/media?type=3&sort=1", form, token);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         String newUrl = Envelope.str(resp, "url");
@@ -320,7 +324,7 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
         assertThat(Files.size(diskPathOf(newUrl))).isEqualTo(sourceSize(FIXTURE_COVER));
         assertThat(oldPath).as("旧文件必须被删除（deleteFileByUrl）").doesNotExist();
 
-        ResponseEntity<String> detail = get("/search/IdSearch?contentId=" + contentId, null);
+        ResponseEntity<String> detail = get("/api/v1/contents/" + contentId, null);
         assertThat(Envelope.str(detail, "coverUrl")).endsWith(newUrl);
     }
 
@@ -336,14 +340,13 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
 
         MultiValueMap<String, Object> form = newForm();
         addFilePart(form, "file", fixture(FIXTURE_VIDEO), "video/mp4");
-        ResponseEntity<String> resp = postMultipart(
-                "/api/upload/replace?contentId=" + contentId + "&type=1&sort=1", form, token);
+        ResponseEntity<String> resp = putMultipart("/api/v1/contents/" + contentId + "/media?type=1&sort=1", form, token);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         String newUrl = Envelope.str(resp, "url");
         assertThat(newUrl).isNotEqualTo(oldUrl);
 
-        ResponseEntity<String> detail = get("/search/IdSearch?contentId=" + contentId, null);
+        ResponseEntity<String> detail = get("/api/v1/contents/" + contentId, null);
         assertThat(Envelope.str(detail, "videoUrl")).endsWith(newUrl);
         assertThat(diskPathOf(newUrl)).exists();
         assertThat(oldPath).doesNotExist();
@@ -356,8 +359,8 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
         long contentId = uploadVideo(token, "s7_replace_bad");
 
         // type 非法（先于文件校验）
-        ResponseEntity<String> badType = send(spec -> spec
-                .uri("/api/upload/replace?contentId=" + contentId + "&type=5&sort=1")
+        ResponseEntity<String> badType = execute(client.put()
+                .uri("/api/v1/contents/" + contentId + "/media?type=5&sort=1")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
         assertThat(badType.getStatusCode().value()).isEqualTo(400);
@@ -365,8 +368,7 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
 
         // 缺 file part
         MultiValueMap<String, Object> empty = newForm();
-        ResponseEntity<String> noFile = postMultipart(
-                "/api/upload/replace?contentId=" + contentId + "&type=1&sort=1", empty, token);
+        ResponseEntity<String> noFile = putMultipart("/api/v1/contents/" + contentId + "/media?type=1&sort=1", empty, token);
         assertThat(noFile.getStatusCode().value()).isEqualTo(400);
         assertThat(Envelope.msg(noFile)).isEqualTo("请选择要替换的文件");
     }
@@ -380,8 +382,7 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
 
         MultiValueMap<String, Object> form = newForm();
         addFilePart(form, "file", fixture(FIXTURE_COVER), "image/png");
-        ResponseEntity<String> resp = postMultipart(
-                "/api/upload/replace?contentId=" + contentId + "&type=3&sort=1", form, tokenB);
+        ResponseEntity<String> resp = putMultipart("/api/v1/contents/" + contentId + "/media?type=3&sort=1", form, tokenB);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(403);
         assertThat(Envelope.msg(resp)).isEqualTo("只能操作自己的作品");
@@ -390,7 +391,7 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
     // ==================== 4. 鉴权（HTTP 级；机制级在 SecurityContractTests） ====================
 
     @Test
-    @DisplayName("未登录上传：三个端点一律 401（/api/upload 是前缀保护）")
+    @DisplayName("未登录上传：三个端点一律 401（上传归 contents 域后仍是类级 @RequiresLogin）")
     void 未登录全部401() {
         MultiValueMap<String, Object> form = newForm();
         addText(form, "title", "t");
@@ -398,15 +399,15 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
         addVideoPart(form);
         addCoverPart(form);
 
-        for (String path : List.of("/api/upload/video", "/api/upload/post")) {
+        for (String path : List.of("/api/v1/contents/videos", "/api/v1/contents/posts")) {
             ResponseEntity<String> resp = postMultipart(path, form, null);
             assertThat(resp.getStatusCode().value()).as(path).isEqualTo(401);
         }
 
         MultiValueMap<String, Object> replaceForm = newForm();
         addFilePart(replaceForm, "file", fixture(FIXTURE_COVER), "image/png");
-        ResponseEntity<String> replace = postMultipart(
-                "/api/upload/replace?contentId=1&type=1&sort=1", replaceForm, null);
+        ResponseEntity<String> replace = putMultipart(
+                "/api/v1/contents/1/media?type=1&sort=1", replaceForm, null);
         assertThat(replace.getStatusCode().value()).isEqualTo(401);
     }
 
@@ -423,9 +424,8 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
         assertThat(diskPathOf(videoUrl)).exists();
         assertThat(diskPathOf(coverUrl)).exists();
 
-        ResponseEntity<String> resp = postQuery("/content/delete",
-                token, "contentId", String.valueOf(contentId));
-        assertThat(resp.getStatusCode().value()).isEqualTo(200);
+        ResponseEntity<String> resp = delete("/api/v1/contents/" + contentId, token);
+        assertThat(resp.getStatusCode().value()).as("`T59`：删除 = 204").isEqualTo(204);
 
         // DB 端：软删 + 媒体行清零（S5 已交付的行为）
         assertThat(jdbcTemplate.queryForObject(
@@ -448,16 +448,16 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
         addText(form, "categoryId", "0");
         addImagePart(form);
         addImagePart(form);
-        long contentId = Envelope.num(postMultipart("/api/upload/post", form, token), "contentId");
+        long contentId = Envelope.num(postMultipart("/api/v1/contents/posts", form, token), "contentId");
 
         String firstUrl = mediaUrl(contentId, 2, 1);
         String secondUrl = mediaUrl(contentId, 2, 2);
         Path firstPath = diskPathOf(firstUrl);
         assertThat(firstPath).exists();
 
-        ResponseEntity<String> resp = postQuery("/content/mediaDelete", token,
-                "contentId", String.valueOf(contentId), "type", "2", "sort", "1");
-        assertThat(resp.getStatusCode().value()).isEqualTo(200);
+        ResponseEntity<String> resp = delete(
+                "/api/v1/contents/" + contentId + "/media?type=2&sort=1", token);
+        assertThat(resp.getStatusCode().value()).as("`T59`：删除 = 204").isEqualTo(204);
 
         // 删掉的是第 1 张：它的文件消失；第 2 张的文件仍在，且 sort 由 2 重排为 1
         assertThat(firstPath).as("被删图片的物理文件必须消失（A7）").doesNotExist();
@@ -501,7 +501,7 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
         addText(form, "categoryId", "1");
         addVideoPart(form);
         addCoverPart(form);
-        ResponseEntity<String> resp = postMultipart("/api/upload/video", form, token);
+        ResponseEntity<String> resp = postMultipart("/api/v1/contents/videos", form, token);
         assertThat(resp.getStatusCode().value()).as("造夹具：上传视频必须成功").isEqualTo(200);
         return Envelope.num(resp, "contentId");
     }

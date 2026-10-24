@@ -10,17 +10,15 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestClient;
 
 import java.sql.PreparedStatement;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -157,12 +155,14 @@ class FavoriteCountMaintenanceTests extends AbstractHttpIntegrationTest {
         assertThat(addItem(folderB, content, me.token).getStatusCode().value()).isEqualTo(200);
 
         // 移出 A：B 里还有 ⇒ 仍 1
-        assertThat(removeItems(folderA, List.of(content), me.token).getStatusCode().value()).isEqualTo(200);
+        assertThat(removeItems(folderA, List.of(content), me.token).getStatusCode().value())
+                .as("`T59`：删除 = 204").isEqualTo(204);
         assertThat(oracleDistinctUserCount(content)).isEqualTo(1L);
         assertThat(columnOf(content)).as("部分移出不减（同一人还在）").isEqualTo(1L);
 
         // 移出 B（最后一个）：聚合查不到行 ⇒ 必须补 0 写回 —— "清零"同样要落列
-        assertThat(removeItems(folderB, List.of(content), me.token).getStatusCode().value()).isEqualTo(200);
+        assertThat(removeItems(folderB, List.of(content), me.token).getStatusCode().value())
+                .as("`T59`：删除 = 204").isEqualTo(204);
         assertThat(oracleDistinctUserCount(content)).isZero();
         assertThat(columnOf(content))
                 .as("★ 清零也要落列：GROUP BY 聚合不出该内容，靠调用方补 0 —— 漏了这步列会停在 1")
@@ -236,7 +236,8 @@ class FavoriteCountMaintenanceTests extends AbstractHttpIntegrationTest {
 
         // 清掉前置 add 们的重算调用记录 —— 让后面的 verify 只反映 deleteFolder 这一次批量
         Mockito.reset(contentDao);
-        assertThat(deleteFolder(doomed, a.token).getStatusCode().value()).isEqualTo(200);
+        assertThat(deleteFolder(doomed, a.token).getStatusCode().value())
+                .as("`T59`：删除 = 204").isEqualTo(204);
 
         assertThat(oracleRecordCount(x)).as("X：甲的记录随夹删除（R-02）").isEqualTo(1L);
         assertThat(oracleDistinctUserCount(x)).isEqualTo(1L);
@@ -296,7 +297,7 @@ class FavoriteCountMaintenanceTests extends AbstractHttpIntegrationTest {
             redis.delete(keys);
         }
 
-        ResponseEntity<String> resp = get("/favorite/count?contentId=" + content, null);
+        ResponseEntity<String> resp = get("/api/v1/contents/" + content + "/favorite-count", null);
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         assertThat(Envelope.data(resp).asLong())
                 .as("★ 端点答 999 ⇒ 回源读的是列；若仍在实时 COUNT(DISTINCT)，这里只能是 1")
@@ -354,10 +355,7 @@ class FavoriteCountMaintenanceTests extends AbstractHttpIntegrationTest {
     // ========================================================================
 
     private ResponseEntity<String> addItem(long folderId, long contentId, String token) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("folderId", String.valueOf(folderId));
-        form.add("contentId", String.valueOf(contentId));
-        return postForm("/favorite/add", form, token);
+        return post("/api/v1/favorites", Map.of("folderId", folderId, "contentId", contentId), token);
     }
 
     private ResponseEntity<String> removeItems(long folderId, List<Long> contentIds, String token) {
@@ -366,32 +364,19 @@ class FavoriteCountMaintenanceTests extends AbstractHttpIntegrationTest {
         for (Long contentId : contentIds) {
             form.add("contentIds", String.valueOf(contentId));
         }
-        return postForm("/favorite/remove", form, token);
+        return deleteQuery("/api/v1/favorites", form, token);
     }
 
     private ResponseEntity<String> moveItem(long fromFolderId, long toFolderId, long contentId, String token) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("fromFolderId", String.valueOf(fromFolderId));
-        form.add("toFolderId", String.valueOf(toFolderId));
-        form.add("contentId", String.valueOf(contentId));
-        return postForm("/favorite/move", form, token);
+        // `T58` 契约变更：contentId 进路径（PUT /api/v1/favorites/{id}，接口契约.md §2.3/§2.4）。
+        // `T59` 载荷面：from/to 走 JSON body。
+        return put("/api/v1/favorites/" + contentId,
+                Map.of("fromFolderId", fromFolderId, "toFolderId", toFolderId), token);
     }
 
     private ResponseEntity<String> deleteFolder(long folderId, String token) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("folderId", String.valueOf(folderId));
-        return postForm("/favorite/folder/remove", form, token);
-    }
-
-    private ResponseEntity<String> postForm(String path, MultiValueMap<String, String> form, String token) {
-        return send(spec -> {
-            RestClient.RequestBodySpec request = spec.uri(path)
-                    .contentType(MediaType.APPLICATION_FORM_URLENCODED);
-            if (token != null) {
-                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-            }
-            return request.body(form);
-        });
+        // `T58` 契约变更：DELETE + 夹 id 进路径（接口契约.md §2.3/§2.4）。
+        return delete("/api/v1/favorite-folders/" + folderId, token);
     }
 
     // ========================================================================

@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.content.service;
 
 import io.github.yjhhhaaa06.videoweb.common.exception.ConflictException;
+import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.exception.ForbiddenException;
 import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
@@ -50,8 +51,8 @@ import java.util.Set;
  * <table>
  *   <caption>端点 → 方法</caption>
  *   <tr><th>端点</th><th>方法</th><th>事务</th></tr>
- *   <tr><td>{@code GET /search/keywordSearch}</td><td>{@link #search}</td><td>无（纯读，G-2）</td></tr>
- *   <tr><td>{@code GET /search/IdSearch}</td><td>{@link #getContentDetailVO}</td><td>无（纯读）</td></tr>
+ *   <tr><td>{@code GET /api/v1/contents}（搜索，`T58` 前为 /search/keywordSearch）</td><td>{@link #search}</td><td>无（纯读，G-2）</td></tr>
+ *   <tr><td>{@code GET /api/v1/contents/{id}}（详情，`T58` 前为 /search/IdSearch）</td><td>{@link #getContentDetailVO}</td><td>无（纯读）</td></tr>
  *   <tr><td>{@code GET /comment/show}</td><td>{@link #getCommentsForContent} ×2 重载</td><td>无（纯读）</td></tr>
  *   <tr><td>{@code POST /content/commentEnabled}</td><td>{@link #setCommentEnabled}</td><td>{@code @Transactional}</td></tr>
  *   <tr><td>{@code POST /content/update}</td><td>{@link #updateContentInfo}</td><td>{@code @Transactional}</td></tr>
@@ -60,10 +61,10 @@ import java.util.Set;
  *   <tr><td>{@code POST /api/upload/video}</td><td>{@link #addVideo}</td><td>{@code @Transactional}（S7）</td></tr>
  *   <tr><td>{@code POST /api/upload/post}</td><td>{@link #addPost}</td><td>{@code @Transactional}（S7）</td></tr>
  *   <tr><td>{@code POST /api/upload/replace}</td><td>{@link #replaceMedia}</td><td>{@code @Transactional}（S7）</td></tr>
- *   <tr><td>{@code GET /api/admin/content/list}</td><td>{@link #listContentForAdmin}</td>
+ *   <tr><td>{@code GET /api/v1/admin/contents}</td><td>{@link #listContentForAdmin}</td>
  *       <td>无（纯读，S8 去事务）</td></tr>
- *   <tr><td>{@code POST /api/admin/content/hide}</td><td>{@link #hideContent}</td><td>{@code @Transactional}（S8）</td></tr>
- *   <tr><td>{@code POST /api/admin/content/unhide}</td><td>{@link #unhideContent}</td><td>{@code @Transactional}（S8）</td></tr>
+ *   <tr><td>{@code PUT /api/v1/admin/contents/{id}/hidden}</td><td>{@link #hideContent}</td><td>{@code @Transactional}（S8）</td></tr>
+ *   <tr><td>{@code DELETE /api/v1/admin/contents/{id}/hidden}</td><td>{@link #unhideContent}</td><td>{@code @Transactional}（S8）</td></tr>
  * </table>
  *
  * <h2>提交后副作用统一走事件（G-3）</h2>
@@ -299,7 +300,7 @@ public class ContentService {
     public void setCommentEnabled(long contentId, long userId, boolean enabled) {
         ContentCacheDTO dto = contentDao.findContent(contentId);
         if (dto == null) {
-            throw new NotFoundException("内容不存在");
+            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
         }
         if (dto.getAuthorId() != userId) {
             throw new ForbiddenException("只能操作自己的作品");
@@ -328,13 +329,13 @@ public class ContentService {
         String t = title == null ? "" : title.trim();
         String d = description == null ? "" : description.trim();
         if (t.isEmpty()) {
-            throw new ParamException("标题不能为空");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "标题不能为空");
         }
         if (t.length() > 50) {
-            throw new ParamException("标题不超过50字");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "标题不超过50字");
         }
         if (d.length() > 5000) {
-            throw new ParamException("简介不超过5000字");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "简介不超过5000字");
         }
         findOwnedContent(contentId, userId);
         contentDao.updateContentInfo(contentId, t, d);
@@ -349,7 +350,7 @@ public class ContentService {
     protected ContentCacheDTO findOwnedContent(long contentId, long userId) {
         ContentCacheDTO dto = contentDao.findContent(contentId);
         if (dto == null) {
-            throw new NotFoundException("内容不存在");
+            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
         }
         if (dto.getAuthorId() != userId) {
             throw new ForbiddenException("只能操作自己的作品");
@@ -381,7 +382,7 @@ public class ContentService {
     @Transactional
     public String deleteMedia(long contentId, long userId, int type, int sort) {
         if (type != 2) {
-            throw new ParamException("仅支持删除图片");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "仅支持删除图片");
         }
         ContentMedia media = findOwnedMedia(contentId, userId, type, sort);
         String oldUrl = media.getUrl();
@@ -603,7 +604,7 @@ public class ContentService {
         findOwnedContent(contentId, userId);
         ContentMedia media = contentMediaDao.findMediaByContentTypeSort(contentId, type, sort);
         if (media == null) {
-            throw new NotFoundException("媒体资源不存在");
+            throw new NotFoundException(ErrorCode.CONTENT_MEDIA_NOT_FOUND, "媒体资源不存在");
         }
         return media;
     }
@@ -622,7 +623,7 @@ public class ContentService {
     // ========================================================================
 
     /**
-     * 管理端内容清单（{@code GET /api/admin/content/list}）：含正常与已下架，
+     * 管理端内容清单（{@code GET /api/v1/admin/contents}）：含正常与已下架，
      * **不含已删除(1)** 的内容（TV 的 {@code WHERE is_deleted IN (0,2)}）。
      *
      * <h2>★ 决策表 §四·S8：⚠️ 有意改进——去掉事务</h2>
@@ -630,7 +631,7 @@ public class ContentService {
      * （旧模型每次 DAO 调用都要一个 conn）。单条读无原子性语义，去掉后**对外行为逐字不变**，
      * 与 G-2（search）/ G-5（profile）同款处置。
      *
-     * <p>权限（{@code role == 1}）由 {@code JwtAuthFilter} 在 {@code /api/admin/*} 统一校验，
+     * <p>权限（{@code role == 1}）由 {@code JwtAuthFilter} 对 {@code @RequiresAdmin} 处理器统一校验，
      * 本方法不再重复判权（TV 原样）。
      */
     public List<AdminContentVO> listContentForAdmin() {
@@ -638,7 +639,7 @@ public class ContentService {
     }
 
     /**
-     * 管理员下架内容（{@code POST /api/admin/content/hide}）：{@code is_deleted} 0→2。
+     * 管理员下架内容（{@code PUT /api/v1/admin/contents/{id}/hidden}）：{@code is_deleted} 0→2。
      *
      * <h2>★ 决策表 §四·S8：✅ 保持单事务</h2>
      * 一个事务里两件事：① 前置校验（404 / 409，见 {@link #checkHideable}）
@@ -664,15 +665,26 @@ public class ContentService {
      */
     @Transactional
     public void hideContent(long contentId) {
-        checkHideable(contentId);
+        Integer state = contentDao.getContentStatus(contentId);
+        if (state == null) {
+            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
+        }
+        if (state == CONTENT_STATE_DELETED) {
+            throw new ConflictException(ErrorCode.CONTENT_STATUS_CONFLICT, "内容已删除，无法下架");
+        }
+        // ★ T59：已下架 = 幂等 no-op（重复 PUT = 200，不再 409「内容已下架」）
+        if (state == CONTENT_STATE_HIDDEN) {
+            return;
+        }
         contentDao.updateContentDeletedState(contentId, CONTENT_STATE_HIDDEN);
         events.publishEvent(ContentCacheChangedEvent.remove(contentId));
     }
 
     /**
-     * 管理员恢复内容（{@code POST /api/admin/content/unhide}）：{@code is_deleted} 2→0。
+     * 管理员恢复内容（{@code DELETE /api/v1/admin/contents/{id}/hidden}）：{@code is_deleted} 2→0。
      *
-     * <p>决策同 {@link #hideContent}（✅ 保持单事务）。
+     * <p>决策同 {@link #hideContent}（✅ 保持单事务）。★ `T59` 幂等：未下架 ⇒ no-op（重复 DELETE = 204，
+     * 不再 409「内容未下架」）；已删除仍 409（不是幂等问题）。
      *
      * <h2>提交后：只发 {@code REFRESH}（与 TV 逐字对齐）</h2>
      * TV 恢复后只调 {@code contentCache.refreshContent(contentId)}——**不碰**评论/点赞缓存
@@ -681,7 +693,17 @@ public class ContentService {
      */
     @Transactional
     public void unhideContent(long contentId) {
-        checkUnhideable(contentId);
+        Integer state = contentDao.getContentStatus(contentId);
+        if (state == null) {
+            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
+        }
+        if (state == CONTENT_STATE_DELETED) {
+            throw new ConflictException(ErrorCode.CONTENT_STATUS_CONFLICT, "内容已删除，无法恢复");
+        }
+        // ★ T59：未下架 = 幂等 no-op（重复 DELETE = 204，不再 409「内容未下架」）
+        if (state == CONTENT_STATE_NORMAL) {
+            return;
+        }
         contentDao.updateContentDeletedState(contentId, CONTENT_STATE_NORMAL);
         events.publishEvent(ContentCacheChangedEvent.refresh(contentId));
     }
@@ -692,38 +714,4 @@ public class ContentService {
     private static final int CONTENT_STATE_DELETED = 1;
     /** {@code content.is_deleted}：管理员下架。 */
     private static final int CONTENT_STATE_HIDDEN = 2;
-
-    /**
-     * 下架前置校验：存在且未被删除、未处于下架态。
-     *
-     * <p>⚠️ 与 TV 的**唯一差异**：TV 的 {@code getContentStatus} 用 {@code -1} 作"不存在"哨兵，
-     * 这里让 DAO 返回 {@code Integer}（无行 ⇒ {@code null}）并判 {@code null} ⇒ 404。
-     * 三条分支的**异常类型与文案逐字保留**（决定 404 / 409 / 409）。
-     */
-    private void checkHideable(long contentId) {
-        Integer state = contentDao.getContentStatus(contentId);
-        if (state == null) {
-            throw new NotFoundException("内容不存在");
-        }
-        if (state == CONTENT_STATE_DELETED) {
-            throw new ConflictException("内容已删除，无法下架");
-        }
-        if (state == CONTENT_STATE_HIDDEN) {
-            throw new ConflictException("内容已下架");
-        }
-    }
-
-    /** 恢复前置校验：存在且未被删除、当前**处于**下架态（否则 409「内容未下架」）。 */
-    private void checkUnhideable(long contentId) {
-        Integer state = contentDao.getContentStatus(contentId);
-        if (state == null) {
-            throw new NotFoundException("内容不存在");
-        }
-        if (state == CONTENT_STATE_DELETED) {
-            throw new ConflictException("内容已删除，无法恢复");
-        }
-        if (state == CONTENT_STATE_NORMAL) {
-            throw new ConflictException("内容未下架");
-        }
-    }
 }

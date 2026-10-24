@@ -7,18 +7,16 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
 
 import java.sql.PreparedStatement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,7 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <h2>覆盖什么（期望值全部出自业务口径，盖住实现照样写得出来）</h2>
  * <ul>
- *   <li><b>状态</b>（{@code GET /favorite/status}）：未收藏 ⇒ {@code {isFavorited:false, folders:[]}}；
+ *   <li><b>状态</b>（{@code GET /api/v1/contents/{id}/favorite}）：未收藏 ⇒ {@code {isFavorited:false, folders:[]}}；
  *       已收藏 ⇒ {@code folders} 列出**收在哪些夹**（默认夹置顶 + 创建序），{@code isFavorited=true}；</li>
  *   <li>★ <b>计数按人去重</b>（favorite-需求.md §六 / R-06）：同一人把同一内容收进**两个夹** ⇒
  *       {@code count} 仍是 <b>1</b>（而 DB 里是 2 条记录 —— 本类专门把这两个数都断言出来，
@@ -58,7 +56,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       （收藏数 2→3、丙的夹混进 content 的状态）。⚠️ 这条判别力来自夹具里"**另一个内容**被另一人收藏"
  *       的对照 —— T8 只读审查发现原夹具三处都只有单一内容，去掉 {@code content_id} 过滤**可能仍绿**，
  *       故已把对照固化进 {@code 两人收藏…} 的夹具；</li>
- *   <li>给 {@code /favorite/count} 误加 {@code @RequiresLogin} ⇒ 本类匿名用例 + {@code
+ *   <li>给 {@code /api/v1/contents/{id}/favorite-count} 误加 {@code @RequiresLogin} ⇒ 本类匿名用例 + {@code
  *       SecurityContractTests.favorite状态与计数鉴权} 变红。</li>
  * </ul>
  *
@@ -69,7 +67,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <h2>★ T12 边界注记（二期-3）：夹具一律走**真实写路径**，不再直插 favorite_item</h2>
  * 一期回源是实时 {@code COUNT(DISTINCT user_id)}，"直插 DB 的行"对它可见；T12 起读路径切到
  * {@code content.favorite_count} 列 —— 列只由**写路径的事务内批量重算**维护，直插行对列不可见。
- * 故凡"要让 count 看见"的夹具一律改走 {@code POST /favorite/add} / {@code /favorite/remove}
+ * 故凡"要让 count 看见"的夹具一律改走 {@code POST /api/v1/favorites} / {@code /api/v1/favorites}
  * —— **业务断言一字未改**（G8 的第二个例外登记：仅夹具机制调整，用户 2026-10-12 拍板；
  * 第一个例外是 T10）。仅三处保留直插，各有理由：**幽灵内容**（内容行不存在，无 API 可达 ——
  * 其 count 期望值随语义改为 0，见 {@code 失效内容计数仍算状态仍显示} 的注释）、
@@ -94,7 +92,7 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
         jdbcTemplate.update("DELETE FROM favorite_item");
         jdbcTemplate.update("DELETE FROM favorite_folder");
         jdbcTemplate.update("DELETE FROM content");
-        // ★ T11 起 /favorite/count 走缓存（content:favoriteCount:{id}）⇒ 本类用例前清 Redis ——
+        // ★ T11 起 /api/v1/contents/{id}/favorite-count 走缓存（content:favoriteCount:{id}）⇒ 本类用例前清 Redis ——
         //   测试 Redis 是 support/Containers 的**进程级单例**，key 会跨用例残留（同 like 域纪律）。
         clearRedis();
     }
@@ -233,7 +231,8 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
         assertThat(addItem(folderB, content, me.token).getStatusCode().value()).isEqualTo(200);
 
         // 移出 A：B 里还有 ⇒ 仍"已收藏"，且 count 仍是 1（同一人还没绝迹）
-        assertThat(removeItems(folderA, List.of(content), me.token).getStatusCode().value()).isEqualTo(200);
+        assertThat(removeItems(folderA, List.of(content), me.token).getStatusCode().value())
+                .as("`T59`：删除 = 204").isEqualTo(204);
         JsonNode afterA = Envelope.data(status(me.token, content));
         assertThat(afterA.path("isFavorited").asBoolean()).isTrue();
         assertThat(names(afterA.path("folders"))).containsExactly("夹B");
@@ -241,7 +240,8 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
                 .as("同一人还在（别的夹里）⇒ 收藏数不变，仍是 1").isEqualTo(1L);
 
         // 全移出：回到未收藏
-        assertThat(removeItems(folderB, List.of(content), me.token).getStatusCode().value()).isEqualTo(200);
+        assertThat(removeItems(folderB, List.of(content), me.token).getStatusCode().value())
+                .as("`T59`：删除 = 204").isEqualTo(204);
         JsonNode empty = Envelope.data(status(me.token, content));
         assertThat(empty.path("isFavorited").asBoolean()).isFalse();
         assertThat(empty.path("folders").size()).isZero();
@@ -284,7 +284,7 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
         //   无行 ⇒ 无处存值。一期它等于 1（实时 COUNT 看得见直插行），列读下不可表达。
         //   该态无 API 可达（add 校验 is_deleted = 0、软删不删行 ⇒ 幽灵行只能由数据损坏/夹具产生）；
         //   "无行时回退实时聚合"的混合方案不可取：那会把匿名端点的 17ms 聚合口子重新打开
-        //   （二期-3 要堵的就是它，§七"真正该防的是 /favorite/count"）。
+        //   （二期-3 要堵的就是它，§七"真正该防的是 /api/v1/contents/{id}/favorite-count"）。
         //   R-07③"失效内容仍计入"由上面的**软删**用例钉住（软删内容行还在，列还在）。
         //   （G8 第二例外的断言改动点 —— 期望值 1 → 0，用户 2026-10-12 拍板）
         assertThat(countOf(count(me.token, GHOST_CONTENT_ID)))
@@ -308,7 +308,7 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
         // status：私有状态，必须登录
         assertThat(status(null, content).getStatusCode().value())
                 .as("未登录不得看到'我收在哪些夹'").isEqualTo(401);
-        assertThat(get("/favorite/status?contentId=" + content, "not-a-jwt").getStatusCode().value())
+        assertThat(get("/api/v1/contents/" + content + "/favorite", "not-a-jwt").getStatusCode().value())
                 .as("坏 token 对需登录端点 ⇒ 401").isEqualTo(401);
         assertThat(status(me.token, content).getStatusCode().value()).as("合法登录 ⇒ 200").isEqualTo(200);
 
@@ -317,7 +317,7 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
         assertThat(anon.getStatusCode().value())
                 .as("收藏数是公开展示数（favorite-需求.md §三），内容页匿名可看 ⇒ 匿名必须 200").isEqualTo(200);
         assertThat(countOf(anon)).as("匿名拿到的值要和登录用户一致").isEqualTo(oracleDistinctUserCount(content));
-        assertThat(get("/favorite/count?contentId=" + content, "not-a-jwt").getStatusCode().value())
+        assertThat(get("/api/v1/contents/" + content + "/favorite-count", "not-a-jwt").getStatusCode().value())
                 .as("公开端点收到坏 token ⇒ 按匿名放行（见 JwtAuthFilter）").isEqualTo(200);
     }
 
@@ -345,13 +345,18 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("参数：缺 contentId → 400（两个端点）；contentId 不存在 ⇒ status 未收藏 / count 0（**不 404**）")
+    @DisplayName("参数：contentId 进路径后非法 id = 400；contentId 不存在 ⇒ status 未收藏 / count 0（**不 404**）")
     void 参数缺失400与不存在内容不404() {
         TestUser me = register("13800003010", "参数用户");
 
-        // 缺参：status 需登录，故必须带 token 才会走到参数校验（否则先 401）
-        assertThat(get("/favorite/status", me.token).getStatusCode().value()).as("status 缺 contentId").isEqualTo(400);
-        assertThat(get("/favorite/count", null).getStatusCode().value()).as("count 缺 contentId（匿名也要 400）").isEqualTo(400);
+        // `T58` 契约变更（接口契约.md §2.3）：contentId 从 query 搬进路径 ⇒
+        //   **非法 id = 400**（参数类型不正确）；**"缺 id" = 404** —— 后者已无法用"合法 URL + 少一个参数"
+        //   表达（少了 id 就没有任何路由匹配），故旧用例的"缺参 400"整条退役，不改成 404 硬凑
+        //   （用 `/contents//favorite` 这种双斜杠去撞路径归一化，测的是容器的 URL 处理、不是本契约）。
+        assertThat(get("/api/v1/contents/abc/favorite", me.token).getStatusCode().value())
+                .as("status 非法 contentId ⇒ 400（field=id）").isEqualTo(400);
+        assertThat(get("/api/v1/contents/abc/favorite-count", null).getStatusCode().value())
+                .as("count 非法 contentId ⇒ 400（匿名也要 400，不是 401）").isEqualTo(400);
 
         // 不存在的 contentId：两条端点都给"未收藏 / 0"，不 404（不给内容存在性开探测口）
         long nonexistent = 987654321L;
@@ -366,11 +371,11 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
     // ========================================================================
 
     private ResponseEntity<String> status(String token, long contentId) {
-        return get("/favorite/status?contentId=" + contentId, token);
+        return get("/api/v1/contents/" + contentId + "/favorite", token);
     }
 
     private ResponseEntity<String> count(String token, long contentId) {
-        return get("/favorite/count?contentId=" + contentId, token);
+        return get("/api/v1/contents/" + contentId + "/favorite-count", token);
     }
 
     /** count 端点的 {@code data} 是**整数**（直接取整个 data 节点）。 */
@@ -468,14 +473,11 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
     }
 
     // ========================================================================
-    // HTTP（写 = POST + form，T12 夹具改造起本类也用；与 FavoriteCacheTests 同款）
+    // HTTP（写 = POST + JSON body，`T59` 载荷面；与 FavoriteCacheTests 同款）
     // ========================================================================
 
     private ResponseEntity<String> addItem(long folderId, long contentId, String token) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("folderId", String.valueOf(folderId));
-        form.add("contentId", String.valueOf(contentId));
-        return postForm("/favorite/add", form, token);
+        return post("/api/v1/favorites", Map.of("folderId", folderId, "contentId", contentId), token);
     }
 
     private ResponseEntity<String> removeItems(long folderId, List<Long> contentIds, String token) {
@@ -484,17 +486,6 @@ class FavoriteStatusAndCountTests extends AbstractHttpIntegrationTest {
         for (Long contentId : contentIds) {
             form.add("contentIds", String.valueOf(contentId));
         }
-        return postForm("/favorite/remove", form, token);
-    }
-
-    private ResponseEntity<String> postForm(String path, MultiValueMap<String, String> form, String token) {
-        return send(spec -> {
-            RestClient.RequestBodySpec request = spec.uri(path)
-                    .contentType(MediaType.APPLICATION_FORM_URLENCODED);
-            if (token != null) {
-                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-            }
-            return request.body(form);
-        });
+        return deleteQuery("/api/v1/favorites", form, token);
     }
 }

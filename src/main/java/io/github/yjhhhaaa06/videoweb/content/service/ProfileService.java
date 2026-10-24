@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.content.service;
 
+import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
 import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
 import io.github.yjhhhaaa06.videoweb.content.cache.ContentCache;
@@ -112,7 +113,7 @@ public class ProfileService {
         // ③ DB 查询：用户行 + 内容总数 + 页内 id 窗口（feed2-25 T25：窗口 SQL 取代"全量 id + 内存切片"）
         User user = userDao.findByIdForProfile(profileUserId);
         if (user == null) {
-            throw new NotFoundException("用户不存在");
+            throw new NotFoundException(ErrorCode.USER_NOT_FOUND, "用户不存在");
         }
         int total = contentDao.countContentByUser(profileUserId);
         int offset = (page - 1) * pageSize;

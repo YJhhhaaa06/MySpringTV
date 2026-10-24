@@ -27,7 +27,8 @@ import java.lang.annotation.Target;
  * 它仍然被 {@code RequestMappingLookup} 读取，但读它只为两件事：
  * <ol>
  *   <li>与 {@link Public} 冲突时**取更严**（要求登录）并 WARN；</li>
- *   <li>让"这一族整体受保护"在类级上有显式表达（{@code /like}、{@code /follow}、{@code /feed} 等整族无公开端点）。</li>
+ *   <li>让"这一族整体受保护"在类级上有显式表达（like、follow、feed 等整族无公开端点；
+ *   feed 即 {@code /api/v1/feed}）。</li>
  * </ol>
  * ⚠️ 需要管理器角色的端点请用 {@link RequiresAdmin}（它**蕴含**登录，不要叠加本注解）。
  * ⚠️ 公开端点请用 {@link Public} —— 那是默认拒绝下**唯一**的放行口。

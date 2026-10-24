@@ -25,7 +25,7 @@ import java.lang.annotation.Target;
  * 是一条只能靠人记住的不变量。改为"跟着命中的处理器走"后，**规则与路由是同一份事实**。
  *
  * <h2>代价（已登记）</h2>
- * 权威源从"路径前缀"变成"注解" ⇒ 新增 {@code /api/admin/**} 控制器若漏标本注解，
+ * 权威源从"路径前缀"变成"注解" ⇒ 新增 {@code /api/v1/admin/**} 控制器若漏标本注解，
  * 它就只要求登录、不要求管理员。该缺口由
  * {@code SecurityContractTests#所有admin前缀控制器都必须标RequiresAdmin} 兜住
  * （新增一个漏标的 admin 控制器 ⇒ 该用例立刻变红）。台账见 {@code 安全与鉴权-已知代价.md}。

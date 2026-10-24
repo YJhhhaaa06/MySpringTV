@@ -3,6 +3,7 @@ package io.github.yjhhhaaa06.videoweb.admin.service;
 import io.github.yjhhhaaa06.videoweb.admin.model.audit.MediaAuditItem;
 import io.github.yjhhhaaa06.videoweb.admin.model.audit.MediaAuditResult;
 import io.github.yjhhhaaa06.videoweb.admin.model.audit.RestoreResult;
+import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
@@ -194,7 +195,7 @@ public class MediaAuditService {
     // ========================================================================
 
     /**
-     * 按数据库原文件名重新上传写回（{@code POST /api/admin/media/restore}）。
+     * 按数据库原文件名重新上传写回（{@code PUT /api/v1/admin/media/{id}}）。
      *
      * <h2>校验顺序（逐条保留——决定 400/404/400）</h2>
      * <pre>
@@ -225,23 +226,23 @@ public class MediaAuditService {
     @Transactional
     public RestoreResult restoreMedia(long mediaId, MultipartFile part) {
         if (part == null || part.getSize() <= 0) {
-            throw new ParamException("请选择要恢复的文件");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "请选择要恢复的文件");
         }
 
         ContentMedia media = contentMediaDao.findMediaById(mediaId);
         if (media == null) {
-            throw new NotFoundException("媒体资源不存在: mediaId=" + mediaId);
+            throw new NotFoundException(ErrorCode.CONTENT_MEDIA_NOT_FOUND, "媒体资源不存在: mediaId=" + mediaId);
         }
 
         String expectedPath = resolveExpectedPath(media.getUrl());
         if (expectedPath == null) {
-            throw new ParamException("媒体 URL 不合法，无法定位文件: " + media.getUrl());
+            throw new ParamException(ErrorCode.PARAM_INVALID, "媒体 URL 不合法，无法定位文件: " + media.getUrl());
         }
 
         String targetExt = extensionOf(new File(expectedPath).getName());
         String submittedExt = extensionOf(part.getOriginalFilename());
         if (submittedExt == null || !submittedExt.equalsIgnoreCase(targetExt)) {
-            throw new ParamException("文件扩展名不匹配，目标需要 ." + targetExt);
+            throw new ParamException(ErrorCode.PARAM_INVALID, "文件扩展名不匹配，目标需要 ." + targetExt);
         }
 
         File target = new File(expectedPath);

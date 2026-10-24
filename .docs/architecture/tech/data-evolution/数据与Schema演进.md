@@ -168,7 +168,7 @@ Migration checksum mismatch for migration version 2
 | 项 | 值 | 键 |
 |---|---|---|
 | 媒体**磁盘根**（落盘 + 静态服务同一物理根） | `D:/data/projects/MySpringTV/media`（环境变量 `UPLOAD_ROOT` 可覆盖；**空值拒绝启动**） | `video.upload.root` |
-| 对外 **URL 前缀** | 空串（改它会让 `/search/IdSearch` 的 `videoUrl` / `imageUrls` 形状变化） | `video.media.base-url` |
+| 对外 **URL 前缀** | 空串（改它会让 `GET /api/v1/contents/{id}` 的 `videoUrl` / `imageUrls` 形状变化） | `video.media.base-url` |
 
 > ★ 两个键**严格分家**：一个是**磁盘根**，一个是**URL 前缀**，语义不同、取值互不影响。
 

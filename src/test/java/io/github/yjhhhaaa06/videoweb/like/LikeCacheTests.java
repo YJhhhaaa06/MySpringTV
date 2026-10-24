@@ -139,7 +139,7 @@ class LikeCacheTests extends AbstractLikeIntegrationTest {
         assertThat(contentLikeCountColumn(contentId)).isEqualTo(1);
 
         // 取消点赞同样要在提交后同步：成员移除、计数递减
-        likeService.removeLikeContent(userId, contentId);
+        likeService.cancelContentLike(userId, contentId);
         assertThat(userLikeSetContains(userId, contentId)).isFalse();
         assertThat(contentLikeCountValue(contentId)).isEqualTo("0");
         assertThat(contentLikeCountColumn(contentId)).isZero();
@@ -337,7 +337,7 @@ class LikeCacheTests extends AbstractLikeIntegrationTest {
         assertThat(likeService.batchIsContentLiked(userId, List.of(contentId))).containsEntry(contentId, true);
 
         // 写：缓存更新失败，但业务事务照常提交
-        likeService.removeLikeContent(userId, contentId);
+        likeService.cancelContentLike(userId, contentId);
         assertThat(countContentLikeRows(contentId, userId)).as("业务写入不受缓存故障影响").isZero();
         assertThat(contentLikeCountColumn(contentId)).isZero();
     }

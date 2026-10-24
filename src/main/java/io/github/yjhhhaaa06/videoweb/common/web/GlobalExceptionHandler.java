@@ -5,6 +5,8 @@ import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.exception.ServiceBusyException;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.MessageSourceResolvable;
+import org.springframework.core.MethodParameter;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpHeaders;
@@ -12,29 +14,42 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
+import org.springframework.validation.method.ParameterValidationResult;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.DatabindException;
+import tools.jackson.databind.exc.InvalidFormatException;
 
-import java.util.stream.Collectors;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
 
 /**
- * 统一异常出口（决策⑧：错误出口统一 + 两层语义对齐）。
+ * 统一异常出口（控制器层）。
  *
- * <p>从 TV 的 {@code ExceptionFilter} 承接职责。旧的出口是 Servlet Filter 里的
- * 手写 type-dispatch；此处改为 {@code @RestControllerAdvice}，注册在 Spring MVC 的
- * 异常解析链上，与 {@code @Valid} 校验失败共用同一个出口。
+ * <p><b>两层语义</b>（{@code architecture/tech/api/接口契约.md} §2.1）：
+ * HTTP status 表**类别**（前端做通用分支），body {@code code} 是**字符串码**（前端翻字典做精细分支），
+ * {@code msg} 只是兜底文案。状态与码**同源于异常携带的 {@link ErrorCode}**，本类不再
+ * {@code HttpStatus.resolve(code)} —— 那正是"码与状态重复"的旧形态。
  *
- * <p><b>HTTP 状态码正确化</b>：TV 现状是「协议层恒 200、语义码在 body」。
- * 这里把 HTTP status 与业务 code 对齐（401→401、403→403、404→404、409→409），
- * 同时**保留 body 里的 code**，两层语义一致。
+ * <p>⚠️ 本类只管**进了 {@code DispatcherServlet} 之后的**错误。过滤器链上的 401/403/429
+ * 在 servlet 之前短路（{@code JwtAuthFilter} / {@code RateLimitFilter}），advice 覆盖不到；
+ * 三处的信封形状已由 {@link ApiErrorWriter} 收敛为**同一份**，**链序不变**。
+ * 本类只决定"哪个异常归哪个码"，不再拼装 status / body / 头。
  *
  * <p>注意：Spring Security **不接管授权**（F-01/F-02 于 2026-10-18 拍板不迁），
- * 因此没有 {@code AuthenticationEntryPoint}/{@code AccessDeniedHandler} 需要对齐——
- * 401/403 的短路出口只有 {@code JwtAuthFilter#writeError} 一处。
+ * 因此没有 {@code AuthenticationEntryPoint}/{@code AccessDeniedHandler} 需要对齐。
  * ⚠️ 若将来真的迁到方法安全（推翻条件见 {@code 安全与鉴权.md} §六），本类的
  * {@code @ExceptionHandler(Exception.class)} 会把 {@code @PreAuthorize} 抛出的
  * {@code AccessDeniedException} **吞成 500**（{@code ExceptionTranslationFilter} 在外侧，轮不到），
@@ -44,24 +59,34 @@ import java.util.stream.Collectors;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    /** 根路径上的静态文件（精确匹配）：缺文件时只回 404 状态、不产信封。 */
+    private static final Set<String> STATIC_EXACT = Set.of("/", "/index.html", "/favicon.ico");
+
     /**
-     * 业务异常：业务码已是对外语义，直接映射为 HTTP 状态。
-     * 若业务码不是合法 HTTP 状态（例如自定义 1001），回落到 400 以免产生非法响应。
+     * 静态媒体 / 样式脚本前缀：缺文件时同样不产信封。
+     *
+     * <p>⚠️ 与 {@code RateLimitFilter} 的跳过前缀**同集合但不是同一份**（见 {@link #handleNoResource}）。
+     */
+    private static final List<String> STATIC_PREFIXES = List.of("/static/", "/upload/");
+
+    private final ApiErrorWriter errorWriter;
+
+    public GlobalExceptionHandler(ApiErrorWriter errorWriter) {
+        this.errorWriter = errorWriter;
+    }
+
+    /**
+     * 业务异常：状态与码都来自异常携带的 {@link ErrorCode}。
+     *
+     * <p>可预期的业务拒绝：**WARN + 只记结论，不记堆栈**。
+     * 级别是 WARN 而非 INFO/ERROR：INFO 会让"正常成功"与"被拒绝"在级别上不可分；
+     * ERROR 会把无需介入的输入错误报成运维事故。
      */
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusiness(BusinessException ex, HttpServletRequest req) {
-        int code = ex.getCode();
-        HttpStatus status = HttpStatus.resolve(code);
-        if (status == null) {
-            log.warn("业务码 {} 不是合法 HTTP 状态，回落 400: {} {}", code, req.getMethod(), req.getRequestURI());
-            status = HttpStatus.BAD_REQUEST;
-        }
-        // 可预期的业务拒绝：**WARN + 只记结论，不记堆栈**（沿袭 TV LOG_CONVENTION「包装点即源头」）。
-        // ⚠️ 级别是 WARN 而非 INFO/ERROR：这是 T2 的显式口径——"预期拒绝走 WARN，不进 ERROR"。
-        //    INFO 会让"正常成功"与"被拒绝"在级别上不可分；ERROR 会让可预期拒绝混进 error.log
-        //    并把无需介入的输入错误报成运维事故。WARN 恰好是"业务层判断过、无需人工介入"的位置。
-        log.warn("业务异常 {} {} -> code={}, msg={}", req.getMethod(), req.getRequestURI(), code, ex.getMessage());
-        return ResponseEntity.status(status).body(ApiResponse.error(code, ex.getMessage()));
+        log.warn("业务异常 {} {} -> code={}, msg={}",
+                req.getMethod(), req.getRequestURI(), ex.getCode(), ex.getMessage());
+        return errorWriter.toResponse(ex.getErrorCode(), ex.getMessage());
     }
 
     /**
@@ -77,30 +102,74 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleBusy(ServiceBusyException ex, HttpServletRequest req) {
         log.warn("服务繁忙 {} {} -> code={}, retryAfter={}s, msg={}",
                 req.getMethod(), req.getRequestURI(), ex.getCode(), ex.getRetryAfterSeconds(), ex.getMessage());
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()))
-                .body(ApiResponse.error(ex.getCode(), ex.getMessage()));
-    }
-
-    /** {@code @Valid} 校验失败：取第一条字段错误作为提示（对齐 TV 单条 message 的形状）。 */
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ApiResponse<Void>> handleValidation(MethodArgumentNotValidException ex,
-                                                              HttpServletRequest req) {
-        String detail = ex.getBindingResult().getFieldErrors().stream()
-                .map(fe -> fe.getField() + ": " + defaultMessage(fe))
-                .collect(Collectors.joining("; "));
-        log.warn("参数校验失败 {} {} -> {}", req.getMethod(), req.getRequestURI(), detail);
-        return ResponseEntity.badRequest()
-                .body(ApiResponse.error(ErrorCode.PARAM_ERROR.getCode(), detail));
+        return errorWriter.toResponse(ex.getErrorCode(), ex.getMessage(),
+                ApiErrorWriter.retryAfter(ex.getRetryAfterSeconds()));
     }
 
     /**
-     * 缺参 / 类型不匹配 / 请求体不可解析 / **缺 multipart part**：均归为参数错误。
+     * {@code @Valid} 校验失败：码 {@code PARAM_INVALID}，并给出**字段级**明细
+     * {@code errors:[{field, code, message}]}（`T57`）。
+     *
+     * <h2>{@code msg} 与 {@code errors[]} 的分工</h2>
+     * {@code msg} = 人读摘要（各条 {@code field: message} 用 "; " 拼），保留它是为了让**旧前端**
+     * 与不翻字典的调用方仍能展示一句话；{@code errors[]} 是**机器读的真源**，前端据此把文案挂到输入框上。
+     * 两者**同源**（{@link ApiErrorWriter#summary} 从 {@code errors} 生成），不各拼一套。
+     *
+     * <h2>为什么 {@code message} 用注解文案、不用异常文案</h2>
+     * 注解的 {@code message} 是**源码里的稳定文案**；异常 message 形如
+     * {@code Validation failed for argument [...]}，且可能夹带入参回显。红线是"参数回显只进日志"，
+     * 故 body 只取注解文案，异常对象只用于日志。
+     *
+     * <h2>同一字段可能有多条</h2>
+     * Bean Validation 是"每条违反一条"，一个字段命中 {@code @NotBlank} 与 {@code @Size} 会产出两条。
+     * 这里**不合并**：合并要选"哪条算第一条"，那是不可解释的隐式策略，且会丢掉"还违反了另一条"的信息。
+     * 字段级去重交给前端（按 {@code field} 分组，展示第一条即可）。
+     */
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ApiResponse<Void>> handleValidation(MethodArgumentNotValidException ex,
+                                                              HttpServletRequest req) {
+        List<ApiFieldError> errors = new ArrayList<>();
+        ex.getBindingResult().getFieldErrors().stream()
+                .map(fe -> ApiFieldError.of(fe.getField(), ErrorCode.PARAM_INVALID, defaultMessage(fe)))
+                .forEach(errors::add);
+        // ★ 类级（全局）约束（如将来的 @AssertTrue / 自定义跨字段校验）没有 field，
+        // 但**不能**静默丢掉——那会让"原因存在却读不到"。以无 field 条目输出（§2.5.1）。
+        // 今天没有任何类级约束（不可达分支），保留它是为了不让下一个加类级约束的人掉坑。
+        ex.getBindingResult().getGlobalErrors().stream()
+                .map(oe -> ApiFieldError.ofWholeRequest(ErrorCode.PARAM_INVALID, defaultMessage(oe.getDefaultMessage())))
+                .forEach(errors::add);
+        log.warn("参数校验失败 {} {} -> {}", req.getMethod(), req.getRequestURI(),
+                errors.stream().map(ApiFieldError::toSummary).toList());
+        if (errors.isEmpty()) {
+            // 理论分支：Bean Validation 报了"校验失败"却一条原因都没给（框架侧变化）。
+            // 退回"只有码 + 默认文案"的信封，**不**造假条目（`errors:[]` 会被 ApiResponse 拒绝）。
+            return errorWriter.toResponse(ErrorCode.PARAM_INVALID);
+        }
+        return errorWriter.toResponse(ErrorCode.PARAM_INVALID, ApiErrorWriter.summary(errors), errors);
+    }
+
+    /**
+     * 缺参 / 类型不匹配 / 请求体不可解析 / **缺 multipart part**：均归为参数错误，
+     * 且**统一给出字段级定位** {@code errors:[{field, code, message}]}（`T57`）。
      *
      * <p>⚠️ 最后一类（{@link MissingServletRequestPartException}）是 S7 加入的：
      * 上传端点的必填文件 part 缺失时 Spring 抛它。TV 侧同场景是
-     * {@code getPart → null → NPE 未捕获 → 500}（《决策留痕表》D-11 的记录来源），
-     * 本实现按 D-3 先例统一归 400。
+     * {@code getPart → null → NPE 未捕获 → 500}（《决策留痕表》D-11 的记录来源），本实现按 D-3 先例统一归 400。
+     *
+     * <h2>★ 为什么 message 是一张"稳定文案表"，而不是异常自带的文本</h2>
+     * 这些异常自带的 message 有两类问题：① 可能**回显客户端发来的值**
+     * （{@code MethodArgumentTypeMismatchException} 的 {@code for value [xxx]}），那是 PII 进 body 的路径；
+     * ② 全是英文框架措辞，前端无法展示。故这里按异常类型映射到固定中文文案，异常对象**只进日志**。
+     * ⚠️ 日志侧的脱敏**只覆盖已登记形态**（手机号，见 {@code common/log/LogMasker}）——
+     * 密码等仍会明文落盘。这是既有已知口径，别把"只进日志"理解成"日志里看不见"。
+     *
+     * <h2>字段名从哪来</h2>
+     * <ul>
+     *   <li>缺参 → {@code getParameterName()}；缺 part → {@code getRequestPartName()}；</li>
+     *   <li>类型不匹配 → {@code getName()}（Spring 给的是**参数名**，与请求里的键同名）；</li>
+     *   <li>请求体不可解析 → Jackson 的**引用链**最深一层属性名（{@link JacksonException#getPath()}）；
+     *       报文残缺时字段名可能仍可回收（EOF 发生在该字段值处），此时照给；空体 / 根层失败则省略。</li>
+     * </ul>
      */
     @ExceptionHandler({
             MissingServletRequestParameterException.class,
@@ -110,48 +179,297 @@ public class GlobalExceptionHandler {
     })
     public ResponseEntity<ApiResponse<Void>> handleBadRequest(Exception ex, HttpServletRequest req) {
         // ⚠️ 本条消息会**回显被拒的参数值**（如 MethodArgumentTypeMismatch 的 "for value [xxx]"）——
-        // 它正是 PII 进日志的一条真实路径。出口脱敏（logback 的 %maskedMsg）负责把它按形态掩掉，
+        // 它正是 PII 进日志的一条真实路径。出口脱敏只掩**已登记形态**（手机号），
         // 故此处**不**在调用点手写脱敏（否则就是两套机制、两处要维护）。
+        // ★ 响应体**只给稳定文案**：异常 message 可能含入参回显，不许进 body。
         log.warn("请求参数错误 {} {} -> {}", req.getMethod(), req.getRequestURI(), ex.getMessage());
-        return ResponseEntity.badRequest()
-                .body(ApiResponse.error(ErrorCode.PARAM_ERROR.getCode(), ErrorCode.PARAM_ERROR.getMessage()));
+        ApiFieldError error = fieldErrorOf(ex);
+        return errorWriter.toResponse(ErrorCode.PARAM_INVALID,
+                ApiErrorWriter.summary(List.of(error)),
+                List.of(error));
+    }
+
+    /**
+     * 把参数类异常翻译成**一条**字段级错误（`T57`）：能定位就给 {@code field}，不能就省略。
+     *
+     * <p>文案表（对外契约，改动需同步 §2.5.1）：
+     * {@code 缺少必填参数} / {@code 缺少必填部分} / {@code 参数类型不正确} /
+     * {@code 参数取值不合法} / {@code 请求体缺失或格式错误}。
+     */
+    private static ApiFieldError fieldErrorOf(Exception ex) {
+        if (ex instanceof MissingServletRequestParameterException missingParam) {
+            return ApiFieldError.of(missingParam.getParameterName(), ErrorCode.PARAM_INVALID, "缺少必填参数");
+        }
+        if (ex instanceof MissingServletRequestPartException missingPart) {
+            return ApiFieldError.of(missingPart.getRequestPartName(), ErrorCode.PARAM_INVALID, "缺少必填部分");
+        }
+        if (ex instanceof MethodArgumentTypeMismatchException typeMismatch) {
+            return ApiFieldError.of(typeMismatch.getName(), ErrorCode.PARAM_INVALID, "参数类型不正确");
+        }
+        return bodyErrorOf(ex);
+    }
+
+    /**
+     * 请求体不可解析（{@link HttpMessageNotReadableException}）：尽力定位到字段。
+     *
+     * <p>★ 先按**失败层**分类，再按能否定位字段决定是否给 {@code field}：
+     * <ul>
+     *   <li><b>数据绑定层</b>（{@link DatabindException}）：报文结构能读，是某个值/类型不对 ——
+     *       {@link InvalidFormatException}（{@code "abc"} → {@code Long}、非法枚举字面量）用
+     *       {@code 参数取值不合法}，其余用 {@code 参数类型不正确}；字段名能定位就带上。</li>
+     *   <li><b>解析层</b>（报文残缺 / 空体 / 根层类型不符）：语义是"报文坏了"而不是"某字段错了" ——
+     *       文案用 {@code 请求体缺失或格式错误}；字段名若仍可回收（EOF 恰好在该字段值处）照样带上，
+     *       它只用于定位排查，不改文案。</li>
+     * </ul>
+     */
+    private static ApiFieldError bodyErrorOf(Exception ex) {
+        JacksonException jackson = jacksonExceptionOf(ex);
+        String field = jackson == null ? null : deepestFieldOf(jackson);
+        String message;
+        if (jackson instanceof DatabindException) {
+            message = jackson instanceof InvalidFormatException ? "参数取值不合法" : "参数类型不正确";
+        } else {
+            message = "请求体缺失或格式错误";
+        }
+        return field == null
+                ? ApiFieldError.ofWholeRequest(ErrorCode.PARAM_INVALID, message)
+                : ApiFieldError.of(field, ErrorCode.PARAM_INVALID, message);
+    }
+
+    /** 沿 cause 链找 Jackson 的异常（Spring 会包一层 {@code HttpMessageNotReadableException}）。 */
+    private static JacksonException jacksonExceptionOf(Throwable ex) {
+        Throwable cause = ex.getCause();
+        while (cause != null && !(cause instanceof JacksonException)) {
+            cause = cause.getCause();
+        }
+        return (JacksonException) cause;
+    }
+
+    /**
+     * Jackson 引用链里**最深一层**的属性名（{@code {"a":{"b":1}}} 取 {@code b}）。
+     *
+     * <p>数组下标引用没有属性名（{@code getPropertyName() == null}）⇒ 跳过，
+     * 于是 {@code {"items":[{"x":"bad"}]}} 仍能定位到 {@code x}。
+     */
+    private static String deepestFieldOf(JacksonException ex) {
+        List<JacksonException.Reference> path = ex.getPath();
+        if (path == null || path.isEmpty()) {
+            return null;
+        }
+        String field = null;
+        for (JacksonException.Reference reference : path) {
+            if (reference.getPropertyName() != null) {
+                field = reference.getPropertyName();
+            }
+        }
+        return field;
+    }
+
+    /**
+     * **标在控制器方法参数上的**约束失败（`T57`）：如 {@code @RequestParam @NotBlank String userName}。
+     *
+     * <p>★ 这是 Spring 6.1+ 的**内置方法校验**：约束注解直接生效，**不需要**类级 {@code @Validated}
+     * （那是旧 AOP 路线，本仓没有用它）。它可以工作，但抛出的
+     * {@link HandlerMethodValidationException} 在 `T57` 之前没有对应处理器 ⇒ 落进
+     * {@link #handleUnexpected} 变成 **500「服务器内部错误」**：用户填了空用户名，后端报"服务器内部错误"。
+     * 这是"注解看着像保证、实际错得离谱"的典型——判别力只来自 {@code ValidationErrorContractTests#请求参数上的约束生效}。
+     *
+     * <p>字段名取**请求里的名字**（不是 Java 形参名）：先看 {@code @RequestParam(name/value)} /
+     * {@code @RequestPart(name/value)}，没有别名才回退 {@link MethodParameter#getParameterName()}
+     * （{@code -parameters} 编出的形参名，Boot 默认开）。本仓目前**没有**任何别名写法，
+     * 但"以后有人加别名"是低成本高概率的变化，不能靠"恰好同名"。
+     * 文案取约束注解上的 {@code message}（源码里的稳定文案）；缺失时退回 {@code 参数不合法}。
+     */
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMethodValidation(HandlerMethodValidationException ex,
+                                                                   HttpServletRequest req) {
+        List<ApiFieldError> errors = new ArrayList<>();
+        for (ParameterValidationResult result : ex.getParameterValidationResults()) {
+            String field = requestNameOf(result.getMethodParameter());
+            for (MessageSourceResolvable error : result.getResolvableErrors()) {
+                errors.add(ApiFieldError.of(field, ErrorCode.PARAM_INVALID, messageOf(error, "参数不合法")));
+            }
+        }
+        for (MessageSourceResolvable error : ex.getCrossParameterValidationResults()) {
+            // 跨参数约束（如"起始 ≤ 结束"）没有单一字段可挂 ⇒ 省略 field，但原因仍要说清。
+            errors.add(ApiFieldError.ofWholeRequest(ErrorCode.PARAM_INVALID, messageOf(error, "参数不合法")));
+        }
+        log.warn("方法参数校验失败 {} {} -> {}", req.getMethod(), req.getRequestURI(),
+                errors.stream().map(ApiFieldError::toSummary).toList());
+        if (errors.isEmpty()) {
+            // 理论分支：异常存在但没有任何可读原因（框架侧变化）⇒ 退回只有码与默认文案的信封。
+            return errorWriter.toResponse(ErrorCode.PARAM_INVALID);
+        }
+        return errorWriter.toResponse(ErrorCode.PARAM_INVALID, ApiErrorWriter.summary(errors), errors);
+    }
+
+    /** 约束注解上的稳定文案；没有就地给兜底（**不**用异常 message：那可能夹带回显或框架措辞）。 */
+    private static String messageOf(MessageSourceResolvable error, String fallback) {
+        String message = error.getDefaultMessage();
+        return message == null || message.isBlank() ? fallback : message;
+    }
+
+    /**
+     * 被校验的方法参数在**请求里**的名字。
+     *
+     * <p>★ {@link MethodParameter#getParameterName()} 是 **Java 形参名**：{@code @RequestParam("alias") String x}
+     * 会给 {@code x}，而请求里叫 {@code alias}。前端只认请求名，故先读注解上的别名，
+     * 没写别名时两者才等价（本仓现状）。
+     */
+    private static String requestNameOf(MethodParameter parameter) {
+        RequestParam param = parameter.getParameterAnnotation(RequestParam.class);
+        if (param != null && !param.name().isBlank()) {
+            return param.name();
+        }
+        RequestPart part = parameter.getParameterAnnotation(RequestPart.class);
+        if (part != null && !part.name().isBlank()) {
+            return part.name();
+        }
+        return parameter.getParameterName();
     }
 
     /**
      * 唯一键冲突：DB 层兜底竞态（决策②：SQLException 手工包装退役，DataAccessException 接管）。
      *
-     * <p>业务层已先查重，但并发下仍可能撞唯一键。此处映射为 409，与业务层的
-     * {@code ConflictException}/{@code DuplicatePhoneException} 保持同一对外语义，
-     * 使「先查后插」的竞态对客户端不可见（回应《事务边界决策表》U-2 的补注）。
+     * <p>业务层已先查重，但并发下仍可能撞唯一键。★ 这里**只能**回
+     * {@link ErrorCode#SYSTEM_DUPLICATE_KEY}：拿到的是 {@code DuplicateKeyException}，
+     * 不知道撞的是 {@code users.phone} 还是 {@code users.username}，硬猜会把两种 409 报反。
+     * 前端处置（提示换值 / 重试）对两种都对。
      */
     @ExceptionHandler(DuplicateKeyException.class)
     public ResponseEntity<ApiResponse<Void>> handleDuplicateKey(DuplicateKeyException ex,
                                                                 HttpServletRequest req) {
         log.warn("唯一键冲突 {} {} -> {}", req.getMethod(), req.getRequestURI(), ex.getMostSpecificCause().getMessage());
-        return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(ApiResponse.error(ErrorCode.CONFLICT.getCode(), ErrorCode.CONFLICT.getMessage()));
+        return errorWriter.toResponse(ErrorCode.SYSTEM_DUPLICATE_KEY);
     }
 
     /**
-     * 其余数据访问异常：TV 里这些被各 Service 手工 {@code catch (SQLException)} 包成
-     * DatabaseException 并**在包装点记堆栈**。新实现集中在唯一出口记录，业务代码不再需要 try/catch。
+     * 其余数据访问异常：TV 里这些被各 Service 手工 {@code catch (SQLException)} 包成 DatabaseException
+     * 并**在包装点记堆栈**。新实现集中在唯一出口记录，业务代码不再需要 try/catch。
      */
     @ExceptionHandler(DataAccessException.class)
     public ResponseEntity<ApiResponse<Void>> handleDataAccess(DataAccessException ex, HttpServletRequest req) {
         log.error("数据访问异常 {} {}", req.getMethod(), req.getRequestURI(), ex);
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.error(ErrorCode.DATABASE_ERROR.getCode(), ErrorCode.DATABASE_ERROR.getMessage()));
+        return errorWriter.toResponse(ErrorCode.SYSTEM_DATABASE);
     }
 
     /** 兜底：未预期异常一律 500，且不把内部细节泄露到响应体。 */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleUnexpected(Exception ex, HttpServletRequest req) {
         log.error("未预期异常 {} {}", req.getMethod(), req.getRequestURI(), ex);
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.error(ErrorCode.SERVER_ERROR.getCode(), ErrorCode.SERVER_ERROR.getMessage()));
+        return errorWriter.toResponse(ErrorCode.SYSTEM_INTERNAL);
+    }
+
+    // ========================================================================
+    // 框架级：改造前它们全部被上面的 catch-all 吃成 500（§三 #6）
+    // ========================================================================
+
+    /**
+     * 路由不存在（`T56`）：Spring 6.1 起"没有任何 handler 匹配"由默认资源处理器抛
+     * {@link NoResourceFoundException}，而不是 404 —— 它原本落进 {@code handleUnexpected}
+     * 变成 **500**（契约与实现漂移的根源，见 {@code architecture/tech/api/接口契约.md} §三 #6）。
+     *
+     * <h2>为什么静态资源要"只回状态、不回信封"</h2>
+     * {@code /upload/**}（媒体）、{@code /static/**}（样式脚本）与三个根路径的缺失文件，
+     * 消费方是 {@code <img>} / {@code <video>} / 浏览器加载器 —— 它们**不看 body**，
+     * 给一段 JSON 只会让"看一眼响应体"的排查路径误以为那是业务错误。
+     * 这也是访问日志 {@code code=0}（"从未产生业务信封"哨兵）**仍然存在**的场景。
+     *
+     * <p>⚠️ 与 {@code RateLimitFilter#isSkipped} 是**两份清单、两种语义**（"不计成本" vs
+     * "不产信封"）：不合并，因为合并后改一处会静默改变另一处的行为。
+     *
+     * <p>⚠️ 判据为什么只能是**路径清单**（而不是"这条异常来自资源处理器"）：静态缺文件与
+     * 未映射的业务路径走的是**同一个** {@code /**} 资源处理器（这正是未映射一度变 500 的原因），
+     * 异常层拿不到任何区分信息。代价：新增资产目录要同步本清单，**漂移不会自己变红**——
+     * {@code FrameworkErrorContractTests} 只覆盖能造出 404 的三个入口（{@code /favicon.ico}、
+     * {@code /static/}、{@code /upload/}）；{@code /} 与 {@code /index.html} 在当前工程里存在（回 200），
+     * 无法用 404 覆盖。
+     *
+     * <p>{@code /actuator/**} **不在**本清单：它由独立的 {@code WebMvcEndpointHandlerMapping}
+     * 处理，不会抛本异常。
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoResource(NoResourceFoundException ex,
+                                                              HttpServletRequest req) {
+        String path = pathOf(req);
+        if (isStaticResource(path)) {
+            // DEBUG 而非 WARN：扫描器与过期媒体链接都会打到这里，日志量由访问行承担（status=404）。
+            log.debug("静态资源不存在 {} {}", req.getMethod(), path);
+            return errorWriter.toBodylessResponse(HttpStatus.NOT_FOUND);
+        }
+        // 同样是 DEBUG：访问行已记 status=404 + code=SYSTEM_ENDPOINT_NOT_FOUND，可复盘、可按码统计。
+        log.debug("未映射的接口路径 {} {}", req.getMethod(), path);
+        return errorWriter.toResponse(ErrorCode.SYSTEM_ENDPOINT_NOT_FOUND);
+    }
+
+    /**
+     * 方法不匹配（405，`T56`）：路径命中、HTTP 方法不支持。
+     *
+     * <p>★ 必须保住 {@code Allow} 头：它由异常携带
+     * （{@link HttpRequestMethodNotSupportedException#getSupportedHttpMethods}），
+     * 若在这里新建一个"干净"的 {@code ResponseEntity} 就会**丢掉**它——客户端因此无法知道
+     * 该用哪个方法，而这正是 405 与 404 的全部区别。{@code FrameworkErrorContractTests} 钉住这条。
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex,
+                                                                     HttpServletRequest req) {
+        log.warn("请求方法不支持 {} {} -> {}", req.getMethod(), req.getRequestURI(), ex.getMessage());
+        HttpHeaders headers = new HttpHeaders();
+        if (ex.getSupportedHttpMethods() != null) {
+            headers.setAllow(ex.getSupportedHttpMethods());
+        }
+        return errorWriter.toResponse(ErrorCode.PARAM_METHOD_NOT_ALLOWED,
+                ErrorCode.PARAM_METHOD_NOT_ALLOWED.getMessage(), headers);
+    }
+
+    /**
+     * 媒体类型不支持（415，`T56`）：Spring 在读取 {@code @RequestBody} 时发现没有匹配的转换器。
+     *
+     * <p>★ 对外只给稳定文案：异常 message 里带着**客户端发来的** {@code Content-Type}
+     * （客户端可控字符串），它只进日志（出口统一脱敏），不许回显进 body。
+     *
+     * <p>{@code Accept} 头同理由异常携带（可接受类型），保住它客户端才知道该发什么。
+     */
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMediaTypeNotSupported(HttpMediaTypeNotSupportedException ex,
+                                                                        HttpServletRequest req) {
+        log.warn("Content-Type 不支持 {} {} -> {}", req.getMethod(), req.getRequestURI(), ex.getMessage());
+        HttpHeaders headers = new HttpHeaders();
+        if (ex.getSupportedMediaTypes() != null && !ex.getSupportedMediaTypes().isEmpty()) {
+            headers.setAccept(ex.getSupportedMediaTypes());
+        }
+        return errorWriter.toResponse(ErrorCode.PARAM_MEDIA_TYPE_UNSUPPORTED,
+                ErrorCode.PARAM_MEDIA_TYPE_UNSUPPORTED.getMessage(), headers);
+    }
+
+    /** 上下文路径已剥的请求路径（**未解码**，与 {@code RateLimitFilter#pathOf} 同口径）。 */
+    private static String pathOf(HttpServletRequest request) {
+        return request.getRequestURI().substring(request.getContextPath().length());
+    }
+
+    /**
+     * 该路径的 404 是否**不产信封**（静态服务 / 媒体文件）。
+     *
+     * @see #handleNoResource 为什么是两份清单而不是复用限流的跳过清单
+     */
+    private static boolean isStaticResource(String path) {
+        if (STATIC_EXACT.contains(path)) {
+            return true;
+        }
+        for (String prefix : STATIC_PREFIXES) {
+            if (path.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String defaultMessage(FieldError fe) {
-        return fe.getDefaultMessage() == null ? "非法值" : fe.getDefaultMessage();
+        return defaultMessage(fe.getDefaultMessage());
+    }
+
+    /** 约束注解未写 {@code message} 时的兜底（本仓约定必须写，见 §2.5.1；漏写走这里，不落 Locale 默认值）。 */
+    private static String defaultMessage(String message) {
+        return message == null || message.isBlank() ? "非法值" : message;
     }
 }

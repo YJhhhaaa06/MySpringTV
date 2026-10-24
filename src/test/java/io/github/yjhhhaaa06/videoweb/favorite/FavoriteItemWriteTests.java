@@ -5,16 +5,15 @@ import io.github.yjhhhaaa06.videoweb.support.Envelope;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestClient;
 
 import java.sql.PreparedStatement;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.StringJoiner;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -101,9 +100,8 @@ class FavoriteItemWriteTests extends AbstractHttpIntegrationTest {
         ResponseEntity<String> resp = addItem(me.token, content, folderA);
 
         assertThat(resp.getStatusCode().value()).as("首次收藏成功").isEqualTo(200);
-        assertThat(Envelope.code(resp)).isEqualTo(200);
-        // ⚠️ data 是纯字符串（I-03）：Envelope.str 走 data.<field> 路径取不到，必须取整个 data 节点
-        assertThat(Envelope.data(resp).asString()).isEqualTo("收藏成功");
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
+        assertThat(resp.getBody()).as("`T59` 起写成功不再回文案 data").doesNotContain("\"data\"");
 
         // 独立 oracle：行存在且三列精确对上（user_id 是冗余列，必须等于收藏人）
         assertThat(itemRowExists(folderA, content)).as("(folder_id, content_id) 落库").isOne();
@@ -214,8 +212,8 @@ class FavoriteItemWriteTests extends AbstractHttpIntegrationTest {
         // 逗号分隔形态（T7 前端一次提交的形态）：一次移出 3 条，含两种失效形态
         ResponseEntity<String> resp = removeItems(me.token, folderA, 1001L, softDeleted, GHOST_CONTENT_ID);
 
-        assertThat(resp.getStatusCode().value()).as("失效条目必须删得掉 —— 这里若 404/409 就是把 G11 吃掉了").isEqualTo(200);
-        assertThat(Envelope.data(resp).asString()).isEqualTo("移出成功");
+        assertThat(resp.getStatusCode().value()).as("失效条目必须删得掉 —— 这里若 404/409 就是把 G11 吃掉了").isEqualTo(204);
+        assertThat(resp.getBody()).as("`T59`：删除 = 204 无体").isNullOrEmpty();
 
         assertThat(itemRowCount(folderA, 1001L)).isZero();
         assertThat(itemRowCount(folderA, softDeleted)).as("软删内容的记录被移出").isZero();
@@ -239,18 +237,19 @@ class FavoriteItemWriteTests extends AbstractHttpIntegrationTest {
         MultiValueMap<String, String> repeatedParams = repeatedForm("contentIds",
                 String.valueOf(contentX), String.valueOf(contentY));
         repeatedParams.add("folderId", String.valueOf(folderA));
-        ResponseEntity<String> resp = postForm("/favorite/remove", repeatedParams, me.token);
-        assertThat(resp.getStatusCode().value()).isEqualTo(200);
+        ResponseEntity<String> resp = deleteQuery("/api/v1/favorites", repeatedParams, me.token);
+        assertThat(resp.getStatusCode().value()).as("`T59`：删除 = 204").isEqualTo(204);
 
         assertThat(itemRowCount(folderA, contentX)).isZero();
         assertThat(itemRowCount(folderA, contentY)).isZero();
         assertThat(itemRowCount(folderB, contentX))
                 .as("★ 只动 folderA：favorite-需求.md §三「该内容还在别的夹里，那些夹里的不受影响」").isOne();
 
-        // 幂等：同一批 id 再删一次（记录已不存在）→ 仍 200，DB 无变化
+        // 幂等：同一批 id 再删一次（记录已不存在）→ 仍 204，DB 无变化
         ResponseEntity<String> again = removeItems(me.token, folderA, contentX, contentY);
         assertThat(again.getStatusCode().value())
-                .as("0 行删除不算错（陈旧页面/双击的合法重放）").isEqualTo(200);
+                .as("0 行删除不算错（陈旧页面/双击的合法重放）").isEqualTo(204);
+        assertThat(again.getBody()).isNullOrEmpty();
         assertThat(itemRowCount(folderB, contentX)).isOne();
     }
 
@@ -270,10 +269,10 @@ class FavoriteItemWriteTests extends AbstractHttpIntegrationTest {
                 .as("夹不存在 → 404").isEqualTo(404);
         MultiValueMap<String, String> emptyContentIds = form("folderId", mine);
         emptyContentIds.add("contentIds", "");
-        assertThat(postForm("/favorite/remove", emptyContentIds, me.token)
+        assertThat(deleteQuery("/api/v1/favorites", emptyContentIds, me.token)
                 .getStatusCode().value())
                 .as("contentIds= 空串 → 绑定成空列表 → 400（什么都不移是调用方 bug）").isEqualTo(400);
-        assertThat(postForm("/favorite/remove", form("folderId", mine), me.token)
+        assertThat(deleteQuery("/api/v1/favorites", form("folderId", mine), me.token)
                 .getStatusCode().value())
                 .as("缺 contentIds 参数 → 400").isEqualTo(400);
         assertThat(removeItems(null, mine, 2002L).getStatusCode().value()).isEqualTo(401);
@@ -300,7 +299,7 @@ class FavoriteItemWriteTests extends AbstractHttpIntegrationTest {
         ResponseEntity<String> resp = moveItem(me.token, folderA, folderB, content);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
-        assertThat(Envelope.data(resp).asString()).isEqualTo("移动成功");
+        assertThat(resp.getBody()).as("`T59` 起写成功不再回文案 data").doesNotContain("\"data\"");
 
         assertThat(itemRowCount(folderA, content)).as("源夹不再有").isZero();
         assertThat(itemRowCount(folderB, content)).as("目标夹恰有一行").isOne();
@@ -332,8 +331,8 @@ class FavoriteItemWriteTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("★移动到已有同内容的夹：409 且**两边都保留**（from==to 同理）—— 409 ⇒ 什么都不变")
-    void 移动目标重复409_两边保留() {
+    @DisplayName("★移动到已有同内容的夹：200 幂等（清源夹、目标夹恰一行）；from==to 也是 200 no-op（`T59` 契约变更）")
+    void 移动目标重复幂等() {
         TestUser me = register("13800002012", "移动者丙");
         long folderA = insertFolderRow(me.id, "夹A");
         long folderB = insertFolderRow(me.id, "夹B");
@@ -342,18 +341,18 @@ class FavoriteItemWriteTests extends AbstractHttpIntegrationTest {
         insertItemRow(folderB, me.id, content);
 
         assertThat(moveItem(me.token, folderA, folderB, content).getStatusCode().value())
-                .as("目标夹已有同内容 → 撞 uk_folder_content → 409").isEqualTo(409);
+                .as("目标夹已有同内容 ⇒ 幂等成功（旧实现 409）").isEqualTo(200);
 
-        // ★ 先插后删 + 同事务的可观察结果：409 时源夹与目标夹**都原样保留**。
-        //   若实现是"先删后插"，源夹行已消失 —— 本断言变红（去掉 @Transactional 也红不了
-        //   先插后删的路径，但能红先删后插的路径：钉的是"409 ⇒ 什么都不变"这条契约）。
-        assertThat(itemRowCount(folderA, content)).as("源夹保留").isOne();
-        assertThat(itemRowCount(folderB, content)).as("目标夹原有的那行也不动").isOne();
+        // 终态：源夹清空、目标夹仍恰一行（不重复插入）
+        assertThat(itemRowCount(folderA, content)).as("源夹已清").isZero();
+        assertThat(itemRowCount(folderB, content)).as("目标夹恰一行").isOne();
 
-        // from == to：撞自己的唯一键 ⇒ 自然 409，不需要专门分支；DB 同样不变
-        assertThat(moveItem(me.token, folderA, folderA, content).getStatusCode().value())
-                .as("移到自己 = 目标夹已有同内容的特例，同样 409").isEqualTo(409);
-        assertThat(oracleItemCount(folderA)).isOne();
+        // from == to：幂等 no-op（旧实现撞自身唯一键 409）
+        long sameFolder = insertContent(me.id);
+        insertItemRow(folderA, me.id, sameFolder);
+        assertThat(moveItem(me.token, folderA, folderA, sameFolder).getStatusCode().value())
+                .as("移到自己 = 幂等 no-op").isEqualTo(200);
+        assertThat(itemRowCount(folderA, sameFolder)).isOne();
     }
 
     @Test
@@ -413,36 +412,25 @@ class FavoriteItemWriteTests extends AbstractHttpIntegrationTest {
 
     /** POST + form（收藏域写形态）；{@code folderId == null} 时**不发**该参数（= 没选夹）。 */
     private ResponseEntity<String> addItem(String token, long contentId, Long folderId) {
-        MultiValueMap<String, String> f = form("contentId", contentId);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("contentId", contentId);
         if (folderId != null) {
-            f.add("folderId", String.valueOf(folderId));
+            body.put("folderId", folderId);
         }
-        return postForm("/favorite/add", f, token);
+        return post("/api/v1/favorites", body, token);
     }
 
     private ResponseEntity<String> removeItems(String token, long folderId, long... contentIds) {
         MultiValueMap<String, String> f = form("folderId", folderId);
         f.add("contentIds", commaJoined(contentIds));
-        return postForm("/favorite/remove", f, token);
+        return deleteQuery("/api/v1/favorites", f, token);
     }
 
     private ResponseEntity<String> moveItem(String token, long fromFolderId, long toFolderId, long contentId) {
-        MultiValueMap<String, String> f = form("fromFolderId", fromFolderId);
-        f.add("toFolderId", String.valueOf(toFolderId));
-        f.add("contentId", String.valueOf(contentId));
-        return postForm("/favorite/move", f, token);
-    }
-
-    /** POST + {@code x-www-form-urlencoded}（同域 T2 测试的同款实现）。 */
-    private ResponseEntity<String> postForm(String path, MultiValueMap<String, String> form, String token) {
-        return send(spec -> {
-            RestClient.RequestBodySpec request = spec.uri(path)
-                    .contentType(MediaType.APPLICATION_FORM_URLENCODED);
-            if (token != null) {
-                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-            }
-            return request.body(form);
-        });
+        // `T58` 契约变更：contentId 进路径（PUT /api/v1/favorites/{id}，接口契约.md §2.3/§2.4）。
+        // `T59` 载荷面：from/to 走 JSON body。
+        return put("/api/v1/favorites/" + contentId,
+                Map.of("fromFolderId", fromFolderId, "toFolderId", toFolderId), token);
     }
 
     private static MultiValueMap<String, String> form(String name, long value) {

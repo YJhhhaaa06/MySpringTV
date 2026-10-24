@@ -2,6 +2,7 @@ package io.github.yjhhhaaa06.videoweb.favorite.service;
 
 import io.github.yjhhhaaa06.videoweb.common.config.FavoriteLimitProperties;
 import io.github.yjhhhaaa06.videoweb.common.exception.ConflictException;
+import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.exception.ForbiddenException;
 import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
@@ -126,7 +127,7 @@ import java.util.Set;
  *
  * <h2>★ 懒建与"列表空态"为什么自洽（T2 前提自审）</h2>
  * R-01 拍板默认夹**懒建**（首次收藏时建，落点 T4），故"这个用户一个夹都没有"是**合法状态**：
- * 新注册用户在还没收藏过任何东西时，{@code GET /favorite/folder/list} 返回 {@code []}。
+ * 新注册用户在还没收藏过任何东西时，{@code GET /api/v1/favorite-folders} 返回 {@code []}。
  * 看似"空列表很怪"，但另一条路（读时补建）更差：
  * <ul>
  *   <li>GET 变成**有副作用的写**（每次刷新列表都可能插一行）；</li>
@@ -165,7 +166,7 @@ import java.util.Set;
  * <h2>★ 私密（{@code is_private}）的语义 —— 它的可观察落点只有一条：他人视角端点</h2>
  * 自己的夹自己永远看得见（{@code /folder/list} **含私密**），所以"设私密"这个动作
  * 在本域内部**没有任何可观察差异** —— 它的全部对外行为都发生在
- * {@code GET /favorite/folder/public?userId=X} 上（R-08）。
+ * {@code GET /api/v1/users/{id}/favorite-folders} 上（R-08）。
  * <ul>
  *   <li>公开端点**永远只返回 {@code is_private = 0}**，包括夹主本人来调也一样 ——
  *       本端点表达的是"他人视角"这条路径，"我的"走 {@code /folder/list} 另一条。
@@ -237,9 +238,9 @@ public class FavoriteService {
     /**
      * 新建收藏夹（**自建夹**）。
      *
-     * <p>成功响应 {@code data} 是字符串「创建成功」——沿袭本仓全部写端点的信封形状
-     * （{@code /like/*}、{@code /follow/*}、{@code /comment/*} 都是中文文案，不是对象）。
-     * 前端建完夹要拿 id 的话**重新拉一次列表**即可（列表本就带 id），不值得为此改信封形状。
+     * <p>成功 = {@code ApiResponse<Void>}（无 {@code data}）—— `T59` 起全站写端点统一「成功无文案」，
+     * 旧"返回中文文案字符串"的形状已作废（{@code 接口契约.md} §2.5）。
+     * 前端建完夹要拿 id 的话**重新拉一次列表**即可（列表本就带 id）。
      *
      * <h2>★ 个数上限（T16）：自建夹至多 {@code customFolderMaxCount}（20）个</h2>
      * 超限 ⇒ 400「收藏夹数量已达上限（最多 20 个）」。三条口径：
@@ -293,7 +294,7 @@ public class FavoriteService {
     }
 
     /**
-     * 他人视角的公开夹列表（{@code GET /favorite/folder/public?userId=X}）——
+     * 他人视角的公开夹列表（{@code GET /api/v1/users/{id}/favorite-folders}）——
      * 私密（{@code is_private = 1}）的夹**完全不出现**，这就是"私密"一期的可观察落点（R-08）。
      *
      * <h2>三条口径（写改动前先读）</h2>
@@ -317,7 +318,7 @@ public class FavoriteService {
     }
 
     /**
-     * 他人**公开**收藏夹内的内容分页（{@code GET /favorite/folder/items?folderId=X}，T18）——
+     * 他人**公开**收藏夹内的内容分页（{@code GET /api/v1/favorite-folders/{id}/items}，T18）——
      * favorite-需求.md §二「看别人的收藏夹」的"点开看内容"那一半（一期 R-08 只给了"名称 + 数量"）。
      *
      * <h2>★ 与 {@link #listFolderItems} 的关系：同一条装配、不同的"准入闸"</h2>
@@ -363,7 +364,7 @@ public class FavoriteService {
         FavoriteFolder folder = folderDao.findById(folderId);
         // ★ 私密与不存在**合并成同一条拒绝**（同码同文案）—— 见方法注释"拒绝口径"节。
         if (folder == null || Boolean.TRUE.equals(folder.getIsPrivate())) {
-            throw new NotFoundException("收藏夹不存在");
+            throw new NotFoundException(ErrorCode.FAVORITE_FOLDER_NOT_FOUND, "收藏夹不存在");
         }
         return assembleFolderItems(folderId, page, pageSize);
     }
@@ -399,7 +400,7 @@ public class FavoriteService {
         //   理由：① 参数校验**不碰库**（省一次 SELECT，且不合法输入根本不需要知道夹在不在）；
         //   ② 让"非法输入 ⇒ 400"不随资源状态漂移（同一份非法请求，无论夹是谁的、在不在，都是 400）。
         if (name == null && isPrivate == null) {
-            throw new ParamException("没有要修改的字段（name / isPrivate 至少提供一个）");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "没有要修改的字段（name / isPrivate 至少提供一个）");
         }
         String validName = name == null ? null : requireValidName(name);
         FavoriteFolder folder = requireOwnedFolder(userId, folderId);
@@ -424,7 +425,7 @@ public class FavoriteService {
     public void deleteFolder(long userId, long folderId) {
         FavoriteFolder folder = requireOwnedFolder(userId, folderId);
         if (folder.defaultFolder()) {
-            throw new ConflictException("默认收藏夹不可删除");
+            throw new ConflictException(ErrorCode.FAVORITE_FOLDER_DEFAULT, "默认收藏夹不可删除");
         }
         // ★ T11 缓存（1/2）+ T12 重算范围：失效/重算集必须**在删之前**取 —— 收藏数既是缓存
         //   key（content:favoriteCount:{id}）也是重算范围，都是**内容维度**的，
@@ -453,7 +454,7 @@ public class FavoriteService {
     // ========================================================================
 
     /**
-     * 收藏一条内容进一个夹（{@code POST /favorite/add}）。
+     * 收藏一条内容进一个夹（{@code POST /api/v1/favorites}）。
      *
      * <h2>校验顺序（对齐 {@code /like/*} 写路径「先校验存在性」的参照）</h2>
      * <ol>
@@ -514,7 +515,7 @@ public class FavoriteService {
     @Transactional
     public void addItem(long userId, Long folderId, long contentId) {
         if (!contentDao.isContentExist(contentId)) {
-            throw new NotFoundException("内容不存在");
+            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
         }
         long targetFolderId;
         boolean targetIsDefault;
@@ -550,7 +551,49 @@ public class FavoriteService {
     }
 
     /**
-     * 从一个夹移出若干条收藏记录（{@code POST /favorite/remove}，批量：夹内勾选多条一次移出）。
+     * 幂等收藏一条（`T59`，仅供 {@code PUT /watch-later/{id}/folder} 的「移入收藏夹」使用）。
+     *
+     * <p>与 {@link #addItem} 的差异**只在重复语义**：目标夹已有该内容 ⇒ 返回 false，
+     * 不报 409、不重复计数、也**不判容量**（满夹重复移动必须成功）。
+     * 创建语义的 {@code POST /favorites} 仍走 {@link #addItem}（重复 = 409）。
+     *
+     * <p>容量判定与插入之间仍可能有并发窗口（同 {@link #addItem} 既有口径），由
+     * {@code INSERT IGNORE} 兜"重复"，容量本身的竞态不在本方法新增。
+     *
+     * @return {@code true} = 本次真的新收进；{@code false} = 目标夹早已有（终态已达成）
+     */
+    @Transactional
+    public boolean addItemIfAbsent(long userId, Long folderId, long contentId) {
+        if (!contentDao.isContentExist(contentId)) {
+            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
+        }
+        long targetFolderId;
+        boolean targetIsDefault;
+        if (folderId == null) {
+            targetFolderId = ensureDefaultFolder(userId);
+            targetIsDefault = true;
+        } else {
+            FavoriteFolder target = requireOwnedFolder(userId, folderId);
+            targetFolderId = target.getId();
+            targetIsDefault = target.defaultFolder();
+        }
+        if (itemDao.existsByFolderAndContent(targetFolderId, contentId)) {
+            return false;
+        }
+        requireFolderCapacity(targetFolderId, targetIsDefault);
+        if (itemDao.insertItemIgnore(targetFolderId, userId, contentId) == 0) {
+            return false;   // 并发重复：另一事务已收进
+        }
+        recountFavoriteCounts(List.of(contentId));
+        AfterCommit.run(() -> {
+            favoriteCache.favoriteAdded(userId, contentId);
+            favoriteCache.invalidateFavoriteCount(contentId);
+        });
+        return true;
+    }
+
+    /**
+     * 从一个夹移出若干条收藏记录（{@code DELETE /api/v1/favorites}，批量：夹内勾选多条一次移出）。
      *
      * <h2>★ 红线：本方法**不校验内容存在性**（G11，T4 最重要的口径）</h2>
      * 直接按 {@code (folder_id, content_id)} 删行。失效内容的收藏记录**能移出** ——
@@ -583,7 +626,7 @@ public class FavoriteService {
     @Transactional
     public void removeItems(long userId, long folderId, List<Long> contentIds) {
         if (contentIds == null || contentIds.isEmpty()) {
-            throw new ParamException("没有要移出的内容（contentIds 不能为空）");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "没有要移出的内容（contentIds 不能为空）");
         }
         requireOwnedFolder(userId, folderId);
         itemDao.deleteByFolderAndContentIds(folderId, contentIds);
@@ -603,7 +646,7 @@ public class FavoriteService {
     }
 
     /**
-     * 把一条收藏从 A 夹挪到 B 夹（{@code POST /favorite/move}）。
+     * 把一条收藏从 A 夹挪到 B 夹（{@code PUT /api/v1/favorites/{id}}）。
      *
      * <h2>★ 为什么 move 是独立端点，而不是前端的 remove + add 两次调用</h2>
      * T4 前提自审的结论（G13 授权自行决断，但事务边界要讲清楚）：两次 HTTP 调用之间
@@ -614,11 +657,12 @@ public class FavoriteService {
      *
      * <h2>事务与顺序：先插后删（{@code @Transactional}）</h2>
      * 两条关系写（插入目标夹 + 从源夹删除）必须同进同退，否则留下"两边都有"或"两边都没有"。
-     * 先插后删让最常见的失败（目标夹已有同内容 ⇒ 撞 {@code uk_folder_content} ⇒ 409）
-     * 发生在删除之前 —— 409 时源夹原样保留；即便 DB 在删除一步出错，事务回滚也兜住。
+     * ★ `T59` 起**幂等移动**：目标夹已有同内容 ⇒ {@code INSERT IGNORE} 返回 0 行，视为成功，
+     * 只清源夹（不重复计数）；{@code from == to} ⇒ 直接 no-op（200）。
+     * 满夹时"目标已有"也照样成功——容量判定被跳过，否则重复移动会被误判成 400。
+     * ★ 插入仍先于删除：即便 DB 在删除一步出错，事务回滚也兜住；幂等路径不再需要 409 保源夹。
      * ★ T12 起事务里还有第三条语句：计数重算（{@link #recountFavoriteCounts}，见方法体注释
      * —— 任务书"三条路径"漏了 move，边缘态会打破不变量，用户 2026-10-12 拍板接入）。
-     * ★ {@code from == to} 不写专门分支：插入撞自己的唯一键 ⇒ 自然 409、什么都不变。
      *
      * <h2>口径细节</h2>
      * <ul>
@@ -637,22 +681,32 @@ public class FavoriteService {
      *
      * @param userId       当前登录用户
      * @param fromFolderId 源夹；不存在 → 404、不是我的 → 403
-     * @param toFolderId   目标夹；同上；已有同内容 → 409（源夹保留）、已达上限 → 400
+     * @param toFolderId   目标夹；同上；已有同内容 ⇒ 幂等成功（只清源夹）、已达上限 → 400
      * @param contentId    内容 id；不存在或已失效 → 404（条目留在源夹）
      */
     @Transactional
     public void moveItem(long userId, long fromFolderId, long toFolderId, long contentId) {
         if (!contentDao.isContentExist(contentId)) {
-            throw new NotFoundException("内容不存在");
+            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
         }
         requireOwnedFolder(userId, fromFolderId);
+        // ★ T59：同夹 = 幂等 no-op（改前是插入撞自身唯一键的 409）
+        if (fromFolderId == toFolderId) {
+            return;
+        }
         // ★ 目标夹取回**实体**（不只是校验归属）：容量判定要它的 is_default（分流 500 / 5000）。
         FavoriteFolder target = requireOwnedFolder(userId, toFolderId);
-        // ★ 容量（T16）：判在目标夹归属之后、插入之前 —— 漏掉这条就能绕道 move 撑爆目标夹。
-        requireFolderCapacity(target.getId(), target.defaultFolder());
-        // 先插后删：见方法注释"事务与顺序"。
-        itemDao.insertItem(toFolderId, userId, contentId);
-        itemDao.deleteByFolderAndContentIds(fromFolderId, List.of(contentId));
+        int inserted = 0;
+        // ★ T59：目标已有 ⇒ 跳过容量与插入（满夹重复移动也必须成功），只清源夹。
+        if (!itemDao.existsByFolderAndContent(target.getId(), contentId)) {
+            // ★ 容量（T16）：判在目标夹归属之后、插入之前 —— 漏掉这条就能绕道 move 撑爆目标夹。
+            requireFolderCapacity(target.getId(), target.defaultFolder());
+            inserted = itemDao.insertItemIgnore(toFolderId, userId, contentId);
+        }
+        int deleted = itemDao.deleteByFolderAndContentIds(fromFolderId, List.of(contentId));
+        if (inserted == 0 && deleted == 0) {
+            return;   // 目标已有、源也没有 ⇒ 终态已达成，不动计数与缓存
+        }
         // ★ T12 计数重算（本事务内）。⚠️ 任务书原文只列 add / remove / deleteFolder 三条路径，
         //   但 move **必须**接入（用户 2026-10-12 拍板）：边缘态"源夹不含该内容"（陈旧页面 /
         //   前端传错 from）时插入照常成功、源侧删 0 行 ⇒ 等价于一次**新增收藏** —— 计数 +1，
@@ -743,7 +797,7 @@ public class FavoriteService {
     // ========================================================================
 
     /**
-     * 当前用户对某内容的收藏状态（{@code GET /favorite/status}）——favorite-需求.md §三「打开内容页能看到
+     * 当前用户对某内容的收藏状态（{@code GET /api/v1/contents/{id}/favorite}）——favorite-需求.md §三「打开内容页能看到
      * "已收藏"，并知道**收在了哪些夹**」。
      *
      * <h2>★ T15：先问成员集，"未收藏"这一支一次库都不查</h2>
@@ -820,7 +874,7 @@ public class FavoriteService {
     }
 
     /**
-     * 某内容的收藏数（{@code GET /favorite/count}）—— <b>按人去重</b>（R-06，favorite-需求.md §六）。
+     * 某内容的收藏数（{@code GET /api/v1/contents/{id}/favorite-count}）—— <b>按人去重</b>（R-06，favorite-需求.md §六）。
      *
      * <p>★ <b>T11 起走缓存</b>：{@code content:favoriteCount:{id}}（{@code GET}），
      * miss 时**单飞回源**并回填、Redis 失败降级直查 DB（接口不 500）。
@@ -856,7 +910,7 @@ public class FavoriteService {
     // ========================================================================
 
     /**
-     * 夹内内容分页（{@code GET /favorite/list?folderId=&page=&pageSize=}）——
+     * 夹内内容分页（{@code GET /api/v1/favorites?folderId=&page=&pageSize=}）——
      * favorite-需求.md §三「打开某个夹，按**收藏时间倒序**看里面的内容」。
      *
      * <h2>★ 分页单位是<b>收藏记录行</b>，不是"内容"（G12 / R-07）</h2>
@@ -962,7 +1016,7 @@ public class FavoriteService {
      * （R-10 / {@code favorite.md} §六）。
      *
      * <h2>★ 与 {@link #getFavoriteStatus} 的区别：只判存在、**不 JOIN**</h2>
-     * {@code /favorite/status} 要回答"**收在哪些夹**"（故 JOIN {@code favorite_folder} 取夹名）；
+     * {@code /api/v1/contents/{id}/favorite} 要回答"**收在哪些夹**"（故 JOIN {@code favorite_folder} 取夹名）；
      * 本方法只回答"我收藏过没有" ⟺ 存在一条 {@code (user_id, content_id)} 记录 ——
      * 一趟 {@code idx_user_content} 等值点查（DAO 口径见
      * {@code FavoriteItemDao.existsByUserAndContent}）。
@@ -976,7 +1030,7 @@ public class FavoriteService {
      * <ul>
      *   <li><b>不判内容有效性</b>：失效内容的记录照样在（R-03 / R-07）⇒ 仍答 true
      *       （"我还收着它"是事实）；</li>
-     *   <li><b>不校验 userId 存在性</b>：查不到记录就是 false（同 {@code /favorite/status}
+     *   <li><b>不校验 userId 存在性</b>：查不到记录就是 false（同 {@code /api/v1/contents/{id}/favorite}
      *       的"空态是合法状态"口径，不给存在性开探测口）；</li>
      *   <li>同一人把同一内容收进**多个夹**也只答 true（判据是 {@code (user_id, content_id)}
      *       的记录存在性，不是按夹数）。</li>
@@ -1090,7 +1144,7 @@ public class FavoriteService {
     private void requireFolderCountBelowLimit(long userId) {
         int max = limits.customFolderMaxCount();
         if (folderDao.countCustomFoldersByUserId(userId) >= max) {
-            throw new ParamException("收藏夹数量已达上限（最多 " + max + " 个）");
+            throw new ParamException(ErrorCode.FAVORITE_FOLDER_LIMIT, "收藏夹数量已达上限（最多 " + max + " 个）");
         }
     }
 
@@ -1104,7 +1158,7 @@ public class FavoriteService {
      *       由调用方取行时一并带下来（**不重复查库**）；</li>
      *   <li>★ <b>数的是 {@code favorite_item} 行（含失效条目）</b>：
      *       {@code FavoriteItemDao.countByFolderId} **不碰 content 表** ⇒ 与
-     *       {@code FavoriteFolderVO#itemCount}、{@code /favorite/list} 的 {@code total}
+     *       {@code FavoriteFolderVO#itemCount}、{@code /api/v1/favorites} 的 {@code total}
      *       天然同一口径。别换成一个"还要问内容在不在"的数 —— 那会让"夹里显示 3 条、
      *       却提示已满"这类自相矛盾成为可能；</li>
      *   <li>判据是 {@code >=} ⇒ 夹**恰好能装到上限**（第 {@code limit} 条可进，第
@@ -1122,7 +1176,7 @@ public class FavoriteService {
     private void requireFolderCapacity(long folderId, boolean isDefault) {
         int max = isDefault ? limits.defaultFolderMaxItems() : limits.customFolderMaxItems();
         if (itemDao.countByFolderId(folderId) >= max) {
-            throw new ParamException(isDefault
+            throw new ParamException(ErrorCode.FAVORITE_FOLDER_FULL, isDefault
                     ? "默认收藏夹已满（最多 " + max + " 条）"
                     : "收藏夹已满（最多 " + max + " 条）");
         }
@@ -1138,7 +1192,7 @@ public class FavoriteService {
     private FavoriteFolder requireOwnedFolder(long userId, long folderId) {
         FavoriteFolder folder = folderDao.findById(folderId);
         if (folder == null) {
-            throw new NotFoundException("收藏夹不存在");
+            throw new NotFoundException(ErrorCode.FAVORITE_FOLDER_NOT_FOUND, "收藏夹不存在");
         }
         if (folder.getUserId() == null || folder.getUserId() != userId) {
             throw new ForbiddenException("只能操作自己的收藏夹");
@@ -1160,11 +1214,11 @@ public class FavoriteService {
      */
     private static String requireValidName(String name) {
         if (name == null || name.isBlank()) {
-            throw new ParamException("收藏夹名称不能为空");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "收藏夹名称不能为空");
         }
         String trimmed = name.strip();
         if (trimmed.length() > NAME_MAX_LENGTH) {
-            throw new ParamException("收藏夹名称不能超过 " + NAME_MAX_LENGTH + " 个字符");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "收藏夹名称不能超过 " + NAME_MAX_LENGTH + " 个字符");
         }
         return trimmed;
     }

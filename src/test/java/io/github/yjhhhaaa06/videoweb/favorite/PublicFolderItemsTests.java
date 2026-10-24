@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 收藏三期 <b>T18：他人公开夹"点开看内容"</b> 的契约测试
- * （{@code GET /favorite/folder/items?folderId=X}；来源 favorite-需求.md §二，补一期 R-08 的裁剪）。
+ * （{@code GET /api/v1/favorite-folders/{id}/items}；来源 favorite-需求.md §二，补一期 R-08 的裁剪）。
  *
  * <h2>覆盖什么（期望值全部出自业务口径 / 契约，盖住实现照样写得出来）</h2>
  * <ul>
@@ -38,7 +38,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * "公开夹的内容 = 该夹的收藏记录" 出自favorite-需求.md §二"点开看内容"；"私密与不存在不可区分" 出自
  * T18 拍板（2026-10-14，用户选 404 —— 理由：可区分即等于对外暴露"该夹存在且是私密的"）；
  * "匿名可访问" 出自favorite.md §三（{@code /folder/public} 的冻结契约，本条同信任边界）；
- * 脱敏占位与"total 含失效" 出自 R-03 / R-07 / G12（与 {@code /favorite/list} **同一条装配**）；
+ * 脱敏占位与"total 含失效" 出自 R-03 / R-07 / G12（与 {@code /api/v1/favorites} **同一条装配**）；
  * 空态合法出自 R-01。盖住实现，这些断言照样写得出来。
  *
  * <h2>★ 反向验证（T18 验收点名的两条；逐条注入 → 确认变红 → 还原，实测记录见 T18 回写）</h2>
@@ -163,18 +163,18 @@ class PublicFolderItemsTests extends AbstractHttpIntegrationTest {
         assertThat(items(null, folder, null, null).getStatusCode().value()).isEqualTo(200);
 
         // 坏 token：JwtAuthFilter 对"公开端点 + 坏 token"按匿名放行，不得误杀成 401
-        ResponseEntity<String> badToken = get("/favorite/folder/items?folderId=" + folder, "not-a-jwt");
+        ResponseEntity<String> badToken = get("/api/v1/favorite-folders/" + folder + "/items", "not-a-jwt");
         assertThat(badToken.getStatusCode().value())
                 .as("公开端点收到坏 token ⇒ 按匿名处理（见 JwtAuthFilter 类注释）").isEqualTo(200);
         assertThat(contentIds(Envelope.data(badToken).path("list"))).hasSize(1);
 
         // ★ 夹主本人带合法 token 调用：**同款结果**（本端点表达的是"他人公开视角"，
-        //   不因'是本人'而放行私密 —— "我的"走 /favorite/list 另一条）
+        //   不因'是本人'而放行私密 —— "我的"走 /api/v1/favorites 另一条）
         assertThat(items(owner.token, folder, null, null).getStatusCode().value()).isEqualTo(200);
     }
 
     // ========================================================================
-    // 4. 失效占位 / 空态 / 分页 / 形状（与 /favorite/list 同口径，此处只钉"公开面也如此"）
+    // 4. 失效占位 / 空态 / 分页 / 形状（与 /api/v1/favorites 同口径，此处只钉"公开面也如此"）
     // ========================================================================
 
     @Test
@@ -236,16 +236,18 @@ class PublicFolderItemsTests extends AbstractHttpIntegrationTest {
                 .as("分页信封字段集一次性冻结（复用 PageResult，T18 红线④ 不新造形状）")
                 .containsExactlyInAnyOrder("list", "total", "page", "pageSize", "totalPages");
         assertThat(page1.path("list").get(0).propertyNames())
-                .as("条目形状与 /favorite/list **同形**（复用 FavoriteItemVO）")
+                .as("条目形状与 /api/v1/favorites **同形**（复用 FavoriteItemVO）")
                 .containsExactlyInAnyOrder("id", "contentId", "favoriteTime", "invalid",
                         "title", "coverUrl", "authorName");
     }
 
     @Test
-    @DisplayName("参数：缺 folderId → 400；folderId 非数字 → 400（缺/坏参由 Spring 参数绑定拦）")
+    @DisplayName("参数：folderId 进路径后非数字 → 400（缺 id 已不可表达，见注释）")
     void 参数非法400() {
-        assertThat(get("/favorite/folder/items", null).getStatusCode().value()).as("缺 folderId").isEqualTo(400);
-        assertThat(get("/favorite/folder/items?folderId=abc", null).getStatusCode().value())
+        // `T58` 契约变更（接口契约.md §2.3）：folderId 从 query 搬进路径 ⇒ **非法 id = 400**；
+        //   **"缺 id" = 404**，但少了 id 就没有路由匹配，"缺参 400"这条旧断言已不可达 ——
+        //   退役它，不用双斜杠去撞路径归一化（那测的是容器 URL 处理、不是本契约）。
+        assertThat(get("/api/v1/favorite-folders/abc/items", null).getStatusCode().value())
                 .as("folderId 非数字").isEqualTo(400);
     }
 
@@ -254,12 +256,15 @@ class PublicFolderItemsTests extends AbstractHttpIntegrationTest {
     // ========================================================================
 
     private ResponseEntity<String> items(String token, long folderId, String page, String pageSize) {
-        StringBuilder url = new StringBuilder("/favorite/folder/items?folderId=").append(folderId);
+        // `T58` 契约变更：夹 id 进路径（GET /api/v1/favorite-folders/{id}/items），page/pageSize 仍在 query。
+        StringBuilder url = new StringBuilder("/api/v1/favorite-folders/" + folderId + "/items");
+        boolean first = true;
         if (page != null) {
-            url.append("&page=").append(page);
+            url.append("?page=").append(page);
+            first = false;
         }
         if (pageSize != null) {
-            url.append("&pageSize=").append(pageSize);
+            url.append(first ? "?" : "&").append("pageSize=").append(pageSize);
         }
         return get(url.toString(), token);
     }

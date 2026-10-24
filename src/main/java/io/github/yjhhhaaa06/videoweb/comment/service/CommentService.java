@@ -8,6 +8,7 @@ import io.github.yjhhhaaa06.videoweb.comment.model.dto.AddCommentRequest;
 import io.github.yjhhhaaa06.videoweb.comment.model.entity.Comment;
 import io.github.yjhhhaaa06.videoweb.comment.model.vo.CommentVO;
 import io.github.yjhhhaaa06.videoweb.common.exception.ConflictException;
+import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.exception.ForbiddenException;
 import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
 import io.github.yjhhhaaa06.videoweb.common.model.dto.CursorResult;
@@ -128,12 +129,12 @@ public class CommentService {
         //    把 404 判定交给下一步的 isContentExist（与 TV 门禁的 dto==null 分支同构）。
         Boolean commentEnabled = contentDao.findCommentEnabledById(contentId);
         if (commentEnabled != null && !commentEnabled) {
-            throw new ConflictException("评论区已关闭");
+            throw new ConflictException(ErrorCode.COMMENT_DISABLED, "评论区已关闭");
         }
 
         // ② 内容存在性（带 is_deleted = 0）
         if (!contentDao.isContentExist(contentId)) {
-            throw new NotFoundException("被评论的内容不存在");
+            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "被评论的内容不存在");
         }
 
         // ③④ 楼中楼归一化：把 parentId 折叠为"主楼 id"，并解析被 @ 者
@@ -141,11 +142,11 @@ public class CommentService {
         Long replyToUserId = null;
         if (effectiveParentId != null && effectiveParentId != 0) {
             if (!commentDao.isCommentExist(effectiveParentId)) {
-                throw new ConflictException("被回复评论不存在或已删除");
+                throw new NotFoundException(ErrorCode.COMMENT_NOT_FOUND, "被回复评论不存在或已删除");
             }
             Comment parent = commentDao.findById(effectiveParentId);
             if (parent.getContentId() != contentId) {
-                throw new ConflictException("被回复评论不属于该视频或动态");
+                throw new ConflictException(ErrorCode.COMMENT_REPLY_TARGET_INVALID, "被回复评论不属于该视频或动态");
             }
             if (parent.getParentId() != null && parent.getParentId() != 0) {
                 // 被回复的本身是楼内回复 ⇒ 上溯挂主楼，@ 目标是该回复的作者
@@ -224,7 +225,7 @@ public class CommentService {
         }
         CommentCacheDTO root = commentDao.findMainById(rootId);
         if (root == null) {
-            throw new NotFoundException("评论不存在或已删除");
+            throw new NotFoundException(ErrorCode.COMMENT_NOT_FOUND, "评论不存在或已删除");
         }
         int total = root.getReplyCount();
         // keyset：多取一行判「是否还有下一页」。SQL 只按游标取本页，不再从头取 page*pageSize 行。
@@ -254,11 +255,11 @@ public class CommentService {
     }
 
     // ========================================================================
-    // 评论查询（GET /comment/show）—— S6-B2d 从 ContentService 搬回本域
+    // 评论查询（GET /api/v1/contents/{id}/comments）—— S6-B2d 从 ContentService 搬回本域
     // ========================================================================
 
     /**
-     * 评论列表**缺省全量**路径（不传分页参数）。
+     * 评论列表**分页**（`T59` 起是**唯一**形状：缺省 = 第 1 页 / 200 条）。
      *
      * <h2>★ S6-B2d：为什么它现在在这里，而不是在 {@code ContentService}</h2>
      * TV 的 {@code CommentController.showComment} 调的是 {@code ContentService.getCommentsForContent}
@@ -272,26 +273,13 @@ public class CommentService {
      *
      * <h2>前置门禁（TV 原样，顺序不可改）</h2>
      * <pre>
-     * !isCommentReadable(contentId) → 内容不存在/已软删/媒体损坏/评论区已关 ⇒ 空数组
+     * !isCommentReadable(contentId) → 内容不存在/已软删/媒体损坏/评论区已关 ⇒ 空信封
      * </pre>
      * 返回空而**不是** 404/409 是有意的：读评论不该因为内容不可见而报错，
      * 否则前端要把"内容被删"与"评论为空"当两种情况处理。
      *
-     * @return 全量评论树数组（主楼 + 每条的 children 全量）；无评论 ⇒ 空数组（不是 null）
-     */
-    public List<CommentVO> getCommentsForContent(long contentId, Long userId) {
-        if (!contentService.isCommentReadable(contentId)) {
-            return new ArrayList<>();
-        }
-        List<CommentCacheDTO> commentTree = commentCache.getFullTree(contentId);
-        if (commentTree == null || commentTree.isEmpty()) {
-            return new ArrayList<>();
-        }
-        return toCommentVOList(commentTree, userId);
-    }
-
-    /**
-     * 评论列表**分页**路径（传了 {@code page} 或 {@code pageSize} 任一）。
+     * <p>`T59` 前的"缺省全量数组"路径已退役（《接口契约.md》§2.6 单一形状），
+     * 全量 children 不再随行——展开回复走 {@code GET /api/v1/comments/{id}/replies}。
      *
      * <p>{@code total} = **主楼条数**（不是评论总数）——信封语义与 {@code /follow} 一致；
      * 每页主楼只带前 K=2 条楼中楼 + {@code replyCount}，展开走 {@code /comment/replies}（T10-B）。
@@ -406,7 +394,7 @@ public class CommentService {
      */
     private void doDeleteComment(long commentId, long operatorUserId, boolean isAdmin) {
         if (!commentDao.isCommentExist(commentId)) {
-            throw new NotFoundException("评论不存在");   // 已软删亦视为不存在
+            throw new NotFoundException(ErrorCode.COMMENT_NOT_FOUND, "评论不存在");   // 已软删亦视为不存在
         }
         Comment comment = commentDao.findById(commentId);
         if (!isAdmin && comment.getUserId() != operatorUserId) {

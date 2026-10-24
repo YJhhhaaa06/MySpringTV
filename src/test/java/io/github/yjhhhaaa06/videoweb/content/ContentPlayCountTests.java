@@ -12,6 +12,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 
+import java.util.Map;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -74,7 +76,7 @@ class ContentPlayCountTests extends AbstractContentIntegrationTest {
         assertThat(detail(contentId).path("playCount").asLong())
                 .as("前置：没人播过 ⇒ 0").isZero();
 
-        assertThat(post("/history/play?contentId=" + contentId, null, viewerToken).getStatusCode().value())
+        assertThat(post("/api/v1/contents/" + contentId + "/play", null, viewerToken).getStatusCode().value())
                 .as("首播应 200").isEqualTo(200);
 
         assertThat(playCountColumn(contentId)).as("独立 oracle：DB 列 +1").isEqualTo(1);
@@ -84,7 +86,7 @@ class ContentPlayCountTests extends AbstractContentIntegrationTest {
                 .as("★ 预热过的键被条件 INCR 到 1").isEqualTo("1");
 
         // 同一人重复 play：幂等 200，播放量不变（一人一次口径）
-        assertThat(post("/history/play?contentId=" + contentId, null, viewerToken).getStatusCode().value())
+        assertThat(post("/api/v1/contents/" + contentId + "/play", null, viewerToken).getStatusCode().value())
                 .as("重复 play 也 200（幂等）").isEqualTo(200);
         assertThat(playCountColumn(contentId)).as("★ 一人一次：DB 仍 1").isEqualTo(1);
         assertThat(detail(contentId).path("playCount").asLong()).as("★ 详情仍 1").isEqualTo(1L);
@@ -92,7 +94,7 @@ class ContentPlayCountTests extends AbstractContentIntegrationTest {
                 .as("★ 缓存也仍 1").isEqualTo("1");
 
         // /report 只写进度，不是计数入口
-        assertThat(post("/history/report?contentId=" + contentId + "&progress=30", null, viewerToken)
+        assertThat(put("/api/v1/contents/" + contentId + "/progress", Map.of("progress", 30), viewerToken)
                 .getStatusCode().value()).isEqualTo(200);
         assertThat(playCountColumn(contentId)).as("★ 独立 oracle：/report 没碰 play_count 列").isEqualTo(1);
         assertThat(detail(contentId).path("playCount").asLong())
@@ -106,7 +108,7 @@ class ContentPlayCountTests extends AbstractContentIntegrationTest {
         assertThat(redis.hasKey(CacheKeys.contentPlayCount(contentId)))
                 .as("前置：键从未加载").isFalse();
 
-        assertThat(post("/history/play?contentId=" + contentId, null, viewerToken).getStatusCode().value())
+        assertThat(post("/api/v1/contents/" + contentId + "/play", null, viewerToken).getStatusCode().value())
                 .isEqualTo(200);
 
         assertThat(playCountColumn(contentId)).as("DB oracle：列已 +1").isEqualTo(1);
@@ -162,14 +164,14 @@ class ContentPlayCountTests extends AbstractContentIntegrationTest {
     @DisplayName("★内容删除：removeContent 失效播放量键；其后 404 请求不回填它")
     void 删除后播放量键消失且404不回填() {
         long contentId = insertVideoContent(authorId, "播放量删除");
-        assertThat(post("/history/play?contentId=" + contentId, null, viewerToken).getStatusCode().value())
+        assertThat(post("/api/v1/contents/" + contentId + "/play", null, viewerToken).getStatusCode().value())
                 .isEqualTo(200);
         // 预热（否则"删除后键不存在"零判别力：本来就不存在）
         assertThat(detail(contentId).path("playCount").asLong()).isEqualTo(1L);
         assertThat(redis.opsForValue().get(CacheKeys.contentPlayCount(contentId))).isEqualTo("1");
 
-        assertThat(postQuery("/content/delete", query("contentId", String.valueOf(contentId)), authorToken)
-                .getStatusCode().value()).as("前置：作者删除").isEqualTo(200);
+        assertThat(deleteQuery("/api/v1/contents/" + String.valueOf(contentId), query(), authorToken)
+                .getStatusCode().value()).as("前置：作者删除（`T59`：204）").isEqualTo(204);
 
         assertThat(redis.hasKey(CacheKeys.contentPlayCount(contentId)))
                 .as("★ removeContent 一并失效播放量键（去掉那行 ⇒ 本断言红）").isFalse();
@@ -177,7 +179,7 @@ class ContentPlayCountTests extends AbstractContentIntegrationTest {
         // 404 短路在计数聚合之前：键刚被删除 ⇒ 若聚合先跑一步，它会 miss 并回填列值 "1"
         // ⇒ 下面的 hasKey 断言会红。⚠️ 不能先给键预置一个值（那样是命中，聚合本来就不回填
         //   ⇒ 两种实现都为真，零判别力 —— T42 假绿形态①）。
-        assertThat(get("/search/IdSearch?contentId=" + contentId, authorToken).getStatusCode().value())
+        assertThat(get("/api/v1/contents/" + contentId, authorToken).getStatusCode().value())
                 .as("前置：详情 404").isEqualTo(404);
         assertThat(redis.hasKey(CacheKeys.contentPlayCount(contentId)))
                 .as("★ 404 路径不回填（聚合若在 404 之前执行，会把列值回填进来 ⇒ 红）").isFalse();
@@ -189,10 +191,10 @@ class ContentPlayCountTests extends AbstractContentIntegrationTest {
     @DisplayName("★列表（/start）：不带 playCount（T43 列表零计数口径，用 has()==false 判'没有'）")
     void 列表不带播放量() {
         long contentId = insertVideoContent(authorId, "播放量列表");
-        assertThat(post("/history/play?contentId=" + contentId, null, viewerToken).getStatusCode().value())
+        assertThat(post("/api/v1/contents/" + contentId + "/play", null, viewerToken).getStatusCode().value())
                 .isEqualTo(200);
 
-        JsonNode startItem = itemOf(Envelope.data(get("/start", viewerToken)), contentId);
+        JsonNode startItem = itemOf(Envelope.data(get("/api/v1/contents/recommended", viewerToken)), contentId);
         // ★ 必须用 has(key)==false：asLong() 对缺失节点返回 0，分不出"没有这个键"与"值就是 0"
         assertThat(startItem.has("playCount"))
                 .as("★ 列表卡片不带任何计数（列表零计数是契约，不是漏填）").isFalse();
@@ -203,7 +205,7 @@ class ContentPlayCountTests extends AbstractContentIntegrationTest {
 
     /** 详情（匿名，避免互动态干扰）：返回 data 节点。 */
     private JsonNode detail(long contentId) {
-        ResponseEntity<String> resp = get("/search/IdSearch?contentId=" + contentId, null);
+        ResponseEntity<String> resp = get("/api/v1/contents/" + contentId, null);
         assertThat(resp.getStatusCode().value()).as("详情应 200：%s", resp.getBody()).isEqualTo(200);
         return Envelope.data(resp);
     }

@@ -5,7 +5,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * 他人视角的公开收藏夹列表项（{@code GET /favorite/folder/public?userId=X} 的条目）。
+ * 他人视角的公开收藏夹列表项（{@code GET /api/v1/users/{id}/favorite-folders} 的条目）。
  *
  * <h2>★ 为什么单独一个 VO，不复用 {@link FavoriteFolderVO}</h2>
  * 两条端点的**信任边界不同**（favorite.md §三 / R-08）：
@@ -20,7 +20,7 @@ import lombok.NoArgsConstructor;
  * <h2>字段口径（就这三个，别顺手加）</h2>
  * <ul>
  *   <li>★ {@code id} —— 夹 id，**T18 新加**：消费方是"点开他人公开夹看内容"
- *       （前端据此调 {@code GET /favorite/folder/items?folderId=X}）。一期刻意不给 id
+ *       （前端据此调 {@code GET /api/v1/favorite-folders/{id}/items}）。一期刻意不给 id
  *       （R-08「一期只给名称 + 视频数」，当时没有"按 id 打开"的消费方），本类注释当时已预告
  *       "将来真要做打开他人公开夹，加 id 时必须同步改键集断言" —— 现在就是那一刻
  *       （键集断言已同步到 {@code id + name + itemCount}，见 {@code FavoritePrivacyTests}）；</li>
@@ -30,7 +30,7 @@ import lombok.NoArgsConstructor;
  *       不感知内容有效性）。</li>
  * </ul>
  * ★ <b>为什么现在可以给 {@code id} 而不泄露隐私</b>：id 只用来"按 folderId 打开"，
- * 而"能不能打开"由服务端在 {@code GET /favorite/folder/items} 上**强制 {@code is_private = 0}**
+ * 而"能不能打开"由服务端在 {@code GET /api/v1/favorite-folders/{id}/items} 上**强制 {@code is_private = 0}**
  * 兜着（私密夹与不存在的夹返回同一口径，见 {@code FavoriteService.listPublicFolderItems}）——
  * 与本 VO 的"不含私密"是同一道过滤的两侧。id 本身不是秘密（公开夹任何人本就该打得开）。
  * <b>不含</b> {@code isPrivate} / {@code isDefault} —— 前者恒为 {@code false}（查询已过滤），

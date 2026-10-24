@@ -35,15 +35,15 @@ import java.util.List;
  * <table>
  *   <caption>方法 ↔ 端点</caption>
  *   <tr><th>方法</th><th>服务于</th></tr>
- *   <tr><td>{@link #insertFolder}</td><td>{@code POST /favorite/folder/add}</td></tr>
- *   <tr><td>{@link #countCustomFoldersByUserId}</td><td>{@code POST /favorite/folder/add} 的**个数上限**判定（T16；无对应端点）</td></tr>
- *   <tr><td>{@link #findByUserIdWithItemCount}</td><td>{@code GET /favorite/folder/list}（含私密）</td></tr>
- *   <tr><td>{@link #findPublicByUserIdWithItemCount}</td><td>{@code GET /favorite/folder/public}（<b>过滤私密</b>）</td></tr>
+ *   <tr><td>{@link #insertFolder}</td><td>{@code POST /api/v1/favorite-folders}</td></tr>
+ *   <tr><td>{@link #countCustomFoldersByUserId}</td><td>{@code POST /api/v1/favorite-folders} 的**个数上限**判定（T16；无对应端点）</td></tr>
+ *   <tr><td>{@link #findByUserIdWithItemCount}</td><td>{@code GET /api/v1/favorite-folders}（含私密）</td></tr>
+ *   <tr><td>{@link #findPublicByUserIdWithItemCount}</td><td>{@code GET /api/v1/users/{id}/favorite-folders}（<b>过滤私密</b>）</td></tr>
  *   <tr><td>{@link #findById}</td><td>改名 / 改私密 / 删除 / 收藏与移动前的归属与类别校验</td></tr>
- *   <tr><td>{@link #updateNameAndPrivacy}</td><td>{@code POST /favorite/folder/update}（部分更新）</td></tr>
- *   <tr><td>{@link #deleteById}</td><td>{@code POST /favorite/folder/remove}（条目由 {@code FavoriteItemDao} 同事务删）</td></tr>
+ *   <tr><td>{@link #updateNameAndPrivacy}</td><td>{@code PUT /api/v1/favorite-folders/{id}}（部分更新）</td></tr>
+ *   <tr><td>{@link #deleteById}</td><td>{@code DELETE /api/v1/favorite-folders/{id}}（条目由 {@code FavoriteItemDao} 同事务删）</td></tr>
  *   <tr><td>{@link #insertDefaultFolderIfAbsent} + {@link #findDefaultFolderId}</td>
- *       <td>{@code POST /favorite/add} 未带 {@code folderId} 时的默认夹懒建（R-01，T4）</td></tr>
+ *       <td>{@code POST /api/v1/favorites} 未带 {@code folderId} 时的默认夹懒建（R-01，T4）</td></tr>
  * </table>
  *
  * <p>⚠️ 删除自建夹要**一并删条目**（R-02）；删夹与删条目必须同事务
@@ -98,7 +98,7 @@ public interface FavoriteFolderDao {
     List<FavoriteFolderVO> findByUserIdWithItemCount(@Param("userId") long userId);
 
     /**
-     * 他人视角的公开夹列表（{@code GET /favorite/folder/public?userId=X}）——
+     * 他人视角的公开夹列表（{@code GET /api/v1/users/{id}/favorite-folders}）——
      * 与"我的夹列表"**同口径、同顺序**，只多一个过滤：{@code is_private = 0}。
      *
      * <h2>★ 为什么与 {@link #findByUserIdWithItemCount} 是两条 SQL，而不是一条带开关的</h2>

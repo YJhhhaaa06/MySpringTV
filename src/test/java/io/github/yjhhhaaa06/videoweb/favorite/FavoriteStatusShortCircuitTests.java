@@ -11,19 +11,17 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
 
 import java.sql.PreparedStatement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -36,7 +34,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 /**
- * 收藏三期 <b>T15：{@code /favorite/status} 短路</b> 的契约与性能形态测试
+ * 收藏三期 <b>T15：{@code /api/v1/contents/{id}/favorite} 短路</b> 的契约与性能形态测试
  * （{@code 能力 三期-3}；favorite.md §七；决策的来龙去脉见 {@code FURTHER_ISSUES.md} <b>F-17</b>）。
  *
  * <h2>为什么单列一个类</h2>
@@ -47,7 +45,7 @@ import static org.mockito.Mockito.verify;
  *
  * <h2>★ 本类的判据不是"更快"，而是"同一个语义不该有两个来源"</h2>
  * 本仓无流量，省下的是亚毫秒级点查 ⇒ **收益测不出**。它值得做的理由在 {@code detail.js}：
- * {@code initFavorite()} 读详情内联（**缓存**成员集）、{@code loadPicker()} 读 {@code /favorite/status}
+ * {@code initFavorite()} 读详情内联（**缓存**成员集）、{@code loadPicker()} 读 {@code /api/v1/contents/{id}/favorite}
  * （<b>T15 前是纯 DB</b>），两者把答案写进**同一个按钮态**。
  * ⇒ 本类把"二者现在是同一个来源"这件事做成可复核的断言（见最后一个用例）。
  *
@@ -255,7 +253,7 @@ class FavoriteStatusShortCircuitTests extends AbstractHttpIntegrationTest {
     // ========================================================================
 
     @Test
-    @DisplayName("★验收⑤：同一场景下详情内联 interaction.isFavorited 与 /favorite/status.isFavorited 始终一致（三种状态）")
+    @DisplayName("★验收⑤：同一场景下详情内联 interaction.isFavorited 与 /api/v1/contents/{id}/favorite.isFavorited 始终一致（三种状态）")
     void 详情页按钮态与弹窗态同源() {
         TestUser me = register("13800003105", "t15-same-source");
         long video = insertVideoContent(me.id(), "T15 同源视频");
@@ -263,7 +261,7 @@ class FavoriteStatusShortCircuitTests extends AbstractHttpIntegrationTest {
 
         // ① 未收藏：两个来源都答 false（T15 前：一个读缓存一个读 DB，陈旧时会在同一个按钮上打架）
         assertThat(detailIsFavorited(video, me.token())).as("详情页按钮（详情内联）").isFalse();
-        assertThat(statusIsFavorited(video, me.token())).as("收藏弹窗（/favorite/status）").isFalse();
+        assertThat(statusIsFavorited(video, me.token())).as("收藏弹窗（/api/v1/contents/{id}/favorite）").isFalse();
 
         // ② 收藏后：都答 true
         assertThat(addItem(folder, video, me.token()).getStatusCode().value()).isEqualTo(200);
@@ -271,7 +269,8 @@ class FavoriteStatusShortCircuitTests extends AbstractHttpIntegrationTest {
         assertThat(statusIsFavorited(video, me.token())).as("收藏弹窗").isTrue();
 
         // ③ 移出后：都回到 false
-        assertThat(removeItems(folder, List.of(video), me.token()).getStatusCode().value()).isEqualTo(200);
+        assertThat(removeItems(folder, List.of(video), me.token()).getStatusCode().value())
+                .as("`T59`：删除 = 204").isEqualTo(204);
         assertThat(detailIsFavorited(video, me.token())).as("详情页按钮").isFalse();
         assertThat(statusIsFavorited(video, me.token())).as("收藏弹窗").isFalse();
 
@@ -294,17 +293,17 @@ class FavoriteStatusShortCircuitTests extends AbstractHttpIntegrationTest {
     // ========================================================================
 
     private ResponseEntity<String> status(String token, long contentId) {
-        return get("/favorite/status?contentId=" + contentId, token);
+        return get("/api/v1/contents/" + contentId + "/favorite", token);
     }
 
     /** 详情页内联态（{@code GET /search/IdSearch} 的 {@code data.interaction.isFavorited}）。 */
     private boolean detailIsFavorited(long contentId, String token) {
-        ResponseEntity<String> resp = get("/search/IdSearch?contentId=" + contentId, token);
+        ResponseEntity<String> resp = get("/api/v1/contents/" + contentId, token);
         assertThat(resp.getStatusCode().value()).as("详情应 200: %s", resp.getBody()).isEqualTo(200);
         return Envelope.data(resp).path("interaction").path("isFavorited").asBoolean();
     }
 
-    /** 收藏弹窗态（{@code GET /favorite/status} 的 {@code data.isFavorited}）。 */
+    /** 收藏弹窗态（{@code GET /api/v1/contents/{id}/favorite} 的 {@code data.isFavorited}）。 */
     private boolean statusIsFavorited(long contentId, String token) {
         return Envelope.data(status(token, contentId)).path("isFavorited").asBoolean();
     }
@@ -399,13 +398,10 @@ class FavoriteStatusShortCircuitTests extends AbstractHttpIntegrationTest {
         return Boolean.TRUE.equals(redis.hasKey(key));
     }
 
-    // ==================== 写端点（POST + form，同 favorite 域其它测试） ====================
+    // ==================== 写端点（`T59` 载荷面：POST + JSON body） ====================
 
     private ResponseEntity<String> addItem(long folderId, long contentId, String token) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("folderId", String.valueOf(folderId));
-        form.add("contentId", String.valueOf(contentId));
-        return postForm("/favorite/add", form, token);
+        return post("/api/v1/favorites", Map.of("folderId", folderId, "contentId", contentId), token);
     }
 
     private ResponseEntity<String> removeItems(long folderId, List<Long> contentIds, String token) {
@@ -414,18 +410,7 @@ class FavoriteStatusShortCircuitTests extends AbstractHttpIntegrationTest {
         for (Long contentId : contentIds) {
             form.add("contentIds", String.valueOf(contentId));
         }
-        return postForm("/favorite/remove", form, token);
-    }
-
-    private ResponseEntity<String> postForm(String path, MultiValueMap<String, String> form, String token) {
-        return send(spec -> {
-            RestClient.RequestBodySpec request = spec.uri(path)
-                    .contentType(MediaType.APPLICATION_FORM_URLENCODED);
-            if (token != null) {
-                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-            }
-            return request.body(form);
-        });
+        return deleteQuery("/api/v1/favorites", form, token);
     }
 
     private static List<String> names(JsonNode folders) {

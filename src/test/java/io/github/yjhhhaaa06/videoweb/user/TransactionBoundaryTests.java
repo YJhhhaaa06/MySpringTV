@@ -101,7 +101,7 @@ class TransactionBoundaryTests extends AbstractIntegrationTest {
                 () -> userService.registerAndLogin(new RegisterRequest("other", PASSWORD, PHONE)))
                 .getCode())
                 .as("注册失败必须照旧抛错，不能被 U-1 的手动登录兜底吞掉")
-                .isEqualTo(409);
+                .isEqualTo("USER_PHONE_TAKEN");
 
         // 且没有新增行
         Long count = jdbcTemplate.queryForObject(

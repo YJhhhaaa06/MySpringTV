@@ -3,7 +3,7 @@ package io.github.yjhhhaaa06.videoweb.follow.model.vo;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
- * 关注 / 粉丝列表的条目（{@code /follow/following} 与 {@code /follow/followers} 共用同一形状）。
+ * 关注 / 粉丝列表的条目（{@code /api/v1/users/{id}/following} 与 {@code /api/v1/users/{id}/followers} 共用同一形状）。
  *
  * <p>承接 TV {@code FollowService.buildUserViews} 手搭的 {@code Map<String,Object>}
  * （键集合与取值口径逐字对齐：{@code userId / username / isFollowed / isSelf}），

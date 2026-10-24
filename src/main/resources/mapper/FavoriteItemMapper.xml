@@ -39,6 +39,13 @@
         VALUES (#{folderId}, #{userId}, #{contentId})
     </insert>
 
+    <!-- ★ T59：幂等移动专用（PUT /favorites/{id} 与 PUT /watch-later/{id}/folder）。
+         目标夹已有同内容 / 并发重复 ⇒ 0 行，调用方视为成功；POST /favorites 仍走 insertItem（409）。 -->
+    <insert id="insertItemIgnore">
+        INSERT IGNORE INTO favorite_item (folder_id, user_id, content_id)
+        VALUES (#{folderId}, #{userId}, #{contentId})
+    </insert>
+
     <!-- 从一个夹移出若干条（T4：批量移出 + move 的源侧删除；move 传单元素列表）。
          ★ 单条 DELETE ... IN 原生原子 ⇒ 批量移出不需要 @Transactional（事务边界篇 §一）。
          ★ 刻意**不带**任何 content 联结/存在性条件（G11 红线）：失效条目必须删得掉。
@@ -144,6 +151,14 @@
         SELECT EXISTS(
             SELECT 1 FROM favorite_item
             WHERE user_id = #{userId} AND content_id = #{contentId}
+        )
+    </select>
+
+    <!-- ★ T59：该内容是否已在**指定夹**里（幂等移动的判定；走 uk_folder_content 点查）。 -->
+    <select id="existsByFolderAndContent" resultType="boolean">
+        SELECT EXISTS(
+            SELECT 1 FROM favorite_item
+            WHERE folder_id = #{folderId} AND content_id = #{contentId}
         )
     </select>
 

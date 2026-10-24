@@ -5,18 +5,15 @@ import io.github.yjhhhaaa06.videoweb.support.Envelope;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
 
 import java.sql.PreparedStatement;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -25,9 +22,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <h2>覆盖什么</h2>
  * <ul>
- *   <li>★ {@code POST /favorite/folder/update} 升级为**部分更新**（给了才改；T2 交接①）、
+ *   <li>★ {@code PUT /api/v1/favorite-folders/{id}} 升级为**部分更新**（给了才改；T2 交接①）、
  *       私密开关落库（DB 终态 oracle）、空更新 400、{@code isPrivate} 取值与非法格式 400；</li>
- *   <li>★ {@code GET /favorite/folder/public?userId=X} —— **私密"一期"的全部可观察行为**：
+ *   <li>★ {@code GET /api/v1/users/{id}/favorite-folders} —— **私密"一期"的全部可观察行为**：
  *       只返回该用户的公开夹（私密不出现、别人的不出现）、匿名可访问、条目形状与顺序契约；</li>
  *   <li>400 **先于** 403/404 的顺序（T2 钉死的口径在加可选字段后不许打乱，T2 交接②）；</li>
  *   <li>默认夹可设私密（favorite-需求.md只规定"默认夹删不掉"）。</li>
@@ -90,11 +87,11 @@ class FavoritePrivacyTests extends AbstractHttpIntegrationTest {
         insertItem(folder, me.id, 1001L);
         insertItem(folder, me.id, GHOST_CONTENT_ID);
 
-        ResponseEntity<String> resp = update(folder, me.token, fields("isPrivate", "1"));
+        ResponseEntity<String> resp = update(folder, me.token, fields("isPrivate", true));
 
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
-        assertThat(Envelope.code(resp)).isEqualTo(200);
-        assertThat(Envelope.data(resp).asString()).as("写端点的 data 是中文文案（同 T2）").isEqualTo("修改成功");
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
+        assertThat(resp.getBody()).as("`T59` 起写成功不再回文案 data").doesNotContain("\"data\"");
         assertThat(isPrivateOf(folder)).as("独立 oracle：直查 DB 终态").isEqualTo(1);
 
         // 「我的」列表：私密夹必须还在（设私密不改变自己的可见性——favorite-需求.md只说"别人看不到"）
@@ -120,12 +117,12 @@ class FavoritePrivacyTests extends AbstractHttpIntegrationTest {
         assertThat(isPrivateOf(folderA)).as("没给 isPrivate ⇒ 不许动它").isZero();
 
         // ② 只给 isPrivate：名字必须原样
-        assertThat(update(folderB, me.token, fields("isPrivate", "0")).getStatusCode().value()).isEqualTo(200);
+        assertThat(update(folderB, me.token, fields("isPrivate", false)).getStatusCode().value()).isEqualTo(200);
         assertThat(isPrivateOf(folderB)).as("没给 name ⇒ 不许动它").isZero();
         assertThat(nameOf(folderB)).as("名字必须逐字原样（哪怕把「改回公开」当成一次改名都是错的）").isEqualTo("原名B");
 
         // ③ 两个都给：都改（且必须由**一条** SQL 完成才原子——见 DAO 注释；此处只断终态）
-        assertThat(update(folderC, me.token, fields("name", "新名C", "isPrivate", "1"))
+        assertThat(update(folderC, me.token, fields("name", "新名C", "isPrivate", true))
                 .getStatusCode().value()).isEqualTo(200);
         assertThat(nameOf(folderC)).isEqualTo("新名C");
         assertThat(isPrivateOf(folderC)).isEqualTo(1);
@@ -140,14 +137,14 @@ class FavoritePrivacyTests extends AbstractHttpIntegrationTest {
         long others = insertFolder(other.id, "别人的夹", false, false);
 
         // 什么字段都没给：三个目标（自己的 / 别人的 / 不存在的）都必须 400 —— 参数形态先于资源归属
-        assertThat(update(mine, me.token, new LinkedMultiValueMap<>()).getStatusCode().value())
+        assertThat(update(mine, me.token, Map.of()).getStatusCode().value())
                 .as("空更新多半是调用方漏传字段的 bug，静默 200 会让它永远不被发现").isEqualTo(400);
-        assertThat(update(others, me.token, new LinkedMultiValueMap<>()).getStatusCode().value())
+        assertThat(update(others, me.token, Map.of()).getStatusCode().value())
                 .as("★ 对别人的夹也必须是 400 而不是 403 —— T2 钉死的「400 判在 403 之前」顺序契约，"
                         + "加可选字段后不许打乱（T2 交接②）").isEqualTo(400);
-        assertThat(update(999999L, me.token, new LinkedMultiValueMap<>()).getStatusCode().value())
+        assertThat(update(999999L, me.token, Map.of()).getStatusCode().value())
                 .as("对不存在的夹同样是 400（参数校验不碰库）").isEqualTo(400);
-        // 非法 isPrivate 同样"参数形态先于资源归属"：解析在 Controller（进 service 之前）就完成
+        // 非法 isPrivate 同样"参数形态先于资源归属"：JSON 转换（进 service 之前）就失败
         assertThat(update(others, me.token, fields("isPrivate", "maybe")).getStatusCode().value())
                 .as("★ 非法取值对**别人的夹**也必须是 400 而不是 403（与空更新同一条顺序契约）").isEqualTo(400);
 
@@ -158,25 +155,25 @@ class FavoritePrivacyTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("isPrivate 取值：1/true/0/false 均可（大小写不敏感）；非法值（含空串）→ 400 且 DB 不变")
+    @DisplayName("isPrivate 取值：布尔 true/false 均可；字符串字面量（含 1/0/空串/2）→ 400 且 DB 不变")
     void 私密开关取值与非法格式() {
         TestUser me = register("13800002005", "取值用户");
         long folder = insertFolder(me.id, "开关夹", false, false);
 
-        // 四个合法写法（大小写不敏感）——与 /content/commentEnabled 同一值集
-        assertThat(update(folder, me.token, fields("isPrivate", "true")).getStatusCode().value()).isEqualTo(200);
+        // `T59` 契约变更（接口契约.md §2.5「布尔用真类型」）：只认 JSON 布尔，
+        // 旧的 1/true/0/false 字符串值集退役。
+        assertThat(update(folder, me.token, fields("isPrivate", true)).getStatusCode().value()).isEqualTo(200);
         assertThat(isPrivateOf(folder)).isEqualTo(1);
-        assertThat(update(folder, me.token, fields("isPrivate", "FALSE")).getStatusCode().value()).isEqualTo(200);
-        assertThat(isPrivateOf(folder)).as("大写 FALSE 也要认").isZero();
-        assertThat(update(folder, me.token, fields("isPrivate", "1")).getStatusCode().value()).isEqualTo(200);
-        assertThat(update(folder, me.token, fields("isPrivate", "0")).getStatusCode().value()).isEqualTo(200);
-        assertThat(isPrivateOf(folder)).isZero();
+        assertThat(update(folder, me.token, fields("isPrivate", false)).getStatusCode().value()).isEqualTo(200);
+        assertThat(isPrivateOf(folder)).as("false 也要认").isZero();
 
-        // 非法值：给了就必须合法 —— "空串"也算给了（前端传空字段是 bug，不能悄悄当没给）
-        assertThat(update(folder, me.token, fields("isPrivate", "maybe")).getStatusCode().value()).isEqualTo(400);
-        assertThat(update(folder, me.token, fields("isPrivate", "")).getStatusCode().value()).isEqualTo(400);
-        assertThat(update(folder, me.token, fields("isPrivate", "2")).getStatusCode().value())
-                .as("值域只有 0/1（+true/false），2 不是'真值'").isEqualTo(400);
+        // 非法值：非布尔的 JSON 字面量在转换层就失败 —— 400 且不改库
+        // ⚠️ 已知宽松（Jackson 默认标量强制）：字符串 "true"/"false"（大小写不敏感）仍会被收下。
+        //    对外契约只承诺**布尔**；这里不把"字符串被宽容接受"钉成契约（也不依赖它）。
+        for (Object literal : new Object[]{"1", "0", "maybe", "", "2"}) {
+            assertThat(update(folder, me.token, fields("isPrivate", literal)).getStatusCode().value())
+                    .as("非布尔字面量 [%s] ⇒ 400", literal).isEqualTo(400);
+        }
         assertThat(update(folder, me.token, fields("name", "好名字", "isPrivate", "maybe"))
                 .getStatusCode().value()).as("非法 isPrivate 不能因为同时给了合法 name 就被放过").isEqualTo(400);
 
@@ -190,7 +187,7 @@ class FavoritePrivacyTests extends AbstractHttpIntegrationTest {
         TestUser me = register("13800002006", "默认夹用户");
         long defaultFolder = insertDefaultFolder(me.id, "默认收藏夹");
 
-        assertThat(update(defaultFolder, me.token, fields("isPrivate", "1")).getStatusCode().value())
+        assertThat(update(defaultFolder, me.token, fields("isPrivate", true)).getStatusCode().value())
                 .as("不写针对 is_default 的特判 —— B 站口径：默认夹可设私密").isEqualTo(200);
         assertThat(isPrivateOf(defaultFolder)).isEqualTo(1);
         // 反向对照：默认夹**仍然**删不掉（is_private 不参与删除判定 —— 它是载荷字段，不是权限）
@@ -279,7 +276,7 @@ class FavoritePrivacyTests extends AbstractHttpIntegrationTest {
         assertThat(names(Envelope.data(anon))).containsExactly("公开夹");
 
         // ② 坏 token：JwtAuthFilter 对"公开端点 + 坏 token"按匿名放行，不得误杀成 401
-        ResponseEntity<String> badToken = get("/favorite/folder/public?userId=" + me.id, "not-a-jwt");
+        ResponseEntity<String> badToken = get("/api/v1/users/" + me.id + "/favorite-folders", "not-a-jwt");
         assertThat(badToken.getStatusCode().value())
                 .as("公开端点收到坏 token ⇒ 按匿名处理（见 JwtAuthFilter 类注释）").isEqualTo(200);
         assertThat(names(Envelope.data(badToken))).containsExactly("公开夹");
@@ -318,9 +315,11 @@ class FavoritePrivacyTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("公开端点参数：缺 userId → 400；userId 非数字 → 400（缺参/坏参由参数绑定交给全局出口）")
+    @DisplayName("公开端点参数：userId 进路径后非数字 → 400（缺 id 已不可表达，见注释）")
     void 公开端点参数非法400() {
-        assertThat(get("/favorite/folder/public", null).getStatusCode().value()).as("缺 userId").isEqualTo(400);
+        // `T58` 契约变更（接口契约.md §2.3）：userId 从 query 搬进路径 ⇒ **非法 id = 400**；
+        //   **"缺 id" = 404**，但少了 id 就没有路由匹配，"缺参 400"这条旧断言已不可达 ——
+        //   退役它，不用双斜杠去撞路径归一化（那测的是容器 URL 处理、不是本契约）。
         assertThat(publicFoldersRaw("abc").getStatusCode().value()).as("userId 非数字").isEqualTo(400);
     }
 
@@ -328,53 +327,39 @@ class FavoritePrivacyTests extends AbstractHttpIntegrationTest {
     // HTTP
     // ========================================================================
 
-    private ResponseEntity<String> update(long folderId, String token, MultiValueMap<String, String> extraFields) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("folderId", String.valueOf(folderId));
-        form.addAll(extraFields);
-        return postForm("/favorite/folder/update", form, token);
+    private ResponseEntity<String> update(long folderId, String token, Map<String, Object> fields) {
+        // `T58` 契约变更：夹 id 进路径（PUT /api/v1/favorite-folders/{id}，接口契约.md §2.3/§2.4）。
+        // `T59` 载荷面：字段走 JSON body（不再是 form）；isPrivate 是布尔真类型。
+        return put("/api/v1/favorite-folders/" + folderId, fields, token);
     }
 
     private ResponseEntity<String> removeFolder(long folderId, String token) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("folderId", String.valueOf(folderId));
-        return postForm("/favorite/folder/remove", form, token);
+        // `T58` 契约变更：DELETE + 夹 id 进路径（接口契约.md §2.3/§2.4）。
+        return delete("/api/v1/favorite-folders/" + folderId, token);
     }
 
     private ResponseEntity<String> listFolders(String token) {
-        return get("/favorite/folder/list", token);
+        return get("/api/v1/favorite-folders", token);
     }
 
     private ResponseEntity<String> publicFolders(long userId) {
-        return get("/favorite/folder/public?userId=" + userId, null);
+        return get("/api/v1/users/" + userId + "/favorite-folders", null);
     }
 
     private ResponseEntity<String> publicFolders(long userId, String token) {
-        return get("/favorite/folder/public?userId=" + userId, token);
+        return get("/api/v1/users/" + userId + "/favorite-folders", token);
     }
 
     private ResponseEntity<String> publicFoldersRaw(String rawUserId) {
-        return get("/favorite/folder/public?userId=" + rawUserId, null);
+        return get("/api/v1/users/" + rawUserId + "/favorite-folders", null);
     }
 
-    /** POST + {@code x-www-form-urlencoded}（收藏域的写形态，对齐 /like/*、/follow/* 与 T2 测试）。 */
-    private ResponseEntity<String> postForm(String path, MultiValueMap<String, String> form, String token) {
-        return send(spec -> {
-            RestClient.RequestBodySpec request = spec.uri(path)
-                    .contentType(MediaType.APPLICATION_FORM_URLENCODED);
-            if (token != null) {
-                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-            }
-            return request.body(form);
-        });
-    }
-
-    private static MultiValueMap<String, String> fields(String... keyValuePairs) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        for (int i = 0; i < keyValuePairs.length; i += 2) {
-            form.add(keyValuePairs[i], keyValuePairs[i + 1]);
+    private static Map<String, Object> fields(Object... keyValuePairs) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        for (int i = 0; i + 1 < keyValuePairs.length; i += 2) {
+            body.put((String) keyValuePairs[i], keyValuePairs[i + 1]);
         }
-        return form;
+        return body;
     }
 
     // ========================================================================

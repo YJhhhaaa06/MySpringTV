@@ -65,12 +65,13 @@ class AccessLogTests extends AbstractObservabilityTest {
     @DisplayName("正常请求：访问行含方法/路径/状态码/业务码/耗时，且同一 req 贯穿")
     void 正常请求_访问行完整() {
         clearLogs();
-        ResponseEntity<String> response = get("/start", null);
+        ResponseEntity<String> response = get("/api/v1/contents/recommended", null);
         assertThat(response.getStatusCode().value()).isEqualTo(200);
 
-        String line = awaitAccessLine("/start", "status=200");
+        // `T58` 契约变更：/start 资源化为 GET /api/v1/contents/recommended（接口契约.md §2.3）
+        String line = awaitAccessLine("/api/v1/contents/recommended", "status=200");
         assertThat(line).contains("method=GET ");
-        assertThat(line).contains("code=200 ");
+        assertThat(line).contains("code=OK ");
         assertThat(line).contains("userId=- ");           // 公开端点无身份
         assertThat(line).contains("slow=0");
         assertThat(costOf(line))
@@ -80,17 +81,39 @@ class AccessLogTests extends AbstractObservabilityTest {
     }
 
     @Test
-    @DisplayName("未登录访问受保护接口：status=401 且业务码也是 401")
+    @DisplayName("未登录访问受保护接口：status=401 且业务码是字符串码 AUTH_UNAUTHORIZED")
     void 未登录_访问行记401() {
         clearLogs();
-        ResponseEntity<String> response = post("/user/changePassword", Map.of(), null);
+        ResponseEntity<String> response = put("/api/v1/users/me/password", Map.of(), null);
         assertThat(response.getStatusCode().value()).isEqualTo(401);
 
-        String line = awaitAccessLine("/user/changePassword", "status=401");
+        String line = awaitAccessLine("/api/v1/users/me/password", "status=401");
         assertThat(line)
-                .as("鉴权拒绝的业务码由 JwtAuthFilter 写入——缺它这里会退化成 0、与静态资源混为一谈")
-                .contains("code=401 ");
+                .as("鉴权拒绝的业务码由 JwtAuthFilter 写入——缺它这里会退化成 0、与静态资源混为一谈；"
+                        + "T55 起它是字符串码，不再是 status 的数字副本")
+                .contains("code=AUTH_UNAUTHORIZED ");
         assertThat(line).contains("userId=- ");
+    }
+
+    @Test
+    @DisplayName("★ 204 成功（删除/取消）：无信封但属于业务成功 ⇒ 访问行 code=OK（`T59`；静态资源仍 0）")
+    void 成功取消_访问行记OK() {
+        String token = registerAndGetToken("13800009501", "obs-access-204", "abc123456");
+        long userId = userIdOf("13800009501");
+        jdbcTemplate.update("INSERT INTO content (user_id, type, title, description) VALUES (?, 1, ?, ?)",
+                userId, "obs-204-probe", "d");
+        Long contentId = jdbcTemplate.queryForObject(
+                "SELECT id FROM content WHERE title = ?", Long.class, "obs-204-probe");
+        assertThat(contentId).isNotNull();
+        clearLogs();
+
+        ResponseEntity<String> response = delete("/api/v1/contents/" + contentId + "/like", token);
+        assertThat(response.getStatusCode().value()).isEqualTo(204);
+
+        String line = awaitAccessLine("/api/v1/contents/" + contentId + "/like", "status=204");
+        assertThat(line)
+                .as("204 没有 body，业务码只能由 status 补 OK；静态资源不会返回 204 ⇒ 不会污染 code=0 判据")
+                .contains("code=OK ");
     }
 
     @Test
@@ -129,18 +152,18 @@ class AccessLogTests extends AbstractObservabilityTest {
             Files.writeString(probe, "observability probe", StandardCharsets.UTF_8);
 
             clearLogs();
-            get("/start", null);
-            post("/user/changePassword", Map.of(), null);
+            get("/api/v1/contents/recommended", null);
+            put("/api/v1/users/me/password", Map.of(), null);
             get(STATIC_URL, null);
 
-            String normal = awaitAccessLine("/start", "status=200");
-            String unauthorized = awaitAccessLine("/user/changePassword", "status=401");
+            String normal = awaitAccessLine("/api/v1/contents/recommended", "status=200");
+            String unauthorized = awaitAccessLine("/api/v1/users/me/password", "status=401");
             String staticResource = awaitAccessLine(STATIC_URL, "status=200");
 
             List<String> states = new ArrayList<>(List.of(
                     stateOf(normal), stateOf(unauthorized), stateOf(staticResource)));
             assertThat(states).as("三态的 (status,code) 必须互不相同，否则'可区分'不成立").doesNotHaveDuplicates();
-            assertThat(states).containsExactlyInAnyOrder("200/200", "401/401", "200/0");
+            assertThat(states).containsExactlyInAnyOrder("200/OK", "401/AUTH_UNAUTHORIZED", "200/0");
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         } finally {
@@ -166,13 +189,13 @@ class AccessLogTests extends AbstractObservabilityTest {
         clearLogs();
 
         ResponseEntity<String> response =
-                post("/user/changeUserName?userName=obs-error-probe", null, token);
+                put("/api/v1/users/me/username", Map.of("userName", "obs-error-probe"), token);
         assertThat(response.getStatusCode().value())
                 .as("数据访问异常 ⇒ 500（HTTP 状态码正确化后不再是 200）")
                 .isEqualTo(500);
 
-        String accessLine = awaitAccessLine("/user/changeUserName", "status=500");
-        assertThat(accessLine).contains("code=500 ");
+        String accessLine = awaitAccessLine("/api/v1/users/me/username", "status=500");
+        assertThat(accessLine).contains("code=SYSTEM_DATABASE ");
         String requestId = reqIdOf(accessLine);
 
         String appLine = awaitSystemLine("req=" + requestId + " ");
@@ -186,9 +209,10 @@ class AccessLogTests extends AbstractObservabilityTest {
     @DisplayName("访问行不记 query 串与请求头（D7「绝不记」：token/手机号/密码一律不落盘）")
     void 访问行不记query串与请求头() {
         clearLogs();
-        get("/search/IdSearch?contentId=1&keyword=secret-query-token", null);
+        get("/api/v1/contents/1?keyword=secret-query-token", null);
 
-        String line = awaitAccessLine("/search/IdSearch", "status=");
+        // `T58` 契约变更：详情 = GET /api/v1/contents/{id}（contentId 进路径，keyword 留 query）
+        String line = awaitAccessLine("/api/v1/contents/1", "status=");
         assertThat(line)
                 .as("path 取自 getRequestURI()，servlet 规范保证不含 query 串")
                 .doesNotContain("?")
@@ -200,14 +224,23 @@ class AccessLogTests extends AbstractObservabilityTest {
         return fieldOf(accessLine, "status=") + "/" + fieldOf(accessLine, "code=");
     }
 
-    /** 按 {@code prefix=<数字>} 取字段值（不用正则：日志行可能带行尾空白，正则的 {@code .*}
-     *  会把它一起留下，第一版就是这么踩的）。 */
+    /**
+     * 按 {@code prefix=<值>} 取字段值（不用正则：日志行可能带行尾空白，正则的 {@code .*}
+     * 会把它一起留下，第一版就是这么踩的）。
+     *
+     * <p>★ `T55` 起 {@code code=} 的值可能是字符串码（{@code AUTH_UNAUTHORIZED}），
+     * 故字符集从"纯数字"放宽到"字母数字下划线"；{@code status=} 仍是纯数字，两者互不影响。
+     */
     private static String fieldOf(String line, String prefix) {
         int start = line.indexOf(prefix);
         assertThat(start).as("访问行缺少字段 %s: %s", prefix, line).isGreaterThanOrEqualTo(0);
         int index = start + prefix.length();
         int end = index;
-        while (end < line.length() && Character.isDigit(line.charAt(end))) {
+        while (end < line.length()) {
+            char c = line.charAt(end);
+            if (!Character.isLetterOrDigit(c) && c != '_') {
+                break;
+            }
             end++;
         }
         return line.substring(index, end);

@@ -11,7 +11,7 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * 播放量 +1 ⇒ **条件 {@code INCRBY 1}** 维护 {@code content:playCount:{id}}（T48）。
  *
  * <h2>为什么由内容域订阅历史域的事件</h2>
- * {@code content.play_count} 是内容表自己的列，历史域在 {@code /history/play} 的事务里
+ * {@code content.play_count} 是内容表自己的列，历史域在播放事件（{@code POST /api/v1/contents/{id}/play}）的事务里
  * 首播 +1（{@code HistoryService#play}）后只声明"这条内容的播放量变了"。
  * 内容域要做的只剩一件事：让自己的计数键跟上；键是自己的，回填 / 失效 / 增量全在
  * {@link ContentCountCache}，历史域**不碰** {@code content.cache}
@@ -30,7 +30,7 @@ import org.springframework.transaction.event.TransactionalEventListener;
  *
  * <h2>时序与失败口径</h2>
  * 在提交线程**同步**执行（不用 {@code @Async}，同 {@code CoinChangedListener}）：
- * 于是 {@code /history/play} 的 HTTP 响应返回时，键已经更新，端到端用例无需等待。
+ * 于是播放事件的 HTTP 响应返回时，键已经更新，端到端用例无需等待。
  * Redis 故障只记 WARN（{@code ContentCountCache} 内吞掉）：事务已提交，缓存故障不能反过来
  * 让一次成功的播放变成 500 —— 代价是这次增量丢失，由 TTL 到期后的回源读列自愈。
  */

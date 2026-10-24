@@ -5,17 +5,13 @@ import io.github.yjhhhaaa06.videoweb.support.Envelope;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
 
 import java.sql.PreparedStatement;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -102,10 +98,8 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
         ResponseEntity<String> resp = addFolder("稍后再看", me.token);
 
         assertThat(resp.getStatusCode().value()).as("新建夹成功").isEqualTo(200);
-        assertThat(Envelope.code(resp)).isEqualTo(200);
-        // ⚠️ data 是**纯字符串**，故取整个 data 节点再 asString()；Envelope.str 是给对象型 data 用的
-        assertThat(Envelope.data(resp).asString()).as("写端点的 data 是中文文案（同 /like/add、/follow/add）")
-                .isEqualTo("创建成功");
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
+        assertThat(resp.getBody()).as("`T59` 起写成功不再回文案 data").doesNotContain("\"data\"");
 
         // 独立 oracle：直查 DB 终态（不信接口回显）
         List<FolderRow> rows = folderRows(me.id);
@@ -137,8 +131,8 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
 
         assertThat(addFolder("", me.token).getStatusCode().value()).as("空串名").isEqualTo(400);
         assertThat(addFolder("   ", me.token).getStatusCode().value()).as("全空白名").isEqualTo(400);
-        assertThat(postForm("/favorite/folder/add", new LinkedMultiValueMap<>(), me.token)
-                .getStatusCode().value()).as("缺 name 参数（Spring 抛缺参 → 400）").isEqualTo(400);
+        assertThat(post("/api/v1/favorite-folders", Map.of(), me.token)
+                .getStatusCode().value()).as("缺 name 字段（@NotBlank → 400）").isEqualTo(400);
 
         assertThat(folderRows(me.id)).as("被拒的请求不得留下任何行（400 必须发生在写库之前）").isEmpty();
     }
@@ -196,7 +190,7 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
         ResponseEntity<String> resp = listFolders(fresh.token);
 
         assertThat(resp.getStatusCode().value()).as("空态不是错误").isEqualTo(200);
-        assertThat(Envelope.code(resp)).isEqualTo(200);
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
         assertThat(Envelope.hasDataField(resp)).as("★ data 键必须**存在**（NON_NULL 只剥 null；空数组不是 null，必须留在信封里）")
                 .isTrue();
         JsonNode data = Envelope.data(resp);
@@ -324,7 +318,8 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
         insertItemRow(toDelete, me.id, GHOST_CONTENT_ID);   // 失效条目的记录也要被删掉
         insertItemRow(keep, me.id, 2002L);
 
-        assertThat(removeFolder(toDelete, me.token).getStatusCode().value()).isEqualTo(200);
+        assertThat(removeFolder(toDelete, me.token).getStatusCode().value())
+                .as("`T59`：删除 = 204").isEqualTo(204);
 
         // DB 终态（两条写必须同进同退）
         assertThat(folderExists(toDelete)).as("夹行已删").isFalse();
@@ -353,7 +348,7 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
         ResponseEntity<String> resp = removeFolder(defaultFolder, me.token);
 
         assertThat(resp.getStatusCode().value()).as("默认夹删不掉（favorite-需求.md §二）").isEqualTo(409);
-        assertThat(Envelope.code(resp)).isEqualTo(409);
+        assertThat(Envelope.code(resp)).isEqualTo("FAVORITE_FOLDER_DEFAULT");
         assertThat(folderExists(defaultFolder)).as("★ 409 之后夹必须还在").isTrue();
         assertThat(oracleItemCount(defaultFolder)).as("★ 夹内条目也不得被动过（拒删必须发生在删条目之前）")
                 .isEqualTo(1);
@@ -362,7 +357,8 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
         // ★ 而且这个自建夹**名字就叫「默认收藏夹」**（上面刚改的）⇒ 一次同时证明两件事：
         //   ① 删除端点本身可用；② 保护**来自 is_default 列，与名字无关**。
         assertThat(removeFolder(custom, me.token).getStatusCode().value())
-                .as("自建夹即使叫「默认收藏夹」也必须删得掉（反向钉死「判列不判名」）").isEqualTo(200);
+                .as("自建夹即使叫「默认收藏夹」也必须删得掉（反向钉死「判列不判名」）；`T59`：204")
+                .isEqualTo(204);
         assertThat(folderExists(custom)).isFalse();
     }
 
@@ -399,43 +395,22 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
     // ========================================================================
 
     private ResponseEntity<String> addFolder(String name, String token) {
-        return postForm("/favorite/folder/add", form("name", name), token);
+        return post("/api/v1/favorite-folders", Map.of("name", name), token);
     }
 
     private ResponseEntity<String> renameFolder(long folderId, String name, String token) {
-        MultiValueMap<String, String> f = form("folderId", folderId);
-        f.add("name", name);
-        return postForm("/favorite/folder/update", f, token);
+        // `T58` 契约变更：夹 id 进路径（PUT /api/v1/favorite-folders/{id}，接口契约.md §2.3/§2.4）。
+        // `T59` 载荷面：改名走 JSON body。
+        return put("/api/v1/favorite-folders/" + folderId, Map.of("name", name), token);
     }
 
     private ResponseEntity<String> removeFolder(long folderId, String token) {
-        return postForm("/favorite/folder/remove", form("folderId", folderId), token);
+        // `T58` 契约变更：DELETE + 夹 id 进路径（接口契约.md §2.3/§2.4），无请求体。
+        return delete("/api/v1/favorite-folders/" + folderId, token);
     }
 
     private ResponseEntity<String> listFolders(String token) {
-        return get("/favorite/folder/list", token);
-    }
-
-    /** POST + {@code x-www-form-urlencoded}（收藏域的写形态，对齐 /like/* 与 /follow/*）。 */
-    private ResponseEntity<String> postForm(String path, MultiValueMap<String, String> form, String token) {
-        return send(spec -> {
-            RestClient.RequestBodySpec request = spec.uri(path)
-                    .contentType(MediaType.APPLICATION_FORM_URLENCODED);
-            if (token != null) {
-                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-            }
-            return request.body(form);
-        });
-    }
-
-    private static MultiValueMap<String, String> form(String name, String value) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add(name, value);
-        return form;
-    }
-
-    private static MultiValueMap<String, String> form(String name, long value) {
-        return form(name, String.valueOf(value));
+        return get("/api/v1/favorite-folders", token);
     }
 
     // ========================================================================

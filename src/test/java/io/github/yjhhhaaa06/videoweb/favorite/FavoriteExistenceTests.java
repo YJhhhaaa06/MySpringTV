@@ -29,17 +29,17 @@ import static org.mockito.Mockito.verify;
  * （{@link FavoriteService#isFavorited} / {@link FavoriteService#batchIsFavorited}）的契约测试。
  *
  * <h2>为什么单列一个类（不并进 T5 的 {@link FavoriteStatusAndCountTests}）</h2>
- * T5 钉的是两条**端点**（{@code /favorite/status} 的"收在哪些夹" + {@code /favorite/count}）；
+ * T5 钉的是两条**端点**（{@code /api/v1/contents/{id}/favorite} 的"收在哪些夹" + {@code /api/v1/contents/{id}/favorite-count}）；
  * 本类钉的是 T9 新增的**判存在**契约 —— 它是"互动域组装"的依赖面，**没有端点**，
  * 且与 T5 的 status **口径刻意不同侧**（见下一条）。且 G8：一期的测试用例不许改，新契约单列更干净。
  *
- * <h2>★ 与 {@code /favorite/status} 的口径差（本类的核心判别力）</h2>
+ * <h2>★ 与 {@code /api/v1/contents/{id}/favorite} 的口径差（本类的核心判别力）</h2>
  * {@code status} 判"收在哪些夹"（JOIN {@code favorite_folder}）；本契约判"**记录存在**"（**不 JOIN**）。
  * 两者在正常态一致，在"孤儿行"边缘态**刻意不同侧**（夹被删而条目未删；该态无 API 可达，
  * 前提由 {@code deleteFolder} 的 {@code @Transactional} 承担，判别力已由 I-04 在 T8 收口）：
  * <ul>
  *   <li>{@code isFavorited} ⇒ **true**（"我收藏过"这个事实仍成立；与收藏数同侧）；</li>
- *   <li>{@code /favorite/status} ⇒ false（JOIN 丢行）—— 该分叉是已登记的已知边缘态，不是缺陷。</li>
+ *   <li>{@code /api/v1/contents/{id}/favorite} ⇒ false（JOIN 丢行）—— 该分叉是已登记的已知边缘态，不是缺陷。</li>
  * </ul>
  * 本类用 {@code 孤儿行} 用例把这个分叉**双向钉住**（没有它，"不 JOIN"就只是代码形状、无判别力）。
  *
@@ -205,14 +205,14 @@ class FavoriteExistenceTests extends AbstractHttpIntegrationTest {
         assertThat(favoriteService.isFavorited(me.id(), content))
                 .as("★ 不 JOIN：记录存在 ⇒ true（本契约服务'我收藏过没有'这个事实，与收藏数同侧）")
                 .isTrue();
-        // 对照：JOIN 版（/favorite/status）在孤儿态丢行 ⇒ false。
+        // 对照：JOIN 版（/api/v1/contents/{id}/favorite）在孤儿态丢行 ⇒ false。
         // ⚠️ T15 后因果链多了一步（结论未变）：status 现在**先问成员集**（不 JOIN ⇒ 孤儿算"已收藏"）
         //    ⇒ 才会落到 JOIN 取 folders ⇒ 丢行 ⇒ false。也就是说它是靠"JOIN 丢行"把布尔拉回 false，
         //    而不是靠成员集；本用例因此仍然钉得住这条分叉（注入把 status 改成 LEFT JOIN 仍会红）。
         // 该分叉是 I-04 已登记的已知边缘态 —— 双向上锁，防止将来悄悄改侧。
         // ⚠️ status 是 @RequiresLogin 端点：必须带 token，否则 401 的"缺 data"会被 asBoolean()
         //    读成 false，把一个假绿伪装成"分叉成立"。
-        var statusResp = get("/favorite/status?contentId=" + content, me.token());
+        var statusResp = get("/api/v1/contents/" + content + "/favorite", me.token());
         assertThat(statusResp.getStatusCode().value()).as("对照端点必须先 200，断言才有判别力").isEqualTo(200);
         assertThat(Envelope.data(statusResp).path("isFavorited").asBoolean())
                 .as("对照：status 的 JOIN 版在孤儿态答 false（分叉已登记，不是缺陷）")

@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 /**
- * 收藏夹**内**的一条内容（{@code GET /favorite/list} 的条目，T6）。
+ * 收藏夹**内**的一条内容（{@code GET /api/v1/favorites} 的条目，T6）。
  *
  * <h2>★ 一条记录两种渲染：正常卡片 / 失效占位</h2>
  * favorite-需求.md §五「失效内容」+ R-03 / R-11：内容被作者删除（{@code is_deleted = 1}）、管理员下架
@@ -30,7 +30,7 @@ import java.time.LocalDateTime;
  * <ul>
  *   <li>{@code id} —— 收藏记录行 id（前端的稳定行键；与 {@code contentId} 同在本 VO 里，
  *       是因为"移出"按 {@code (folderId, contentId)} 定位，而"渲染一行"按记录定位）；</li>
- *   <li>{@code contentId} —— ★ 打开内容 + **移出**都要它（T4 的 {@code /favorite/remove}
+ *   <li>{@code contentId} —— ★ 打开内容 + **移出**都要它（T4 的 {@code /api/v1/favorites}
  *       收的就是 {@code contentIds}，失效条目**必须**移得掉 ⇒ 失效时**照常返回**本字段）；</li>
  *   <li>{@code favoriteTime} —— 收藏时间（＝本页的排序键，{@code create_time DESC, id DESC}）；
  *       失效条目也返回（记录还在，收藏时间仍是事实）；</li>
@@ -56,7 +56,7 @@ import java.time.LocalDateTime;
  * 的条目抄出，失效行**构造**占位（"内容可不可用"归 content 域、"失效长什么样"归本域，
  * 各自的注入点独立，反向验证两个点都能红）。
  *
- * <p>JSON 形状（{@code /favorite/list} 的 {@code data.list} 元素）：
+ * <p>JSON 形状（{@code /api/v1/favorites} 的 {@code data.list} 元素）：
  * <pre>
  * {"id":11,"contentId":3,"favoriteTime":"2026-10-09T18:00:00","invalid":false,
  *  "title":"标题","coverUrl":"/upload/cover/x.png","authorName":"作者"}

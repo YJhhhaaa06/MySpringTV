@@ -5,16 +5,13 @@ import io.github.yjhhhaaa06.videoweb.support.Envelope;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestClient;
 
 import java.sql.PreparedStatement;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -128,7 +125,7 @@ class FavoriteCapacityTests extends AbstractHttpIntegrationTest {
 
         ResponseEntity<String> twentyFirst = addFolder("第 21 个", me.token);
         assertThat(twentyFirst.getStatusCode().value()).as("超上限 ⇒ 400").isEqualTo(400);
-        assertThat(Envelope.code(twentyFirst)).isEqualTo(400);
+        assertThat(Envelope.code(twentyFirst)).isEqualTo("FAVORITE_FOLDER_LIMIT");
         assertThat(Envelope.msg(twentyFirst)).as("文案要能自解释（用户看得到）").contains("上限");
         assertThat(countCustomFolders(me.id)).as("被拒的请求不得留下第 21 行").isEqualTo(CUSTOM_FOLDER_MAX_COUNT);
         assertThat(countCustomFolders(other.id)).as("旁人的 20 个夹也必须原样不动").isEqualTo(CUSTOM_FOLDER_MAX_COUNT);
@@ -194,7 +191,7 @@ class FavoriteCapacityTests extends AbstractHttpIntegrationTest {
 
         ResponseEntity<String> overflow = addItem(me.token, contentB, folder);
         assertThat(overflow.getStatusCode().value()).as("第 501 条 ⇒ 400").isEqualTo(400);
-        assertThat(Envelope.code(overflow)).isEqualTo(400);
+        assertThat(Envelope.code(overflow)).isEqualTo("FAVORITE_FOLDER_FULL");
         assertThat(oracleItemCount(folder))
                 .as("被拒后行数不得变化（400 必须发生在写库之前）").isEqualTo(CUSTOM_FOLDER_MAX_ITEMS);
         assertThat(itemRowCount(folder, contentB)).as("被拒的内容一条都没进").isZero();
@@ -240,7 +237,7 @@ class FavoriteCapacityTests extends AbstractHttpIntegrationTest {
 
         assertThat(resp.getStatusCode().value())
                 .as("★ 漏判 move 就能绕道把目标夹撑爆 ⇒ 必须 400").isEqualTo(400);
-        assertThat(Envelope.code(resp)).isEqualTo(400);
+        assertThat(Envelope.code(resp)).isEqualTo("FAVORITE_FOLDER_FULL");
         assertThat(itemRowCount(source, content)).as("被拒的移动必须**留在原位**（同 409 的口径）").isOne();
         assertThat(oracleItemCount(fullTarget)).as("目标夹一行都没多").isEqualTo(CUSTOM_FOLDER_MAX_ITEMS);
     }
@@ -338,43 +335,23 @@ class FavoriteCapacityTests extends AbstractHttpIntegrationTest {
     // ========================================================================
 
     private ResponseEntity<String> addFolder(String name, String token) {
-        return postForm("/favorite/folder/add", form("name", name), token);
+        return post("/api/v1/favorite-folders", Map.of("name", name), token);
     }
 
     private ResponseEntity<String> addItem(String token, long contentId, Long folderId) {
-        MultiValueMap<String, String> f = form("contentId", contentId);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("contentId", contentId);
         if (folderId != null) {
-            f.add("folderId", String.valueOf(folderId));
+            body.put("folderId", folderId);
         }
-        return postForm("/favorite/add", f, token);
+        return post("/api/v1/favorites", body, token);
     }
 
     private ResponseEntity<String> moveItem(String token, long fromFolderId, long toFolderId, long contentId) {
-        MultiValueMap<String, String> f = form("fromFolderId", fromFolderId);
-        f.add("toFolderId", String.valueOf(toFolderId));
-        f.add("contentId", String.valueOf(contentId));
-        return postForm("/favorite/move", f, token);
-    }
-
-    private ResponseEntity<String> postForm(String path, MultiValueMap<String, String> form, String token) {
-        return send(spec -> {
-            RestClient.RequestBodySpec request = spec.uri(path)
-                    .contentType(MediaType.APPLICATION_FORM_URLENCODED);
-            if (token != null) {
-                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-            }
-            return request.body(form);
-        });
-    }
-
-    private static MultiValueMap<String, String> form(String name, String value) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add(name, value);
-        return form;
-    }
-
-    private static MultiValueMap<String, String> form(String name, long value) {
-        return form(name, String.valueOf(value));
+        // `T58` 契约变更：contentId 进路径（PUT /api/v1/favorites/{id}，接口契约.md §2.3/§2.4）。
+        // `T59` 载荷面：from/to 走 JSON body。
+        return put("/api/v1/favorites/" + contentId,
+                Map.of("fromFolderId", fromFolderId, "toFolderId", toFolderId), token);
     }
 
     // ========================================================================

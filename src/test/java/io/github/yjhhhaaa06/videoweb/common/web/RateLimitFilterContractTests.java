@@ -33,7 +33,7 @@ import static org.assertj.core.api.Assertions.within;
  * <h2>★ 测试参数整体调小 + 覆盖生效守门（对冲"匿名桶退化为全局限流"，见 {@code architecture/tech/rate-limit/限流.md} §三）</h2>
  * MockMvc / 本机 HTTP 的匿名请求 IP 全是 {@code 127.0.0.1} ⇒ 匿名桶在本环境退化为
  * "全局限流"。本类用 {@link TestPropertySource} **内联属性**把桶参数整体调小
- * （cap=50、rate=1/s）——★ T26 起权重表生效（{@code POST /user/register} = 5）⇒ cap 由 4 上调为 50：
+ * （cap=50、rate=1/s）——★ T26 起权重表生效（{@code POST /api/v1/users} = 5）⇒ cap 由 4 上调为 50：
  * 本类的 fixture 注册调用必须装得进桶（cap &lt; 5 会让注册本身被 429 拦下）；{@code /start} 等读端点
  * 仍吃 {@code default-base = 1}，各用例的独立 oracle 口径不变。内联属性"父类先、子类后、同键**子类胜**"是 Spring 文档明文的合并规则，
  * 故子类覆盖父类（{@code AbstractIntegrationTest} 的 1M 大桶基线）是**受保证**的行为；
@@ -185,10 +185,10 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
         putBucket(ANON_KEY, CAP, System.currentTimeMillis());   // 满桶起步
         putBucket(SERVER_KEY, CAP, System.currentTimeMillis());
 
-        ResponseEntity<String> resp = get("/start", null);
+        ResponseEntity<String> resp = get("/api/v1/contents/recommended", null);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
-        assertThat(Envelope.code(resp)).isEqualTo(200);
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
 
         String anonRaw = rawOf(ANON_KEY);
         assertThat(anonRaw).as("放行后匿名桶必须被写过").isNotNull();
@@ -207,10 +207,10 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
         putBucket(ANON_KEY, 0.2, t0);
         putBucket(SERVER_KEY, CAP, System.currentTimeMillis());
 
-        ResponseEntity<String> resp = get("/start", null);
+        ResponseEntity<String> resp = get("/api/v1/contents/recommended", null);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(429);
-        assertThat(Envelope.code(resp)).as("业务码与 HTTP 对齐（T23 契约）").isEqualTo(429);
+        assertThat(Envelope.code(resp)).as("业务码与 HTTP 对齐（T23 契约）").isEqualTo("RATE_LIMITED");
         assertThat(Envelope.msg(resp)).isEqualTo("请求过于频繁");
 
         // 独立 oracle：被拒 ⇒ 用户桶只扣询问费（0.3），尾款（0.7）不扣；
@@ -237,7 +237,7 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
         putBucket(SERVER_KEY, 0.2, t0);          // 服务器桶不足
         String serverBefore = rawOf(SERVER_KEY);
 
-        ResponseEntity<String> resp = get("/start", null);
+        ResponseEntity<String> resp = get("/api/v1/contents/recommended", null);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(429);
         // ★ 字节级对照：被拒的请求在服务器桶上"一个字节都不写"（非对称扣减的另一半）。
@@ -262,7 +262,7 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
         // 要靠"登录请求前后快照不变"来证，而不是"键不存在"。
         String anonBefore = rawOf(ANON_KEY);
 
-        ResponseEntity<String> resp = get("/start", token);
+        ResponseEntity<String> resp = get("/api/v1/contents/recommended", token);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         assertThat(tokensOf(rawOf(userKey))).as("登录桶按 cost 扣减").isEqualTo(CAP - COST, within(1e-9));
@@ -289,8 +289,8 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
             hitSkippedAndAssertUntouched("/static/css/common.css");
             hitSkippedAndAssertUntouched("/actuator/health");
             hitSkippedAndAssertUntouched("/upload/" + UPLOAD_PROBE);
-            // /favicon.ico：文件不存在 ⇒ NoResourceFoundException ⇒ 本仓当前经 catch-all 变 500——
-            // 那是既有错误处理行为，与本任务无关；此处只证一件事：不耗令牌。
+            // /favicon.ico：文件不存在 ⇒ NoResourceFoundException ⇒ T56 起回 **404 无体**
+            // （静态资源不产信封，见 GlobalExceptionHandler#handleNoResource）；此处只证一件事：不耗令牌。
             hitSkippedAndAssertUntouched("/favicon.ico");
         } catch (IOException e) {
             throw new UncheckedIOException(e);
@@ -314,15 +314,18 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
     void 未映射路径404也过闸() {
         // ⚠️ 后缀用**固定字母**（不用 System.nanoTime()）：数字串会被 SensitiveDataTests 的
         //    `1[3-9]\d{9}` 扫描误判为"明文手机号"（2026-10-16 全量回归实际红过一次——
-        //    GlobalExceptionHandler 把未映射路径的 NoResourceFoundException 落进 system.log）。
+        //    GlobalExceptionHandler 把未映射路径的 NoResourceFoundException 当成未预期异常记 ERROR）。
+        //    T56 起该路径改为 DEBUG（只剩访问行），但夹具纪律不变。
         ResponseEntity<String> resp = get("/no-such-page-t25-probe", null);
 
-        // ⚠️ 状态码钉的是**既有行为**而非本任务的契约面：本仓未映射路径由
-        // NoResourceFoundException 落进 GlobalExceptionHandler 的 catch-all ⇒ 500。
-        // T25 的契约只有一条：这类请求**过闸**（"404 扫描流正是要防的对象之一"）。
+        // ★ **契约变更（T56，G8）**：本仓未映射路径的状态码从 500 改为 **404 信封**
+        //   （`architecture/tech/api/接口契约.md` §2.1 / §三 #6：NoResourceFoundException 不再落 catch-all）。
+        //   变更点 = 状态码与 body 形状，**不影响**本用例的契约面（这类请求必须**过闸**，
+        //   "404 扫描流正是要防的对象之一"）。原断言是 `isNotEqualTo(429)`（对 500 也成立，
+        //   即旧断言无法区分"过闸后 404"与"过闸后炸成 500"），现收紧到 404。
         // "过闸"的判定不能只看用户桶（被拒也扣询问费）——服务器桶**只在放行时扣**，
-        // 故两桶各扣 cost 才是"放行"的完整 oracle；再加一条"未被 429 拦下"。
-        assertThat(resp.getStatusCode().value()).as("未被闸门拦下").isNotEqualTo(429);
+        // 故两桶各扣 cost 才是"放行"的完整 oracle。
+        assertThat(resp.getStatusCode().value()).as("过闸后按新契约回 404（不是 429，也不是 500）").isEqualTo(404);
 
         String anonRaw = rawOf(ANON_KEY);
         assertThat(anonRaw).as("用户桶过闸被扣").isNotNull();
@@ -333,7 +336,7 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
     @Test
     @DisplayName("★ 未登录访问受保护接口（401 短路在限流器之前）：不耗令牌")
     void 未登录访问受保护接口_不耗令牌() {
-        ResponseEntity<String> resp = post("/user/changePassword", Map.of(), null);
+        ResponseEntity<String> resp = put("/api/v1/users/me/password", Map.of(), null);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(401);
         Set<String> keys = redis.keys("ratelimit:*");
@@ -343,13 +346,14 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("/api/admin（管理员）也过闸：200 且登录桶被扣 cost")
+    @DisplayName("/api/v1/admin（管理员）也过闸：200 且登录桶被扣 cost")
     void 管理员路径也过闸() {
         String token = registerAndGetToken("13800002502", "rlAdmin", "Password123");
         long userId = userIdOf("13800002502");
         jdbcTemplate.update("UPDATE users SET role = 1 WHERE id = ?", userId);
 
-        ResponseEntity<String> resp = get("/api/admin/content/list", token);
+        // `T58` 契约变更：GET /api/admin/content/list → GET /api/v1/admin/contents
+        ResponseEntity<String> resp = get("/api/v1/admin/contents", token);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         assertThat(tokensOf(rawOf("ratelimit:user:" + userId)))
@@ -359,20 +363,21 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
     // ==================== 访问日志（链序实测） ====================
 
     @Test
-    @DisplayName("★ 429 的访问行 code=429（AccessLogFilter 包住限流器的链序实测）")
+    @DisplayName("★ 429 的访问行 code=RATE_LIMITED（AccessLogFilter 包住限流器的链序实测）")
     void 被拒429的访问行code429_链序实测() {
         putBucket(ANON_KEY, 0.2, System.currentTimeMillis());
         putBucket(SERVER_KEY, CAP, System.currentTimeMillis());
 
-        ResponseEntity<String> resp = get("/start", null);
+        ResponseEntity<String> resp = get("/api/v1/contents/recommended", null);
         assertThat(resp.getStatusCode().value()).isEqualTo(429);
 
         // 轮询而非直读：访问行写在过滤器 finally 里，可能晚于响应到达客户端。
         // ★ 若 AccessLogFilter 不在限流器外侧，这条 429 根本不会有访问行 ⇒ 轮询超时 ⇒ 本用例红。
-        String line = awaitAccessLine("/start", "status=429");
+        // `T58` 契约变更：/start 资源化为 GET /api/v1/contents/recommended（接口契约.md §2.3）
+        String line = awaitAccessLine("/api/v1/contents/recommended", "status=429");
         assertThat(line)
                 .as("429 必须补记业务码——否则访问行记成 code=0，三态塌成两态")
-                .contains("code=429 ");
+                .contains("code=RATE_LIMITED ");
         assertThat(line).contains("userId=- ");
     }
 }

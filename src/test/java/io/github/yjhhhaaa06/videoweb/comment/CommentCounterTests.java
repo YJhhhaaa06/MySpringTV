@@ -25,7 +25,7 @@ import static org.mockito.Mockito.doThrow;
  *
  * <h2>为什么单列一个类</h2>
  * {@link CommentFlowTests} 钉的是"接口该返回什么"，本类钉的是**数据一致性的不变式**——
- * 这些不变式在接口层看不见（接口只回 "删除成功"），但它们错了会造成静默的计数漂移，
+ * 这些不变式在接口层看不见（`T59` 起删除只回 204 无体），但它们错了会造成静默的计数漂移，
  * 而计数是列表排序与展示的输入。分开是为了让"哪些测试在守护一致性"一眼可见。
  *
  * <h2>三个不变式</h2>
@@ -89,12 +89,12 @@ class CommentCounterTests extends AbstractCommentIntegrationTest {
         assertThat(replyCountOf(mainId)).isEqualTo(3);
 
         // 先单删一条回复：计数 4→3，主楼 reply_count 3→2
-        assertThat(deleteComment(reply1, otherToken).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(deleteComment(reply1, otherToken).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
         assertThat(commentCountOf(contentId)).isEqualTo(3);
         assertThat(replyCountOf(mainId)).isEqualTo(2);
 
         // 再删主楼：应扣 1(主楼) + 2(剩余未删回复) = 3
-        assertThat(deleteComment(mainId, authorToken).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(deleteComment(mainId, authorToken).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
 
         assertThat(commentCountOf(contentId))
                 .as("整栋删除只扣 1+剩余未删回复数；若先软删再计数会数到 0 而只扣 1（残留 2）")
@@ -129,7 +129,7 @@ class CommentCounterTests extends AbstractCommentIntegrationTest {
         //    不被计数列的边缘态干扰。
         jdbcTemplate.update("UPDATE content SET comment_count = 2 WHERE id = ?", contentId);
 
-        assertThat(deleteComment(replyId, token).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(deleteComment(replyId, token).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
 
         assertThat(replyCountOf(mainId)).as("防负守卫：0 + (-1) < 0 ⇒ 该 UPDATE 不生效").isZero();
         assertThat(isCommentDeleted(replyId)).as("计数被守卫拦住不影响软删本身").isTrue();
@@ -138,12 +138,12 @@ class CommentCounterTests extends AbstractCommentIntegrationTest {
     /**
      * ★ F-04 的尖锐场景（content 侧，unsigned）：评论行存在、但 {@code content.comment_count} 停在 0。
      * 删评论时若不设守卫，`0 + (-1)` 会因 UNSIGNED 下溢报 1690 → 500。
-     * 断言 200（不回滚、不失败）+ 评论照软删 + 计数停在 0（守卫 block）。
+     * 断言 204（不回滚、不失败）+ 评论照软删 + 计数停在 0（守卫 block）。
      *
      * <p><b>判别力</b>：去掉守卫 ⇒ 本用例因 500 变红；"正常 −1" 由 {@link #先单删回复再删主楼不得二次扣减} 作对照。
      */
     @Test
-    @DisplayName("★删评论：content.comment_count 为 0 但评论仍在 ⇒ 守卫拦住下溢，返回 200 而非 500（T34）")
+    @DisplayName("★删评论：content.comment_count 为 0 但评论仍在 ⇒ 守卫拦住下溢，返回 204 而非 500（T34）")
     void 删评论时commentCount为零不报500() {
         String token = registerAndGetToken(AUTHOR_PHONE, AUTHOR);
         long authorId = userIdOf(AUTHOR_PHONE);
@@ -154,7 +154,7 @@ class CommentCounterTests extends AbstractCommentIntegrationTest {
 
         ResponseEntity<String> resp = deleteComment(mainId, token);
 
-        assertThat(resp.getStatusCode()).as("守卫拦住下溢；不得 500").isEqualTo(HttpStatus.OK);
+        assertThat(resp.getStatusCode()).as("守卫拦住下溢；不得 500").isEqualTo(HttpStatus.NO_CONTENT);
         assertThat(isCommentDeleted(mainId)).as("评论照软删（守卫只作用于计数列）").isTrue();
         assertThat(commentCountOf(contentId)).as("计数停在 0（守卫 block）").isZero();
     }

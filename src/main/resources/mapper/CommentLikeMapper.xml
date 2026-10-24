@@ -10,9 +10,11 @@
 -->
 <mapper namespace="io.github.yjhhhaaa06.videoweb.like.dao.CommentLikeDao">
 
-    <!-- TV: INSERT INTO comment_like (user_id, comment_id) VALUES (?, ?) -->
+    <!-- TV: INSERT INTO comment_like (user_id, comment_id) VALUES (?, ?)
+         ★ T59 契约变更：改 INSERT IGNORE —— PUT /comments/{id}/like 是幂等设置，
+           重复/并发点赞撞 uk_user_comment 时返回 0 行（= 已赞，无副作用），不再 409。 -->
     <insert id="addLike">
-        INSERT INTO comment_like (user_id, comment_id) VALUES (#{userId}, #{commentId})
+        INSERT IGNORE INTO comment_like (user_id, comment_id) VALUES (#{userId}, #{commentId})
     </insert>
 
     <!-- TV: DELETE FROM comment_like WHERE user_id = ? AND comment_id = ? -->
@@ -39,7 +41,7 @@
     </select>
 
     <!-- TV: SELECT COUNT(*) FROM comment_like WHERE comment_id = ? -->
-    <select id="countByCommentId" resultType="int">
+    <select id="countByCommentId" resultType="long">
         SELECT COUNT(*) FROM comment_like WHERE comment_id = #{commentId}
     </select>
 

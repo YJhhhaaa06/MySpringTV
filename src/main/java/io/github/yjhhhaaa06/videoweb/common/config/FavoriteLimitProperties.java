@@ -23,7 +23,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * <ul>
  *   <li>{@link #defaultFolderMaxItems} / {@link #customFolderMaxItems} 数的是
  *       <b>{@code favorite_item} 行</b>（<b>含已失效条目</b>）—— 与
- *       {@code FavoriteFolderVO#itemCount}、{@code /favorite/list} 的 {@code total}
+ *       {@code FavoriteFolderVO#itemCount}、{@code /api/v1/favorites} 的 {@code total}
  *       <b>同一口径</b>；别一个口径数"内容"、一个口径数"行"（那会得到两个都"对"
  *       却互相矛盾的数）；</li>
  *   <li>{@link #customFolderMaxCount} 只数<b>自建夹</b>（{@code is_default = 0}）：

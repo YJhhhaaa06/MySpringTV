@@ -1,0 +1,3534 @@
+openapi: 3.1.0
+info:
+  description: |
+    MySpringTV 对外 HTTP 契约（机器可读形态）。
+
+    本 spec 由代码生成，**不是**手写：
+    `./mvnw.cmd test -Dtest=OpenApiSpecExportTests -Dapi.openapi.write=true`。
+    规则的**为什么**（状态码分层、码表粒度、路径与方法判据、例外清单）见
+    `architecture/tech/api/接口契约.md`；本 spec 只描述**形状**。
+
+    三条读法：
+    1. 业务码 `code` 是稳定字符串枚举（字典见 `ErrorCode` schema），HTTP status 只表类别；
+    2. 失败体是 `{code, msg, errors?}`，**没有** `data`；成功体是 `{code:"OK", msg, data?}`；
+    3. 每个端点列出的错误类别是**可能域**（不是穷举），精确分支一律看 `code`。
+
+    ⚠️ `operationId` 由方法名自动生成（同名方法会带 `_2` 后缀），**不作为契约的一部分**：
+    它会随同名方法增减而变，请按 path + method 调用。
+  title: MySpringTV API
+  version: 1.0.0
+servers:
+- description: 同源部署：按调用方当前的 origin 拼路径
+  url: /
+paths:
+  /api/v1/admin/comments/{id}:
+    delete:
+      operationId: delete_2
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        "204":
+          description: 已生效，无响应体
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - admin-comment-controller
+  /api/v1/admin/contents:
+    get:
+      operationId: list_4
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseListAdminContentVO"
+          description: OK
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - admin-content-controller
+  /api/v1/admin/contents/{id}/hidden:
+    delete:
+      operationId: unhide
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        "204":
+          description: 已生效，无响应体
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - admin-content-controller
+    put:
+      operationId: hide
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - admin-content-controller
+  /api/v1/admin/me:
+    get:
+      operationId: me_1
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseBoolean"
+          description: OK
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - media-admin-controller
+  /api/v1/admin/media:
+    get:
+      operationId: list_3
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseMediaAuditResult"
+          description: OK
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - media-admin-controller
+  /api/v1/admin/media/scan:
+    post:
+      operationId: scan
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseMediaAuditResult"
+          description: OK
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - media-admin-controller
+  /api/v1/admin/media/{id}:
+    put:
+      operationId: restore
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+              required:
+              - file
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseRestoreResult"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - media-admin-controller
+  /api/v1/comments:
+    post:
+      operationId: add_3
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddCommentRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - comment-controller
+  /api/v1/comments/{id}:
+    delete:
+      operationId: delete_1
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        "204":
+          description: 已生效，无响应体
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - comment-controller
+  /api/v1/comments/{id}/like:
+    delete:
+      operationId: cancelCommentLike
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        "204":
+          description: 已生效，无响应体
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - like-controller
+    get:
+      operationId: commentStatus
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseBoolean"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - like-controller
+    put:
+      operationId: likeComment
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - like-controller
+  /api/v1/comments/{id}/like-count:
+    get:
+      operationId: commentCount
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseLong"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - like-controller
+  /api/v1/comments/{id}/replies:
+    get:
+      operationId: replies
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      - in: query
+        name: cursor
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: pageSize
+        required: false
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseCursorResultCommentVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - comment-controller
+  /api/v1/contents:
+    get:
+      operationId: keywordSearch
+      parameters:
+      - in: query
+        name: keyword
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: pageSize
+        required: false
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponsePageResultContentVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - search-controller
+  /api/v1/contents/posts:
+    post:
+      operationId: uploadPost
+      parameters:
+      - in: query
+        name: title
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: description
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: categoryId
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                cover:
+                  type: string
+                  format: binary
+                image:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseContentCreatedVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - upload-controller
+  /api/v1/contents/recommended:
+    get:
+      operationId: start
+      parameters:
+      - in: query
+        name: type
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: categoryId
+        required: false
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseListContentVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - start-controller
+  /api/v1/contents/videos:
+    post:
+      operationId: uploadVideo
+      parameters:
+      - in: query
+        name: title
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: description
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: categoryId
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                cover:
+                  type: string
+                  format: binary
+                video:
+                  type: string
+                  format: binary
+              required:
+              - cover
+              - video
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseContentCreatedVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - upload-controller
+  /api/v1/contents/{id}:
+    delete:
+      operationId: delete
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        "204":
+          description: 已生效，无响应体
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - content-controller
+    get:
+      operationId: idSearch
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseContentDetailVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - search-controller
+    put:
+      operationId: update
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateContentRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - content-controller
+  /api/v1/contents/{id}/coins:
+    post:
+      operationId: add_2
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddCoinRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseCoinBalanceVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - coin-controller
+  /api/v1/contents/{id}/comment-enabled:
+    put:
+      operationId: commentEnabled
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommentEnabledRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - content-controller
+  /api/v1/contents/{id}/comments:
+    get:
+      operationId: show
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: pageSize
+        required: false
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponsePageResultCommentVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - comment-controller
+  /api/v1/contents/{id}/favorite:
+    get:
+      operationId: contentStatus_1
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseFavoriteStatusVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - favorite-controller
+  /api/v1/contents/{id}/favorite-count:
+    get:
+      operationId: contentCount_1
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseLong"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - favorite-controller
+  /api/v1/contents/{id}/like:
+    delete:
+      operationId: cancelContentLike
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        "204":
+          description: 已生效，无响应体
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - like-controller
+    get:
+      operationId: contentStatus
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseBoolean"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - like-controller
+    put:
+      operationId: likeContent
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - like-controller
+  /api/v1/contents/{id}/like-count:
+    get:
+      operationId: contentCount
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseLong"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - like-controller
+  /api/v1/contents/{id}/media:
+    delete:
+      operationId: mediaDelete
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      - in: query
+        name: type
+        required: true
+        schema:
+          type: integer
+          format: int32
+      - in: query
+        name: sort
+        required: true
+        schema:
+          type: integer
+          format: int32
+      responses:
+        "204":
+          description: 已生效，无响应体
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - content-controller
+    put:
+      operationId: replace
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      - in: query
+        name: type
+        required: true
+        schema:
+          type: integer
+          format: int32
+      - in: query
+        name: sort
+        required: true
+        schema:
+          type: integer
+          format: int32
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+              required:
+              - file
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseMediaReplacedVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - upload-controller
+  /api/v1/contents/{id}/play:
+    post:
+      operationId: play
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - history-controller
+  /api/v1/contents/{id}/progress:
+    get:
+      operationId: position
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseHistoryPositionVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - history-controller
+    put:
+      operationId: report
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportProgressRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+      tags:
+      - history-controller
+  /api/v1/coupons:
+    get:
+      operationId: list_2
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseListCouponVO"
+          description: OK
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - coupon-controller
+  /api/v1/coupons/{id}/claims:
+    post:
+      operationId: grab
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseCouponClaimVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - coupon-controller
+  /api/v1/favorite-folders:
+    get:
+      operationId: listFolders
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseListFavoriteFolderVO"
+          description: OK
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - favorite-controller
+    post:
+      operationId: addFolder
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateFavoriteFolderRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - favorite-controller
+  /api/v1/favorite-folders/{id}:
+    delete:
+      operationId: removeFolder
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        "204":
+          description: 已生效，无响应体
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - favorite-controller
+    put:
+      operationId: updateFolder
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateFavoriteFolderRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - favorite-controller
+  /api/v1/favorite-folders/{id}/items:
+    get:
+      operationId: publicFolderItems
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: pageSize
+        required: false
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponsePageResultFavoriteItemVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - favorite-controller
+  /api/v1/favorites:
+    delete:
+      operationId: removeItems
+      parameters:
+      - in: query
+        name: folderId
+        required: true
+        schema:
+          type: integer
+          format: int64
+      - in: query
+        name: contentIds
+        required: true
+        schema:
+          type: array
+          items:
+            type: integer
+            format: int64
+      responses:
+        "204":
+          description: 已生效，无响应体
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - favorite-controller
+    get:
+      operationId: listItems
+      parameters:
+      - in: query
+        name: folderId
+        required: true
+        schema:
+          type: integer
+          format: int64
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: pageSize
+        required: false
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponsePageResultFavoriteItemVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - favorite-controller
+    post:
+      operationId: addItem
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddFavoriteRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - favorite-controller
+  /api/v1/favorites/{id}:
+    put:
+      operationId: moveItem
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MoveFavoriteRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - favorite-controller
+  /api/v1/feed:
+    get:
+      operationId: feed
+      parameters:
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: pageSize
+        required: false
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponsePageResultContentVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - feed-controller
+  /api/v1/follows/{id}:
+    delete:
+      operationId: remove
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        "204":
+          description: 已生效，无响应体
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - follow-controller
+    put:
+      operationId: add_1
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - follow-controller
+  /api/v1/history:
+    get:
+      operationId: list_1
+      parameters:
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: pageSize
+        required: false
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponsePageResultHistoryItemVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - history-controller
+  /api/v1/history/flush:
+    post:
+      operationId: flush
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+          description: OK
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - history-controller
+  /api/v1/sessions:
+    post:
+      operationId: login
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseLoginVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - user-controller
+  /api/v1/users:
+    post:
+      operationId: register
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseLoginVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - user-controller
+  /api/v1/users/me:
+    get:
+      operationId: me
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseUserInfoVO"
+          description: OK
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - user-controller
+  /api/v1/users/me/check-ins:
+    post:
+      operationId: signIn
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseSignInVO"
+          description: OK
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - coin-controller
+  /api/v1/users/me/coupons:
+    get:
+      operationId: my
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseListCouponOrderVO"
+          description: OK
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - coupon-controller
+  /api/v1/users/me/password:
+    put:
+      operationId: changePassword
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - user-controller
+  /api/v1/users/me/username:
+    put:
+      operationId: changeUserName
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangeUserNameRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - user-controller
+  /api/v1/users/{id}:
+    get:
+      operationId: profile
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: pageSize
+        required: false
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseProfileVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - profile-controller
+  /api/v1/users/{id}/favorite-folders:
+    get:
+      operationId: publicFolders
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseListPublicFavoriteFolderVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - favorite-controller
+  /api/v1/users/{id}/followers:
+    get:
+      operationId: followers
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: pageSize
+        required: false
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponsePageResultFollowUserVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - follow-controller
+  /api/v1/users/{id}/following:
+    get:
+      operationId: following
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: pageSize
+        required: false
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponsePageResultFollowUserVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - follow-controller
+  /api/v1/watch-later:
+    delete:
+      operationId: remove_1
+      parameters:
+      - in: query
+        name: contentIds
+        required: true
+        schema:
+          type: array
+          items:
+            type: integer
+            format: int64
+      responses:
+        "204":
+          description: 已生效，无响应体
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - watch-later-controller
+    get:
+      operationId: list
+      parameters:
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: pageSize
+        required: false
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponsePageResultWatchLaterItemVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - watch-later-controller
+  /api/v1/watch-later/{id}:
+    put:
+      operationId: add
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - watch-later-controller
+  /api/v1/watch-later/{id}/folder:
+    put:
+      operationId: move
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MoveToFolderRequest"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - watch-later-controller
+components:
+  responses:
+    Conflict:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+      description: 唯一性占用 / 资源状态不允许该操作（`code` 指明具体原因）
+    Forbidden:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+      description: 已登录但无权限（`AUTH_FORBIDDEN`）
+    InternalError:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+      description: 服务器内部错误（`SYSTEM_INTERNAL` / `SYSTEM_DATABASE`）
+    NotFound:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+      description: 资源不存在（`code` 指明是哪类资源，如 `CONTENT_NOT_FOUND`）
+    ParamInvalid:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+      description: "请求参数不合法（校验族失败时带 `errors[]`；业务拒绝只有 `msg`）"
+    RateLimited:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+      description: 触发限流（`RATE_LIMITED`）
+      headers:
+        Retry-After:
+          description: 建议退避的秒数
+          schema:
+            type: integer
+            format: int32
+    ServiceUnavailable:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+      description: 依赖暂不可用（`SYSTEM_UNAVAILABLE`）—— **可重试**，按 `Retry-After` 退避
+      headers:
+        Retry-After:
+          description: 建议退避的秒数
+          schema:
+            type: integer
+            format: int32
+    Unauthorized:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+      description: 未登录 / 令牌无效或过期（`code` ∈ `AUTH_UNAUTHORIZED` / `AUTH_TOKEN_EXPIRED`）
+    UnsupportedMediaType:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+      description: 不支持的 `Content-Type`（`PARAM_MEDIA_TYPE_UNSUPPORTED`）
+  schemas:
+    AddCoinRequest:
+      type: object
+      properties:
+        count:
+          type: integer
+          format: int32
+      required:
+      - count
+    AddCommentRequest:
+      type: object
+      properties:
+        contentId:
+          type: integer
+          format: int64
+          exclusiveMinimum: 0
+        message:
+          type: string
+          maxLength: 1000
+          minLength: 0
+        parentId:
+          type: integer
+          format: int64
+      required:
+      - contentId
+      - message
+    AddFavoriteRequest:
+      type: object
+      properties:
+        contentId:
+          type: integer
+          format: int64
+        folderId:
+          type: integer
+          format: int64
+      required:
+      - contentId
+    AdminContentVO:
+      type: object
+      properties:
+        authorName:
+          type: string
+        hidden:
+          type: boolean
+        id:
+          type: integer
+          format: int64
+        title:
+          type: string
+        type:
+          type: integer
+          format: int32
+    ApiError:
+      type: object
+      description: "失败体：`{code, msg, errors?}`。**没有 `data`** —— 成功体才是 `{code:\"OK\"\
+        , msg, data?}`。"
+      properties:
+        code:
+          $ref: "#/components/schemas/ErrorCode"
+        errors:
+          type: array
+          description: 字段级错误；只在**校验族**（`@Valid` / 缺参 / 类型不可转换 / 请求体不可解析）出现
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+          description: 给人读的兜底文案（前端可覆盖；不要按它的中文做分支）
+      required:
+      - code
+      - msg
+    ApiFieldError:
+      type: object
+      description: "`errors[]` 元素：把错误挂到具体输入框上。"
+      properties:
+        code:
+          $ref: "#/components/schemas/ErrorCode"
+        field:
+          type: string
+          description: '**请求里的字段名**；定位不到时该键不出现（不编名）'
+        message:
+          type: string
+          description: 稳定文案；**不回显**异常 message（那里面可能有客户端发来的值）
+      required:
+      - code
+      - message
+    ApiResponseBoolean:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          type: boolean
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponseCoinBalanceVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          $ref: "#/components/schemas/CoinBalanceVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponseContentCreatedVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          $ref: "#/components/schemas/ContentCreatedVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponseContentDetailVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          $ref: "#/components/schemas/ContentDetailVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponseCouponClaimVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          $ref: "#/components/schemas/CouponClaimVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponseCursorResultCommentVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          $ref: "#/components/schemas/CursorResultCommentVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponseFavoriteStatusVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          $ref: "#/components/schemas/FavoriteStatusVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponseHistoryPositionVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          $ref: "#/components/schemas/HistoryPositionVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponseListAdminContentVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminContentVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponseListContentVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ContentVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponseListCouponOrderVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/CouponOrderVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponseListCouponVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/CouponVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponseListFavoriteFolderVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/FavoriteFolderVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponseListPublicFavoriteFolderVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicFavoriteFolderVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponseLoginVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          $ref: "#/components/schemas/LoginVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponseLong:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          type: integer
+          format: int64
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponseMediaAuditResult:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          $ref: "#/components/schemas/MediaAuditResult"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponseMediaReplacedVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          $ref: "#/components/schemas/MediaReplacedVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponsePageResultCommentVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          $ref: "#/components/schemas/PageResultCommentVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponsePageResultContentVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          $ref: "#/components/schemas/PageResultContentVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponsePageResultFavoriteItemVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          $ref: "#/components/schemas/PageResultFavoriteItemVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponsePageResultFollowUserVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          $ref: "#/components/schemas/PageResultFollowUserVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponsePageResultHistoryItemVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          $ref: "#/components/schemas/PageResultHistoryItemVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponsePageResultWatchLaterItemVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          $ref: "#/components/schemas/PageResultWatchLaterItemVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponseProfileVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          $ref: "#/components/schemas/ProfileVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponseRestoreResult:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          $ref: "#/components/schemas/RestoreResult"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponseSignInVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          $ref: "#/components/schemas/SignInVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponseUserInfoVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          $ref: "#/components/schemas/UserInfoVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponseVoid:
+      type: object
+      properties:
+        code:
+          type: string
+        data: {}
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ChangePasswordRequest:
+      type: object
+      properties:
+        newPassword:
+          type: string
+          minLength: 1
+          pattern: "^[a-zA-Z0-9]{6,16}$"
+        oldPassword:
+          type: string
+          minLength: 1
+        phone:
+          type: string
+          minLength: 1
+      required:
+      - newPassword
+      - oldPassword
+      - phone
+    ChangeUserNameRequest:
+      type: object
+      properties:
+        userName:
+          type: string
+          minLength: 1
+      required:
+      - userName
+    CoinBalanceVO:
+      type: object
+      properties:
+        balance:
+          type: number
+    CommentCacheDTO:
+      type: object
+      properties:
+        children:
+          type: array
+          items:
+            $ref: "#/components/schemas/CommentCacheDTO"
+        commentId:
+          type: integer
+          format: int64
+        content:
+          type: string
+        contentId:
+          type: integer
+          format: int64
+        likeCount:
+          type: integer
+          format: int32
+        parentId:
+          type: integer
+          format: int64
+        replyCount:
+          type: integer
+          format: int32
+        replyToUserId:
+          type: integer
+          format: int64
+        replyToUsername:
+          type: string
+        userId:
+          type: integer
+          format: int64
+        username:
+          type: string
+    CommentEnabledRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+      required:
+      - enabled
+    CommentVO:
+      type: object
+      properties:
+        children:
+          type: array
+          items:
+            $ref: "#/components/schemas/CommentCacheDTO"
+        commentId:
+          type: integer
+          format: int64
+        content:
+          type: string
+        contentId:
+          type: integer
+          format: int64
+        isLiked:
+          type: boolean
+        likeCount:
+          type: integer
+          format: int32
+        parentId:
+          type: integer
+          format: int64
+        replyCount:
+          type: integer
+          format: int32
+        replyToUserId:
+          type: integer
+          format: int64
+        replyToUsername:
+          type: string
+        userId:
+          type: integer
+          format: int64
+        username:
+          type: string
+    ContentCreatedVO:
+      type: object
+      properties:
+        contentId:
+          type: integer
+          format: int64
+    ContentDetailVO:
+      type: object
+      properties:
+        authorId:
+          type: integer
+          format: int64
+        authorName:
+          type: string
+        categoryId:
+          type: integer
+          format: int32
+        coinCount:
+          type: integer
+          format: int64
+        commentCount:
+          type: integer
+          format: int64
+        commentEnabled:
+          type: boolean
+        coverUrl:
+          type: string
+        createTime:
+          type: string
+          format: date-time
+        description:
+          type: string
+        durationSeconds:
+          type: integer
+          format: int32
+        favoriteCount:
+          type: integer
+          format: int64
+        id:
+          type: integer
+          format: int64
+        imageUrls:
+          type: array
+          items:
+            type: string
+        interaction:
+          $ref: "#/components/schemas/InteractionStatusVO"
+        likeCount:
+          type: integer
+          format: int64
+        playCount:
+          type: integer
+          format: int64
+        title:
+          type: string
+        type:
+          type: integer
+          format: int32
+        videoUrl:
+          type: string
+    ContentVO:
+      type: object
+      properties:
+        authorId:
+          type: integer
+          format: int64
+        authorName:
+          type: string
+        categoryId:
+          type: integer
+          format: int32
+        commentEnabled:
+          type: boolean
+        coverUrl:
+          type: string
+        createTime:
+          type: string
+          format: date-time
+        description:
+          type: string
+        durationSeconds:
+          type: integer
+          format: int32
+        id:
+          type: integer
+          format: int64
+        interaction:
+          $ref: "#/components/schemas/InteractionStatusVO"
+        title:
+          type: string
+        type:
+          type: integer
+          format: int32
+    CouponClaimVO:
+      type: object
+      properties:
+        couponCode:
+          type: string
+    CouponOrderVO:
+      type: object
+      properties:
+        couponCode:
+          type: string
+        couponId:
+          type: integer
+          format: int64
+        createTime:
+          type: string
+          format: date-time
+        id:
+          type: integer
+          format: int64
+        status:
+          type: integer
+          format: int32
+        title:
+          type: string
+    CouponVO:
+      type: object
+      properties:
+        beginTime:
+          type: string
+          format: date-time
+        createTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+        id:
+          type: integer
+          format: int64
+        stock:
+          type: integer
+          format: int32
+        title:
+          type: string
+    CreateFavoriteFolderRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+      required:
+      - name
+    CursorResultCommentVO:
+      type: object
+      properties:
+        list:
+          type: array
+          items:
+            $ref: "#/components/schemas/CommentVO"
+        nextCursor:
+          type: integer
+          format: int64
+        pageSize:
+          type: integer
+          format: int32
+        total:
+          type: integer
+          format: int32
+    ErrorCode:
+      type: string
+      description: 业务码字典（= `ErrorCode` 枚举名）。HTTP status 只表类别，精确分支看本字段。
+      enum:
+      - PARAM_INVALID
+      - PARAM_METHOD_NOT_ALLOWED
+      - PARAM_MEDIA_TYPE_UNSUPPORTED
+      - AUTH_UNAUTHORIZED
+      - AUTH_TOKEN_EXPIRED
+      - AUTH_BAD_CREDENTIALS
+      - AUTH_OLD_PASSWORD_WRONG
+      - AUTH_USER_NOT_FOUND
+      - AUTH_FORBIDDEN
+      - USER_NOT_FOUND
+      - CONTENT_NOT_FOUND
+      - COMMENT_NOT_FOUND
+      - FAVORITE_FOLDER_NOT_FOUND
+      - CONTENT_MEDIA_NOT_FOUND
+      - SYSTEM_ENDPOINT_NOT_FOUND
+      - USER_PHONE_TAKEN
+      - USER_NAME_TAKEN
+      - FOLLOW_SELF
+      - COIN_ALREADY_FULL
+      - COMMENT_DISABLED
+      - COMMENT_REPLY_TARGET_INVALID
+      - FAVORITE_FOLDER_DEFAULT
+      - CONTENT_STATUS_CONFLICT
+      - COUPON_UNAVAILABLE
+      - SYSTEM_DUPLICATE_KEY
+      - COIN_INSUFFICIENT
+      - COIN_NOT_SUPPORTED
+      - COIN_SELF_FORBIDDEN
+      - FAVORITE_FOLDER_LIMIT
+      - FAVORITE_FOLDER_FULL
+      - WATCHLATER_FULL
+      - WATCHLATER_TYPE_INVALID
+      - HISTORY_TYPE_INVALID
+      - CONTENT_TYPE_INVALID
+      - CONTENT_CATEGORY_INVALID
+      - UPLOAD_TYPE_INVALID
+      - USER_PHONE_MISMATCH
+      - RATE_LIMITED
+      - SYSTEM_UNAVAILABLE
+      - SYSTEM_INTERNAL
+      - SYSTEM_DATABASE
+    FavoriteFolderBriefVO:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+    FavoriteFolderVO:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        isDefault:
+          type: boolean
+        isPrivate:
+          type: boolean
+        itemCount:
+          type: integer
+          format: int32
+        name:
+          type: string
+    FavoriteItemVO:
+      type: object
+      properties:
+        authorName:
+          type: string
+        contentId:
+          type: integer
+          format: int64
+        coverUrl:
+          type: string
+        favoriteTime:
+          type: string
+          format: date-time
+        id:
+          type: integer
+          format: int64
+        invalid:
+          type: boolean
+        title:
+          type: string
+    FavoriteStatusVO:
+      type: object
+      properties:
+        folders:
+          type: array
+          items:
+            $ref: "#/components/schemas/FavoriteFolderBriefVO"
+        isFavorited:
+          type: boolean
+    FollowUserVO:
+      type: object
+      properties:
+        isFollowed:
+          type: boolean
+        isSelf:
+          type: boolean
+        userId:
+          type: integer
+          format: int64
+        username:
+          type: string
+    HistoryItemVO:
+      type: object
+      properties:
+        authorName:
+          type: string
+        contentId:
+          type: integer
+          format: int64
+        coverUrl:
+          type: string
+        durationSeconds:
+          type: integer
+          format: int32
+        invalid:
+          type: boolean
+        progress:
+          type: integer
+          format: int32
+        title:
+          type: string
+        watchedTime:
+          type: string
+          format: date-time
+    HistoryPositionVO:
+      type: object
+      properties:
+        progress:
+          type: integer
+          format: int32
+    InteractionStatusVO:
+      type: object
+      properties:
+        coin:
+          type: integer
+          format: int32
+        isFavorited:
+          type: boolean
+        isFollowed:
+          type: boolean
+        isLiked:
+          type: boolean
+    LoginRequest:
+      type: object
+      properties:
+        password:
+          type: string
+          minLength: 1
+        phone:
+          type: string
+          minLength: 1
+      required:
+      - password
+      - phone
+    LoginVO:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        token:
+          type: string
+        username:
+          type: string
+    MediaAuditItem:
+      type: object
+      properties:
+        contentId:
+          type: integer
+          format: int64
+        contentTitle:
+          type: string
+        expectedPath:
+          type: string
+        fileExists:
+          type: boolean
+        lastVerifyTime:
+          type: string
+          format: date-time
+        mediaId:
+          type: integer
+          format: int64
+        status:
+          type: string
+        type:
+          type: integer
+          format: int32
+        url:
+          type: string
+    MediaAuditResult:
+      type: object
+      properties:
+        contentsWithoutMedia:
+          type: array
+          items:
+            type: integer
+            format: int64
+        existing:
+          type: integer
+          format: int32
+        invalid:
+          type: integer
+          format: int32
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MediaAuditItem"
+        missing:
+          type: integer
+          format: int32
+        notScanned:
+          type: integer
+          format: int32
+        orphanMediaIds:
+          type: array
+          items:
+            type: integer
+            format: int64
+        scanTime:
+          type: string
+          format: date-time
+        total:
+          type: integer
+          format: int32
+    MediaReplacedVO:
+      type: object
+      properties:
+        url:
+          type: string
+    MoveFavoriteRequest:
+      type: object
+      properties:
+        fromFolderId:
+          type: integer
+          format: int64
+        toFolderId:
+          type: integer
+          format: int64
+      required:
+      - fromFolderId
+      - toFolderId
+    MoveToFolderRequest:
+      type: object
+      properties:
+        folderId:
+          type: integer
+          format: int64
+    PageResultCommentVO:
+      type: object
+      properties:
+        list:
+          type: array
+          items:
+            $ref: "#/components/schemas/CommentVO"
+        page:
+          type: integer
+          format: int32
+        pageSize:
+          type: integer
+          format: int32
+        total:
+          type: integer
+          format: int32
+        totalPages:
+          type: integer
+          format: int32
+    PageResultContentVO:
+      type: object
+      properties:
+        list:
+          type: array
+          items:
+            $ref: "#/components/schemas/ContentVO"
+        page:
+          type: integer
+          format: int32
+        pageSize:
+          type: integer
+          format: int32
+        total:
+          type: integer
+          format: int32
+        totalPages:
+          type: integer
+          format: int32
+    PageResultFavoriteItemVO:
+      type: object
+      properties:
+        list:
+          type: array
+          items:
+            $ref: "#/components/schemas/FavoriteItemVO"
+        page:
+          type: integer
+          format: int32
+        pageSize:
+          type: integer
+          format: int32
+        total:
+          type: integer
+          format: int32
+        totalPages:
+          type: integer
+          format: int32
+    PageResultFollowUserVO:
+      type: object
+      properties:
+        list:
+          type: array
+          items:
+            $ref: "#/components/schemas/FollowUserVO"
+        page:
+          type: integer
+          format: int32
+        pageSize:
+          type: integer
+          format: int32
+        total:
+          type: integer
+          format: int32
+        totalPages:
+          type: integer
+          format: int32
+    PageResultHistoryItemVO:
+      type: object
+      properties:
+        list:
+          type: array
+          items:
+            $ref: "#/components/schemas/HistoryItemVO"
+        page:
+          type: integer
+          format: int32
+        pageSize:
+          type: integer
+          format: int32
+        total:
+          type: integer
+          format: int32
+        totalPages:
+          type: integer
+          format: int32
+    PageResultWatchLaterItemVO:
+      type: object
+      properties:
+        list:
+          type: array
+          items:
+            $ref: "#/components/schemas/WatchLaterItemVO"
+        page:
+          type: integer
+          format: int32
+        pageSize:
+          type: integer
+          format: int32
+        total:
+          type: integer
+          format: int32
+        totalPages:
+          type: integer
+          format: int32
+    ProfileVO:
+      type: object
+      properties:
+        contentPage:
+          $ref: "#/components/schemas/PageResultContentVO"
+        followCount:
+          type: integer
+          format: int32
+        followerCount:
+          type: integer
+          format: int32
+        isFollowed:
+          type: boolean
+        userId:
+          type: integer
+          format: int64
+        username:
+          type: string
+    PublicFavoriteFolderVO:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        itemCount:
+          type: integer
+          format: int32
+        name:
+          type: string
+    RegisterRequest:
+      type: object
+      properties:
+        password:
+          type: string
+          minLength: 1
+          pattern: "^[a-zA-Z0-9]{6,16}$"
+        phone:
+          type: string
+          minLength: 1
+          pattern: "^1[3-9]\\d{9}$"
+        username:
+          type: string
+          maxLength: 50
+          minLength: 1
+      required:
+      - password
+      - phone
+      - username
+    ReportProgressRequest:
+      type: object
+      properties:
+        progress:
+          type: integer
+          format: int32
+      required:
+      - progress
+    RestoreResult:
+      type: object
+      properties:
+        fileExists:
+          type: boolean
+        mediaId:
+          type: integer
+          format: int64
+        size:
+          type: integer
+          format: int64
+        targetPath:
+          type: string
+        url:
+          type: string
+    SignInVO:
+      type: object
+      properties:
+        balance:
+          type: number
+        credited:
+          type: boolean
+    UpdateContentRequest:
+      type: object
+      properties:
+        description:
+          type: string
+        title:
+          type: string
+    UpdateFavoriteFolderRequest:
+      type: object
+      properties:
+        isPrivate:
+          type: boolean
+        name:
+          type: string
+    UserInfoVO:
+      type: object
+      properties:
+        admin:
+          type: boolean
+        coin:
+          type: number
+        id:
+          type: integer
+          format: int64
+        phone:
+          type: string
+        signedToday:
+          type: boolean
+        username:
+          type: string
+    WatchLaterItemVO:
+      type: object
+      properties:
+        addedTime:
+          type: string
+          format: date-time
+        authorName:
+          type: string
+        contentId:
+          type: integer
+          format: int64
+        coverUrl:
+          type: string
+        invalid:
+          type: boolean
+        title:
+          type: string

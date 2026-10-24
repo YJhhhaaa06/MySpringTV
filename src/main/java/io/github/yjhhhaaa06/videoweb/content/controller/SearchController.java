@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.content.controller;
 
+import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
@@ -11,19 +12,20 @@ import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentDetailVO;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentVO;
 import io.github.yjhhhaaa06.videoweb.content.service.ContentService;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 搜索与详情接口（S5）。
+ * 搜索与详情接口（S5；`T58` 契约变更，依据《接口契约.md》§2.3 起路径资源化）。
  *
  * <p>迁移自 TV {@code com.itheima.content.controller.SearchController}——对照片段：
  * <table>
  *   <caption>TV → 新实现</caption>
  *   <tr><th>TV</th><th>新实现</th></tr>
  *   <tr><td>{@code @WebServlet("/search/*")} + {@code switch(pathInfo)}（{@code /IdSearch} / {@code /keywordSearch}）</td>
- *       <td>{@code @RestController} + {@code @GetMapping}（路径大小写逐字保留：<b>{@code IdSearch}</b> 首字母大写）</td></tr>
+ *       <td>{@code @RestController} + {@code @GetMapping}（`T58` 起：详情 = {@code GET /api/v1/contents/{id}}、
+ *       搜索 = {@code GET /api/v1/contents}——keyword 留 query）</td></tr>
  *   <tr><td>{@code (Long) req.getAttribute("userId")}（**可空**：公开端点，带 token 则个性化）</td>
  *       <td>{@code @CurrentUserId(required = false) Long userId}（S5 为此给注解加了 {@code required}）</td></tr>
  *   <tr><td>{@code Content-Length > 0} 时改读 JSON body（{@code RequestParser.parse}）</td>
@@ -41,7 +43,9 @@ import org.springframework.web.bind.annotation.RestController;
  * <ol>
  *   <li><b>非法 {@code contentId} 由 500 变 400</b>：TV 的 {@code Long.parseLong} 抛
  *       {@code NumberFormatException} 未被捕获 ⇒ 500。新实现用 {@code Long} 参数绑定，
- *       由全局出口转 400。状态码更正确，且旧 pytest 只断言"缺 contentId → 400"。</li>
+ *       由全局出口转 400。状态码更正确。
+ *       ★ `T58` 后"缺 {@code contentId} → 400"的形态随 {@code contentId} 进路径而消失
+ *       （少路径段 = 无路由匹配 = 404，不可表达；TV 文案 {@code "contentId不能为空"} 一并退役）。</li>
  *   <li><b>不再支持 GET + JSON body</b>：TV 为兼容某个前端写法保留了该分支。
  *       新实现按方法声明语义（{@code GET} 用 query）。旧 pytest 的两处调用都是 query。</li>
  *   <li><b>{@code total} 仍是 SQL 命中总数</b>（不是返回条数）——若某条内容在此刻被删，
@@ -49,7 +53,6 @@ import org.springframework.web.bind.annotation.RestController;
  * </ol>
  */
 @RestController
-@RequestMapping("/search")
 public class SearchController {
 
     /** T19：search 域 pageSize 上限（原为该域"无上限"的唯一分页入口）。 */
@@ -65,40 +68,37 @@ public class SearchController {
     }
 
     /**
-     * 按 id 查内容详情（{@code GET /search/IdSearch?contentId=X}）。
+     * 按 id 查内容详情（`T58` 契约变更：{@code GET /api/v1/contents/{id}}，原 {@code /search/IdSearch?contentId=}）。
      *
-     * <p>缺 {@code contentId} → 400（TV 文案 {@code "contentId不能为空"}）；
-     * 内容不存在 / 已软删 / 媒体损坏 → 404（TV 文案 {@code "找不到对应内容"}）。
+     * <p>内容不存在 / 已软删 / 媒体损坏 → 404（TV 文案 {@code "找不到对应内容"}）。
      */
     @Public
-    @GetMapping("/IdSearch")
+    @GetMapping("/api/v1/contents/{id}")
     public ApiResponse<ContentDetailVO> idSearch(@CurrentUserId(required = false) Long userId,
-                                                 @RequestParam(required = false) Long contentId) {
-        if (contentId == null) {
-            throw new ParamException("contentId不能为空");
-        }
+                                                 @PathVariable("id") Long contentId) {
         ContentDetailVO detail = contentService.getContentDetailVO(contentId, userId);
         if (detail == null) {
-            throw new NotFoundException("找不到对应内容");
+            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "找不到对应内容");
         }
         return ApiResponse.success(detail);
     }
 
     /**
-     * 关键词搜索（{@code GET /search/keywordSearch?keyword=&page=&pageSize=}）。
+     * 关键词搜索（`T58` 契约变更：{@code GET /api/v1/contents?keyword=&page=&pageSize=}，
+     * 原 {@code /search/keywordSearch}——keyword 与分页均留 query）。
      *
      * <p>关键词空白 → 400（TV 文案 {@code "输入不能为空"}）。
      * 分页：缺省 == 显式 {@code page=1&pageSize=100}；{@code pageSize=999 → 100}；
      * {@code pageSize=51} 原样回显；非法值回落缺省（**不是 500**，T19 顺带修掉的旧坑）。
      */
     @Public
-    @GetMapping("/keywordSearch")
+    @GetMapping("/api/v1/contents")
     public ApiResponse<PageResult<ContentVO>> keywordSearch(@CurrentUserId(required = false) Long userId,
                                                             @RequestParam(required = false) String keyword,
                                                             @RequestParam(required = false) String page,
                                                             @RequestParam(required = false) String pageSize) {
         if (keyword == null || keyword.isBlank()) {
-            throw new ParamException("输入不能为空");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "输入不能为空");
         }
         return ApiResponse.success(contentService.search(
                 keyword.trim(),

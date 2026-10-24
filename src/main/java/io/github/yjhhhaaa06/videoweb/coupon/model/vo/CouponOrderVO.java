@@ -8,7 +8,7 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 /**
- * 我的优惠券（{@code /coupon/my} 的列表项）。
+ * 我的优惠券（{@code GET /api/v1/users/me/coupons} 的列表项）。
  *
  * <p>承接 TV {@code CouponDao.findOrdersByUserId} 手搭的 {@code Map}——
  * 键集合与取值口径逐字对齐（{@code id/couponId/couponCode/status/title/createTime}）。

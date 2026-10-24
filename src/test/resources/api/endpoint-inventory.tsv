@@ -1,0 +1,76 @@
+# MySpringTV 对外端点登记簿（T54 起；唯一事实源 = 真实 handler，本文件是契约快照）
+#
+# 校验：ApiContractInventoryTests（真实 handler 扫描 ↔ 本文件逐条一致；不一致即红）
+# 更新：./mvnw.cmd -o test -Dtest=ApiContractInventoryTests -Dapi.contract.write=true
+#       ⚠️ 生成后必须 review diff 再与代码同批提交；跑生成命令"把红变绿"属迎合。
+#
+# 列：METHOD <TAB> PATH <TAB> AUTH <TAB> RETURN
+# AUTH = PUBLIC（匿名可达） | LOGIN（需有效身份） | ADMIN（需管理员角色，蕴含登录）
+# 排序：PATH 升序，其次 METHOD 升序（保证 diff 可读）
+DELETE	/api/v1/admin/comments/{id}	ADMIN	ResponseEntity<Void>
+GET	/api/v1/admin/contents	ADMIN	ApiResponse<List<AdminContentVO>>
+DELETE	/api/v1/admin/contents/{id}/hidden	ADMIN	ResponseEntity<Void>
+PUT	/api/v1/admin/contents/{id}/hidden	ADMIN	ApiResponse<Void>
+GET	/api/v1/admin/me	ADMIN	ApiResponse<Boolean>
+GET	/api/v1/admin/media	ADMIN	ApiResponse<MediaAuditResult>
+POST	/api/v1/admin/media/scan	ADMIN	ApiResponse<MediaAuditResult>
+PUT	/api/v1/admin/media/{id}	ADMIN	ApiResponse<RestoreResult>
+POST	/api/v1/comments	LOGIN	ApiResponse<Void>
+DELETE	/api/v1/comments/{id}	LOGIN	ResponseEntity<Void>
+DELETE	/api/v1/comments/{id}/like	LOGIN	ResponseEntity<Void>
+GET	/api/v1/comments/{id}/like	LOGIN	ApiResponse<Boolean>
+PUT	/api/v1/comments/{id}/like	LOGIN	ApiResponse<Void>
+GET	/api/v1/comments/{id}/like-count	LOGIN	ApiResponse<Long>
+GET	/api/v1/comments/{id}/replies	PUBLIC	ApiResponse<CursorResult<CommentVO>>
+GET	/api/v1/contents	PUBLIC	ApiResponse<PageResult<ContentVO>>
+POST	/api/v1/contents/posts	LOGIN	ApiResponse<ContentCreatedVO>
+GET	/api/v1/contents/recommended	PUBLIC	ApiResponse<List<ContentVO>>
+POST	/api/v1/contents/videos	LOGIN	ApiResponse<ContentCreatedVO>
+DELETE	/api/v1/contents/{id}	LOGIN	ResponseEntity<Void>
+GET	/api/v1/contents/{id}	PUBLIC	ApiResponse<ContentDetailVO>
+PUT	/api/v1/contents/{id}	LOGIN	ApiResponse<Void>
+POST	/api/v1/contents/{id}/coins	LOGIN	ApiResponse<CoinBalanceVO>
+PUT	/api/v1/contents/{id}/comment-enabled	LOGIN	ApiResponse<Void>
+GET	/api/v1/contents/{id}/comments	PUBLIC	ApiResponse<PageResult<CommentVO>>
+GET	/api/v1/contents/{id}/favorite	LOGIN	ApiResponse<FavoriteStatusVO>
+GET	/api/v1/contents/{id}/favorite-count	PUBLIC	ApiResponse<Long>
+DELETE	/api/v1/contents/{id}/like	LOGIN	ResponseEntity<Void>
+GET	/api/v1/contents/{id}/like	LOGIN	ApiResponse<Boolean>
+PUT	/api/v1/contents/{id}/like	LOGIN	ApiResponse<Void>
+GET	/api/v1/contents/{id}/like-count	LOGIN	ApiResponse<Long>
+DELETE	/api/v1/contents/{id}/media	LOGIN	ResponseEntity<Void>
+PUT	/api/v1/contents/{id}/media	LOGIN	ApiResponse<MediaReplacedVO>
+POST	/api/v1/contents/{id}/play	LOGIN	ApiResponse<Void>
+GET	/api/v1/contents/{id}/progress	LOGIN	ApiResponse<HistoryPositionVO>
+PUT	/api/v1/contents/{id}/progress	LOGIN	ApiResponse<Void>
+GET	/api/v1/coupons	PUBLIC	ApiResponse<List<CouponVO>>
+POST	/api/v1/coupons/{id}/claims	LOGIN	ApiResponse<CouponClaimVO>
+GET	/api/v1/favorite-folders	LOGIN	ApiResponse<List<FavoriteFolderVO>>
+POST	/api/v1/favorite-folders	LOGIN	ApiResponse<Void>
+DELETE	/api/v1/favorite-folders/{id}	LOGIN	ResponseEntity<Void>
+PUT	/api/v1/favorite-folders/{id}	LOGIN	ApiResponse<Void>
+GET	/api/v1/favorite-folders/{id}/items	PUBLIC	ApiResponse<PageResult<FavoriteItemVO>>
+DELETE	/api/v1/favorites	LOGIN	ResponseEntity<Void>
+GET	/api/v1/favorites	LOGIN	ApiResponse<PageResult<FavoriteItemVO>>
+POST	/api/v1/favorites	LOGIN	ApiResponse<Void>
+PUT	/api/v1/favorites/{id}	LOGIN	ApiResponse<Void>
+GET	/api/v1/feed	LOGIN	ApiResponse<PageResult<ContentVO>>
+DELETE	/api/v1/follows/{id}	LOGIN	ResponseEntity<Void>
+PUT	/api/v1/follows/{id}	LOGIN	ApiResponse<Void>
+GET	/api/v1/history	LOGIN	ApiResponse<PageResult<HistoryItemVO>>
+POST	/api/v1/history/flush	LOGIN	ApiResponse<Void>
+POST	/api/v1/sessions	PUBLIC	ApiResponse<LoginVO>
+POST	/api/v1/users	PUBLIC	ApiResponse<LoginVO>
+GET	/api/v1/users/me	LOGIN	ApiResponse<UserInfoVO>
+POST	/api/v1/users/me/check-ins	LOGIN	ApiResponse<SignInVO>
+GET	/api/v1/users/me/coupons	LOGIN	ApiResponse<List<CouponOrderVO>>
+PUT	/api/v1/users/me/password	LOGIN	ApiResponse<Void>
+PUT	/api/v1/users/me/username	LOGIN	ApiResponse<Void>
+GET	/api/v1/users/{id}	PUBLIC	ApiResponse<ProfileVO>
+GET	/api/v1/users/{id}/favorite-folders	PUBLIC	ApiResponse<List<PublicFavoriteFolderVO>>
+GET	/api/v1/users/{id}/followers	LOGIN	ApiResponse<PageResult<FollowUserVO>>
+GET	/api/v1/users/{id}/following	LOGIN	ApiResponse<PageResult<FollowUserVO>>
+DELETE	/api/v1/watch-later	LOGIN	ResponseEntity<Void>
+GET	/api/v1/watch-later	LOGIN	ApiResponse<PageResult<WatchLaterItemVO>>
+PUT	/api/v1/watch-later/{id}	LOGIN	ApiResponse<Void>
+PUT	/api/v1/watch-later/{id}/folder	LOGIN	ApiResponse<Void>

@@ -12,12 +12,12 @@ import java.util.List;
  *
  * <h2>写路径三个方法</h2>
  * <ul>
- *   <li>{@link #upsertProgress}：{@code /history/report} 的**一条** ODKU（不判首播、不读后写）；</li>
- *   <li>{@link #insertIgnoreCounted} / {@link #markCountedIfNotCounted}：{@code /history/play}
+ *   <li>{@link #upsertProgress}：进度上报（{@code PUT /api/v1/contents/{id}/progress}）的**一条** ODKU（不判首播、不读后写）；</li>
+ *   <li>{@link #insertIgnoreCounted} / {@link #markCountedIfNotCounted}：播放事件（{@code POST /api/v1/contents/{id}/play}）
  *       的**首播判定**两步，靠 affected-rows 的 1/0 判别。</li>
  * </ul>
  *
- * <h2>读路径（{@code /history/list} 与 {@code /history/position}）</h2>
+ * <h2>读路径（历史列表 {@code GET /api/v1/history} 与续播位置 {@code GET /api/v1/contents/{id}/progress}）</h2>
  * <ul>
  *   <li>{@link #countByUserId}：列表 {@code total} —— 数的是**行**，失效条目照常计入；</li>
  *   <li>{@link #findPageByUserId}：一页**本域三列**；</li>
@@ -114,7 +114,7 @@ public interface WatchHistoryDao {
                                          @Param("limit") int limit);
 
     /**
-     * 续播位置（{@code GET /history/position}）：{@code (user_id, content_id)} 点查进度。
+     * 续播位置（{@code GET /api/v1/contents/{id}/progress}）：{@code (user_id, content_id)} 点查进度。
      *
      * <p>★ <b>不判内容存在性</b>：内容已删也照样回答（"内容是死是活"由详情 404 负责，
      * 这里只回答"我的进度是多少"）。无行 ⇒ {@code null}，由调用方折成 {@code 0}。

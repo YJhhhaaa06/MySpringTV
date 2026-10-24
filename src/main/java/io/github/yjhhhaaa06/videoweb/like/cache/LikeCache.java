@@ -142,7 +142,7 @@ public class LikeCache {
         conditionalWrite(userLikeSetKey(userId), contentLikeCountKey(contentId), contentId, true);
     }
 
-    public void unlikeContent(long userId, long contentId) {
+    public void cancelContentLike(long userId, long contentId) {
         conditionalWrite(userLikeSetKey(userId), contentLikeCountKey(contentId), contentId, false);
     }
 
@@ -150,7 +150,7 @@ public class LikeCache {
         conditionalWrite(userCommentLikeSetKey(userId), commentLikeCountKey(commentId), commentId, true);
     }
 
-    public void unlikeComment(long userId, long commentId) {
+    public void cancelCommentLike(long userId, long commentId) {
         conditionalWrite(userCommentLikeSetKey(userId), commentLikeCountKey(commentId), commentId, false);
     }
 
@@ -223,7 +223,7 @@ public class LikeCache {
      * ⇒ {@code null} 按"内容不存在"处理：返回 0、**不回填**（对齐 {@code CoinCache} 的口径，
      * 防止把"不存在"钉成假 0——旧行数口径恒有值、无此分支）。
      */
-    public int getContentLikeCount(long contentId) {
+    public long getContentLikeCount(long contentId) {
         return likeCount(contentLikeCountKey(contentId), () -> contentDao.findLikeCountById(contentId));
     }
 
@@ -243,7 +243,7 @@ public class LikeCache {
                 () -> commentLikeDao.isLiked(userId, commentId));
     }
 
-    public int getCommentLikeCount(long commentId) {
+    public long getCommentLikeCount(long commentId) {
         return likeCount(commentLikeCountKey(commentId), () -> commentLikeDao.countByCommentId(commentId));
     }
 
@@ -323,17 +323,17 @@ public class LikeCache {
      * "不存在"不能被钉成 TTL 内的假 0）；非 null 才回填。
      * 评论赞侧的 loader（{@code COUNT(*)}）恒非 {@code null}，语义不变。
      */
-    private int likeCount(String countKey, java.util.function.Supplier<Integer> dbLoader) {
+    private long likeCount(String countKey, java.util.function.Supplier<Long> dbLoader) {
         try {
             String cached = ops.getString(countKey);
             if (cached != null) {
                 ops.expire(countKey, props.likeTtl());
-                return Integer.parseInt(cached);
+                return Long.parseLong(cached);
             }
         } catch (CacheUnavailableException e) {
             log.warn("点赞数缓存读失败，降级 DB: key={}", countKey, e);
             CacheMissSignal.mark();                            // T26 信号②：降级 = 没走成缓存
-            Integer degraded = dbLoader.get();
+            Long degraded = dbLoader.get();
             return degraded == null ? 0 : degraded;
         } catch (NumberFormatException e) {
             // 脏值（非数字）当作 miss，并清掉它，避免每次读都解析失败
@@ -343,9 +343,9 @@ public class LikeCache {
         // miss：DB 是真理源，顺带回填；单飞（B1）让同 key 并发只回源一次
         CacheMissSignal.mark();                                // T26 信号②：miss 回源（含脏值按 miss 处理）
         return singleFlight.get(countKey, () -> {
-            Integer count = dbLoader.get();
+            Long count = dbLoader.get();
             if (count == null) {
-                return 0;                                      // 行不存在 ⇒ 0 且不回填（T44-1）
+                return 0L;                                     // 行不存在 ⇒ 0 且不回填（T44-1）
             }
             backfillCountQuietly(countKey, count);
             return count;
@@ -430,7 +430,7 @@ public class LikeCache {
         }
     }
 
-    private void backfillCountQuietly(String countKey, int count) {
+    private void backfillCountQuietly(String countKey, long count) {
         try {
             ops.setString(countKey, String.valueOf(count), props.likeTtl());
         } catch (CacheUnavailableException e) {
@@ -445,7 +445,7 @@ public class LikeCache {
      * ★ 值必须来自"该键的真理源"（content 行的列），聚合层不得传别处算出的值；
      * 命中键**不调**本方法（有选择回填——否则会用本次快照覆盖未失效的键）。
      */
-    public void backfillContentCount(long contentId, int count) {
+    public void backfillContentCount(long contentId, long count) {
         backfillCountQuietly(contentLikeCountKey(contentId), count);
     }
 }

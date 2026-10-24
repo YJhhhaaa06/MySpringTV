@@ -49,8 +49,8 @@ class CacheMetricsTests extends AbstractContentIntegrationTest {
         double loadBefore = cacheEventCount("load");
         double hitBefore = cacheEventCount("hit_data");
 
-        // ① 冷读：Redis 已清 ⇒ 必然 miss
-        ResponseEntity<String> first = getQuery("/search/IdSearch", query("contentId", String.valueOf(contentId)), null);
+        // ① 冷读：Redis 已清 ⇒ 必然 miss（`T58` 契约变更：contentId 进路径，接口契约.md §2.3）
+        ResponseEntity<String> first = getQuery("/api/v1/contents/" + contentId, query(), null);
         assertThat(first.getStatusCode().value()).isEqualTo(200);
 
         assertThat(cacheEventCount("miss"))
@@ -61,7 +61,7 @@ class CacheMetricsTests extends AbstractContentIntegrationTest {
                 .isGreaterThan(loadBefore);
 
         // ② 热读：数据 key 已回填 ⇒ 必然 hit_data
-        ResponseEntity<String> second = getQuery("/search/IdSearch", query("contentId", String.valueOf(contentId)), null);
+        ResponseEntity<String> second = getQuery("/api/v1/contents/" + contentId, query(), null);
         assertThat(second.getStatusCode().value()).isEqualTo(200);
 
         assertThat(cacheEventCount("hit_data"))

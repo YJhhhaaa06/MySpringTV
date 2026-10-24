@@ -84,7 +84,9 @@ class SensitiveDataTests extends AbstractObservabilityTest {
 
         // contentId 收 Long，非数字 ⇒ MethodArgumentTypeMismatchException（400），
         // 框架会把**被拒的值**回显进异常消息 ⇒ 这正是"参数进日志"的真实路径。
-        get("/comment/show?contentId=" + phone + "abc", null);
+        // `T58` 契约变更（接口契约.md §2.3）：原触发点 /comment/show 随 contentId 进路径而
+        // 不再存在（T58-2 漏改本行），换用同形态的详情端点 GET /api/v1/contents/{id} 触发。
+        get("/api/v1/contents/" + phone + "abc", null);
 
         awaitSystemLine("msg=请求参数错误");
         assertThat(String.join("\n", systemLines()))
@@ -100,7 +102,7 @@ class SensitiveDataTests extends AbstractObservabilityTest {
         registerAndGetToken(phone, "obs-sensitive", "abc123456");
         awaitSystemLine("msg=用户注册成功");
         // 等访问行一并落盘，保证下面扫到的是"本请求写完之后"的快照
-        awaitAccessLine("/user/register", "status=200");
+        awaitAccessLine("/api/v1/users", "status=200");
 
         // 扫描前先剥掉两类**随机串**，否则它们会偶发命中手机号形态 ⇒ 把"安全不变式"变成看运气的测试
         // （这不是"放宽标准"：随机串不是 PII；把假警报当泄漏，等于训练大家忽略这条不变式）。

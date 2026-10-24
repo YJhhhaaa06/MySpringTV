@@ -73,7 +73,8 @@ class AuditLogTests extends AbstractAdminIntegrationTest {
 
         try (LogCapture audit = LogCapture.audit()) {
             audit.clear();
-            assertThat(post("/api/admin/content/hide?contentId=" + contentId, null, adminToken)
+            // `T58` 契约变更：POST /hide → PUT /api/v1/admin/contents/{id}/hidden
+            assertThat(put("/api/v1/admin/contents/" + contentId + "/hidden", null, adminToken)
                     .getStatusCode().value()).isEqualTo(200);
             String hideLine = audit.awaitLine(l -> l.contains("action=admin.content.hide"), "下架审计行", AWAIT);
             assertThat(hideLine)
@@ -86,8 +87,9 @@ class AuditLogTests extends AbstractAdminIntegrationTest {
             assertThat(audit.countLinesContaining("action=admin.content.hide")).isEqualTo(1);
 
             audit.clear();
-            assertThat(post("/api/admin/content/unhide?contentId=" + contentId, null, adminToken)
-                    .getStatusCode().value()).isEqualTo(200);
+            // `T58` 契约变更：POST /unhide → DELETE /api/v1/admin/contents/{id}/hidden
+            assertThat(delete("/api/v1/admin/contents/" + contentId + "/hidden", adminToken)
+                    .getStatusCode().value()).as("`T59`：删除/取消 = 204").isEqualTo(204);
             String unhideLine = audit.awaitLine(l -> l.contains("action=admin.content.unhide"), "恢复审计行", AWAIT);
             assertThat(unhideLine)
                     .contains("operatorId=" + adminId)
@@ -111,8 +113,9 @@ class AuditLogTests extends AbstractAdminIntegrationTest {
 
         try (LogCapture audit = LogCapture.audit()) {
             audit.clear();
-            assertThat(post("/api/admin/comment/delete?commentId=" + commentId, null, adminToken)
-                    .getStatusCode().value()).isEqualTo(200);
+            // `T58` 契约变更：POST /comment/delete → DELETE /api/v1/admin/comments/{id}
+            assertThat(delete("/api/v1/admin/comments/" + commentId, adminToken)
+                    .getStatusCode().value()).as("`T59`：删除 = 204").isEqualTo(204);
             String line = audit.awaitLine(l -> l.contains("action=admin.comment.delete"), "删评论审计行", AWAIT);
             assertThat(line)
                     .contains("operatorId=" + adminId)
@@ -138,7 +141,8 @@ class AuditLogTests extends AbstractAdminIntegrationTest {
 
         try (LogCapture audit = LogCapture.audit()) {
             audit.clear();
-            assertThat(postMultipart("/api/admin/media/restore?mediaId=" + mediaId, form, adminToken)
+            // `T58` 契约变更：POST /media/restore → PUT /api/v1/admin/media/{id}
+            assertThat(putMultipart("/api/v1/admin/media/" + mediaId, form, adminToken)
                     .getStatusCode().value()).isEqualTo(200);
             String line = audit.awaitLine(l -> l.contains("action=admin.media.restore"), "恢复媒体审计行", AWAIT);
             assertThat(line)
@@ -162,7 +166,7 @@ class AuditLogTests extends AbstractAdminIntegrationTest {
 
         try (LogCapture audit = LogCapture.audit()) {
             audit.clear();
-            assertThat(post("/user/changePassword",
+            assertThat(put("/api/v1/users/me/password",
                     Map.of("phone", phone, "oldPassword", password, "newPassword", newPassword), token)
                     .getStatusCode().value()).isEqualTo(200);
             String passwordLine = audit.awaitLine(
@@ -174,7 +178,7 @@ class AuditLogTests extends AbstractAdminIntegrationTest {
             assertThat(audit.countLinesContaining("action=user.changePassword")).isEqualTo(1);
 
             audit.clear();
-            assertThat(post("/user/changeUserName?userName=obs_audit_renamed", null, token)
+            assertThat(put("/api/v1/users/me/username", Map.of("userName", "obs_audit_renamed"), token)
                     .getStatusCode().value()).isEqualTo(200);
             String renameLine = audit.awaitLine(
                     l -> l.contains("action=user.changeUserName"), "改名审计行", AWAIT);
@@ -202,7 +206,7 @@ class AuditLogTests extends AbstractAdminIntegrationTest {
             audit.clear();
             system.clear();
 
-            post("/api/admin/content/hide?contentId=" + contentId, null, adminToken);
+            put("/api/v1/admin/contents/" + contentId + "/hidden", null, adminToken);
             audit.awaitLine(l -> l.contains("action=admin.content.hide"), "下架审计行", AWAIT);
 
             // 两个 sink 的自证：下架本身**只**产生审计行（应用日志里它一条 INFO/WARN 都没有），
@@ -230,7 +234,7 @@ class AuditLogTests extends AbstractAdminIntegrationTest {
 
         try (LogCapture audit = LogCapture.audit()) {
             audit.clear();
-            assertThat(post("/api/admin/content/hide?contentId=" + contentId, null, adminToken)
+            assertThat(put("/api/v1/admin/contents/" + contentId + "/hidden", null, adminToken)
                     .getStatusCode().value()).isEqualTo(200);
             audit.awaitLine(l -> l.contains("action=admin.content.hide"), "下架审计行", AWAIT);
 
@@ -274,7 +278,7 @@ class AuditLogTests extends AbstractAdminIntegrationTest {
 
         try (LogCapture audit = LogCapture.audit()) {
             audit.clear();
-            assertThat(postMultipart("/api/admin/media/restore?mediaId=" + mediaId, form, adminToken)
+            assertThat(putMultipart("/api/v1/admin/media/" + mediaId, form, adminToken)
                     .getStatusCode().value()).isEqualTo(500);
 
             // 自证"事务真的回滚了"，否则下面的零命中可能是空过

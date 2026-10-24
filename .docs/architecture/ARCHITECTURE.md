@@ -59,6 +59,7 @@ io.github.yjhhhaaa06.videoweb
 | MQ | 拓扑/重连/重试+DLQ/预取交框架原生；发布不等 confirm；投递三态 + 补偿缓冲 | [MQ与投递可靠性](tech/mq/MQ与投递可靠性.md) |
 | 可观测 | 日志四输出端 + MDC 请求标识 + 出口一处脱敏 + Micrometer 打点 + 审计 | [可观测](tech/observability/可观测.md) |
 | 安全 | 自研 `JwtAuthFilter` + `@Public` / `@RequiresLogin` / `@RequiresAdmin`（**默认拒绝**；Spring Security **已拍板不迁**，F-01/F-02） | [安全与鉴权](tech/security/安全与鉴权.md)（代价见 [已知代价](tech/security/安全与鉴权-已知代价.md)） |
+| 接口契约 | **HTTP status 表类别 + body 字符串码表原因**；资源化 REST（`/api/v1`）；方法表达动作（PUT 替换 / DELETE 取消）；**硬切不留双轨**（`R-21`，2026-10-22） | [接口契约](tech/api/接口契约.md) |
 | 数据 | Flyway SQL-first；**V1 baseline 冻结**；增量演进已到 **V8**（`favorite_*`（V2/V3）+ `watch_later`（V4）+ `content_coin`/`coin_count`（V5）+ `watch_history`/`duration_seconds`/`play_count`（V6）+ 删遗留 `video`/`videoinfo`（V7）+ `watch_history` 列表覆盖索引（V8））；下一次 **V9** | [数据与Schema演进](tech/data-evolution/数据与Schema演进.md) |
 | 事务 | 事务边界载体独立成 bean（避免自调用）；纯读去事务 | [事务边界](tech/transaction/事务边界.md) |
 
@@ -76,6 +77,7 @@ io.github.yjhhhaaa06.videoweb
 | **发消息 / 加消费者** | [MQ与投递可靠性](tech/mq/MQ与投递可靠性.md) | 拓扑 / 投递语义变更 |
 | 加**日志 / 指标 / 审计** | [可观测](tech/observability/可观测.md) | 观测形态变更 |
 | 动**鉴权**（端点是否需登录、管理员判定） | [安全与鉴权](tech/security/安全与鉴权.md) | 鉴权链变更 |
+| **加/改端点**（路径、HTTP 方法、状态码、入参出参形状） | [接口契约](tech/api/接口契约.md) | 端点新增 / 状态码或载荷变更 |
 | **改表 / 加 Flyway 迁移** | [数据与Schema演进](tech/data-evolution/数据与Schema演进.md) | schema 演进 |
 | **写 `@Transactional`** | [事务边界](tech/transaction/事务边界.md) | 事务口径变更 |
 | 了解**关注动态流**整体数据流 | [domain/feed](domain/feed/feed.md) | feed 编排变更 |
@@ -97,7 +99,7 @@ io.github.yjhhhaaa06.videoweb
 > ★ **每个横切面一个目录**（2026-10-18 起，与 `domain/<域>/` 同款）：`tech/<面>/<面>.md`
 > ＋（可选）`tech/<面>/<面>-已知代价.md`。目录名用英文短名（`security` / `rate-limit` /
 > `observability` / `cache` / `resilience` / `mq` / `events` / `transaction` /
-> `module-boundary` / `data-evolution`），**文件名保持中文**（代码注释按基名解析，目录无关）。
+> `module-boundary` / `data-evolution` / `api`），**文件名保持中文**（代码注释按基名解析，目录无关）。
 
 | 文档 | 讲什么 | **不讲什么**（去向） |
 |---|---|---|
@@ -109,6 +111,8 @@ io.github.yjhhhaaa06.videoweb
 | [可观测](tech/observability/可观测.md) | 日志四端、MDC、脱敏、指标、审计 | 业务日志内容 → 各域 |
 | [安全与鉴权](tech/security/安全与鉴权.md) | 鉴权链形态（默认拒绝）、三个授权注解、401/403 语义、**为何不迁 Spring Security**（方案原貌/否决理由/推翻条件） | 脱敏 → 可观测；已接受的代价 → security 台账 |
 | [安全与鉴权-已知代价](tech/security/安全与鉴权-已知代价.md) | 鉴权**已拍板接受**的代价台账（不迁 Security / 暗依赖防火墙 / 单 Token / 注解权威源 / 默认拒绝） | 设计论证 → 安全与鉴权；未处置的问题 → `task/FURTHER_ISSUES.md` |
+| [接口契约](tech/api/接口契约.md) | 状态码分层（HTTP 类别 + 字符串码）、路径与方法判据、载荷/分页/时间/ID 规范、一物一名、校验失败体、改造前欠账结论 | 鉴权链 → 安全与鉴权；限流阈值 → 限流；登记簿 / spec 的生成与护栏 → 接口契约-护栏与Spec；排期 → `task/` |
+| [接口契约-护栏与Spec](tech/api/接口契约-护栏与Spec.md) | 契约的**机器产物与护栏**：端点登记簿（TSV ↔ 真实 handler）、`openapi.yaml`（零注解推导 / 响应类别口径 / 生成命令） | 契约规则本身 → 接口契约 §二 |
 | [限流](tech/rate-limit/限流.md) | 令牌桶口径、两桶非对称扣减、桶参数与权重表、429 契约、接线位置 | 熔断/单飞 → 韧性；过滤器链序 → 安全与鉴权；脱敏 → 可观测；排期 → `task/` |
 | [数据与Schema演进](tech/data-evolution/数据与Schema演进.md) | Flyway 策略、V1 冻结、环境、存量数据债 | 事务 → 事务边界 |
 | [事务边界](tech/transaction/事务边界.md) | 切分原则、载体独立 bean、`readOnly`、去事务口径 | 提交后副作用的语义 → 领域事件；逐处明细（已归档） |

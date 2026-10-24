@@ -16,6 +16,7 @@ import tools.jackson.databind.JsonNode;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -88,7 +89,7 @@ class ContentCacheTests extends AbstractContentIntegrationTest {
         long contentId = insertVideoContent(userIdOf(AUTHOR_PHONE), "预热原标题");
 
         // 预热：读一次详情 ⇒ content key 被写入，值是"预热原标题"
-        assertThat(get("/search/IdSearch?contentId=" + contentId, token).getStatusCode().value())
+        assertThat(get("/api/v1/contents/" + contentId, token).getStatusCode().value())
                 .isEqualTo(200);
         assertThat(cachedContentJson(contentId)).as("预热必须真的写进缓存才有判别力")
                 .isNotNull()
@@ -98,8 +99,8 @@ class ContentCacheTests extends AbstractContentIntegrationTest {
         doThrow(new DataAccessException("模拟写入失败") {
         }).when(contentDao).updateContentInfo(anyLong(), anyString(), anyString());
 
-        ResponseEntity<String> resp = postQuery("/content/update",
-                query("contentId", String.valueOf(contentId), "title", "回滚后的标题"), token);
+        ResponseEntity<String> resp = put("/api/v1/contents/" + String.valueOf(contentId),
+                Map.of("title", "回滚后的标题"), token);
         assertThat(resp.getStatusCode().value()).as("写入失败应非 200：%s", resp.getBody())
                 .isNotEqualTo(200);
 
@@ -117,7 +118,7 @@ class ContentCacheTests extends AbstractContentIntegrationTest {
         String token = registerAndGetToken(AUTHOR_PHONE, AUTHOR);
         long contentId = insertVideoContent(userIdOf(AUTHOR_PHONE), "预热原标题");
 
-        assertThat(get("/search/IdSearch?contentId=" + contentId, token).getStatusCode().value())
+        assertThat(get("/api/v1/contents/" + contentId, token).getStatusCode().value())
                 .isEqualTo(200);
         assertThat(cachedContentJson(contentId))
                 .as("★ T40 红线：coinCount 刻意**不进** ContentCacheDTO（冻结的缓存形状不动）"
@@ -125,8 +126,7 @@ class ContentCacheTests extends AbstractContentIntegrationTest {
                 .contains("预热原标题")
                 .doesNotContain("coinCount");
 
-        assertThat(postQuery("/content/update",
-                query("contentId", String.valueOf(contentId), "title", "提交后的标题"), token)
+        assertThat(put("/api/v1/contents/" + String.valueOf(contentId), Map.of("title", "提交后的标题"), token)
                 .getStatusCode().value()).isEqualTo(200);
 
         assertThat(cachedContentJson(contentId))
@@ -144,11 +144,11 @@ class ContentCacheTests extends AbstractContentIntegrationTest {
         registerAndGetToken(AUTHOR_PHONE, AUTHOR);
         long contentId = insertVideoContent(userIdOf(AUTHOR_PHONE), "命中内容");
 
-        assertThat(get("/search/IdSearch?contentId=" + contentId, null).getStatusCode().value())
+        assertThat(get("/api/v1/contents/" + contentId, null).getStatusCode().value())
                 .isEqualTo(200);
         verify(contentDao, times(1)).findContent(contentId);
 
-        assertThat(get("/search/IdSearch?contentId=" + contentId, null).getStatusCode().value())
+        assertThat(get("/api/v1/contents/" + contentId, null).getStatusCode().value())
                 .isEqualTo(200);
         verify(contentDao, times(1)).findContent(contentId);
     }
@@ -158,12 +158,12 @@ class ContentCacheTests extends AbstractContentIntegrationTest {
     void 空标记让不存在的id不再回源DB() {
         long missingId = 987654321L;
 
-        assertThat(get("/search/IdSearch?contentId=" + missingId, null).getStatusCode().value())
+        assertThat(get("/api/v1/contents/" + missingId, null).getStatusCode().value())
                 .isEqualTo(404);
         assertThat(redisKeys()).as("空标记必须落盘（否则每次读都要回源）")
                 .contains(EMPTY_PREFIX + CONTENT_KEY_PREFIX + missingId);
 
-        assertThat(get("/search/IdSearch?contentId=" + missingId, null).getStatusCode().value())
+        assertThat(get("/api/v1/contents/" + missingId, null).getStatusCode().value())
                 .isEqualTo(404);
         verify(contentDao, times(1)).findContent(missingId);
     }
@@ -182,7 +182,7 @@ class ContentCacheTests extends AbstractContentIntegrationTest {
         doThrow(new DataAccessException("模拟 DB 故障") {
         }).when(contentDao).findContent(anyLong());
 
-        ResponseEntity<String> resp = get("/search/IdSearch?contentId=" + contentId, null);
+        ResponseEntity<String> resp = get("/api/v1/contents/" + contentId, null);
         assertThat(resp.getStatusCode().value())
                 .as("降级成 null 会把『读不到』伪装成『没有』(404)；正解是 500：%s", resp.getBody())
                 .isEqualTo(500);
@@ -200,7 +200,7 @@ class ContentCacheTests extends AbstractContentIntegrationTest {
         // 只让"读探测"那一趟 pipeline 失败 ⇒ 模拟 Redis 不可达
         doThrow(new CacheUnavailableException("模拟 Redis 故障")).when(cacheAside).pipeline(any());
 
-        ResponseEntity<String> resp = get("/search/IdSearch?contentId=" + contentId, token);
+        ResponseEntity<String> resp = get("/api/v1/contents/" + contentId, token);
         assertThat(resp.getStatusCode().value()).as("Redis 挂掉不得让内容接口 500：%s", resp.getBody())
                 .isEqualTo(200);
         assertThat(Envelope.data(resp).path("title").asString()).isEqualTo("降级内容");
@@ -221,7 +221,7 @@ class ContentCacheTests extends AbstractContentIntegrationTest {
 
         assertThat(redis.keys(CONTENT_INDEX_PREFIX + "*")).as("前置：索引确实不存在").isNullOrEmpty();
 
-        assertThat(idsOf(Envelope.data(get("/start", null)))).contains(contentId);
+        assertThat(idsOf(Envelope.data(get("/api/v1/contents/recommended", null)))).contains(contentId);
         assertThat(redis.keys(CONTENT_INDEX_PREFIX + "*")).as("重建后索引 key 应存在").isNotEmpty();
     }
 
@@ -234,7 +234,7 @@ class ContentCacheTests extends AbstractContentIntegrationTest {
 
         doThrow(new CacheUnavailableException("模拟 Redis 故障")).when(contentRedisOps).readIds(anyString());
 
-        ResponseEntity<String> resp = get("/start", null);
+        ResponseEntity<String> resp = get("/api/v1/contents/recommended", null);
         assertThat(resp.getStatusCode().value()).as("索引不可用 ⇒ 空推荐，而不是 500").isEqualTo(200);
         assertThat(Envelope.data(resp).isArray()).isTrue();
         assertThat(Envelope.data(resp).size()).isZero();
@@ -254,7 +254,7 @@ class ContentCacheTests extends AbstractContentIntegrationTest {
                 .isEqualTo(AUTHOR);
         assertThat(cachedContentJson(contentId)).contains(AUTHOR);
 
-        assertThat(postQuery("/user/changeUserName", query("userName", "cache-author-new"), token)
+        assertThat(put("/api/v1/users/me/username", Map.of("userName", "cache-author-new"), token)
                 .getStatusCode().value()).isEqualTo(200);
 
         assertThat(detailAuthorName(contentId, token)).as("改名后读自愈回填新名")
@@ -271,11 +271,11 @@ class ContentCacheTests extends AbstractContentIntegrationTest {
         long authorContentId = insertVideoContent(userIdOf(AUTHOR_PHONE), "作者的内容");
         long otherContentId = insertVideoContent(userIdOf(OTHER_PHONE), "别人的内容");
 
-        get("/search/IdSearch?contentId=" + authorContentId, authorToken);
-        get("/search/IdSearch?contentId=" + otherContentId, otherToken);
+        get("/api/v1/contents/" + authorContentId, authorToken);
+        get("/api/v1/contents/" + otherContentId, otherToken);
         String otherCached = cachedContentJson(otherContentId);
 
-        postQuery("/user/changeUserName", query("userName", "cache-author-new"), authorToken);
+        put("/api/v1/users/me/username", query("userName", "cache-author-new"), authorToken);
 
         assertThat(cachedContentJson(otherContentId))
                 .as("别人的缓存应原样保留（反向对照，排除『改名清空全部内容缓存』）")
@@ -287,7 +287,7 @@ class ContentCacheTests extends AbstractContentIntegrationTest {
     // ========================================================================
 
     private String detailAuthorName(long contentId, String token) {
-        return Envelope.data(get("/search/IdSearch?contentId=" + contentId, token))
+        return Envelope.data(get("/api/v1/contents/" + contentId, token))
                 .path("authorName").asString();
     }
 

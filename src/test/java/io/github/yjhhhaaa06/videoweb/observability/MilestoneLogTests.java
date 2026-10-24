@@ -71,7 +71,7 @@ class MilestoneLogTests extends AbstractObservabilityTest {
         long userId = userIdOf(phone);
         clearLogs();
 
-        ResponseEntity<String> response = post("/user/login",
+        ResponseEntity<String> response = post("/api/v1/sessions",
                 Map.of("phone", phone, "password", PASSWORD), null);
         assertThat(response.getStatusCode().value()).isEqualTo(200);
 
@@ -88,7 +88,7 @@ class MilestoneLogTests extends AbstractObservabilityTest {
         registerAndGetToken(phone, "obs-mile-fail", PASSWORD);
         clearLogs();
 
-        ResponseEntity<String> response = post("/user/login",
+        ResponseEntity<String> response = post("/api/v1/sessions",
                 Map.of("phone", phone, "password", "wrong-password"), null);
         assertThat(response.getStatusCode().value()).isEqualTo(401);
 
@@ -114,7 +114,7 @@ class MilestoneLogTests extends AbstractObservabilityTest {
     @DisplayName("首次登录失败（用户不存在）同样不发里程碑")
     void 用户不存在不发里程碑() {
         clearLogs();
-        ResponseEntity<String> response = post("/user/login",
+        ResponseEntity<String> response = post("/api/v1/sessions",
                 Map.of("phone", "13800009299", "password", PASSWORD), null);
         assertThat(response.getStatusCode().value()).isEqualTo(401);
 
@@ -129,7 +129,7 @@ class MilestoneLogTests extends AbstractObservabilityTest {
         registerAndGetToken(phone, "obs-mile-split", PASSWORD);
         // 等访问行一并落盘，保证下面读文件时本轮的三条记录都已写出
         awaitSystemLine("msg=用户注册成功");
-        awaitAccessLine("/user/register", "status=200");
+        awaitAccessLine("/api/v1/users", "status=200");
 
         String milestoneFingerprint = "msg=用户注册成功";
         assertThat(structuredLines(LogCapture.systemFile()))

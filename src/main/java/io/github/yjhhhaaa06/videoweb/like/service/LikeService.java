@@ -1,7 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.like.service;
 
 import io.github.yjhhhaaa06.videoweb.comment.dao.CommentDao;
-import io.github.yjhhhaaa06.videoweb.common.exception.ConflictException;
+import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
 import io.github.yjhhhaaa06.videoweb.like.cache.LikeCache;
@@ -73,42 +73,40 @@ public class LikeService {
     // ========================================================================
 
     /**
-     * 点赞内容。
+     * 点赞内容（`T59` 起**幂等设置**：重复 / 并发点赞 = 200，不重复计数）。
      *
      * <p><b>决策表 L-1：✅ 保持单事务。</b>"点赞记录"与 {@code content.like_count} 必须同进同退，
-     * 否则计数漂移。校验顺序（存在性 → 是否已赞）逐条保留，决定客户端拿到 404 还是 409。
+     * 否则计数漂移。存在性仍先判（不存在 → 404）。
      *
-     * <p>并发仍靠唯一键 {@code content_like.uk_user_content} 兜底：撞键 ⇒ {@code DuplicateKeyException}
-     * ⇒ 全局出口 409（同 C-1 / U-2 的映射点）。
+     * <p>★ 幂等靠 {@code INSERT IGNORE} + 受影响行数：唯一键 {@code uk_user_content} 撞键返回 0 行
+     * ⇒ 视为"已赞"直接返回，**不 +1、不发事件**（事件监听器会 INCR 缓存，多发一次就多算一次）。
      */
     @Transactional
     public void likeContent(long userId, long contentId) {
         if (!contentDao.isContentExist(contentId)) {
-            throw new NotFoundException("内容不存在");
+            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
         }
-        if (contentLikeDao.isLiked(userId, contentId)) {
-            throw new ConflictException("不可重复点赞");
+        if (contentLikeDao.addLike(userId, contentId) == 0) {
+            return;
         }
-        contentLikeDao.addLike(userId, contentId);
         contentDao.updateLikeCount(contentId, 1);
         events.publishEvent(LikeChangedEvent.content(userId, contentId, true));
     }
 
     /**
-     * 取消内容点赞。
+     * 取消内容点赞（`T59` 起**幂等取消**：未点赞 / 重复取消 = 204，不产生负计数）。
      *
-     * <p>文案 "未点赞，无法取消" 与评论侧的 "未点赞，不可取消" 在 TV 里**本来就不一致**，
-     * 此处**原样保留**——`msg` 不在冻结契约内，但"顺手统一"是一次无声的契约改动。
+     * <p>★ 按 {@code deleteLike} 的受影响行数决定是否 −1 与发事件：0 行 = 本就没赞，直接返回。
+     * 若无条件 −1，重复取消会把别人的赞从计数里扣掉（计数列是全局的）。
      */
     @Transactional
-    public void removeLikeContent(long userId, long contentId) {
+    public void cancelContentLike(long userId, long contentId) {
         if (!contentDao.isContentExist(contentId)) {
-            throw new NotFoundException("内容不存在");
+            throw new NotFoundException(ErrorCode.CONTENT_NOT_FOUND, "内容不存在");
         }
-        if (!contentLikeDao.isLiked(userId, contentId)) {
-            throw new ConflictException("未点赞，无法取消");
+        if (contentLikeDao.deleteLike(userId, contentId) == 0) {
+            return;
         }
-        contentLikeDao.deleteLike(userId, contentId);
         contentDao.updateLikeCount(contentId, -1);
         events.publishEvent(LikeChangedEvent.content(userId, contentId, false));
     }
@@ -118,7 +116,7 @@ public class LikeService {
     // ========================================================================
 
     /**
-     * 点赞评论。
+     * 点赞评论（`T59` 起**幂等设置**：重复 / 并发点赞 = 200，不重复计数）。
      *
      * <p>与 {@link #likeContent} 同构，只换对象。★ 存在性判定走 {@code CommentDao.isCommentExist}，
      * 其 SQL 带 {@code AND is_deleted = 0} ⇒ **给已软删的评论点赞被拒（404）**，
@@ -127,26 +125,24 @@ public class LikeService {
     @Transactional
     public void likeComment(long userId, long commentId) {
         if (!commentDao.isCommentExist(commentId)) {
-            throw new NotFoundException("评论不存在");
+            throw new NotFoundException(ErrorCode.COMMENT_NOT_FOUND, "评论不存在");
         }
-        if (commentLikeDao.isLiked(userId, commentId)) {
-            throw new ConflictException("不可重复点赞");
+        if (commentLikeDao.addLike(userId, commentId) == 0) {
+            return;
         }
-        commentLikeDao.addLike(userId, commentId);
         commentDao.updateLikeCount(commentId, 1);
         events.publishEvent(LikeChangedEvent.comment(userId, commentId, true));
     }
 
-    /** 取消评论点赞（同构；文案保留 TV 原文 "未点赞，不可取消"）。 */
+    /** 取消评论点赞（`T59` 起**幂等取消**：未点赞 / 重复取消 = 204，不产生负计数）。 */
     @Transactional
-    public void removeLikeComment(long userId, long commentId) {
+    public void cancelCommentLike(long userId, long commentId) {
         if (!commentDao.isCommentExist(commentId)) {
-            throw new NotFoundException("评论不存在");
+            throw new NotFoundException(ErrorCode.COMMENT_NOT_FOUND, "评论不存在");
         }
-        if (!commentLikeDao.isLiked(userId, commentId)) {
-            throw new ConflictException("未点赞，不可取消");
+        if (commentLikeDao.removeLike(userId, commentId) == 0) {
+            return;
         }
-        commentLikeDao.removeLike(userId, commentId);
         commentDao.updateLikeCount(commentId, -1);
         events.publishEvent(LikeChangedEvent.comment(userId, commentId, false));
     }
@@ -159,7 +155,7 @@ public class LikeService {
         return likeCache.isContentLiked(userId, contentId);
     }
 
-    public int getContentLikeCount(long contentId) {
+    public long getContentLikeCount(long contentId) {
         return likeCache.getContentLikeCount(contentId);
     }
 
@@ -168,7 +164,7 @@ public class LikeService {
      * 调到这里，值来自 {@code content.like_count} 列快照。content 不得直连 like（T13/F-16 拆掉的边），
      * 经互动域转发是既有形态（读 {@code isContentLiked} 同路）。
      */
-    public void backfillContentLikeCount(long contentId, int count) {
+    public void backfillContentLikeCount(long contentId, long count) {
         likeCache.backfillContentCount(contentId, count);
     }
 
@@ -176,7 +172,7 @@ public class LikeService {
         return likeCache.isCommentLiked(userId, commentId);
     }
 
-    public int getCommentLikeCount(long commentId) {
+    public long getCommentLikeCount(long commentId) {
         return likeCache.getCommentLikeCount(commentId);
     }
 

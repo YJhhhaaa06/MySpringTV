@@ -3,7 +3,7 @@ package io.github.yjhhhaaa06.videoweb.coin.model.vo;
 import java.math.BigDecimal;
 
 /**
- * 签到回执（{@code POST /coin/signIn} 的 {@code data}）。
+ * 签到回执（{@code POST /api/v1/users/me/check-ins} 的 {@code data}）。
  *
  * <p>形状按 {@code architecture/domain/coin/coin.md} §二 冻结：
  * {@code { "balance": 1.0, "credited": true }}。

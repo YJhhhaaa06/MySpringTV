@@ -25,10 +25,11 @@ import static org.mockito.Mockito.verify;
 /**
  * S5：comment **读路径**的 HTTP 契约测试（{@code /comment/show}、{@code /comment/replies}）。
  *
- * <h2>钉的是旧 pytest {@code test_comment_paging.py} 的全部契约</h2>
+ * <h2>钉的是旧 pytest {@code test_comment_paging.py} 的契约（`T59` 载荷面后）</h2>
  * <ul>
- *   <li><b>缺省（不传 page/pageSize）→ {@code data} 是全量数组</b>（children 全量随行 + {@code replyCount}）；
- *       传任一 → 分页信封，{@code total} = **主楼条数**；</li>
+ *   <li><b>唯一形状 = 分页信封</b>（《接口契约.md》§2.6）：{@code data = {list,total,page,pageSize,totalPages}}，
+ *       缺省 = {@code page=1&pageSize=200}，与显式传参**逐字节一致**；`T59` 前的"缺省全量数组"
+ *       两态已退役（`T59` 契约变更 —— 端点只许一种形状）；</li>
  *   <li>分页归一：{@code page} 缺省 → 1；{@code pageSize} 缺省 → **200**（评论域信封）、上限 **500**；</li>
  *   <li>每主楼 children ≤ **K=2**（预览）且带 {@code replyCount}（该主楼回复总数）；展开走
  *       {@code /comment/replies}，其 {@code total} 与 {@code replyCount} **同口径**；</li>
@@ -43,11 +44,11 @@ import static org.mockito.Mockito.verify;
  * {@code 游标翻页不重不漏} 用独立 oracle 钉住"页间不重不漏"（不因改实现而变化）。
  * <p>⚠️ 旧的 {@code page} 参数不再被识别（传了退化为第 1 页）；前端 {@code detail.js} 已同批改游标。
  *
- * <h2>★ 两类"看似 bug、实为规格"的行为（必须有测试钉住）</h2>
+ * <h2>★ 一类"看似 bug、实为规格"的行为（必须有测试钉住）</h2>
  * <ol>
- *   <li><b>内容不存在 / 评论区关闭 → 200 空</b>，不是 404/409。读评论不该因内容不可见而报错。</li>
- *   <li><b>缺省路径的 children 是"全量"、分页路径是"前 2 条"</b>——两条路径的 children 口径
- *       **刻意不同**（T8/T10-B）。若有人"统一"成同一个口径，两者之一必错。</li>
+ *   <li><b>内容不存在 / 评论区关闭 → 200 空信封</b>，不是 404/409。读评论不该因内容不可见而报错。</li>
+ *   <li><b>每主楼 children 只带前 K=2 条 + replyCount</b>——全量展开必须走
+ *       {@code /api/v1/comments/{id}/replies}（`T59` 起没有"缺省全量随行"这条捷径）。</li>
  * </ol>
  */
 class CommentReadTests extends AbstractContentIntegrationTest {
@@ -100,23 +101,29 @@ class CommentReadTests extends AbstractContentIntegrationTest {
     // ========================================================================
 
     @Test
-    @DisplayName("缺省：返回**全量数组**（children 全量随行 + replyCount）")
-    void 缺省返回全量数组() {
+    @DisplayName("缺省：也返回分页信封（page=1 / pageSize=200，children 仍截断为 K=2）")
+    void 缺省返回分页信封() {
         seed();
-        JsonNode data = Envelope.data(get("/comment/show?contentId=" + contentId, null));
-        assertThat(data.isArray()).as("不传分页参数应保持全量数组（缺省兼容）").isTrue();
-        assertThat(data.size()).isEqualTo(5);
-        assertThat(rootIds(data)).isEqualTo(mainIds);
-        JsonNode root0 = data.get(0);
-        assertThat(root0.path("replyCount").asInt()).as("缺省数组也带 replyCount（T10-B）").isEqualTo(3);
-        assertThat(root0.path("children").size()).as("★缺省路径 children 是**全量**，不截断").isEqualTo(3);
+        JsonNode data = Envelope.data(get("/api/v1/contents/" + contentId + "/comments", null));
+        assertThat(data.isObject()).as("`T59` 契约变更：缺省不再回数组，恒为分页信封").isTrue();
+        assertThat(data.path("page").asInt()).isEqualTo(1);
+        assertThat(data.path("pageSize").asInt()).as("评论域信封 200").isEqualTo(200);
+        assertThat(data.path("total").asInt()).as("total = 主楼条数").isEqualTo(5);
+        assertThat(rootIds(data.path("list"))).isEqualTo(mainIds);
+        JsonNode root0 = data.path("list").get(0);
+        assertThat(root0.path("replyCount").asInt()).as("缺省也带 replyCount（T10-B）").isEqualTo(3);
+        assertThat(root0.path("children").size()).as("★单一形状下 children 恒为前 K=2 条").isEqualTo(2);
+
+        JsonNode explicit = Envelope.data(
+                get("/api/v1/contents/" + contentId + "/comments?page=1&pageSize=200", null));
+        assertThat(explicit).as("缺省与显式传参逐字节一致").isEqualTo(data);
     }
 
     @Test
     @DisplayName("分页：信封 total = 主楼条数；每主楼 children ≤ K=2 且带 replyCount")
     void 分页信封与预览K() {
         seed();
-        JsonNode data = Envelope.data(get("/comment/show?contentId=" + contentId + "&page=1&pageSize=3", null));
+        JsonNode data = Envelope.data(get("/api/v1/contents/" + contentId + "/comments?page=1&pageSize=3", null));
         assertThat(data.path("total").asInt()).as("total 是**主楼**条数，不是评论总数").isEqualTo(5);
         assertThat(data.path("page").asInt()).isEqualTo(1);
         assertThat(data.path("pageSize").asInt()).isEqualTo(3);
@@ -132,16 +139,16 @@ class CommentReadTests extends AbstractContentIntegrationTest {
     @DisplayName("分页：半参数也算分页请求；pageSize 缺省取评论域信封 200、上限 500")
     void 分页半参数与域级常量() {
         seed();
-        JsonNode bySize = Envelope.data(get("/comment/show?contentId=" + contentId + "&pageSize=3", null));
+        JsonNode bySize = Envelope.data(get("/api/v1/contents/" + contentId + "/comments?pageSize=3", null));
         assertThat(bySize.path("page").asInt()).as("只传 pageSize 也算分页").isEqualTo(1);
         assertThat(rootIds(bySize.path("list"))).isEqualTo(mainIds.subList(0, 3));
 
-        JsonNode byPage = Envelope.data(get("/comment/show?contentId=" + contentId + "&page=1", null));
+        JsonNode byPage = Envelope.data(get("/api/v1/contents/" + contentId + "/comments?page=1", null));
         assertThat(byPage.path("pageSize").asInt()).as("comments 域信封是 200（不是 100）").isEqualTo(200);
         assertThat(rootIds(byPage.path("list"))).isEqualTo(mainIds);
 
         JsonNode capped = Envelope.data(
-                get("/comment/show?contentId=" + contentId + "&page=1&pageSize=999", null));
+                get("/api/v1/contents/" + contentId + "/comments?page=1&pageSize=999", null));
         assertThat(capped.path("pageSize").asInt()).as("上限 500（与 search/profile 的 100 不同）").isEqualTo(500);
     }
 
@@ -150,14 +157,14 @@ class CommentReadTests extends AbstractContentIntegrationTest {
     void 分页越界与逐页() {
         seed();
         JsonNode beyond = Envelope.data(
-                get("/comment/show?contentId=" + contentId + "&page=99&pageSize=3", null));
+                get("/api/v1/contents/" + contentId + "/comments?page=99&pageSize=3", null));
         assertThat(beyond.path("list").size()).isZero();
         assertThat(beyond.path("total").asInt()).as("越界页仍保留真实 total").isEqualTo(5);
 
         List<Long> collected = new ArrayList<>();
         for (int page = 1; page <= 5; page++) {
             JsonNode one = Envelope.data(
-                    get("/comment/show?contentId=" + contentId + "&page=" + page + "&pageSize=1", null));
+                    get("/api/v1/contents/" + contentId + "/comments?page=" + page + "&pageSize=1", null));
             assertThat(one.path("list").size()).as("pageSize=1 每页应 1 条").isEqualTo(1);
             collected.add(one.path("list").get(0).path("commentId").asLong());
         }
@@ -165,39 +172,39 @@ class CommentReadTests extends AbstractContentIntegrationTest {
     }
 
     @Test
-    @DisplayName("门禁：内容不存在 → 200 + 空；开关关闭 → 200 + 空（不是 404/409）")
+    @DisplayName("门禁：内容不存在 → 200 + 空信封；开关关闭 → 200 + 空信封（不是 404/409）")
     void 门禁返回空而不是报错() {
         seed();
-        ResponseEntity<String> missing = get("/comment/show?contentId=987654321", null);
+        ResponseEntity<String> missing = get("/api/v1/contents/987654321/comments", null);
         assertThat(missing.getStatusCode().value()).as("内容不存在 ⇒ 200").isEqualTo(200);
-        assertThat(Envelope.data(missing).size()).isZero();
+        assertThat(Envelope.data(missing).path("list").size()).isZero();
+        assertThat(Envelope.data(missing).path("total").asInt()).isZero();
 
-        assertThat(Envelope.data(get("/comment/show?contentId=" + contentId, null)).size())
+        assertThat(Envelope.data(get("/api/v1/contents/" + contentId + "/comments", null)).path("list").size())
                 .as("前置：开启状态下 5 条主楼可见").isEqualTo(5);
 
         // ★ 必须走**真实端点**关闭——直改 JDBC 会绕过缓存失效，测出的只是"缓存陈旧"而不是"门禁生效"。
         //   这条链路同时是 S2 那笔账的闭环证明：CM-3 说"S5 搬 /content/commentEnabled 后即可闭环"。
-        assertThat(postQuery("/content/commentEnabled",
-                query("contentId", String.valueOf(contentId), "enabled", "0"), authorToken)
-                .getStatusCode().value()).isEqualTo(200);
+        assertThat(put("/api/v1/contents/" + String.valueOf(contentId) + "/comment-enabled",
+                Map.of("enabled", false), authorToken).getStatusCode().value()).isEqualTo(200);
 
-        JsonNode closed = Envelope.data(get("/comment/show?contentId=" + contentId, null));
-        assertThat(closed.size()).as("关闭后评论整体不可见").isZero();
+        JsonNode closed = Envelope.data(get("/api/v1/contents/" + contentId + "/comments", null));
+        assertThat(closed.path("list").size()).as("关闭后评论整体不可见").isZero();
+        assertThat(closed.path("total").asInt()).as("关闭后 total=0").isZero();
         JsonNode closedPaged = Envelope.data(
-                get("/comment/show?contentId=" + contentId + "&page=1&pageSize=10", null));
+                get("/api/v1/contents/" + contentId + "/comments?page=1&pageSize=10", null));
         assertThat(closedPaged.path("total").asInt()).as("关闭后分页信封 total=0").isZero();
 
-        assertThat(postQuery("/content/commentEnabled",
-                query("contentId", String.valueOf(contentId), "enabled", "1"), authorToken)
-                .getStatusCode().value()).isEqualTo(200);
-        assertThat(Envelope.data(get("/comment/show?contentId=" + contentId, null)).size())
+        assertThat(put("/api/v1/contents/" + String.valueOf(contentId) + "/comment-enabled",
+                Map.of("enabled", true), authorToken).getStatusCode().value()).isEqualTo(200);
+        assertThat(Envelope.data(get("/api/v1/contents/" + contentId + "/comments", null)).path("list").size())
                 .as("重新开启即恢复（评论数据从未被删）").isEqualTo(5);
     }
 
     @Test
-    @DisplayName("门禁：缺 contentId → 400")
+    @DisplayName("门禁：非法 contentId → 400（T58 契约变更：id 进路径后缺 id 是 404，非法 id 才是 400）")
     void 缺contentId() {
-        assertThat(get("/comment/show", null).getStatusCode().value()).isEqualTo(400);
+        assertThat(get("/api/v1/contents/not-a-number/comments", null).getStatusCode().value()).isEqualTo(400);
     }
 
     @Test
@@ -208,12 +215,12 @@ class CommentReadTests extends AbstractContentIntegrationTest {
         long viewerId = userIdOf(VIEWER_PHONE);
         insertCommentLike(viewerId, mainIds.get(1));
 
-        JsonNode anonymous = Envelope.data(get("/comment/show?contentId=" + contentId, null));
+        JsonNode anonymous = Envelope.data(get("/api/v1/contents/" + contentId + "/comments", null)).path("list");
         for (JsonNode node : anonymous) {
             assertThat(node.path("isLiked").asBoolean()).isFalse();
         }
 
-        JsonNode loggedIn = Envelope.data(get("/comment/show?contentId=" + contentId, viewerToken));
+        JsonNode loggedIn = Envelope.data(get("/api/v1/contents/" + contentId + "/comments", viewerToken)).path("list");
         assertThat(loggedIn.get(0).path("isLiked").asBoolean()).isFalse();
         assertThat(loggedIn.get(1).path("isLiked").asBoolean()).as("只有第 2 条被点赞").isTrue();
         assertThat(loggedIn.get(2).path("isLiked").asBoolean()).isFalse();
@@ -229,7 +236,7 @@ class CommentReadTests extends AbstractContentIntegrationTest {
         seed();
         // 一页装下 ⇒ 直接到底
         JsonNode onePage = Envelope.data(
-                get("/comment/replies?rootId=" + firstRootWithReplies + "&pageSize=50", null));
+                get("/api/v1/comments/" + firstRootWithReplies + "/replies?pageSize=50", null));
         assertThat(onePage.path("total").asInt()).isEqualTo(3);
         assertThat(onePage.path("pageSize").asInt()).isEqualTo(50);
         assertThat(rootIds(onePage.path("list"))).as("comment_id 升序").isSorted().hasSize(3);
@@ -237,25 +244,25 @@ class CommentReadTests extends AbstractContentIntegrationTest {
 
         // 两页：nextCursor 逐页推进，末页为 null
         JsonNode p1 = Envelope.data(
-                get("/comment/replies?rootId=" + firstRootWithReplies + "&pageSize=2", null));
+                get("/api/v1/comments/" + firstRootWithReplies + "/replies?pageSize=2", null));
         List<Long> firstIds = rootIds(p1.path("list"));
         assertThat(firstIds).hasSize(2);
         long cursor2 = p1.path("nextCursor").asLong();
         assertThat(cursor2).as("nextCursor = 本页末条 commentId").isEqualTo(firstIds.get(1));
 
         JsonNode p2 = Envelope.data(
-                get("/comment/replies?rootId=" + firstRootWithReplies + "&cursor=" + cursor2 + "&pageSize=2", null));
+                get("/api/v1/comments/" + firstRootWithReplies + "/replies?cursor=" + cursor2 + "&pageSize=2", null));
         assertThat(p2.path("list").size()).isEqualTo(1);
         assertThat(p2.path("total").asInt()).isEqualTo(3);
         assertThat(p2.path("nextCursor").isNull()).as("末页 ⇒ nextCursor=null").isTrue();
 
         // 缺省 pageSize = 评论域信封 200（本条语义未变）
-        JsonNode byDefault = Envelope.data(get("/comment/replies?rootId=" + firstRootWithReplies, null));
+        JsonNode byDefault = Envelope.data(get("/api/v1/comments/" + firstRootWithReplies + "/replies", null));
         assertThat(byDefault.path("pageSize").asInt()).as("缺省信封 200（T11-B）").isEqualTo(200);
 
         // 越界游标：空 list + nextCursor=null，但 total 仍为真值（与 offset 分页"越界页"同构）
         JsonNode beyond = Envelope.data(
-                get("/comment/replies?rootId=" + firstRootWithReplies + "&cursor=999999999&pageSize=2", null));
+                get("/api/v1/comments/" + firstRootWithReplies + "/replies?cursor=999999999&pageSize=2", null));
         assertThat(beyond.path("list").size()).isZero();
         assertThat(beyond.path("total").asInt()).as("越界游标保留真实 total").isEqualTo(3);
         assertThat(beyond.path("nextCursor").isNull()).isTrue();
@@ -308,8 +315,7 @@ class CommentReadTests extends AbstractContentIntegrationTest {
         List<Long> walked = new ArrayList<>();
         long cursor = 0;
         for (int guard = 0; guard < 100; guard++) {
-            JsonNode data = Envelope.data(get("/comment/replies?rootId=" + firstRootWithReplies
-                    + "&cursor=" + cursor + "&pageSize=1", null));
+            JsonNode data = Envelope.data(get("/api/v1/comments/" + firstRootWithReplies + "/replies?cursor=" + cursor + "&pageSize=1", null));
             assertThat(data.path("total").asInt()).as("total 每页恒为 reply_count").isEqualTo(4);
             for (JsonNode node : data.path("list")) {
                 walked.add(node.path("commentId").asLong());
@@ -330,8 +336,7 @@ class CommentReadTests extends AbstractContentIntegrationTest {
     void 非法游标兜底() {
         seed();
         for (String c : new String[]{"", "abc", "-5", "0"}) {
-            JsonNode data = Envelope.data(get("/comment/replies?rootId=" + firstRootWithReplies
-                    + "&cursor=" + c + "&pageSize=50", null));
+            JsonNode data = Envelope.data(get("/api/v1/comments/" + firstRootWithReplies + "/replies?cursor=" + c + "&pageSize=50", null));
             assertThat(data.path("list").size()).as("cursor=[%s] 应回到第 1 页", c).isEqualTo(3);
             assertThat(data.path("nextCursor").isNull()).isTrue();
         }
@@ -357,17 +362,15 @@ class CommentReadTests extends AbstractContentIntegrationTest {
         Mockito.reset(commentDao);   // ⚠️ 前置夹具（建内容 / 建回复）的 DAO 调用不计入
 
         JsonNode p1 = Envelope.data(
-                get("/comment/replies?rootId=" + firstRootWithReplies + "&pageSize=10", null));
+                get("/api/v1/comments/" + firstRootWithReplies + "/replies?pageSize=10", null));
         assertThat(p1.path("list").size()).isEqualTo(10);
         long c2 = p1.path("nextCursor").asLong();
 
-        JsonNode p2 = Envelope.data(get("/comment/replies?rootId=" + firstRootWithReplies
-                + "&cursor=" + c2 + "&pageSize=10", null));
+        JsonNode p2 = Envelope.data(get("/api/v1/comments/" + firstRootWithReplies + "/replies?cursor=" + c2 + "&pageSize=10", null));
         assertThat(p2.path("list").size()).isEqualTo(10);
         long c3 = p2.path("nextCursor").asLong();
 
-        JsonNode p3 = Envelope.data(get("/comment/replies?rootId=" + firstRootWithReplies
-                + "&cursor=" + c3 + "&pageSize=10", null));
+        JsonNode p3 = Envelope.data(get("/api/v1/comments/" + firstRootWithReplies + "/replies?cursor=" + c3 + "&pageSize=10", null));
         assertThat(p3.path("list").size()).isEqualTo(8);
         assertThat(p3.path("nextCursor").isNull()).as("28 条 / 每页 10 ⇒ 第 3 页到底").isTrue();
 
@@ -382,7 +385,7 @@ class CommentReadTests extends AbstractContentIntegrationTest {
     void 旧page参数不再被识别() {
         seed();
         JsonNode withPage = Envelope.data(
-                get("/comment/replies?rootId=" + firstRootWithReplies + "&page=99&pageSize=2", null));
+                get("/api/v1/comments/" + firstRootWithReplies + "/replies?page=99&pageSize=2", null));
         assertThat(withPage.path("list").size()).as("page=99 被忽略 ⇒ 仍返回第 1 页 2 条").isEqualTo(2);
         assertThat(withPage.path("list").get(0).path("commentId").asLong())
                 .as("第 1 条 = 楼内最小 id")
@@ -398,11 +401,11 @@ class CommentReadTests extends AbstractContentIntegrationTest {
     @DisplayName("展开：主楼不存在或已删 → 404；缺 rootId → 400")
     void 展开边界() {
         seed();
-        assertThat(get("/comment/replies", null).getStatusCode().value()).isEqualTo(400);
-        assertThat(get("/comment/replies?rootId=987654321", null).getStatusCode().value()).isEqualTo(404);
+        assertThat(get("/api/v1/comments/not-a-number/replies", null).getStatusCode().value()).isEqualTo(400);
+        assertThat(get("/api/v1/comments/987654321/replies", null).getStatusCode().value()).isEqualTo(404);
 
         softDeleteComment(firstRootWithReplies);
-        ResponseEntity<String> deleted = get("/comment/replies?rootId=" + firstRootWithReplies, null);
+        ResponseEntity<String> deleted = get("/api/v1/comments/" + firstRootWithReplies + "/replies", null);
         assertThat(deleted.getStatusCode().value()).as("被删主楼展开应失败").isEqualTo(404);
     }
 
@@ -413,12 +416,11 @@ class CommentReadTests extends AbstractContentIntegrationTest {
         String viewerToken = registerAndGetToken(VIEWER_PHONE, VIEWER);
         long viewerId = userIdOf(VIEWER_PHONE);
         JsonNode all = Envelope.data(
-                get("/comment/replies?rootId=" + firstRootWithReplies + "&pageSize=50", null));
+                get("/api/v1/comments/" + firstRootWithReplies + "/replies?pageSize=50", null));
         long secondReplyId = all.path("list").get(1).path("commentId").asLong();
         insertCommentLike(viewerId, secondReplyId);
 
-        JsonNode data = Envelope.data(get("/comment/replies?rootId=" + firstRootWithReplies
-                + "&pageSize=50", viewerToken));
+        JsonNode data = Envelope.data(get("/api/v1/comments/" + firstRootWithReplies + "/replies?pageSize=50", viewerToken));
         assertThat(data.path("list").get(0).path("isLiked").asBoolean()).isFalse();
         assertThat(data.path("list").get(1).path("isLiked").asBoolean()).isTrue();
     }

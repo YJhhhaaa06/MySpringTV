@@ -1,11 +1,13 @@
 package io.github.yjhhhaaa06.videoweb.user.service;
 
+import io.github.yjhhhaaa06.videoweb.common.exception.BadCredentialsException;
 import io.github.yjhhhaaa06.videoweb.common.exception.BusinessException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ConflictException;
 import io.github.yjhhhaaa06.videoweb.common.exception.DuplicatePhoneException;
+import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.exception.InvalidPasswordException;
+import io.github.yjhhhaaa06.videoweb.common.exception.OldPasswordMismatchException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
-import io.github.yjhhhaaa06.videoweb.common.exception.PasswordIncorrectException;
 import io.github.yjhhhaaa06.videoweb.common.exception.UserNotFoundException;
 import io.github.yjhhhaaa06.videoweb.common.security.AdminChecker;
 import io.github.yjhhhaaa06.videoweb.common.security.JwtService;
@@ -44,6 +46,18 @@ public class UserService implements AdminChecker {
     private final JwtService jwtService;
     private final ApplicationEventPublisher events;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+
+    /**
+     * 登录失败时用来"陪跑"的假哈希（`T55`）。
+     *
+     * <p>★ 为什么要它：账号不存在时若直接抛错，就**跳过了 BCrypt 校验**——那条路径比"密码错"快
+     * 约 50–100ms。攻击者不用读 {@code code}，只看响应时间就能判断手机号是否注册过：
+     * **把 code 和 msg 统一了、却不统一耗时，等于没统一**。
+     *
+     * <p>用 {@code encode(...)} 生成而不是硬编码一串 bcrypt：硬编码的哈希在注释里长得像"某个真实口令的
+     * 散列"，下一个人会去猜它、或者误以为它必须与某个账号匹配。这里只需要"一个合法的 bcrypt 哈希"。
+     */
+    private final String dummyPasswordHash = passwordEncoder.encode("T55-dummy-credential-for-timing");
 
     public UserService(UserDao userDao, JwtService jwtService, ApplicationEventPublisher events) {
         this.userDao = userDao;
@@ -101,7 +115,7 @@ public class UserService implements AdminChecker {
             throw new DuplicatePhoneException();
         }
         if (userDao.isUsernameUsed(username)) {
-            throw new ConflictException("用户名已被占用");
+            throw new ConflictException(ErrorCode.USER_NAME_TAKEN, "用户名已被占用");
         }
 
         User user = new User();
@@ -138,14 +152,28 @@ public class UserService implements AdminChecker {
      *
      * <p>决策表 U-3/U-4：TV 这里包了 {@code transactionTemplate.execute}，但**纯读无写**——
      * 那个事务只是"取连接的手段"，没有原子性需求，故新实现不加事务注解。
-     * 校验顺序与异常类型与 TV 逐条一致。
+     *
+     * <h2>★ 登录失败只有一种回答（`T55`，安全口径）</h2>
+     * 「账号不存在」与「密码错误」**同码同文案同耗时**：
+     * <ul>
+     *   <li><b>同码同文案</b>：都抛 {@link BadCredentialsException}（{@code AUTH_BAD_CREDENTIALS}
+     *       / "账号或密码错误"）。分开回答 = 给出「这个手机号注册过没有」的探测口，
+     *       一个脚本就能批量筛出全站已注册手机号 —— 与收藏域「收藏夹不存在 / 不公开同 404 同文案」
+     *       是同一条原则。</li>
+     *   <li><b>同耗时</b>：账号不存在时**也**对一个假哈希跑一次 BCrypt（见
+     *       {@link #dummyPasswordHash}），否则时间差本身就是同一个探测口。</li>
+     * </ul>
+     * ⚠️ 注册接口的「手机号已被使用」（{@code USER_PHONE_TAKEN}）仍然如实回答 —— 注册流程必须告知，
+     * 它是**已知代价**（真正的收口手段是短信验证，本期不做），口径见
+     * {@code architecture/tech/api/接口契约.md} §2.2。
+     * ⚠️ 改密接口的「原密码错」（{@code AUTH_OLD_PASSWORD_WRONG}）不在此列：操作者已用令牌证明身份。
      */
     private String doLogin(User user, String rawPassword) {
-        if (user == null) {
-            throw new UserNotFoundException();
-        }
-        if (!isPasswordCorrect(rawPassword, user.getHashedPassword())) {
-            throw new PasswordIncorrectException();
+        // 两个分支都走一次 BCrypt：user 不存在时对假哈希校验（结果必然 false，丢弃）
+        boolean passwordOk = isPasswordCorrect(
+                rawPassword, user == null ? dummyPasswordHash : user.getHashedPassword());
+        if (user == null || !passwordOk) {
+            throw new BadCredentialsException();
         }
         String token = jwtService.generateToken(user.getId());
         // 里程碑：登录成功。只记 userId——账号（手机号）与 token 一律不落盘（沿袭 TV LOG_CONVENTION）
@@ -216,10 +244,10 @@ public class UserService implements AdminChecker {
         }
         if (!request.phone().equals(user.getPhone())) {
             // TV 同位置抛 ParamException("手机号不匹配") ⇒ 400（先于旧密码判定，顺序即冻结契约）
-            throw new ParamException("手机号不匹配");
+            throw new ParamException(ErrorCode.USER_PHONE_MISMATCH, "手机号不匹配");
         }
         if (!isPasswordCorrect(request.oldPassword(), user.getHashedPassword())) {
-            throw new PasswordIncorrectException();
+            throw new OldPasswordMismatchException();
         }
         if (!isPasswordLegal(request.newPassword())) {
             throw new InvalidPasswordException();
@@ -227,14 +255,24 @@ public class UserService implements AdminChecker {
         userDao.updatePassword(userId, passwordEncoder.encode(request.newPassword()));
     }
 
-    /** 修改用户名。占用校验与更新同事务（同 U-2 口径）。 */
+    /**
+     * 修改用户名（`T59` 起**幂等设置**：改成同一个名字 = 200 no-op）。
+     *
+     * <p>占用校验与更新同事务（同 U-2 口径）。★ 必须先判"同值"再判占用：{@code isUsernameUsed}
+     * 的 SQL 是 {@code exists(where username = ?)}，**包含自己** ⇒ 不先判同值就会把
+     * "重复提交同一个名字"错报成 409 {@code USER_NAME_TAKEN}。
+     */
     @Transactional
     public void changeUserName(long userId, String newUsername) {
         if (newUsername == null || newUsername.isBlank()) {
-            throw new io.github.yjhhhaaa06.videoweb.common.exception.ParamException("用户名不能为空");
+            throw new ParamException(ErrorCode.PARAM_INVALID, "用户名不能为空");
+        }
+        User current = userDao.findByIdForLogin(userId);
+        if (current != null && newUsername.equals(current.getUsername())) {
+            return;   // 同值 PUT = 幂等成功，不发改名事件（没有变化）
         }
         if (userDao.isUsernameUsed(newUsername)) {
-            throw new ConflictException("用户名已被占用");
+            throw new ConflictException(ErrorCode.USER_NAME_TAKEN, "用户名已被占用");
         }
         userDao.updateUsername(userId, newUsername);
         // S5：改名必须级联失效该作者的内容缓存（内容详情/主页里的 authorName 是从 users JOIN 来的

@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.coupon.service;
 
 import io.github.yjhhhaaa06.videoweb.common.exception.ConflictException;
+import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.coupon.dao.CouponDao;
 import io.github.yjhhhaaa06.videoweb.coupon.model.vo.CouponOrderVO;
 import io.github.yjhhhaaa06.videoweb.coupon.model.vo.CouponVO;
@@ -23,7 +24,12 @@ import java.util.UUID;
  *   <li><b>C-1 删掉 MySQL 错误码 1062 判断</b>：Spring 把唯一键冲突翻译为
  *       {@code DuplicateKeyException}，由 {@code GlobalExceptionHandler} 统一映射为 409。
  *       副作用是重复抢券的 {@code msg} 由 <i>"您已抢过该优惠券"</i> 变为 <i>"操作冲突"</i>——
- *       HTTP 状态码与 body {@code code} 仍是 409 不变（DoD 冻结的是路径/信封/状态码）。</li>
+ *       HTTP 状态码与 body {@code code} 仍是 409 不变（DoD 冻结的是路径/信封/状态码）。
+ *       <p>★ `T55` 起对外码是 {@code SYSTEM_DUPLICATE_KEY}（不是 {@code COUPON_UNAVAILABLE}）：
+ *       出口拿到的是 {@code DuplicateKeyException}，**无法知道撞的是 {@code uk_coupon_user} 还是
+ *       {@code uk_coupon_code}**，硬猜会把两种原因报反。要恢复"您已抢过该优惠券"这句精确提示，
+ *       得在这里 catch 唯一键异常再翻译 —— 那会推翻 C-1 的「不判 1062」决定，故登记为已知代价
+ *       （{@code architecture/tech/api/接口契约.md} §2.2「已知代价·第二例」），本类**不**自行改。</p></li>
  *   <li><b>C-2 / C-3 去掉读路径的事务包装</b>：TV 用 {@code transactionTemplate.execute}
  *       仅为了"顺手拿到 Connection"，纯读无原子性需求（同决策表 U-3 / U-4）。</li>
  *   <li><b>不再手写 {@code ServerException} 包装与 SEVERE 堆栈日志</b>：TV 的
@@ -70,7 +76,7 @@ public class CouponService {
     public String grabCoupon(long couponId, long userId) {
         int rows = couponDao.deductStock(couponId);
         if (rows == 0) {
-            throw new ConflictException("库存不足或活动未开始/已结束");
+            throw new ConflictException(ErrorCode.COUPON_UNAVAILABLE, "库存不足或活动未开始/已结束");
         }
 
         String couponCode = generateCouponCode();

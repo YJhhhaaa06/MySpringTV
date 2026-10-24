@@ -22,9 +22,10 @@ import org.springframework.web.servlet.HandlerMapping;
  * 若路径未映射（404），返回 {@link HandlerAuthz#NONE}——真正的 404 由 DispatcherServlet 正常产生，
  * 本类不越权处理路由语义。
  *
- * <p><b>作用域</b>：本 bean 只注入到 {@link JwtAuthFilter}（不是 {@code Filter} 或
- * {@code WebMvcConfigurer}），以避免与 {@code HandlerMappingIntrospector} 的
- * 早期初始化产生循环依赖。
+ * <p><b>作用域</b>：本 bean 注入到两处 —— {@link JwtAuthFilter}（运行期鉴权）与
+ * {@code OpenApiConfig} 的 {@code OperationCustomizer}（`T60-2` 起：spec 的 401/403 必须与运行期
+ * **同一份判定**，否则两套口径漂移且不报错）。两者都只**读**本类，不反向依赖 MVC 配置，
+ * 故不会与 {@code HandlerMappingIntrospector} 的早期初始化形成环。
  *
  * <h2>★ 2026-10-18：判定口径从「声明才拦」改为「声明才放」</h2>
  * <pre>
@@ -42,7 +43,7 @@ import org.springframework.web.servlet.HandlerMapping;
  * 而路由匹配走解码后的 PathPattern —— 两个判据语义不同，且"新增 admin 端点必须落在
  * {@code /api/admin} 下"只是口头约定。现在角色要求写在控制器上，**规则与路由是同一份事实**。
  * 护栏：{@code SecurityContractTests#所有admin前缀控制器都必须标RequiresAdmin}
- * （扫描容器内全部 {@code @RestController}，落在 {@code /api/admin} 前缀却没标本注解 ⇒ 红）。
+ * （扫描容器内全部 {@code @RestController}，路由落在 {@code /api/v1/admin} 前缀却没标本注解 ⇒ 红）。
  *
  * <h2>⚠️ 2026-10-02（S3 期间）修复：本类曾**完全失效**</h2>
  * 原实现直接对 {@code handlerMapping.getHandler(request)} 的返回值做
@@ -82,6 +83,19 @@ public class RequestMappingLookup {
             // 未映射的路径：不要求登录，交由 DispatcherServlet 产出 404
             return HandlerAuthz.NONE;
         }
+        return resolve(handler);
+    }
+
+    /**
+     * 同一份判定的**第二个入口**：处理器已经在手时直接问它要不要登录（`T60-2` 起由 OpenAPI 导出使用）。
+     *
+     * <p>为什么要开这个口子：spec 里的 401/403 必须与**运行期同一依据**声明，若在文档侧按注解另写一套，
+     * 两套口径迟早漂移（而漂移不可见 —— 文档不会报错）。所以这里只做"解析处理器 → 读注解"的拆分，
+     * 判定逻辑仍只有一份。
+     *
+     * @param handler 目标处理器（调用方保证它已是业务控制器的处理器；非控制器返回 {@link HandlerAuthz#NONE}）
+     */
+    public HandlerAuthz resolve(HandlerMethod handler) {
         if (!isControllerEndpoint(handler)) {
             // Spring 内部 handler（不属于任何业务控制器）⇒ 不参与授权判定。见方法注释。
             return HandlerAuthz.NONE;

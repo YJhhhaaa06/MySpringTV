@@ -19,8 +19,10 @@ import java.lang.annotation.Target;
  *
  * <h2>{@link #required()} —— S5 新增的"匿名可见但已登录则个性化"</h2>
  * TV 有一批端点**公开可访问**，但"带了 token 就返回个性化字段"：
- * {@code /search/IdSearch}（互动态 {@code interaction}）、{@code /start}、{@code /search/keywordSearch}、
- * {@code /profile}、{@code /comment/show}、{@code /comment/replies}。
+ * 内容详情（互动态 {@code interaction}）、首页推荐、关键词搜索、用户主页、评论列表、评论回复——
+ * `T58` 资源化后为 {@code /api/v1/contents/{id}}、{@code /api/v1/contents/recommended}、
+ * {@code /api/v1/contents}、{@code /api/v1/users/{id}}（原 /search/IdSearch、/start、/search/keywordSearch、/profile）
+ * 与 {@code /api/v1/contents/{id}/comments}、{@code /api/v1/comments/{id}/replies}。
  * TV 的写法是 {@code Long userId = (Long) req.getAttribute("userId")}——**天然可空**。
  *
  * <p>原实现的注解语义是"必须有身份"（取不到就抛 401，防止"忘了标注解"

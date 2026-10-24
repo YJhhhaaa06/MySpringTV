@@ -19,9 +19,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>契约要点（全部来自旧 pytest {@code test_follow_list.py} 的翻译，形式随架构重写、意图保留）：
  * <ul>
- *   <li>4 个端点全部需登录（{@code /follow} 是 TV 的**前缀**保护项）→ 无 token 一律 401；</li>
- *   <li>缺 {@code followedUserId} / {@code userId} → 400（旧实现抛 {@code ParamException}）；</li>
- *   <li>关注成功 {@code data="关注成功"}、取关成功 {@code data="已取关"}（TV {@code writeSuccess} 文案）；</li>
+ *   <li>4 个端点全部需登录（TV 的 {@code /follow} 是**前缀**保护项）→ 无 token 一律 401；</li>
+ *   <li>{@code followedUserId} / {@code userId} 进路径后（`T58`）：可判定的参数档只剩"非法 id → 400"；
+ *       旧用例"缺参 → 400"因"少了路径段就没有路由匹配"而**整条退役**（不改成 404 硬凑）；</li>
+ *   <li>关注成功无 data、取关成功 204 无体（`T59`：String 文案退役；重复 PUT/DELETE 幂等）；</li>
  *   <li>列表返回**分页信封**（T11-A 起缺省不再是全量数组），键集合 = {@code {list,total,page,pageSize,totalPages}}；</li>
  *   <li>顺序 = **按 id 升序**（TV 的 T7 注释："关注/粉丝列表顺序由此处决定"）；</li>
  *   <li>条目字段 = {@code {userId, username, isFollowed, isSelf}}。</li>
@@ -46,8 +47,8 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
         var resp = follow(a.id(), b.token());
 
         assertThat(resp.getStatusCode().value()).as("HTTP 状态码应与 body code 一致（200）").isEqualTo(200);
-        assertThat(Envelope.code(resp)).isEqualTo(200);
-        assertThat(Envelope.data(resp).asString()).as("TV writeSuccess 文案").isEqualTo("关注成功");
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
+        assertThat(Envelope.hasDataField(resp)).as("`T59`：成功但无数据 ⇒ 不出现 data").isFalse();
 
         assertThat(countFollowRows(b.id(), a.id())).as("关系行").isEqualTo(1L);
         assertThat(followCountColumn(b.id())).as("关注者的 follow_count").isEqualTo(1);
@@ -63,8 +64,8 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
 
         var resp = unfollow(a.id(), b.token());
 
-        assertThat(Envelope.code(resp)).isEqualTo(200);
-        assertThat(Envelope.data(resp).asString()).isEqualTo("已取关");
+        assertThat(resp.getStatusCode().value()).as("`T59`：删除/取消 = 204").isEqualTo(204);
+        assertThat(resp.getBody()).as("204 必须无体").isNullOrEmpty();
         assertThat(countFollowRows(b.id(), a.id())).isZero();
         assertThat(followCountColumn(b.id())).isZero();
         assertThat(followerCountColumn(a.id())).isZero();
@@ -78,7 +79,7 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
         var resp = follow(a.id(), a.token());
 
         assertThat(resp.getStatusCode().value()).isEqualTo(409);
-        assertThat(Envelope.code(resp)).isEqualTo(409);
+        assertThat(Envelope.code(resp)).isEqualTo("FOLLOW_SELF");
         assertThat(Envelope.msg(resp)).as("TV 原文案").isEqualTo("不能关注自己");
         assertThat(countFollowRows()).isZero();
         assertThat(followCountColumn(a.id())).isZero();
@@ -92,74 +93,103 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
 
         var resp = unfollow(a.id(), a.token());
 
-        assertThat(Envelope.code(resp)).isEqualTo(409);
+        assertThat(Envelope.code(resp)).isEqualTo("FOLLOW_SELF");
         assertThat(Envelope.msg(resp)).isEqualTo("不能取关自己");
         assertThat(countFollowRows()).isZero();
     }
 
     @Test
-    @DisplayName("★重复关注 → 409「已关注，不可重复操作」，且计数**只加一次**（证明校验在读侧生效）")
-    void 重复关注_409且计数只加一次() {
+    @DisplayName("★重复关注 → 200 幂等，且计数**只加一次**（`T59` 契约变更，旧 409 退役）")
+    void 重复关注_200且计数只加一次() {
         TestUser a = register(PHONE_A, "flow-a");
         TestUser b = register(PHONE_B, "flow-b");
         assertThat(follow(a.id(), b.token()).getStatusCode().value()).isEqualTo(200);
 
         var resp = follow(a.id(), b.token());
 
-        assertThat(Envelope.code(resp)).isEqualTo(409);
-        assertThat(Envelope.msg(resp)).isEqualTo("已关注，不可重复操作");
-        assertThat(countFollowRows(b.id(), a.id())).as("不得产生第二行（唯一键亦兜底）").isEqualTo(1L);
-        assertThat(followCountColumn(b.id())).as("计数只加一次 ⇒ 第二次被拦在写之前").isEqualTo(1);
+        assertThat(resp.getStatusCode().value()).isEqualTo(200);
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
+        assertThat(Envelope.hasDataField(resp)).as("幂等成功也无 data").isFalse();
+        assertThat(countFollowRows(b.id(), a.id())).as("不得产生第二行（唯一键兜底）").isEqualTo(1L);
+        assertThat(followCountColumn(b.id())).as("计数只加一次").isEqualTo(1);
         assertThat(followerCountColumn(a.id())).isEqualTo(1);
     }
 
     @Test
-    @DisplayName("取关未关注 → 409「未关注，不可取消」，且**不产生负计数**")
-    void 取关未关注_409且不产生负计数() {
+    @DisplayName("取关未关注 → 204 幂等，且**不产生负计数**（`T59` 契约变更，旧 409 退役）")
+    void 取关未关注_204且不产生负计数() {
         TestUser a = register(PHONE_A, "flow-a");
         TestUser b = register(PHONE_B, "flow-b");
 
         var resp = unfollow(a.id(), b.token());
 
-        assertThat(Envelope.code(resp)).isEqualTo(409);
-        assertThat(Envelope.msg(resp)).isEqualTo("未关注，不可取消");
+        assertThat(resp.getStatusCode().value()).as("`T59`：删除/取消 = 204").isEqualTo(204);
+        assertThat(resp.getBody()).as("204 必须无体").isNullOrEmpty();
         assertThat(countFollowRows()).isZero();
         assertThat(followCountColumn(b.id())).isZero();
         assertThat(followerCountColumn(a.id())).isZero();
     }
 
     @Test
-    @DisplayName("未登录：4 个端点全部 401（`/follow` 是 TV 的**前缀**保护项）")
-    void 未登录全部401() {
+    @DisplayName("★幂等取关只作用于本人：C 没关注过 A 时取关 ⇒ 204，且不扣 B 的 follower_count（T59 对照夹）")
+    void 取关未关注_不扣别人的计数() {
         TestUser a = register(PHONE_A, "flow-a");
+        TestUser b = register(PHONE_B, "flow-b");
+        TestUser c = register(PHONE_C, "flow-c");
+        assertThat(follow(a.id(), b.token()).getStatusCode().value()).isEqualTo(200);   // b → a
 
-        assertThat(Envelope.code(postForm("/follow/add", form("followedUserId", a.id()), null))).isEqualTo(401);
-        assertThat(Envelope.code(postForm("/follow/remove", form("followedUserId", a.id()), null))).isEqualTo(401);
-        assertThat(Envelope.code(getFollowing(a.id(), null))).isEqualTo(401);
-        assertThat(Envelope.code(getFollowers(a.id(), null))).isEqualTo(401);
+        var resp = unfollow(a.id(), c.token());   // c 从未关注 a
+
+        assertThat(resp.getStatusCode().value()).as("C 没关注过 ⇒ 幂等 204").isEqualTo(204);
+        assertThat(countFollowRows(b.id(), a.id())).as("b→a 关系行仍在").isEqualTo(1L);
+        assertThat(followerCountColumn(a.id()))
+                .as("★ 不得因为 C 的 no-op 取关而扣掉 A 的 follower_count（去掉受影响行数守卫 ⇒ 本断言红）")
+                .isEqualTo(1);
+        assertThat(followCountColumn(c.id())).isZero();
     }
 
     @Test
-    @DisplayName("缺 followedUserId → 400（旧实现抛 ParamException）")
-    void 缺followedUserId_400() {
+    @DisplayName("未登录：4 个端点全部 401（TV 的 `/follow` 是**前缀**保护项，`T58` 后改由类级注解表达）")
+    void 未登录全部401() {
         TestUser a = register(PHONE_A, "flow-a");
 
-        var resp = postForm("/follow/add", new org.springframework.util.LinkedMultiValueMap<>(), a.token());
+        assertThat(Envelope.code(put("/api/v1/follows/" + a.id(), null, null))).isEqualTo("AUTH_UNAUTHORIZED");
+        assertThat(Envelope.code(delete("/api/v1/follows/" + a.id(), null))).isEqualTo("AUTH_UNAUTHORIZED");
+        assertThat(Envelope.code(getFollowing(a.id(), null))).isEqualTo("AUTH_UNAUTHORIZED");
+        assertThat(Envelope.code(getFollowers(a.id(), null))).isEqualTo("AUTH_UNAUTHORIZED");
+    }
 
-        assertThat(resp.getStatusCode().value()).isEqualTo(400);
-        assertThat(Envelope.code(resp)).isEqualTo(400);
+    @Test
+    @DisplayName("参数非法：路径 id 非数字 → 400（关注 / 取关 / 关注列表 / 粉丝列表四个端点同口径）")
+    void 路径id非数字400() {
+        TestUser a = register(PHONE_A, "flow-a");
+
+        // ★ `T58` 契约变更（接口契约.md §2.3/§2.4）：followedUserId / userId 从 form/query 搬进路径。
+        //   旧用例"缺 followedUserId / 缺 userId ⇒ 400"**整条退役**——少了路径段就没有任何路由匹配，
+        //   已无法用"合法 URL + 少一个参数"表达（同 T58-2 like 域与 T58-4 favorite 域的口径）；
+        //   剩下的可判定档是"id 不可转换为 long" ⇒ 400。
+        assertThat(put("/api/v1/follows/abc", null, a.token()).getStatusCode().value())
+                .as("关注：路径 id 非数字").isEqualTo(400);
+        assertThat(delete("/api/v1/follows/abc", a.token()).getStatusCode().value())
+                .as("取关：路径 id 非数字").isEqualTo(400);
+        assertThat(get("/api/v1/users/abc/following", a.token()).getStatusCode().value())
+                .as("关注列表：路径 id 非数字").isEqualTo(400);
+        assertThat(get("/api/v1/users/abc/followers", a.token()).getStatusCode().value())
+                .as("粉丝列表：路径 id 非数字").isEqualTo(400);
+
+        // 不得产生任何副作用（参数绑定失败在 Service 之前）
         assertThat(countFollowRows()).isZero();
     }
 
     /**
      * ★ F-04 的尖锐场景（follow 侧，unsigned）：{@code follow} 有关系行、但两侧计数都停在 0。
      * 取关时若不设守卫，`0 + (-1)` 会因 UNSIGNED 下溢报 1690 → 500。
-     * 断言 200（不回滚、不失败）+ 关系行照删 + 两侧计数停在 0（守卫 block）。
+     * 断言 204（不回滚、不失败）+ 关系行照删 + 两侧计数停在 0（守卫 block）。
      *
      * <p><b>判别力</b>：去掉守卫 ⇒ 本用例因 500 变红；"正常 −1→0" 由 {@link #取关成功_关系行与双方计数各减一} 作对照。
      */
     @Test
-    @DisplayName("★取关：计数为 0 但关系行仍在 ⇒ 守卫拦住下溢，返回 200 而非 500（T34）")
+    @DisplayName("★取关：计数为 0 但关系行仍在 ⇒ 守卫拦住下溢，返回 204 而非 500（T34）")
     void 取关时计数为零不报500() {
         TestUser a = register(PHONE_A, "flow-a");
         TestUser b = register(PHONE_B, "flow-b");
@@ -170,7 +200,7 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
 
         var resp = unfollow(a.id(), b.token());
 
-        assertThat(resp.getStatusCode().value()).as("守卫拦住下溢；不得 500").isEqualTo(200);
+        assertThat(resp.getStatusCode().value()).as("守卫拦住下溢；不得 500").isEqualTo(204);
         assertThat(countFollowRows(b.id(), a.id())).as("关系行照删").isZero();
         assertThat(followCountColumn(b.id())).as("守卫 block：停在 0").isZero();
         assertThat(followerCountColumn(a.id())).as("守卫 block：停在 0").isZero();
@@ -187,7 +217,7 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
 
         var resp = getFollowing(a.id(), a.token());
 
-        assertThat(Envelope.code(resp)).isEqualTo(200);
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
         JsonNode data = Envelope.data(resp);
         assertThat(data.isObject()).as("缺省应返回分页信封（T11-A 起不再是全量数组）").isTrue();
         assertThat(data.path("list").isArray()).isTrue();
@@ -208,7 +238,7 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
         // b 查自己的关注列表 → 应含 a；b 已关注 a ⇒ isFollowed=true；a≠b ⇒ isSelf=false
         var resp = getFollowing(b.id(), b.token());
 
-        assertThat(Envelope.code(resp)).isEqualTo(200);
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
         JsonNode item = singleItemOf(resp);
         assertThat(item.path("userId").asLong()).isEqualTo(a.id());
         assertThat(item.path("username").asString()).isEqualTo("flow-a");
@@ -227,7 +257,7 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
 
         var resp = getFollowers(a.id(), b.token());
 
-        assertThat(Envelope.code(resp)).isEqualTo(200);
+        assertThat(Envelope.code(resp)).isEqualTo("OK");
         JsonNode item = singleItemOf(resp);
         assertThat(item.path("userId").asLong()).isEqualTo(b.id());
         assertThat(item.path("username").asString()).isEqualTo("flow-b");
@@ -244,7 +274,7 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
 
         JsonNode byDefault = Envelope.data(getFollowers(a.id(), b.token()));
         JsonNode explicit = Envelope.data(
-                get("/follow/followers?userId=" + a.id() + "&page=1&pageSize=" + PAGE_SIZE_MAX, b.token()));
+                get("/api/v1/users/" + a.id() + "/followers?page=1&pageSize=" + PAGE_SIZE_MAX, b.token()));
 
         assertThat(byDefault.path("list")).as("本用例需要非空列表，否则比对退化为恒真").isNotEmpty();
         assertThat(byDefault).as("缺省与显式第一页应完全一致").isEqualTo(explicit);
@@ -255,11 +285,11 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
     void 半参数归一() {
         TestUser a = register(PHONE_A, "flow-a");
 
-        JsonNode onlyPage = Envelope.data(get("/follow/following?userId=" + a.id() + "&page=2", a.token()));
+        JsonNode onlyPage = Envelope.data(get("/api/v1/users/" + a.id() + "/following?page=2", a.token()));
         assertThat(onlyPage.path("page").asInt()).isEqualTo(2);
         assertThat(onlyPage.path("pageSize").asInt()).isEqualTo(PAGE_SIZE_MAX);
 
-        JsonNode onlySize = Envelope.data(get("/follow/following?userId=" + a.id() + "&pageSize=5", a.token()));
+        JsonNode onlySize = Envelope.data(get("/api/v1/users/" + a.id() + "/following?pageSize=5", a.token()));
         assertThat(onlySize.path("page").asInt()).isEqualTo(1);
         assertThat(onlySize.path("pageSize").asInt()).isEqualTo(5);
     }
@@ -272,15 +302,15 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
         assertThat(follow(a.id(), b.token()).getStatusCode().value()).isEqualTo(200);
 
         JsonNode norm = Envelope.data(
-                get("/follow/followers?userId=" + a.id() + "&page=-1&pageSize=999", b.token()));
+                get("/api/v1/users/" + a.id() + "/followers?page=-1&pageSize=999", b.token()));
         assertThat(norm.path("page").asInt()).isEqualTo(1);
         assertThat(norm.path("pageSize").asInt()).isEqualTo(PAGE_SIZE_MAX);
 
-        JsonNode mid = Envelope.data(get("/follow/followers?userId=" + a.id() + "&pageSize=51", b.token()));
+        JsonNode mid = Envelope.data(get("/api/v1/users/" + a.id() + "/followers?pageSize=51", b.token()));
         assertThat(mid.path("pageSize").asInt()).as("上限以内原样回显").isEqualTo(51);
 
         JsonNode beyond = Envelope.data(
-                get("/follow/followers?userId=" + a.id() + "&page=9999&pageSize=10", b.token()));
+                get("/api/v1/users/" + a.id() + "/followers?page=9999&pageSize=10", b.token()));
         assertThat(beyond.path("list").size()).as("越界页应为空数组").isZero();
         assertThat(beyond.path("total").asInt()).as("越界页仍返回 total（前端据此判末页）").isEqualTo(1);
     }
@@ -304,8 +334,8 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
         assertThat(full.path("totalPages").asInt()).isEqualTo(1);
 
         // 小信封跨页：pageSize=1 ⇒ 两页各 1 条，与全量前缀一致、页间不重复
-        JsonNode page1 = Envelope.data(get("/follow/followers?userId=" + a.id() + "&page=1&pageSize=1", a.token()));
-        JsonNode page2 = Envelope.data(get("/follow/followers?userId=" + a.id() + "&page=2&pageSize=1", a.token()));
+        JsonNode page1 = Envelope.data(get("/api/v1/users/" + a.id() + "/followers?page=1&pageSize=1", a.token()));
+        JsonNode page2 = Envelope.data(get("/api/v1/users/" + a.id() + "/followers?page=2&pageSize=1", a.token()));
         assertThat(idsOf(page1)).containsExactly(allIds.get(0));
         assertThat(idsOf(page2)).containsExactly(allIds.get(1));
         assertThat(page1.path("total").asInt()).as("total 与成员集同源").isEqualTo(2);
@@ -327,17 +357,6 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
         assertThat(bFollowing).containsExactly(a.id(), c.id());
 
         assertThat(idsOf(Envelope.data(getFollowing(a.id(), a.token())))).as("a 未关注任何人").isEmpty();
-    }
-
-    @Test
-    @DisplayName("缺 userId → 400")
-    void 缺userId_400() {
-        TestUser a = register(PHONE_A, "flow-a");
-
-        var resp = get("/follow/following", a.token());
-
-        assertThat(resp.getStatusCode().value()).isEqualTo(400);
-        assertThat(Envelope.code(resp)).isEqualTo(400);
     }
 
     // ==================== 断言辅助 ====================

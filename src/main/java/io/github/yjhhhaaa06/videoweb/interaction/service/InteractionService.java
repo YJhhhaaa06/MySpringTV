@@ -70,8 +70,9 @@ import java.util.Set;
  * <h2>★ 维度选择（R-13，2026-10-13）</h2>
  * 批量契约的 {@code dimensions} 由调用方给（编译期常量，见 {@link InteractionDimension}）：
  * **没被选中的维度不查**（对应 {@code InteractionStatusVO} 里那一位是 {@code null}）。
- * 四个列表面今天的取值：{@code /start} = {@code {FOLLOW}}、{@code /search/keywordSearch} =
- * **空集**、{@code /feed} 与 {@code /profile} = {@code {LIKE}}（各面常量写在各自调用点上）。
+ * 四个列表面今天的取值：首页 {@code /api/v1/contents/recommended} = {@code {FOLLOW}}、搜索
+ * {@code /api/v1/contents} = **空集**、{@code /api/v1/feed} 与主页 {@code /api/v1/users/{id}} = {@code {LIKE}}
+ * （`T58` 资源化后的路径；各面常量写在各自调用点上）。
  * ⚠️ **空集（0 维）是合法入参**：一趟都不查，但**仍返回对象**（四维全 {@code null}），
  * 不是返回 {@code null} —— 后者是"匿名"的语义（见下），两者必须可区分。
  *
@@ -176,7 +177,7 @@ public class InteractionService {
      * 回填失败交由下次 miss 自愈，与单键回填的失败语义一致。
      */
     public void backfillLikeCount(long contentId, long count) {
-        likeService.backfillContentLikeCount(contentId, Math.toIntExact(count));
+        likeService.backfillContentLikeCount(contentId, count);
     }
 
     /** 收藏数回填转发（T44-2，见 {@link #backfillLikeCount} 的纪律说明）。 */

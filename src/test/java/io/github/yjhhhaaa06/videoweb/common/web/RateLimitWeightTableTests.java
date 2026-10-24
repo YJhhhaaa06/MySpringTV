@@ -107,10 +107,10 @@ class RateLimitWeightTableTests extends AbstractHttpIntegrationTest {
         // 前置钉住：本用例的 oracle 是"表值 5"——若有人改了表而没改用例意图，这里先红
         assertThat(properties.cost().base())
                 .as("注册端点必须已登记且为 5（锚点：匿名可达的认证入口比普通写贵）")
-                .containsEntry("POST /user/register", 5);
+                .containsEntry("POST /api/v1/users", 5);
         seedAnonBucket();
 
-        ResponseEntity<String> resp = post("/user/register",
+        ResponseEntity<String> resp = post("/api/v1/users",
                 Map.of("phone", "13800002601", "username", "t26w", "password", "Password123"), null);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
@@ -120,6 +120,31 @@ class RateLimitWeightTableTests extends AbstractHttpIntegrationTest {
                 .isEqualTo(SEED - 5, within(1e-9));
     }
 
+    // ==================== 用例 4：路径变量端点按路由模式扣 ====================
+
+    @Test
+    @DisplayName("★ 路径变量端点按**路由模式**扣费：{id} 命不中精确路径时不许静默落兜底")
+    void 路径变量端点按路由模式扣费() {
+        // 前置钉住：本用例的 oracle 是"表值 3"（与用例 1 同一纪律：改表必须改用例意图）
+        assertThat(properties.cost().base())
+                .as("点赞端点必须已登记且为 3")
+                .containsEntry("PUT /api/v1/contents/{id}/like", 3);
+
+        String phone = "13800002699";
+        String token = registerAndGetToken(phone, "t58w", "Password123");
+        String userKey = "ratelimit:user:" + userIdOf(phone);
+        // 播种必须在注册之后：注册本身会扣这个 key（登录态请求同理）。
+        redis.opsForValue().set(userKey, SEED + ":" + System.currentTimeMillis());
+
+        // 内容不存在 ⇒ 预期 404；本用例只关心"过闸时扣了几枚"，业务结果只是"确实进了处理器"的证据。
+        ResponseEntity<String> resp = put("/api/v1/contents/987654/like", null, token);
+        assertThat(resp.getStatusCode().value()).isEqualTo(404);
+
+        assertThat(tokensOf(redis.opsForValue().get(userKey)))
+                .as("按路由模式查表 = 3；若退回原始 URI（未登记）⇒ 只扣兜底的 1")
+                .isEqualTo(SEED - 3, within(1e-9));
+    }
+
     // ==================== 用例 2：未登记 ⇒ 兜底 ====================
 
     @Test
@@ -127,13 +152,15 @@ class RateLimitWeightTableTests extends AbstractHttpIntegrationTest {
     void 未登记端点落兜底权重() {
         seedAnonBucket();
 
-        // ⚠️ 后缀用**固定字母**：数字串（如 nanoTime）会被 SensitiveDataTests 的 `1[3-9]\d{9}`
-        //    扫描误判为"明文手机号"（未映射路径的 ERROR 行会落进 system.log——2026-10-16 实测）。
+        // ⚠️ 后缀仍用**固定字母**：数字串（如 nanoTime）会被 SensitiveDataTests 的 `1[3-9]\d{9}`
+        //    扫描误判为"明文手机号"。该风险在 T56 后已降低（未映射路径从 ERROR 降为 DEBUG，
+        //    见 GlobalExceptionHandler#handleNoResource），但"夹具不复刻手机号形态"这条纪律与日志级别无关。
         ResponseEntity<String> resp = get("/no-such-page-t26-probe", null);
 
-        // ⚠️ 未映射路径本仓响应 500（NoResourceFoundException 落 catch-all 的既有行为）——
-        //    本用例不钉状态码，只钉"过闸 + 按兜底权重扣"（T25 同款口径）。
-        assertThat(resp.getStatusCode().value()).as("未被闸门拦下").isNotEqualTo(429);
+        // ★ **契约变更（T56，G8）**：未映射路径从 500 改为 **404 信封**（§2.1 / §三 #6）。
+        //    本用例仍**不钉**状态码之外的东西（只钉"过闸 + 按兜底权重扣"），
+        //    只需保证它不再是 429（既是未被闸门拦下，也是"响应形状不归本类管"）。
+        assertThat(resp.getStatusCode().value()).as("未被闸门拦下（过闸后 404，见 T56）").isEqualTo(404);
         assertThat(tokensOf(redis.opsForValue().get(ANON_KEY)))
                 .as("未登记路由必须落 default-base = 1，而不是 0（0 = 变相不限）")
                 .isEqualTo(SEED - 1, within(1e-9));

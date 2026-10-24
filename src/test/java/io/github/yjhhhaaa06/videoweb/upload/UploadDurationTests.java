@@ -73,7 +73,7 @@ class UploadDurationTests extends AbstractHttpIntegrationTest {
         assertThat(durationInDb(contentId))
                 .as("② DB 终态：发布落在 type=1 的媒体行上（封面行 null）")
                 .isEqualTo(3);
-        assertThat(Envelope.data(get("/search/IdSearch?contentId=" + contentId, null))
+        assertThat(Envelope.data(get("/api/v1/contents/" + contentId, null))
                 .path("durationSeconds").asInt())
                 .as("③ 载荷投影：详情必须回显（copyCommon / buildContentMedia 任一处漏了就恒 null）")
                 .isEqualTo(3);
@@ -85,7 +85,7 @@ class UploadDurationTests extends AbstractHttpIntegrationTest {
         String token = registerAndGetToken("13800000202", "dur-keys", PASSWORD);
         long contentId = uploadVideo(token, TITLE_KEYWORD + " 键集", mp4Seconds(4), "keys.mp4", "video/mp4");
 
-        JsonNode data = Envelope.data(get("/search/IdSearch?contentId=" + contentId, null));
+        JsonNode data = Envelope.data(get("/api/v1/contents/" + contentId, null));
 
         assertThat(data.has("durationSeconds")).as("新键必须在").isTrue();
         // ★ T48 起键集 18 → 19（新增 playCount）：这是**契约跟随**，不是测试迎合 ——
@@ -106,7 +106,7 @@ class UploadDurationTests extends AbstractHttpIntegrationTest {
         String token = registerAndGetToken("13800000203", "dur-list", PASSWORD);
         long contentId = uploadVideo(token, TITLE_KEYWORD + " 列表时长", mp4Seconds(7), "list.mp4", "video/mp4");
 
-        JsonNode page = Envelope.data(get("/search/keywordSearch?keyword=" + TITLE_KEYWORD, null));
+        JsonNode page = Envelope.data(get("/api/v1/contents?keyword=" + TITLE_KEYWORD, null));
         JsonNode first = page.path("list").get(0);
 
         assertThat(first.path("id").asLong()).as("夹具需命中本用例的内容").isEqualTo(contentId);
@@ -127,7 +127,7 @@ class UploadDurationTests extends AbstractHttpIntegrationTest {
                 .isEqualTo(200);
         long contentId = Envelope.num(resp, "contentId");
         assertThat(durationInDb(contentId)).as("未知 ⇒ null（不是 0）").isNull();
-        assertThat(Envelope.data(get("/search/IdSearch?contentId=" + contentId, null))
+        assertThat(Envelope.data(get("/api/v1/contents/" + contentId, null))
                 .path("durationSeconds").isNull()).as("回显也是 null").isTrue();
     }
 
@@ -140,11 +140,11 @@ class UploadDurationTests extends AbstractHttpIntegrationTest {
         addText(form, "title", TITLE_KEYWORD + " 图文");
         addText(form, "categoryId", "2");
         addFilePart(form, "cover", pngBytes(), "image/png");
-        ResponseEntity<String> resp = postMultipart("/api/upload/post", form, token);
+        ResponseEntity<String> resp = postMultipart("/api/v1/contents/posts", form, token);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         long contentId = Envelope.num(resp, "contentId");
-        assertThat(Envelope.data(get("/search/IdSearch?contentId=" + contentId, null))
+        assertThat(Envelope.data(get("/api/v1/contents/" + contentId, null))
                 .path("durationSeconds").isNull()).isTrue();
     }
 
@@ -159,14 +159,13 @@ class UploadDurationTests extends AbstractHttpIntegrationTest {
 
         MultiValueMap<String, Object> form = newForm();
         addFilePart(form, "file", resource(mp4Seconds(9), "new.mp4"), "video/mp4");
-        ResponseEntity<String> resp = postMultipart(
-                "/api/upload/replace?contentId=" + contentId + "&type=1&sort=1", form, token);
+        ResponseEntity<String> resp = putMultipart("/api/v1/contents/" + contentId + "/media?type=1&sort=1", form, token);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         assertThat(durationInDb(contentId))
                 .as("★ 只在上传时解析会留'时长永远停在旧值'的显式不一致 ⇒ 换源必须重解析")
                 .isEqualTo(9);
-        assertThat(Envelope.data(get("/search/IdSearch?contentId=" + contentId, null))
+        assertThat(Envelope.data(get("/api/v1/contents/" + contentId, null))
                 .path("durationSeconds").asInt()).isEqualTo(9);
     }
 
@@ -178,8 +177,7 @@ class UploadDurationTests extends AbstractHttpIntegrationTest {
 
         MultiValueMap<String, Object> form = newForm();
         addFilePart(form, "file", pngBytes(), "image/png");
-        ResponseEntity<String> resp = postMultipart(
-                "/api/upload/replace?contentId=" + contentId + "&type=3&sort=1", form, token);
+        ResponseEntity<String> resp = putMultipart("/api/v1/contents/" + contentId + "/media?type=3&sort=1", form, token);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         assertThat(durationInDb(contentId))
@@ -200,8 +198,7 @@ class UploadDurationTests extends AbstractHttpIntegrationTest {
                 return "garbage.mp4";
             }
         }, "video/mp4");
-        ResponseEntity<String> resp = postMultipart(
-                "/api/upload/replace?contentId=" + contentId + "&type=1&sort=1", form, token);
+        ResponseEntity<String> resp = putMultipart("/api/v1/contents/" + contentId + "/media?type=1&sort=1", form, token);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         assertThat(durationInDb(contentId)).isNull();
@@ -231,7 +228,7 @@ class UploadDurationTests extends AbstractHttpIntegrationTest {
         addText(form, "categoryId", "1");
         addFilePart(form, "video", resource(video, fileName), contentType);
         addFilePart(form, "cover", pngBytes(), "image/png");
-        return postMultipart("/api/upload/video", form, token);
+        return postMultipart("/api/v1/contents/videos", form, token);
     }
 
     /**

@@ -22,7 +22,10 @@ import java.util.Set;
 @Mapper
 public interface CommentLikeDao {
 
-    /** TV: {@code INSERT INTO comment_like (user_id, comment_id) VALUES (?, ?)}。撞唯一键 {@code uk_user_comment} 由异常出口映射 409。 */
+    /**
+     * 点赞（`T59` 起 {@code INSERT IGNORE}）：已赞 / 并发撞 {@code uk_user_comment} ⇒ 0 行，
+     * 调用方视为幂等成功（不再 409）；未赞 ⇒ 1 行。
+     */
     int addLike(@Param("userId") long userId, @Param("commentId") long commentId);
 
     /** TV: {@code DELETE FROM comment_like WHERE user_id = ? AND comment_id = ?}。 */
@@ -38,5 +41,5 @@ public interface CommentLikeDao {
     Set<Long> findLikedCommentIdsByUser(@Param("userId") long userId);
 
     /** 评论点赞总数。TV: {@code countByCommentId}。 */
-    int countByCommentId(@Param("commentId") long commentId);
+    long countByCommentId(@Param("commentId") long commentId);
 }

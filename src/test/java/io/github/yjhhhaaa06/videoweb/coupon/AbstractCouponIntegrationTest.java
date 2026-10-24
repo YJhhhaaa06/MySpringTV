@@ -31,7 +31,7 @@ abstract class AbstractCouponIntegrationTest extends AbstractHttpIntegrationTest
     /** 活动进行中（已开始、未结束）。 */
     protected static final String WINDOW_OPEN = "NOW() - INTERVAL 1 HOUR, NOW() + INTERVAL 1 DAY";
 
-    /** 活动尚未开始（`begin_time` 在未来）——注意它仍会出现在 /coupon/list 里。 */
+    /** 活动尚未开始（`begin_time` 在未来）——注意它仍会出现在 GET /api/v1/coupons 里。 */
     protected static final String WINDOW_NOT_STARTED = "NOW() + INTERVAL 1 DAY, NOW() + INTERVAL 2 DAY";
 
     /** 活动已结束。 */
@@ -70,7 +70,7 @@ abstract class AbstractCouponIntegrationTest extends AbstractHttpIntegrationTest
 
     /** 注册用户并返回 token（断言注册必须成功——否则后续用例的失败原因会指错方向）。 */
     protected String registerAndGetToken(String phone, String username) {
-        ResponseEntity<String> resp = post("/user/register",
+        ResponseEntity<String> resp = post("/api/v1/users",
                 Map.of("phone", phone, "username", username, "password", PASSWORD), null);
         String token = Envelope.str(resp, "token");
         assertThat(token).as("注册必须返回 token，否则后续用例无法进行：%s", resp.getBody()).isNotBlank();
@@ -100,7 +100,11 @@ abstract class AbstractCouponIntegrationTest extends AbstractHttpIntegrationTest
 
     // ==================== HTTP ====================
 
+    /**
+     * 领券端点：{@code POST /api/v1/coupons/{id}/claims}（`T58` 起 {@code couponId} 在路径上，
+     * body 载荷退役）。
+     */
     protected ResponseEntity<String> grab(long couponId, String token) {
-        return post("/coupon/grab", Map.of("couponId", couponId), token);
+        return post("/api/v1/coupons/" + couponId + "/claims", null, token);
     }
 }

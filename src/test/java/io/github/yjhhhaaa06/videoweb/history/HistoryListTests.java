@@ -13,11 +13,13 @@ import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 历史列表（{@code GET /history/list}）的**行为契约**（播放记录专项 T49-1）。
+ * 历史列表（{@code GET /api/v1/history}）的**行为契约**（播放记录专项 T49-1；
+ * 路径为 `T58` 契约变更，依据《接口契约.md》§2.3——语义断言不受影响）。
  *
  * <h2>期望值怎么来（盖住实现照样写得出来）</h2>
  * <ul>
@@ -149,11 +151,10 @@ class HistoryListTests extends AbstractContentIntegrationTest {
         insertHistory(viewerId, middle, 2, 20, "2020-01-01 00:00:00");
         insertHistory(viewerId, oldest, 30, 30, "2020-01-01 00:00:00");
 
-        ResponseEntity<String> report = post(
-                "/history/report?contentId=" + oldest + "&progress=30", null, viewerToken);
+        ResponseEntity<String> report = put("/api/v1/contents/" + oldest + "/progress", Map.of("progress", 30), viewerToken);
         assertThat(report.getStatusCode().value()).as("上报应 200：%s", report.getBody()).isEqualTo(200);
         // ★ R-19：/report 只写缓冲 ⇒ 要看到 update_time 变化必须先落库
-        post("/history/flush", null, viewerToken);
+        post("/api/v1/history/flush", null, viewerToken);
 
         JsonNode data = Envelope.data(list(viewerToken, null, null));
         assertThat(contentIds(data.path("list")))
@@ -442,7 +443,7 @@ class HistoryListTests extends AbstractContentIntegrationTest {
     @DisplayName("★列表不合并缓冲：只上报未 flush ⇒ 看不到；flush 后才出现")
     void 列表不合并缓冲() {
         long contentId = insertVideoContent(authorId, "只在缓冲里的视频");
-        post("/history/report?contentId=" + contentId + "&progress=42", null, viewerToken);
+        put("/api/v1/contents/" + contentId + "/progress", Map.of("progress", 42), viewerToken);
 
         JsonNode before = Envelope.data(list(viewerToken, null, null));
         assertThat(before.path("total").asInt())
@@ -452,7 +453,7 @@ class HistoryListTests extends AbstractContentIntegrationTest {
                 .as("★ 未 flush ⇒ 列表里不该有它")
                 .doesNotContain(contentId);
 
-        post("/history/flush", null, viewerToken);
+        post("/api/v1/history/flush", null, viewerToken);
 
         JsonNode after = Envelope.data(list(viewerToken, null, null));
         assertThat(after.path("total").asInt()).isEqualTo(1);
@@ -460,7 +461,7 @@ class HistoryListTests extends AbstractContentIntegrationTest {
     }
 
     private ResponseEntity<String> list(String token, String page, String pageSize) {
-        StringBuilder url = new StringBuilder("/history/list");
+        StringBuilder url = new StringBuilder("/api/v1/history");
         boolean first = true;
         if (page != null) {
             url.append("?page=").append(page);

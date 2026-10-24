@@ -154,11 +154,11 @@ public interface FollowDao {
      *
      * <p>TV: {@code addFollow} —— {@code INSERT INTO follow (user_id, followed_user_id) VALUES (?, ?)}
      *
-     * <p>⚠️ **不做 {@code INSERT IGNORE}**：TV 的幂等口径是"事务内先 {@code isFollowing} 查、查到抛 409"，
-     * 并发竞态由唯一键 {@code uk_user_follow} 兜底（撞键 → {@code DuplicateKeyException} → 全局出口 409）。
-     * 改成 {@code IGNORE} 会让 409 静默变成 200，**是契约改动**。
+     * <p>★ `T59` 契约变更：改 {@code INSERT IGNORE} —— {@code PUT /follows/{id}} 是**幂等设置**，
+     * 重复 / 并发关注撞 {@code uk_user_follow} 时返回 0 行（= 已关注，无副作用），不再 409。
+     * 调用方据受影响行数决定是否 +1 两侧计数、跑大V判定与发事件。
      *
-     * @return 受影响行数（正常恒为 1）
+     * @return 受影响行数（首次关注 1；已关注 / 并发重复 0）
      */
     int insertFollow(@Param("userId") long userId, @Param("followedUserId") long followedUserId);
 

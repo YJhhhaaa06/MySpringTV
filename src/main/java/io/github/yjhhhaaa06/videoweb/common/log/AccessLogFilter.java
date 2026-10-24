@@ -2,6 +2,7 @@ package io.github.yjhhhaaa06.videoweb.common.log;
 
 import io.github.yjhhhaaa06.videoweb.common.config.LogProperties;
 import io.github.yjhhhaaa06.videoweb.common.security.JwtAuthFilter;
+import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -20,19 +21,21 @@ import java.io.IOException;
  * 为**每个请求**在 {@code access} 输出端落一行结构化记录。
  *
  * <h2>行形态（msg 内为本行专属 key=value；时间与 reqId 由 pattern 前缀提供）</h2>
- * <pre>{@code ts=… level=INFO logger=access req=6a1b2c3d0f3e0001 msg=method=GET path=/start status=200 code=200 userId=- cost=3ms slow=0}</pre>
+ * <pre>{@code ts=… level=INFO logger=access req=6a1b2c3d0f3e0001 msg=method=GET path=/start status=200 code=OK userId=- cost=3ms slow=0}</pre>
  *
  * <h2>★ status 与 code 是**两个**字段（不是冗余）</h2>
  * <ul>
  *   <li>{@code status} = **HTTP 状态码**，恒有值。T2 要求"含…状态码"。</li>
- *   <li>{@code code} = **业务码**，与 HTTP 状态对齐（决策⑧「HTTP 状态码正确化」），
- *       <b>缺省 0</b> = 该请求**从未产生业务信封**（静态资源 / 未进 DispatcherServlet 的
- *       短路响应）。这正是 TV 访问日志 {@code code} 字段的语义（TV 恒 200 + body code，
- *       静态资源为 0），也是"静态资源与业务请求可区分"的判据——旧 pytest
- *       {@code test_static_resource_gets_code_zero} 的意图在此兑现。</li>
+ *   <li>{@code code} = **业务码**。★ `T55` 起它是**字符串**（{@code OK} / {@code AUTH_UNAUTHORIZED} /
+ *       {@code SYSTEM_DATABASE}…），<b>不再等于 status</b> —— 旧实现两者数值相同，属"两层信息重复"。
+ *       <b>缺省 0</b> = 该请求**从未产生业务信封**（静态资源 / 未进 DispatcherServlet 的短路响应）。
+ *       {@code 0} 不是合法的字符串码 ⇒ 哨兵与真实码永不冲突。这正是"静态资源与业务请求可区分"的判据
+ *       （旧 pytest {@code test_static_resource_gets_code_zero} 的意图在此兑现）。
+ *       ★ `T59` 起 {@code 204} 是**业务成功但无信封**（删除/取消的契约）：这类响应没有 body 可读，
+ *       故在出口按 status 补 {@code OK} —— 静态资源不会返回 204，不会污染 {@code 0} 的判据。</li>
  * </ul>
  * 业务码由 {@link io.github.yjhhhaaa06.videoweb.common.web.BusinessCodeAdvice}（正常响应）
- * 与 {@link JwtAuthFilter}（鉴权拒绝）写入请求属性 {@link #ATTR_BUSINESS_CODE}。
+ * 与 {@link JwtAuthFilter} / {@code RateLimitFilter}（短路响应）写入请求属性 {@link #ATTR_BUSINESS_CODE}。
  *
  * <h2>★ 脱敏口径（TV D7「绝不记」原样沿袭）</h2>
  * {@code path} 取自 {@code getRequestURI()} 去掉 contextPath——<b>不含 query 串</b>
@@ -86,11 +89,14 @@ public class AccessLogFilter extends OncePerRequestFilter {
             long costMillis = (System.nanoTime() - startNanos) / 1_000_000;
             Object userId = request.getAttribute(JwtAuthFilter.ATTR_USER_ID);
             Object businessCode = request.getAttribute(ATTR_BUSINESS_CODE);
+            String code = businessCode instanceof String c
+                    ? c
+                    : (response.getStatus() == HttpServletResponse.SC_NO_CONTENT ? ApiResponse.OK : null);
             ACCESS_LOGGER.info(buildLine(
                     request.getMethod(),
                     path(request),
                     response.getStatus(),
-                    businessCode instanceof Integer code ? code : 0,
+                    code,
                     userId instanceof Long id ? id : null,
                     costMillis,
                     logProperties.slowRequestMs()));
@@ -107,13 +113,18 @@ public class AccessLogFilter extends OncePerRequestFilter {
      *
      * <p>{@code userId == null}（未登录 / 非业务路径）→ {@code userId=-}（TV 同款）；
      * {@code slow} = 耗时是否达到阈值（打标记，不另起一行、不设独立性能日志文件）。
+     *
+     * <p>★ {@code T55} 起业务码是**字符串**（如 {@code AUTH_BAD_CREDENTIALS}）。
+     * {@code code=0} 仍是「**从未产生业务信封**」的哨兵（静态资源 / 被过滤器放行的非业务路径 /
+     * Spring 自产错误）：它不是合法的字符串码，故哨兵与真实码不冲突 —— 这条三态判据不变，
+     * 只是取值的类型从 int 换成了 String。
      */
-    static String buildLine(String method, String path, int status, int code, Long userId,
+    static String buildLine(String method, String path, int status, String code, Long userId,
                             long costMillis, long slowThresholdMillis) {
         return "method=" + method
                 + " path=" + path
                 + " status=" + status
-                + " code=" + code
+                + " code=" + (code == null ? "0" : code)
                 + " userId=" + (userId == null ? "-" : userId)
                 + " cost=" + costMillis + "ms"
                 + " slow=" + (costMillis >= slowThresholdMillis ? 1 : 0);

@@ -98,7 +98,7 @@ abstract class AbstractCommentIntegrationTest extends AbstractHttpIntegrationTes
     }
 
     protected String registerAndGetToken(String phone, String username) {
-        ResponseEntity<String> resp = post("/user/register",
+        ResponseEntity<String> resp = post("/api/v1/users",
                 Map.of("phone", phone, "username", username, "password", PASSWORD), null);
         String token = Envelope.str(resp, "token");
         assertThat(token).as("注册必须返回 token，否则后续用例无法进行：%s", resp.getBody()).isNotBlank();
@@ -186,12 +186,11 @@ abstract class AbstractCommentIntegrationTest extends AbstractHttpIntegrationTes
         if (parentId != null) {
             body.put("parentId", parentId);
         }
-        return post("/comment/add", body, token);
+        return post("/api/v1/comments", body, token);
     }
 
-    /** POST {@code /comment/delete}（query 参数，沿袭 TV）。 */
+    /** DELETE {@code /api/v1/comments/{id}}（`T58` 起 id 进路径）。 */
     protected ResponseEntity<String> deleteComment(Object commentId, String token) {
-        String path = commentId == null ? "/comment/delete" : "/comment/delete?commentId=" + commentId;
-        return post(path, null, token);
+        return delete("/api/v1/comments/" + commentId, token);
     }
 }

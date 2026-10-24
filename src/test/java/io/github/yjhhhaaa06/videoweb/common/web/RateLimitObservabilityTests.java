@@ -138,7 +138,7 @@ class RateLimitObservabilityTests extends AbstractHttpIntegrationTest {
         double serverAllowedBefore = decisions(RateLimitMetrics.Scope.SERVER, RateLimitMetrics.RESULT_ALLOWED);
         long acquireBefore = acquireCount();
 
-        ResponseEntity<String> resp = get("/start", null);
+        ResponseEntity<String> resp = get("/api/v1/contents/recommended", null);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         assertThat(decisions(RateLimitMetrics.Scope.USER, RateLimitMetrics.RESULT_ALLOWED) - userAllowedBefore)
@@ -162,7 +162,7 @@ class RateLimitObservabilityTests extends AbstractHttpIntegrationTest {
         double serverRejectedBefore = decisions(RateLimitMetrics.Scope.SERVER, RateLimitMetrics.RESULT_REJECTED);
         double serverAllowedBefore = decisions(RateLimitMetrics.Scope.SERVER, RateLimitMetrics.RESULT_ALLOWED);
 
-        ResponseEntity<String> resp = get("/start", null);
+        ResponseEntity<String> resp = get("/api/v1/contents/recommended", null);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(429);
         assertThat(decisions(RateLimitMetrics.Scope.USER, RateLimitMetrics.RESULT_REJECTED) - userRejectedBefore)
@@ -185,7 +185,7 @@ class RateLimitObservabilityTests extends AbstractHttpIntegrationTest {
         double userAllowedBefore = decisions(RateLimitMetrics.Scope.USER, RateLimitMetrics.RESULT_ALLOWED);
         double serverRejectedBefore = decisions(RateLimitMetrics.Scope.SERVER, RateLimitMetrics.RESULT_REJECTED);
 
-        ResponseEntity<String> resp = get("/start", null);
+        ResponseEntity<String> resp = get("/api/v1/contents/recommended", null);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(429);
         assertThat(decisions(RateLimitMetrics.Scope.SERVER, RateLimitMetrics.RESULT_REJECTED) - serverRejectedBefore)
@@ -207,7 +207,7 @@ class RateLimitObservabilityTests extends AbstractHttpIntegrationTest {
         double userRejectedBefore = decisions(RateLimitMetrics.Scope.USER, RateLimitMetrics.RESULT_REJECTED);
         double serverRejectedBefore = decisions(RateLimitMetrics.Scope.SERVER, RateLimitMetrics.RESULT_REJECTED);
 
-        ResponseEntity<String> resp = get("/start", null);
+        ResponseEntity<String> resp = get("/api/v1/contents/recommended", null);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(429);
         assertThat(decisions(RateLimitMetrics.Scope.USER, RateLimitMetrics.RESULT_REJECTED) - userRejectedBefore)
@@ -240,14 +240,16 @@ class RateLimitObservabilityTests extends AbstractHttpIntegrationTest {
         putBucket(ANON_KEY, -5, now);
         putBucket(SERVER_KEY, CAP, now);
 
-        ResponseEntity<String> resp = get("/start", null);
+        ResponseEntity<String> resp = get("/api/v1/contents/recommended", null);
         assertThat(resp.getStatusCode().value()).isEqualTo(429);
-        assertThat(Envelope.code(resp)).isEqualTo(429);
+        assertThat(Envelope.code(resp)).isEqualTo("RATE_LIMITED");
 
         String line = rejectionLine();
         assertThat(line).as("拒绝是「预期业务拒绝」⇒ WARN（对齐《可观测》§六）").contains("level=WARN ");
         assertThat(line).as("结论行不持栈（WARN 不当运维事故报）").doesNotContain("\tat ");
-        assertThat(line).contains("path=/start").contains("userId=- ").contains("blockedBy=user");
+        // T58 契约变更 + 依据《接口契约.md》§2.3：探针端点 /start 资源化为 /api/v1/contents/recommended，
+        // 访问/拒绝日志的 path 字段取自真实请求 URI ⇒ 期望值随之更新。
+        assertThat(line).contains("path=/api/v1/contents/recommended").contains("userId=- ").contains("blockedBy=user");
         assertThat(line)
                 .as("★ 不落原始 key（匿名桶 key 里有 IP —— 这条同时守住「匿名不落 IP」）")
                 .doesNotContain("ratelimit:").doesNotContain("127.0.0.1");
@@ -264,7 +266,7 @@ class RateLimitObservabilityTests extends AbstractHttpIntegrationTest {
         putBucket("ratelimit:user:" + userId, -5, System.currentTimeMillis());
         system.clear();     // 注册的里程碑日志不进本用例的断言窗口
 
-        ResponseEntity<String> resp = get("/start", token);
+        ResponseEntity<String> resp = get("/api/v1/contents/recommended", token);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(429);
         String line = rejectionLine();
@@ -288,7 +290,7 @@ class RateLimitObservabilityTests extends AbstractHttpIntegrationTest {
         //   只断言"200 + 含 COUNT"的话，删掉 `recordDecisions` 也照样绿（恒真断言）。
         double rejectedBefore = decisions(RateLimitMetrics.Scope.USER, RateLimitMetrics.RESULT_REJECTED);
 
-        assertThat(get("/start", null).getStatusCode().value()).isEqualTo(429);
+        assertThat(get("/api/v1/contents/recommended", null).getStatusCode().value()).isEqualTo(429);
 
         assertThat(decisions(RateLimitMetrics.Scope.USER, RateLimitMetrics.RESULT_REJECTED) - rejectedBefore)
                 .as("本用例自己的请求必须真的把该计量推了一格").isEqualTo(1.0);

@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.upload.service;
 
 import io.github.yjhhhaaa06.videoweb.common.config.UploadProperties;
+import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.upload.model.UploadResult;
 import io.github.yjhhhaaa06.videoweb.upload.model.UploadType;
@@ -159,7 +160,7 @@ public class FileUploadService {
         String contentType = file.getContentType();
         String fileName = file.getOriginalFilename();
         if (contentType == null || !type.isSuffixValid(fileName)) {
-            throw new ParamException("文件类型不支持");
+            throw new ParamException(ErrorCode.UPLOAD_TYPE_INVALID, "文件类型不支持");
         }
     }
 

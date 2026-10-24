@@ -60,7 +60,7 @@ class RateLimitPropertiesStartupFailureTests {
                 "video.rate-limit.cost.default-base=1",
                 "video.rate-limit.cost.miss-multiplier=1.0",
                 "video.rate-limit.cost.reject-discount=0.3",
-                "video.rate-limit.cost.base.[POST /favorite/add]=3"));
+                "video.rate-limit.cost.base.[POST /api/v1/favorites]=3"));
     }
 
     /** 合法配置 + 一条覆盖 / 追加。 */
@@ -109,8 +109,8 @@ class RateLimitPropertiesStartupFailureTests {
                 .run(context -> {
                     assertThat(context).as("合法配置不该让上下文起不来").hasNotFailed();
                     assertThat(context.getBean(RateLimitProperties.class).cost().base())
-                            .as("★ 方括号写法必须真的绑出「POST /favorite/add」，而不是被静默改写成 POSTfavoriteadd")
-                            .containsKey("POST /favorite/add");
+                            .as("★ 方括号写法必须真的绑出「POST /api/v1/favorites」，而不是被静默改写成 POSTapiv1favorites")
+                            .containsKey("POST /api/v1/favorites");
                 });
     }
 
@@ -154,14 +154,14 @@ class RateLimitPropertiesStartupFailureTests {
     @Test
     @DisplayName("★ 权重表键漏写方括号 ⇒ 起不来（静默改写 POST /x → POSTx 必须变成响亮失败）")
     void 权重表键漏方括号必须被拒() {
-        assertStartupFails(validConfigWith(10, "video.rate-limit.cost.base.POST /favorite/add=3"),
+        assertStartupFails(validConfigWith(10, "video.rate-limit.cost.base.POST /api/v1/favorites=3"),
                 "video.rate-limit.cost.base");
     }
 
     @Test
     @DisplayName("权重表某条权重 = 0 ⇒ 起不来（0 等于对该端点不限流）")
     void 权重为零必须被拒() {
-        assertStartupFails(validConfigWith(10, "video.rate-limit.cost.base.[POST /favorite/add]=0"),
+        assertStartupFails(validConfigWith(10, "video.rate-limit.cost.base.[POST /api/v1/favorites]=0"),
                 "video.rate-limit.cost.base");
     }
 

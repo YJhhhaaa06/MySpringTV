@@ -212,19 +212,19 @@ abstract class AbstractLikeIntegrationTest extends AbstractHttpIntegrationTest {
     }
 
     protected ResponseEntity<String> likeContent(long contentId, String token) {
-        return postForm("/like/content/add", form("contentId", contentId), token);
+        return put("/api/v1/contents/" + contentId + "/like", null, token);
     }
 
-    protected ResponseEntity<String> unlikeContent(long contentId, String token) {
-        return postForm("/like/content/remove", form("contentId", contentId), token);
+    protected ResponseEntity<String> cancelContentLike(long contentId, String token) {
+        return delete("/api/v1/contents/" + contentId + "/like", token);
     }
 
     protected ResponseEntity<String> likeComment(long commentId, String token) {
-        return postForm("/like/comment/add", form("commentId", commentId), token);
+        return put("/api/v1/comments/" + commentId + "/like", null, token);
     }
 
-    protected ResponseEntity<String> unlikeComment(long commentId, String token) {
-        return postForm("/like/comment/remove", form("commentId", commentId), token);
+    protected ResponseEntity<String> cancelCommentLike(long commentId, String token) {
+        return delete("/api/v1/comments/" + commentId + "/like", token);
     }
 
     protected static MultiValueMap<String, String> form(String name, long value) {

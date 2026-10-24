@@ -26,7 +26,10 @@ import java.util.Set;
 @Mapper
 public interface ContentLikeDao {
 
-    /** TV: {@code INSERT INTO content_like (user_id, content_id) VALUES (?, ?)}。撞唯一键 {@code uk_user_content} 由异常出口映射 409。 */
+    /**
+     * 点赞（`T59` 起 {@code INSERT IGNORE}）：已赞 / 并发撞 {@code uk_user_content} ⇒ 0 行，
+     * 调用方视为幂等成功（不再 409）；未赞 ⇒ 1 行。
+     */
     int addLike(@Param("userId") long userId, @Param("contentId") long contentId);
 
     /** TV: {@code DELETE FROM content_like WHERE user_id = ? AND content_id = ?}。 */

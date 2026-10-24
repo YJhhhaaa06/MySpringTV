@@ -14,11 +14,13 @@ import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 
 import java.sql.PreparedStatement;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 收藏三期 <b>T17</b>：稍后再看"移入收藏夹"（{@code POST /watchlater/move}）的契约测试。
+ * 收藏三期 <b>T17</b>：稍后再看"移入收藏夹"（{@code PUT /api/v1/watch-later/{id}/folder}）的契约测试。
  *
  * <h2>覆盖什么</h2>
  * <ul>
@@ -28,13 +30,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>★ <b>目标夹已满 ⇒ 400</b>（复用 {@code FavoriteService.addItem} 的容量闸，T16）；</li>
  *   <li>★ <b>内容不存在 / 已软删 ⇒ 404</b>（R-07「失效不可移入」）；<b>非视频 ⇒ 400</b>；</li>
  *   <li>★ <b>目标夹已有同内容 ⇒ 409 且稍后再看条目保留</b>（事务回滚 ⇒ 不是"移出后丢失"）；</li>
- *   <li>目标夹不存在 404 / 非我 403（口径同 {@code /favorite/add}）。</li>
+ *   <li>目标夹不存在 404 / 非我 403（口径同 {@code POST /api/v1/favorites}）。</li>
  * </ul>
  *
  * <h2>★ 为什么把 custom-folder-max-items 覆盖成 3（夹具策略，不是放松断言）</h2>
  * "目标夹已满 ⇒ 400"要一个满夹。用真实上限（500）得造 500 个内容 + 500 条收藏记录 ——
  * 纯为验证"容量闸是否被 move 这条新入口继承"，代价与判别力不成比例。故本类把**自建夹上限**覆盖成
- * <b>3</b>（确定、廉价），不影响 {@code /favorite/add} 已由 T16 覆盖的真实上限用例。
+ * <b>3</b>（确定、廉价），不影响 {@code POST /api/v1/favorites} 已由 T16 覆盖的真实上限用例。
  * 期望值仍是"满夹（=3 条）再加 ⇒ 400"，与真实上限口径**同构**（只是数字变小）。
  *
  * <h2>独立性</h2>
@@ -81,7 +83,7 @@ class WatchLaterMoveTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("★move 缺省 folderId ⇒ 用（懒建的）默认夹（决策 D4，同 /favorite/add）")
+    @DisplayName("★move 缺省 folderId ⇒ 用（懒建的）默认夹（决策 D4，同 POST /api/v1/favorites）")
     void move缺省进默认夹() {
         TestUser me = register("13800007002", "默认夹用户");
         long video = insertVideoContent(me.id, "默认夹视频");
@@ -143,27 +145,27 @@ class WatchLaterMoveTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("★目标夹已有同内容 ⇒ 409（撞 uk_folder_content）；稍后再看条目保留（不是'移出后丢失'）")
-    void move目标夹已有同内容409() {
+    @DisplayName("★目标夹已有同内容 ⇒ 200 幂等（只清稍后再看条目，不重复插入）（`T59` 契约变更）")
+    void move目标夹已有同内容幂等() {
         TestUser me = register("13800007006", "重复用户");
         long video = insertVideoContent(me.id, "已在夹里的");
         long folder = insertFolder(me.id, "目标夹");
         // 先把内容真正收藏进目标夹（该夹 1 条 < 上限 3，容量闸会放行到插入那一步）
-        assertThat(postForm("/favorite/add", me.token,
-                "contentId", String.valueOf(video), "folderId", String.valueOf(folder))
+        assertThat(post("/api/v1/favorites",
+                Map.of("contentId", video, "folderId", folder), me.token)
                 .getStatusCode().value()).isEqualTo(200);
         // 再加入稍后再看
         add(me.token, video);
 
         assertThat(move(me.token, video, folder).getStatusCode().value())
-                .as("★ 目标夹已有同内容 ⇒ 409（同 /favorite/move 的幂等拒绝）").isEqualTo(409);
+                .as("★ 目标夹已有同内容 ⇒ 幂等成功（旧实现 409）").isEqualTo(200);
         assertThat(oracleWatchLaterRows(me.id, video))
-                .as("★ 事务回滚 ⇒ 稍后再看条目**保留**（B 站口径：移动失败不回退源）").isEqualTo(1L);
+                .as("★ 幂等路径仍完成'出稍后再看'（终态 = 在收藏夹、不在池）").isZero();
         assertThat(oracleFavoriteItemRows(folder, me.id, video)).as("目标夹仍只有原来的 1 行").isEqualTo(1L);
     }
 
     @Test
-    @DisplayName("归属：目标夹非我 ⇒ 403；不存在 ⇒ 404（口径同 /favorite/add）")
+    @DisplayName("归属：目标夹非我 ⇒ 403；不存在 ⇒ 404（口径同 POST /api/v1/favorites）")
     void move目标夹归属错误线() {
         TestUser me = register("13800007007", "甲");
         TestUser other = register("13800007008", "乙");
@@ -183,23 +185,19 @@ class WatchLaterMoveTests extends AbstractHttpIntegrationTest {
     // ========================================================================
 
     private ResponseEntity<String> add(String token, long contentId) {
-        return postForm("/watchlater/add", token, "contentId", String.valueOf(contentId));
+        // `T58` 契约变更：contentId 进路径（PUT /api/v1/watch-later/{id}，接口契约.md §2.3/§2.4）。
+        return put("/api/v1/watch-later/" + contentId, null, token);
     }
 
     private ResponseEntity<String> move(String token, long contentId, Long folderId) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("contentId", String.valueOf(contentId));
+        // `T58` 契约变更：contentId 进路径
+        // （PUT /api/v1/watch-later/{id}/folder，接口契约.md §2.3/§2.4）。
+        // `T59` 载荷面：folderId 走 JSON body（缺省 = 默认夹）。
+        Map<String, Object> body = new LinkedHashMap<>();
         if (folderId != null) {
-            form.add("folderId", String.valueOf(folderId));
+            body.put("folderId", folderId);
         }
-        return send(spec -> {
-            RestClient.RequestBodySpec request = spec.uri("/watchlater/move")
-                    .contentType(MediaType.APPLICATION_FORM_URLENCODED);
-            if (token != null) {
-                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-            }
-            return request.body(form);
-        });
+        return put("/api/v1/watch-later/" + contentId + "/folder", body, token);
     }
 
     private ResponseEntity<String> postForm(String path, String token, String... kv) {

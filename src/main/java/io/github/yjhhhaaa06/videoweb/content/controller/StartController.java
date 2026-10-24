@@ -16,7 +16,8 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 首页推荐（{@code GET /start}，S5）。
+ * 首页推荐（`T58` 契约变更，依据《接口契约.md》§2.3：{@code GET /api/v1/contents/recommended}，
+ * 原 {@code /start}；S5）。
  *
  * <h2>★ 本端点没有 Service 层（三个"真实陷阱"之一）</h2>
  * TV 的 {@code StartController} **直接调 {@code ContentCache.getRecommendByFilter}** +
@@ -68,14 +69,17 @@ public class StartController {
     }
 
     /**
-     * 首页推荐（{@code GET /start?type=&categoryId=}）。
+     * 首页推荐（{@code GET /api/v1/contents/recommended?type=&categoryId=}）。
+     *
+     * <p>★ 路由优先级（Spring PathPattern：字面量段优先于 {@code {id}}）：本路径不会落进
+     * {@code GET /api/v1/contents/{id}}（详情）——`T58` 起两者共存于 SearchController 同前缀。
      *
      * @param type       内容类型：1=视频 2=图文；空 / 0 / 非数字 ⇒ 不过滤
      * @param categoryId 分区 id：0..9；空 / 非数字 ⇒ 不过滤
      * @return 推荐列表（可能为空：无内容 / 索引装载失败降级）
      */
     @Public
-    @GetMapping("/start")
+    @GetMapping("/api/v1/contents/recommended")
     public ApiResponse<List<ContentVO>> start(@CurrentUserId(required = false) Long userId,
                                              @RequestParam(required = false) String type,
                                              @RequestParam(required = false) String categoryId) {

@@ -227,7 +227,7 @@ public interface ContentDao {
      *
      * @return 点赞总数；内容行不存在 ⇒ {@code null}
      */
-    Integer findLikeCountById(@Param("contentId") long contentId);
+    Long findLikeCountById(@Param("contentId") long contentId);
 
     /**
      * 评论数增减。TV: {@code UPDATE content SET comment_count = comment_count + ? WHERE id = ?}
@@ -443,7 +443,7 @@ public interface ContentDao {
     /** 关键词搜索命中总数。分支判据与 {@link #keywordSearchInBrief} **必须同源**（否则 total 与 list 口径漂移）。 */
     int countKeywordSearch(@Param("keyword") String keyword);
 
-    /** 某作者的内容总数（`/profile` 信封的 total）。TV: {@code SELECT COUNT(*) FROM content WHERE user_id = ? AND is_deleted = 0} */
+    /** 某作者的内容总数（主页 GET /api/v1/users/{id} 信封的 total）。TV: {@code SELECT COUNT(*) FROM content WHERE user_id = ? AND is_deleted = 0} */
     int countContentByUser(@Param("userId") long userId);
 
     /**

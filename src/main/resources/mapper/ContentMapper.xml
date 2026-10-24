@@ -90,8 +90,8 @@
          同样**刻意不加 is_deleted 过滤**（理由同 findCoinCount）：读的是列值；
          配套不变式 = 作者删除内容时 deleteContent 同事务把本列归零（见 resetLikeCount）
          ⇒ like_count == COUNT(*) content_like 对所有行成立。
-         ⚠️ 返回 Integer（包装）：无行 ⇒ null ⇒ 缓存层不写缓存。 -->
-    <select id="findLikeCountById" resultType="java.lang.Integer">
+         ⚠️ 返回 Long（包装）：无行 ⇒ null ⇒ 缓存层不写缓存。 -->
+    <select id="findLikeCountById" resultType="java.lang.Long">
         select like_count from content where id = #{contentId}
     </select>
 

@@ -190,7 +190,7 @@ video:
   #    否则缓冲会在"轮到轮询"或"重试窗口内"就自己过期 ⇒ 静默丢数据，且外部只看到
   #    "进度偶尔回退"、无法归因。
   # ★ idle-threshold 是"多久算用户已离开"（**兜底判据**），不是降频参数：
-  #    正常退出走 /history/flush（同步、延迟 0），只有崩溃 / 断网的用户才等这个窗口。
+  #    正常退出走 /api/v1/history/flush（同步、延迟 0），只有崩溃 / 断网的用户才等这个窗口。
   # ★ poll-interval 只影响兜底延迟，不影响正常退出的可见性（所以它可以比 idle-threshold 短很多）。
   history:
     buffer:
@@ -416,68 +416,107 @@ video:
       # ⚠️ 构造期只拒 [0,1] **之外**的值 ⇒ 0 是合法值、"键名写错"会静默绑成 0.0 而绕过校验；
       #    该洞由 RateLimitPropertiesBindingTests#被拒折扣落在开区间（口径取开区间 (0,1)）兜住。
       reject-discount: ${RATE_LIMIT_COST_REJECT_DISCOUNT:0.3}
-      # 权重表：key = 「<HTTP 方法> <空格> <路径模式>」（本仓端点无路径参数 ⇒ 即精确路径），value = 该端点一次的令牌数。
+      # 权重表：key = 「<HTTP 方法> <空格> <路由模式>」，value = 该端点一次的令牌数。
+      # （`T58` 起端点带路径变量（{id}）⇒ 查表按**路由模式**（BEST_MATCHING_PATTERN_ATTRIBUTE）匹配，
+      #  不再按原始 URI 精确匹配——否则带 id 的请求会静默落 default-base，
+      #  由 RateLimitWeightTableTests#路径变量端点按路由模式扣费钉住。）
       # 锚点：按"是否触达 DB 写 + 是否重活"排序 —— 登录/注册 5、上传与媒体扫描/恢复（同为重活）10、
       #       其余非 GET 写路径 3；**读一律吃 default-base = 1**（故不在此枚举读端点）。
       # 推翻条件：有按端点的实测成本。
       # 覆盖口径（T26 起）：**全部非 GET 端点在此登记**——完整性由 RateLimitWeightTableTests 的
       #       "扫描全部 handler 映射"用例兜住（新增端点漏配 ⇒ 该用例变红，逼一次定价决策）。
-      #       查表用「方法 空格 路径」精确匹配（未解码未规范化，与跳过清单同源）；未登记 ⇒ default-base。
+      #       查表用「方法 空格 路由模式」匹配（`T58` 起按 BEST_MATCHING_PATTERN_ATTRIBUTE 取模式，
+      #       键里的 {id} 即路由模式字面；未登记 ⇒ default-base）。
       # ⚠️⚠️ 键**必须**用方括号括起来（"[POST /x]": 3）！Spring 绑 Map 时会把键里
-      #      "小写字母数字与 - 之外"的字符**静默删掉**：写成 POST /favorite/add: 3 时
-      #      实际绑出来的是 POSTfavoriteadd —— 无任何报错，只是这条权重永远命不中、
+      #      "小写字母数字与 - 之外"的字符**静默删掉**：写成 POST /api/v1/favorites: 3 时
+      #      实际绑出来的是 POSTapiv1favorites —— 无任何报错，只是这条权重永远命不中、
       #      悄无声息地全落 default-base。RateLimitProperties 把 key 形态钉成绑定期校验 ⇒ 漏了方括号会启动失败。
       base:
         # —— 认证入口（5：登录 / 注册是匿名可达的入口，比普通写贵）——
-        "[POST /user/login]": 5
-        "[POST /user/register]": 5
+        "[POST /api/v1/sessions]": 5
+        "[POST /api/v1/users]": 5
         # —— 上传与媒体重活（10：流式写文件 + 批量回写；scan 为媒体全盘扫描，restore 同为媒体重操作）——
-        "[POST /api/upload/video]": 10
-        "[POST /api/upload/post]": 10
-        "[POST /api/upload/replace]": 10
-        "[POST /api/admin/media/scan]": 10
-        "[POST /api/admin/media/restore]": 10
+        "[POST /api/v1/contents/videos]": 10
+        "[POST /api/v1/contents/posts]": 10
+        "[PUT /api/v1/contents/{id}/media]": 10
+        "[POST /api/v1/admin/media/scan]": 10
+        "[PUT /api/v1/admin/media/{id}]": 10
         # —— 用户资料修改 ——
-        "[POST /user/changePassword]": 3
-        "[POST /user/changeUserName]": 3
+        "[PUT /api/v1/users/me/password]": 3
+        "[PUT /api/v1/users/me/username]": 3
         # —— 内容作者操作（delete 为级联软删，成本与"单个作品"同阶）——
-        "[POST /content/commentEnabled]": 3
-        "[POST /content/update]": 3
-        "[POST /content/mediaDelete]": 3
-        "[POST /content/delete]": 3
-        # —— 优惠券 / 点赞 / 评论 / 收藏 / 稍后再看 / 关注（各域写路径）——
-        "[POST /coupon/grab]": 3
-        "[POST /like/content/add]": 3
-        "[POST /like/content/remove]": 3
-        "[POST /like/comment/add]": 3
-        "[POST /like/comment/remove]": 3
-        "[POST /comment/add]": 3
-        "[POST /comment/delete]": 3
-        "[POST /favorite/add]": 3
-        "[POST /favorite/remove]": 3
-        "[POST /favorite/move]": 3
-        "[POST /favorite/folder/add]": 3
-        "[POST /favorite/folder/update]": 3
-        "[POST /favorite/folder/remove]": 3
-        "[POST /watchlater/add]": 3
-        "[POST /watchlater/remove]": 3
-        "[POST /watchlater/move]": 3
-        "[POST /follow/add]": 3
-        "[POST /follow/remove]": 3
-        # —— 投币（T37 / T38；签到与投币同为"写路径 3"）——
-        "[POST /coin/signIn]": 3
-        "[POST /coin/add]": 3
-        # —— 播放记录（T47 / T51-2）：上报**有意低于**"其余非 GET 写 3" ——
+        "[PUT /api/v1/contents/{id}/comment-enabled]": 3
+        "[PUT /api/v1/contents/{id}]": 3
+        "[DELETE /api/v1/contents/{id}/media]": 3
+        "[DELETE /api/v1/contents/{id}]": 3
+        # —— 优惠券 / 点赞 / 评论（`T58` 起资源化：领券 = POST /api/v1/coupons/{id}/claims）——
+        "[POST /api/v1/coupons/{id}/claims]": 3
+        "[PUT /api/v1/contents/{id}/like]": 3
+        "[DELETE /api/v1/contents/{id}/like]": 3
+        "[PUT /api/v1/comments/{id}/like]": 3
+        "[DELETE /api/v1/comments/{id}/like]": 3
+        "[POST /api/v1/comments]": 3
+        "[DELETE /api/v1/comments/{id}]": 3
+        # —— 收藏（`T58` 起资源化：夹 = /favorite-folders、收藏条目 = /favorites）——
+        "[POST /api/v1/favorites]": 3
+        "[DELETE /api/v1/favorites]": 3
+        "[PUT /api/v1/favorites/{id}]": 3
+        "[POST /api/v1/favorite-folders]": 3
+        "[PUT /api/v1/favorite-folders/{id}]": 3
+        "[DELETE /api/v1/favorite-folders/{id}]": 3
+        # —— 稍后再看（同批迁移）——
+        "[PUT /api/v1/watch-later/{id}]": 3
+        "[DELETE /api/v1/watch-later]": 3
+        "[PUT /api/v1/watch-later/{id}/folder]": 3
+        # —— 关注（`T58` 起资源化：关系 = /follows/{id}；列表是 GET，吃 default-base）——
+        "[PUT /api/v1/follows/{id}]": 3
+        "[DELETE /api/v1/follows/{id}]": 3
+        # —— 投币（T37 / T38；`T58` 起资源化：签到 = check-in、投币挂在内容下；同"写路径 3"）——
+        "[POST /api/v1/users/me/check-ins]": 3
+        "[POST /api/v1/contents/{id}/coins]": 3
+        # —— 播放记录（T47 / T51-2；`T58` 起资源化：进度挂内容下，退出信号保持 POST /api/v1/history/flush）——
+        #    上报**有意低于**"其余非 GET 写 3" ——
         #    上报是设计上最高频的写（播放器持续报进度），权重 1；
         #    ★ 接心跳缓冲后**不需要**重估：缓冲挡的是 DB 写，请求数一点没少，权重按请求计。
         #    /flush 取 3（一次批量落库，比单条上报贵）。
-        "[POST /history/report]": 1
-        "[POST /history/flush]": 3
-        "[POST /history/play]": 1
-        # —— admin（人工操作、流量极小，但**无白名单** ⇒ 同样过闸计费）——
-        "[POST /api/admin/comment/delete]": 3
-        "[POST /api/admin/content/hide]": 3
-        "[POST /api/admin/content/unhide]": 3
+        "[PUT /api/v1/contents/{id}/progress]": 1
+        "[POST /api/v1/history/flush]": 3
+        "[POST /api/v1/contents/{id}/play]": 1
+        # —— admin（人工操作、流量极小，但**无白名单** ⇒ 同样过闸计费；`T58` 起资源化：
+        #    删评论 = DELETE /comments/{id}、下架/恢复 = PUT|DELETE /contents/{id}/hidden，
+        #    权重值逐字保持）——
+        "[DELETE /api/v1/admin/comments/{id}]": 3
+        "[PUT /api/v1/admin/contents/{id}/hidden]": 3
+        "[DELETE /api/v1/admin/contents/{id}/hidden]": 3
+
+# ----------------------------------------------------------------------------
+# OpenAPI spec 导出（T60 / 口径见 `architecture/tech/api/接口契约-护栏与Spec.md` §二）
+#
+# ★ 生产**不注册文档端点**（`/v3/api-docs` 不存在），spec 只在测试里生成并入库。
+#   理由：本仓的默认拒绝靠「命中的处理器带 `@Public`」（RequestMappingLookup），
+#   而 springdoc 的文档端点是它自己的 `@RestController` —— 我们**加不上注解**。
+#   于是只有两条路：给它开白名单（违反红线 §2.1）或干脆不暴露。取后者：
+#   匿名面为零，端点登记簿仍是 67 条，`SecurityContractTests` / 权重表全都不用动。
+#
+# ★ packages-to-scan 必须与 `ApiContractInventoryTests.BASE_PACKAGE` 同口径：
+#   不限定会扫进 Spring Boot 的 `/error` 与 springdoc 自己的端点 ⇒ spec 比登记簿多几条，
+#   "集合相等"这条验收就废了。
+# ----------------------------------------------------------------------------
+springdoc:
+  api-docs:
+    enabled: false
+  packages-to-scan: io.github.yjhhhaaa06.videoweb
+  # diff 稳定性：键按字母序输出。不排序时键序跟随扫描/哈希顺序，
+  # 同一份代码两次生成都可能不同 ⇒ 入库的 spec 每次契约变更都会产生整文件噪声，
+  # "review spec diff" 这件事就失去意义（T60-1 实测口径）。
+  writer-with-order-by-keys: true
+  # 默认 produces 从 `*/*` 收成 `application/json`：全站出参都是 JSON（multipart 只影响请求侧），
+  # 留着 `*/*` 等于让前端自己去猜。
+  default-produces-media-type: application/json
+  # 不让 springdoc 自动给每个端点塞一套通用 4xx 响应：
+  # 错误响应由 `OperationCustomizer` 按各端点的鉴权档位显式推导（T60-2），
+  # 保持"spec 只声明真会发生的事"。
+  override-with-generic-response: false
 
 # ----------------------------------------------------------------------------
 # 可观测（第三批 T2 / 账 B3）：Actuator 端点暴露

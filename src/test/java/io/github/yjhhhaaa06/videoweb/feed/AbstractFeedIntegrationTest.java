@@ -149,10 +149,10 @@ public abstract class AbstractFeedIntegrationTest extends AbstractContentIntegra
 
     /** {@code GET /feed}（无分页参数 ⇒ 走缺省 1 / 100）。 */
     protected ResponseEntity<String> getFeed(String token) {
-        return get("/feed", token);
+        return get("/api/v1/feed", token);
     }
 
     protected ResponseEntity<String> getFeed(String token, int page, int pageSize) {
-        return get("/feed?page=" + page + "&pageSize=" + pageSize, token);
+        return get("/api/v1/feed?page=" + page + "&pageSize=" + pageSize, token);
     }
 }

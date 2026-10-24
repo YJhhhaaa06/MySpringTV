@@ -7,14 +7,14 @@ import lombok.NoArgsConstructor;
 import java.util.List;
 
 /**
- * 收藏状态（{@code GET /favorite/status} 的 {@code data}）——**当前用户**对某内容
+ * 收藏状态（{@code GET /api/v1/contents/{id}/favorite} 的 {@code data}）——**当前用户**对某内容
  * "是否已收藏 + 收在哪些夹"（favorite-需求.md §三「打开内容页能看到"已收藏"，并知道**收在了哪些夹**」）。
  *
  * <h2>★ 两个字段各自服务前端的一个动作</h2>
  * <ul>
  *   <li>{@code isFavorited} —— 收藏按钮的**初始态**（与 {@code /like/content/status} 的布尔同款）；</li>
  *   <li>{@code folders} —— 收藏弹窗的**勾选态**：这些是"已勾上"的夹，前端拿它与我全部夹
- *       （{@code /favorite/folder/list}）做差集即可渲染勾选框。</li>
+ *       （{@code /api/v1/favorite-folders}）做差集即可渲染勾选框。</li>
  * </ul>
  *
  * <h2>★ T15：「我收藏了吗」这件事，本端点与详情页按钮<b>现在是同一个来源</b></h2>
@@ -55,7 +55,7 @@ import java.util.List;
  *       <td>★ <b>不属于</b>这一类：那一瞬间它与 DB <b>一致</b>，只是随即被自己的写覆盖</td></tr>
  *   <tr><td>4</td><td><b>孤儿记录</b>（夹已删、条目残留，{@code favorite_item} 无外键）
  *       —— 本端点 {@code folders} 走 INNER JOIN ⇒ 漏报成"未收藏"，
- *       而 {@code /favorite/count}（不 JOIN）仍把它计入</td>
+ *       而 {@code /api/v1/contents/{id}/favorite-count}（不 JOIN）仍把它计入</td>
  *       <td>★ <b>T15 之前就有</b>的已知分叉（{@code favorite.md 附录「编号速查」} <b>I-04</b>；
  *       该不变量的两条端点对照见 {@code FavoriteExistenceTests}），<b>不是</b>本次引入</td></tr>
  * </table>
