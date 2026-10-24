@@ -174,7 +174,8 @@ public class IdempotencyRedisOps extends RedisOps {
      */
     public boolean complete(String key, String owner, int status, String contentType,
                             String fingerprint, String body, int doneTtlSeconds) {
-        Long raw = eval(COMPLETE_SCRIPT, List.of(key), owner, String.valueOf(status), contentType,
+        Long raw = eval(COMPLETE_SCRIPT, List.of(key), owner, String.valueOf(status),
+                contentType == null ? "" : contentType,
                 fingerprint == null ? "" : fingerprint, body, String.valueOf(doneTtlSeconds));
         return parseFlag(raw, "COMPLETE");
     }
@@ -221,7 +222,8 @@ public class IdempotencyRedisOps extends RedisOps {
      *
      * <p>按<b>前 4 个</b>分隔符切，第 5 段起原样并入 body —— body 是 JSON，虽然 JSON 本身不能含裸
      * {@code 0x1F}，但不依赖这一点更安全（将来若快照换成别的格式，这段不用重写）。
-     * 同时做**自洽校验**：状态码必须是 3 位数、Content-Type 非空 —— 缺一个就说明记录被写坏。
+     * 同时做**自洽校验**：状态码必须是 3 位数 —— 否则说明记录被写坏。
+     * ⚠️ {@code ctype} 允许为空（原响应就可能没有 Content-Type，如无 body 的 2xx）：空串照原样重放。
      */
     private static Snapshot parseSnapshot(String raw) {
         String rest = raw.substring("DONE".length() + 1);
@@ -244,10 +246,9 @@ public class IdempotencyRedisOps extends RedisOps {
             throw new IdempotencyScriptException(
                     "幂等脚本返回值无法解析: DONE 快照的 code 不是整数 [" + abbreviate(head[1]) + "]", e);
         }
-        if (status < 100 || status > 599 || head[2].isEmpty()) {
+        if (status < 100 || status > 599) {
             throw new IdempotencyScriptException(
-                    "幂等脚本返回值自相矛盾: DONE 快照 code=" + status
-                            + " ctype=[" + abbreviate(head[2]) + "]（必须是 3 位状态码 + 非空 Content-Type）");
+                    "幂等脚本返回值自相矛盾: DONE 快照 code=" + status + "（必须是 3 位状态码）");
         }
         return new Snapshot(head[0].isEmpty() ? null : head[0], status, head[2], body);
     }
@@ -289,7 +290,7 @@ public class IdempotencyRedisOps extends RedisOps {
      *
      * @param fingerprint {@code SHA-256(请求体)}；{@code null} = 无指纹（multipart / 请求体超限 / handler 未读 body）
      * @param status      首次响应的 HTTP 状态（只会是 2xx——非 2xx 从不进快照）
-     * @param contentType 首次响应的 Content-Type（原样回放）
+     * @param contentType 首次响应的 Content-Type（原样回放；空串 = 原响应就没有 Content-Type）
      * @param body        首次响应的 body（UTF-8 解码后的字符串，<= {@code limits.snapshot-bytes}）
      */
     public record Snapshot(String fingerprint, int status, String contentType, String body) {

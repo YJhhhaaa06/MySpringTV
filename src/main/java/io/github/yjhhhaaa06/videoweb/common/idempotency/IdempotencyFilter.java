@@ -274,6 +274,12 @@ public class IdempotencyFilter extends OncePerRequestFilter {
                         log.error("写幂等快照时脚本/返回值异常（幂等器自身缺陷，必须排查）: route={} userId={}",
                                 routeKey, userId, e);
                         decision = Decision.DEGRADED;
+                    } catch (RuntimeException e) {
+                        // 兜底：业务已经提交、响应已写进缓冲 ⇒ 未预期异常不得把"已成功"变成 5xx
+                        // （对照 RateLimitFilter#settleMissPenalty 的同款兜底手法）。
+                        log.error("写幂等快照出现未预期异常（已兜底，响应保持 2xx）: route={} userId={}",
+                                routeKey, userId, e);
+                        decision = Decision.DEGRADED;
                     }
                 }
             }
