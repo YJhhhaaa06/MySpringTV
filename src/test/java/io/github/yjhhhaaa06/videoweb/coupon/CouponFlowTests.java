@@ -18,8 +18,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <h2>与 TV pytest 的对应（语义翻译，非机械复制）</h2>
  * 旧体系里有 4 处 coupon 用例（{@code test_smoke.S-15/S-16}、{@code test_boundary.E-09/E-09b}、
  * {@code test_consistency.C-10}、{@code test_coupon_my_and_comment_status.TestCouponMy}）。
- * 本类保留其**意图**（列表可读、抢券成功、重复 409、过期 409、库存递减、my 三态），
- * 形式改为"Testcontainers + 真 HTTP + 真 DB"。
+ * 本类保留其**意图**（列表可读、抢券成功、重复领券幂等（`T64`：200 + 原码，不再 409）、过期 409、
+ * 库存递减、my 三态），形式改为"Testcontainers + 真 HTTP + 真 DB"。
  *
  * <h2>契约形状（`T58` 起路径资源化；信封形状沿袭 TV，勿"顺手优化"）</h2>
  * <ul>
@@ -99,42 +99,88 @@ class CouponFlowTests extends AbstractCouponIntegrationTest {
     }
 
     /**
-     * ★ 本切片最核心的事务边界测试（决策表 C-1）★
+     * ★ `T64` 契约变更（G8 例外：契约跟随）★
      *
-     * <p>旧实现里"扣库存"与"插订单"在同一事务内，插订单撞唯一键时整笔回滚 ⇒ **库存只扣一次**。
-     * 新实现靠 {@code @Transactional} + {@code DuplicateKeyException}（RuntimeException，默认触发回滚）
-     * 维系同一语义。
+     * <p><b>依据</b>：需求编号 `N4` §G·P0-3 / `T64` —— 重复领券由 **409** 改为
+     * **200 + 原券码**（幂等重放）。变更点两处：① 状态码 409 → 200；
+     * ② 不再出现 `SYSTEM_DUPLICATE_KEY` /「数据已存在」（`I-25` 已销账）。
+     * 原因：券码只在首次响应给过一次，409 让"丢了 2xx 再重试"的客户端永远拿不回自己的券。
      *
-     * <p>若有人把 {@code @Transactional} 去掉（或把 {@code insertOrder} 移出事务），
-     * 第二次抢券会先扣掉库存再报冲突，此处 {@code stock == 4} 的断言会变成 3 ⇒ 测试失败。
-     * <b>这就是本用例存在的意义</b>：把一个"不报错、只慢慢少库存"的隐性退化钉住。
+     * <p>断言仍是可观察行为（HTTP 状态 + body + DB 终态）。第 2 次的 {@code couponCode} 必须
+     * **逐字等于**第 1 次 —— 只断言"非空/形状对"抓不到"重放时另生了一个新码"。
      */
     @Test
-    @DisplayName("C-1：重复抢券 409，且库存只扣一次（★证明失败路径真的回滚了）")
-    void 重复抢券库存只扣一次() {
+    @DisplayName("T64：重复领券 200 + 原券码（幂等重放），库存只扣一次、订单仍 1 行")
+    void 重复领券返回原券码() {
         String token = registerAndGetToken(PHONE, USERNAME);
         long couponId = insertCoupon("限量券", 5, WINDOW_OPEN);
 
-        assertThat(grab(couponId, token).getStatusCode()).isEqualTo(HttpStatus.OK);
+        ResponseEntity<String> first = grab(couponId, token);
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String firstCode = Envelope.data(first).path("couponCode").asString();
+        assertThat(firstCode).matches("[0-9A-Z]{16}");
 
         ResponseEntity<String> second = grab(couponId, token);
 
-        assertThat(second.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        // ★ T55 把这个路径的对外码暴露出来了：重复抢券**不是**走 COUPON_UNAVAILABLE（那是"库存 0 / 时间窗外"），
-        //   而是撞 uk_coupon_user 唯一键 ⇒ DuplicateKeyException ⇒ 出口只能回 SYSTEM_DUPLICATE_KEY
-        //   （出口拿不到"撞的是哪个键"）。C-1 刻意不判 1062，故这是**已知代价**（T59-4 裁决维持泛码），
-        //   前端因此拿不到"您已抢过该优惠券"这句精确提示 ——
-        //   口径见 architecture/tech/api/接口契约.md §2.2「已知代价·第二例」。
-        assertThat(Envelope.code(second)).isEqualTo("SYSTEM_DUPLICATE_KEY");
-        // T59-4（I-25）把误导文案「请重试」删掉：重复领券重试必然仍失败。
-        // 这条断言是该裁决的**唯一判别力**（改回旧文案 ⇒ 本行红）。
-        assertThat(Envelope.msg(second)).isEqualTo("数据已存在");
+        assertThat(second.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(Envelope.code(second)).isEqualTo("OK");
+        assertThat(Envelope.data(second).path("couponCode").asString())
+                .as("重放必须回原券码——另发一个码等于给同一人两张券")
+                .isEqualTo(firstCode);
 
-        // 独立 oracle 复算：订单恰 1 行；库存恰减 1（不是 2）
+        // 独立 oracle：不读接口回显，直接查库
         assertThat(countOrders(couponId, firstUserId())).isEqualTo(1L);
         assertThat(stockOf(couponId))
-                .as("重复抢券必须整笔回滚——刚扣掉的库存要被还原，否则库存会被慢慢扣光")
+                .as("可判定的重复路径不得扣库存：库存只能因首次领取减 1（不是 3）")
                 .isEqualTo(4);
+    }
+
+    /**
+     * ★ `T64` 的优先级用例 ★
+     *
+     * <p>口径（`T64` 任务书）：**回查在前** —— 已领过 ⇒ 200 + 原码，**与库存 / 时间窗无关**；
+     * 只有**未领过**的人才可能因库存 0 / 未开始 / 已结束拿到 409。
+     *
+     * <p>为什么必须有：写反成"先判可用性、再查订单"的实现，在上面的顺序两连用例里**照样全绿**
+     * （券还在进行中、库存也够）。只有"领过之后券变得不可领"才能把那个顺序打红。
+     * 这里先用 `stock=0`、再用 `end_time` 提前，把两条判据各踩一次。
+     *
+     * <p>同时带**对照**：同一张券下"另一个没领过的用户"必须仍是 409 ——
+     * 否则"一律 200"这种退化实现也能过。
+     */
+    @Test
+    @DisplayName("T64：领过之后券变不可领（库存 0 / 已结束）⇒ 仍 200 且同码；未领过者仍 409")
+    void 领过之后券不可领仍返回原券码() {
+        String token = registerAndGetToken(PHONE, USERNAME);
+        long couponId = insertCoupon("限量券", 5, WINDOW_OPEN);
+        String originalCode = Envelope.data(grab(couponId, token)).path("couponCode").asString();
+        assertThat(countOrders(couponId, firstUserId())).as("前置：首次领取必须成功").isEqualTo(1L);
+
+        // ① 券改成"抢光"
+        jdbcTemplate.update("UPDATE coupon SET stock = 0 WHERE id = ?", couponId);
+        ResponseEntity<String> afterSoldOut = grab(couponId, token);
+        assertThat(afterSoldOut.getStatusCode())
+                .as("已领过的人重放，不该因为库存归零变 409")
+                .isEqualTo(HttpStatus.OK);
+        assertThat(Envelope.data(afterSoldOut).path("couponCode").asString()).isEqualTo(originalCode);
+
+        // ② 再把活动改成"已结束"
+        jdbcTemplate.update("UPDATE coupon SET end_time = NOW() - INTERVAL 1 HOUR WHERE id = ?", couponId);
+        ResponseEntity<String> afterEnded = grab(couponId, token);
+        assertThat(afterEnded.getStatusCode())
+                .as("已领过的人重放，不该因为活动结束变 409")
+                .isEqualTo(HttpStatus.OK);
+        assertThat(Envelope.data(afterEnded).path("couponCode").asString()).isEqualTo(originalCode);
+
+        // 对照：没领过的用户在同一张（已结束 + 抢光）的券上仍是真失败
+        String otherToken = registerAndGetToken("13800001002", "coupon-other");
+        ResponseEntity<String> other = grab(couponId, otherToken);
+        assertThat(other.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(Envelope.code(other)).isEqualTo("COUPON_UNAVAILABLE");
+
+        // 两条重放路径都不得产生副作用
+        assertThat(countOrders(couponId, null)).as("订单仍只有首次那 1 行").isEqualTo(1L);
+        assertThat(stockOf(couponId)).as("重放不得再扣库存（也不得为负）").isZero();
     }
 
     // ==================== 抢券：鉴权与参数 ====================

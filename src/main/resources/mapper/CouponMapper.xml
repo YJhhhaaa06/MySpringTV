@@ -77,4 +77,15 @@
         WHERE co.user_id = #{userId} ORDER BY co.create_time DESC
     </select>
 
+    <!--
+      T64 新增（TV 无此语句）：幂等重放用——"本人在这张券上领过没有"。
+      uk_coupon_user(coupon_id, user_id) 保证最多 1 行，limit 1 只是让"无唯一键也安全"写在脸上。
+      ★ 不过滤 status：该列目前只读不写（默认 1=成功，2=已使用尚无写入方），
+        加过滤条件等于凭一个没有写入方的列编造语义（见 CouponDao#findCouponCode 的 Javadoc）。
+    -->
+    <select id="findCouponCode" resultType="java.lang.String">
+        SELECT coupon_code FROM coupon_order
+        WHERE coupon_id = #{couponId} AND user_id = #{userId} LIMIT 1
+    </select>
+
 </mapper>
