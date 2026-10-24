@@ -36,6 +36,8 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * OpenAPI spec 的**唯一装配点**（`T60`）。口径见 {@code architecture/tech/api/接口契约.md} §2.10。
@@ -81,6 +83,38 @@ public class OpenApiConfig {
     private static final String JSON = "application/json";
     private static final String MULTIPART = "multipart/form-data";
     private static final String ERROR_SCHEMA_REF = "#/components/schemas/ApiError";
+
+    /**
+     * **唯一**会回 503 的端点（`HistoryService#report` 抛 `ServiceBusyException`）。
+     *
+     * <p>为什么要显式登记：503 来自"依赖暂不可用"，无法从注解或形状推导；
+     * 而全站挂 503 会把"这条路径存在且可重试"变成一句空话（`flush` 那条路径是**吞异常返 200**）。
+     * ⚠️ 端点改名后这里会失配 ⇒ `OpenApiSpecExportTests` 有一条"登记项必须存在于 spec"的断言兜住。
+     */
+    private static final Set<String> RETRYABLE_ENDPOINTS = Set.of(
+            "PUT /api/v1/contents/{id}/progress");
+
+    /**
+     * 代码用 `@RequestParam(required = false)` + 手写校验的**必填**字段（`T57` 起手写校验的已知形态）。
+     *
+     * <p>不覆盖的话 spec 会如实抄 `required: false` ⇒ 前端以为可以不传，实际必然 400。
+     * ⚠️ 同上：改名/删端点会让登记失配，由同一组断言兜住。
+     */
+    private static final Map<String, Set<String>> REQUIRED_QUERY_PARAMS = Map.of(
+            "POST /api/v1/contents/videos", Set.of("title", "categoryId"),
+            "POST /api/v1/contents/posts", Set.of("title", "categoryId"));
+
+    /**
+     * 同上，但必填的是 **multipart part**（`@RequestPart(required = false)` + 手写判空）。
+     *
+     * <p>`videos` 的 `video` / `cover` 在代码里是必填（无 `required = false`），
+     * springdoc 在媒体类型改写后没保住 `required` ⇒ 这里一并声明。
+     */
+    private static final Map<String, List<String>> REQUIRED_BODY_PARTS = Map.of(
+            "POST /api/v1/contents/videos", List.of("video", "cover"),
+            "PUT /api/v1/contents/{id}/media", List.of("file"),
+            "PUT /api/v1/admin/media/{id}", List.of("file"));
+
 
     public OpenApiConfig() {
         // ★ 把 `@CurrentUserId` 标注的参数从 spec 里**全局**剥掉。
@@ -151,6 +185,11 @@ public class OpenApiConfig {
                     .addHeaderObject("Retry-After", new Header()
                             .description("建议退避的秒数")
                             .schema(new IntegerSchema())));
+            components.addResponses("ServiceUnavailable", errorResponse(
+                            "依赖暂不可用（`SYSTEM_UNAVAILABLE`）—— **可重试**，按 `Retry-After` 退避")
+                    .addHeaderObject("Retry-After", new Header()
+                            .description("建议退避的秒数")
+                            .schema(new IntegerSchema())));
             components.addResponses("InternalError", errorResponse(
                     "服务器内部错误（`SYSTEM_INTERNAL` / `SYSTEM_DATABASE`）"));
 
@@ -179,7 +218,7 @@ public class OpenApiConfig {
 
     private static Schema<?> apiFieldErrorSchema() {
         ObjectSchema schema = new ObjectSchema();
-        schema.setDescription("`errors[]` 元素（`T57`）：把错误挂到具体输入框上。");
+        schema.setDescription("`errors[]` 元素：把错误挂到具体输入框上。");
         schema.addProperty("field", new StringSchema()
                 .description("**请求里的字段名**；定位不到时该键不出现（不编名）"));
         schema.addProperty("code", schemaRef("#/components/schemas/ErrorCode"));
@@ -234,12 +273,15 @@ public class OpenApiConfig {
                 responses.addApiResponse("204", new ApiResponse().description("已生效，无响应体"));
             }
             rewriteMultipart(operation, handlerMethod);
+            applyRequiredFlags(operation, endpointKey(handlerMethod));
 
             RequestMappingLookup.HandlerAuthz authz = mappingLookup.resolve(handlerMethod);
             if (authz.loginRequired()) {
                 responses.addApiResponse("401", refResponse("Unauthorized"));
-            }
-            if (authz.adminRequired()) {
+                // ★ 403 的**第二个来源**是"所有权校验"（各域 Service 抛 `ForbiddenException`），
+                //   它无法从注解推导（`@RequiresLogin` 只说"要登录"，不说"只许动自己的"）。
+                //   ⇒ 按 §2.10 的"类别级可能域"口径：只要需要身份，就可能因所有权 403，一律声明。
+                //   代价 = 少数端点会多一个永不触发的分支；换来"不会漏"（漏了前端没兜底可写）。
                 responses.addApiResponse("403", refResponse("Forbidden"));
             }
             if (operation.getRequestBody() != null) {
@@ -247,12 +289,18 @@ public class OpenApiConfig {
             }
             if (operation.getRequestBody() != null || hasParameters(operation)) {
                 responses.addApiResponse("400", refResponse("ParamInvalid"));
-            }
-            if (hasPathVariable(operation)) {
+                // ★ 404 不能只看"路径里有 `{var}`"：本仓有一批"目标资源 id 在 **body / query**"的端点
+                //   （`POST /comments` 的 contentId/parentId、`POST /favorites` 的 contentId/folderId、
+                //   `GET|DELETE /favorites` 的 folderId）—— 它们同样会回 404。
                 responses.addApiResponse("404", refResponse("NotFound"));
             }
             if (isWrite(handlerMethod)) {
                 responses.addApiResponse("409", refResponse("Conflict"));
+            }
+            if (RETRYABLE_ENDPOINTS.contains(endpointKey(handlerMethod))) {
+                // ★ 503 只有 `HistoryService#report` 会抛（`ServiceBusyException` → 503 + Retry-After）；
+                //   `flush` 路径是**吞掉异常返回 200**（数据留缓冲等兜底），所以不能全站挂。
+                responses.addApiResponse("503", refResponse("ServiceUnavailable"));
             }
             responses.addApiResponse("429", refResponse("RateLimited"));
             responses.addApiResponse("500", refResponse("InternalError"));
@@ -301,13 +349,42 @@ public class OpenApiConfig {
         return operation.getParameters() != null && !operation.getParameters().isEmpty();
     }
 
-    private static boolean hasPathVariable(Operation operation) {
-        if (operation.getParameters() == null) {
-            return false;
+    /** 把 {@link #REQUIRED_QUERY_PARAMS} / {@link #REQUIRED_BODY_PARTS} 的登记套到 operation 上。 */
+    private static void applyRequiredFlags(Operation operation, String key) {
+        Set<String> requiredQuery = REQUIRED_QUERY_PARAMS.getOrDefault(key, Set.of());
+        if (operation.getParameters() != null && !requiredQuery.isEmpty()) {
+            operation.getParameters().stream()
+                    .filter(p -> requiredQuery.contains(p.getName()))
+                    .forEach(p -> p.setRequired(true));
         }
-        return operation.getParameters().stream()
-                .map(Parameter::getIn)
-                .anyMatch("path"::equals);
+        List<String> requiredParts = REQUIRED_BODY_PARTS.get(key);
+        if (requiredParts == null || operation.getRequestBody() == null
+                || operation.getRequestBody().getContent() == null
+                || operation.getRequestBody().getContent().isEmpty()) {
+            return;
+        }
+        Schema<?> schema = operation.getRequestBody().getContent().values().iterator().next().getSchema();
+        if (schema != null) {
+            requiredParts.forEach(schema::addRequiredItem);
+        }
+    }
+
+    /**
+     * `"METHOD /path"` —— 与登记簿 / spec 同一个键形，用来查上面那几张显式登记表。
+     *
+     * <p>只取第一个路径与方法：本仓 67 条端点都是单路径单方法（`ApiContractInventoryTests` 的
+     * 扫描面自检也断言了"无非限定方法的映射"）⇒ 多路径映射出现时会先在那里红。
+     */
+    private static String endpointKey(HandlerMethod handlerMethod) {
+        RequestMapping mapping = AnnotatedElementUtils.findMergedAnnotation(
+                handlerMethod.getMethod(), RequestMapping.class);
+        if (mapping == null || mapping.value().length == 0) {
+            return "";
+        }
+        if (mapping.method().length == 0) {
+            return "ANY " + mapping.value()[0];
+        }
+        return mapping.method()[0].name() + " " + mapping.value()[0];
     }
 
     /** 非 GET ⇒ 写端点（`409` 的"状态/唯一性冲突"只对写有意义）。 */

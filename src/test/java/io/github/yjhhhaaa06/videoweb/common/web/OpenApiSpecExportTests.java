@@ -50,15 +50,29 @@ import static org.assertj.core.api.Assertions.assertThat;
  * （生产不注册端点），spec 只在测试里由 {@link OpenApiWebMvcResource} **直接生成**。
  * 于是匿名面为零，登记簿仍是 67 条，安全契约与权重表都不用动。
  *
- * <h2>四条护栏各自钉住什么</h2>
+ * <h2>七条护栏各自钉住什么</h2>
  * <ol>
  *   <li><b>快照一致</b>：入库的 spec 就是当前代码生成的（没人手改、也没人忘了重生成）。</li>
  *   <li><b>端点集对齐</b>：左边 springdoc 扫 {@code RequestMappingHandlerMapping}，
  *       右边 {@code endpoint-inventory.tsv}（`T54` 用**自研扫描器**产出）—— 两个独立来源。</li>
  *   <li><b>无假参数</b>：{@code @CurrentUserId} 不是请求参数（token 解析后注入）。</li>
- *   <li><b>响应类别</b>：401/403 与**登记簿的鉴权档位**一一对应（oracle 是 `T54` 的快照，
- *       不是把生产推导再抄一遍）；{@code ResponseEntity<Void>} 必须 204 且不能留 200。</li>
+ *   <li><b>响应类别</b>：401 与**登记簿的鉴权档位**对应；{@code ResponseEntity<Void>} 必须 204 且不留 200。</li>
+ *   <li><b>错误信封</b>：失败体只有 {@code code/msg/errors}，九个错误响应组件指向同一个 {@code ApiError}；
+ *       码字典 = 41 项（形状守恒，见下方"判别力边界"）。</li>
+ *   <li><b>multipart + 必填</b>：四个上传端点是 {@code multipart/form-data}，且必填字段没被写成可选。</li>
+ *   <li><b>503 与 servers</b>：503 只挂 {@code report} 路径（{@code flush} 必须没有）；{@code servers} 不钉 localhost。</li>
  * </ol>
+ *
+ * <h2>★ 判别力边界（诚实声明，别把它当"独立 oracle"）</h2>
+ * <ul>
+ *   <li><b>鉴权档位不是独立来源</b>：{@code endpoint-inventory.tsv} 的 AUTH 列**也是**
+ *       {@code RequestMappingLookup} 算出来的（`ApiContractInventoryTests#authOf`）⇒ 它与 spec 的 401
+ *       共享同一个判定的**两个时点**。它能抓"customizer 忘了挂 401"，抓不到"判定本身跑偏"
+ *       （那种情况先由登记簿测试红，重生成后两边会一起错）。</li>
+ *   <li><b>码字典断言是形状守恒</b>：{@code OpenApiConfig#errorCodeSchema} 与 {@code ErrorCode.values()}
+ *       同源 ⇒ 这条只有在"组件缺失 / 枚举被手改"时才会红。它证明的是"字典在且形状对"，
+ *       **不是**"spec 里的码就是运行期会出现的码"（后者归 {@code ErrorCodeContractTests#无死码}）。</li>
+ * </ul>
  */
 @DisplayName("T60 OpenAPI spec：导出 + 端点集对齐 + 无假参数 + 响应类别")
 @TestPropertySource(properties = {
@@ -78,12 +92,14 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
     private static final boolean WRITE_MODE = Boolean.getBoolean("api.openapi.write");
 
     /**
-     * 声明了 {@code @RequestPart} 的端点（`T59` 登记为 multipart 例外，§2.5）。
+     * 声明了 {@code @RequestPart} 的端点（`T59` 登记为 multipart 例外，§2.5）—— **四条都在**。
      * 显式列出的理由与 `T59-3` 的计数护栏相同：让"改名后脱保"这件事**变红**，而不是静默失配。
      */
     private static final List<String> MULTIPART_ENDPOINTS = List.of(
             "POST /api/v1/contents/posts",
-            "POST /api/v1/contents/videos");
+            "POST /api/v1/contents/videos",
+            "PUT /api/v1/contents/{id}/media",
+            "PUT /api/v1/admin/media/{id}");
 
     @Autowired
     private OpenApiWebMvcResource specResource;
@@ -185,20 +201,22 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
             }
             Set<String> codes = op.getResponses().keySet();
 
-            // ① 鉴权档位 ⇒ 401/403。oracle = T54 登记簿（不是把生产推导再抄一遍）
+            // ① 鉴权档位 ⇒ 401/403。oracle = T54 登记簿（同一判定的**快照**，见类注释的"判别力边界"）
             switch (row.auth()) {
                 case "PUBLIC" -> {
                     if (codes.contains("401")) {
                         problems.add(row.method() + " " + row.path() + " —— 匿名端点却声明了 401");
+                    }
+                    if (codes.contains("403")) {
+                        problems.add(row.method() + " " + row.path() + " —— 匿名端点却声明了 403");
                     }
                 }
                 case "LOGIN" -> {
                     if (!codes.contains("401")) {
                         problems.add(row.method() + " " + row.path() + " —— 需登录却漏了 401");
                     }
-                    if (codes.contains("403")) {
-                        problems.add(row.method() + " " + row.path() + " —— 非 admin 端点却声明了 403");
-                    }
+                    // 403 **不禁止**：所有权校验（`ForbiddenException`）散在各域 Service 里，
+                    // 无法从"要不要登录"推导 ⇒ spec 故意放宽到"需身份就可能 403"（§2.10 类别级可能域）。
                 }
                 case "ADMIN" -> {
                     if (!codes.contains("401") || !codes.contains("403")) {
@@ -255,8 +273,8 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
 
         // 每个 components.responses 的错误响应都必须指向同一个 ApiError（改一处形状即一处）
         assertThat(components.getResponses())
-                .as("错误响应组件应覆盖 400/401/403/404/409/415/429/500 八类")
-                .hasSize(8);
+                .as("错误响应组件应覆盖 400/401/403/404/409/415/429/500/503 九类")
+                .hasSize(9);
         components.getResponses().forEach((name, response) ->
                 assertThat(errorSchemaRef(response))
                         .as("错误响应 `%s` 没有指向 #/components/schemas/ApiError", name)
@@ -276,10 +294,90 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
                     .containsOnlyKeys("multipart/form-data");
         }
 
+        // 必填的 part：代码用 `@RequestPart(required = false)` + 手写判空，spec 不覆盖就会谎报"可选"
+        assertThat(requiredBodyParts(spec, "POST /api/v1/contents/videos"))
+                .as("videos 的 video / cover 在代码里是必填（`@RequestPart` 未标 required=false）")
+                .contains("video", "cover");
+        assertThat(requiredBodyParts(spec, "PUT /api/v1/contents/{id}/media"))
+                .as("换源缺文件 ⇒ 400「请选择要替换的文件」，所以 file 是必填")
+                .contains("file");
+        assertThat(requiredBodyParts(spec, "PUT /api/v1/admin/media/{id}"))
+                .as("管理员换源同样必填 file")
+                .contains("file");
+
         assertThat(spec.getServers())
                 .as("离线交付的 spec 不能钉 `http://localhost`（照它拼路径的调用方会打到本机）")
                 .isNotEmpty()
                 .noneMatch(s -> s.getUrl() != null && s.getUrl().contains("localhost"));
+    }
+
+    @Test
+    @DisplayName("★ 503 只挂在 report；上传的 title/categoryId 是必填（不能写成可选）")
+    void 重试端点与必填字段() {
+        OpenAPI spec = parse(generate());
+
+        assertThat(operation(spec, "PUT /api/v1/contents/{id}/progress").getResponses())
+                .as("`HistoryService#report` 会抛 ServiceBusyException ⇒ 503 + Retry-After 必须声明")
+                .containsKey("503");
+        assertThat(operation(spec, "POST /api/v1/history/flush").getResponses())
+                .as("flush 吞掉缓冲不可用并返回 200（数据留缓冲等兜底），声明 503 等于谎报")
+                .doesNotContainKey("503");
+
+        for (String key : List.of("POST /api/v1/contents/videos", "POST /api/v1/contents/posts")) {
+            List<String> required = operation(spec, key).getParameters().stream()
+                    .filter(p -> Boolean.TRUE.equals(p.getRequired()))
+                    .map(Parameter::getName)
+                    .toList();
+            assertThat(required)
+                    .as("%s 的 title / categoryId 由手写校验拒绝（缺一即 400），spec 不能写成可选", key)
+                    .contains("title", "categoryId");
+        }
+    }
+
+    /**
+     * 403 / 404 的**独立期望**：不从规则反推，而是从"哪些 Service 真会抛"读出来的清单。
+     *
+     * <p>为什么必须手写：`OpenApiConfig` 里 403 的判据是"只要需身份就声明"（宽口径，防漏），
+     * 404 的判据是"有入参就声明" —— 这两条规则本身**推不出**"哪个端点真的会 403/404"。
+     * 若只断言规则，等于用实现验证实现。这里钉住的是**代码事实**：
+     * <ul>
+     *   <li>403 ← `CommentService#401`、`ContentService#306/356`、`FavoriteService#1198` 的
+     *       {@code ForbiddenException}（所有权校验）；</li>
+     *   <li>404 ← `CommentService#137/145`（contentId / parentId 在 body）、
+     *       `FavoriteService#518/1195`（contentId / folderId 在 body 或 query）。</li>
+     * </ul>
+     */
+    @Test
+    @DisplayName("★ 403 不只来自 admin、404 不只来自 path 变量：所有权与资源寻址端点必须声明")
+    void 所有权与资源寻址类别() {
+        OpenAPI spec = parse(generate());
+
+        // 403：各域 Service 的所有权校验（`ForbiddenException`）
+        for (String key : List.of(
+                "DELETE /api/v1/comments/{id}",
+                "PUT /api/v1/contents/{id}/comment-enabled",
+                "PUT /api/v1/contents/{id}",
+                "DELETE /api/v1/contents/{id}",
+                "PUT /api/v1/contents/{id}/media",
+                "DELETE /api/v1/contents/{id}/media",
+                "PUT /api/v1/favorites/{id}",
+                "PUT /api/v1/favorite-folders/{id}",
+                "DELETE /api/v1/favorite-folders/{id}")) {
+            assertThat(operation(spec, key).getResponses())
+                    .as("%s 会因「不是自己的」抛 ForbiddenException ⇒ 403 必须声明", key)
+                    .containsKey("403");
+        }
+
+        // 404：目标资源 id 在 body / query 里（路径上没有 `{var}`）
+        for (String key : List.of(
+                "POST /api/v1/comments",
+                "POST /api/v1/favorites",
+                "GET /api/v1/favorites",
+                "DELETE /api/v1/favorites")) {
+            assertThat(operation(spec, key).getResponses())
+                    .as("%s 的目标资源 id 在 body/query 里，会回 404 ⇒ 不能因为'路径没变量'就不声明", key)
+                    .containsKey("404");
+        }
     }
 
     // ==================== 生成 ====================
@@ -343,6 +441,13 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
             return null;
         }
         return json.getSchema().get$ref();
+    }
+
+    /** multipart 请求体 schema 上的 `required` 列表。 */
+    private static List<String> requiredBodyParts(OpenAPI spec, String key) {
+        Schema<?> schema = operation(spec, key).getRequestBody()
+                .getContent().values().iterator().next().getSchema();
+        return schema.getRequired() == null ? List.of() : schema.getRequired();
     }
 
     // ==================== 登记簿读写 ====================

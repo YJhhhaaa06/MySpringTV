@@ -22,9 +22,10 @@ import org.springframework.web.servlet.HandlerMapping;
  * 若路径未映射（404），返回 {@link HandlerAuthz#NONE}——真正的 404 由 DispatcherServlet 正常产生，
  * 本类不越权处理路由语义。
  *
- * <p><b>作用域</b>：本 bean 只注入到 {@link JwtAuthFilter}（不是 {@code Filter} 或
- * {@code WebMvcConfigurer}），以避免与 {@code HandlerMappingIntrospector} 的
- * 早期初始化产生循环依赖。
+ * <p><b>作用域</b>：本 bean 注入到两处 —— {@link JwtAuthFilter}（运行期鉴权）与
+ * {@code OpenApiConfig} 的 {@code OperationCustomizer}（`T60-2` 起：spec 的 401/403 必须与运行期
+ * **同一份判定**，否则两套口径漂移且不报错）。两者都只**读**本类，不反向依赖 MVC 配置，
+ * 故不会与 {@code HandlerMappingIntrospector} 的早期初始化形成环。
  *
  * <h2>★ 2026-10-18：判定口径从「声明才拦」改为「声明才放」</h2>
  * <pre>
