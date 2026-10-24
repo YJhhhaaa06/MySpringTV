@@ -489,6 +489,39 @@ video:
         "[PUT /api/v1/admin/contents/{id}/hidden]": 3
         "[DELETE /api/v1/admin/contents/{id}/hidden]": 3
 
+  # --------------------------------------------------------------------------
+  # 写接口幂等（`T66`；口径的唯一事实源 = architecture/tech/idempotency/写接口幂等.md §十）
+  #
+  # ⚠️ 这里**只有**"机制参数"（TTL / 轮询 / 上限）。★ 端点级的 PENDING TTL **不在这里**：
+  #    它是"该端点业务耗时"的属性，跟着注册表（IdempotencyScope.Entry#pendingTtlSeconds）走；
+  #    端点"要不要幂等"更是**契约**，不放 yaml（改了必须走 review + 编译 + diff）。
+  # ⚠️ 原生类型键名写错不会报错、只会绑成 0 ⇒ IdempotencyProperties 的紧凑构造器对所有
+  #    "必须为正"的量做**绑定期校验**（非法 ⇒ 上下文起不来），故这类错是响亮的。
+  # --------------------------------------------------------------------------
+  idempotency:
+    ttl:
+      # 已固化结果（DONE）的存活时间。★ 必须 ≥ 客户端的重试窗口（前端口径 ≤ 3 min，
+      #   见 architecture/tech/idempotency/写接口幂等.md §十四 的推翻条件：
+      #   重试窗口一旦超过本值，保护就失效）。
+      done-seconds: ${IDEMPOTENCY_TTL_DONE_SECONDS:180}
+      # 墓碑（FAILED）的存活时间。命中墓碑的行为**完全等同无记录**（重新占位执行），
+      #   故它只决定"失败后多久才允许重发"——短是刻意的（它只是排障与指标的留痕）。
+      failed-seconds: ${IDEMPOTENCY_TTL_FAILED_SECONDS:5}
+    poll:
+      # 命中别人的 PENDING 时：再问几次 / 每次隔多久。默认 2 × 100 ms ⇒ 冲突路径上最多多占
+      #   容器工作线程 200 ms（本仓未启用虚拟线程、worker max=200；已知代价第 9 条）。
+      #   ⚠️ 不要轻易调大这个乘积 —— 它乘的是"同时并发同 key 的请求数"。
+      attempts: ${IDEMPOTENCY_POLL_ATTEMPTS:2}
+      interval-millis: ${IDEMPOTENCY_POLL_INTERVAL_MILLIS:100}
+    limits:
+      # 请求体缓存上限（**只对 Content-Type: application/json 包装 request**）。
+      #   ★ 达到上限即视为"无指纹"（不可用截断后的 body 算指纹）——这是"封装类静默截断"
+      #   的直接后果：ContentCachingRequestWrapper 超限后 handleContentOverflow 是空实现，
+      #   不抛异常、只是不再缓存，故只能靠 cached.length >= limit 判定。
+      fingerprint-bytes: ${IDEMPOTENCY_LIMITS_FINGERPRINT_BYTES:8192}
+      # 响应快照上限。超过 ⇒ **不写 DONE**（降级为不幂等）+ ERROR 日志；业务已提交，响应照常 2xx。
+      snapshot-bytes: ${IDEMPOTENCY_LIMITS_SNAPSHOT_BYTES:65536}
+
 # ----------------------------------------------------------------------------
 # OpenAPI spec 导出（T60 / 口径见 `architecture/tech/api/接口契约-护栏与Spec.md` §二）
 #
