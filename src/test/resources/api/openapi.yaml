@@ -3,22 +3,23 @@ info:
   description: |
     MySpringTV 对外 HTTP 契约（机器可读形态）。
 
-    ⚠️ **中间态（T60-1 交付，T60-2 收口后删除本段）**：错误响应、
-    204 无体、multipart 媒体类型、operationId 命名、servers 尚未定稿 ——
-    本 spec 此时只可用于"端点集与入出参形状"的比对，**不要据此写前端调用**。
-
-    本 spec 由代码生成，**不是**手写：`./mvnw.cmd test -Dtest=OpenApiSpecExportTests -Dapi.openapi.write=true`。
+    本 spec 由代码生成，**不是**手写：
+    `./mvnw.cmd test -Dtest=OpenApiSpecExportTests -Dapi.openapi.write=true`。
     规则的**为什么**（状态码分层、码表粒度、路径与方法判据、例外清单）见
-    `architecture/tech/api/接口契约.md`；本 spec 只描述**形状**（路径 / 方法 / 参数 / 响应）。
+    `architecture/tech/api/接口契约.md`；本 spec 只描述**形状**。
 
-    两条读法提醒：
-    1. 业务码 `code` 是稳定字符串枚举，HTTP status 只表类别；
-    2. 失败体是 `{code, msg, errors?}`，**没有** `data`；成功体是 `{code:"OK", msg, data?}`。
+    三条读法：
+    1. 业务码 `code` 是稳定字符串枚举（字典见 `ErrorCode` schema），HTTP status 只表类别；
+    2. 失败体是 `{code, msg, errors?}`，**没有** `data`；成功体是 `{code:"OK", msg, data?}`；
+    3. 每个端点列出的错误类别是**可能域**（不是穷举），精确分支一律看 `code`。
+
+    ⚠️ `operationId` 由方法名自动生成（同名方法会带 `_2` 后缀），**不作为契约的一部分**：
+    它会随同名方法增减而变，请按 path + method 调用。
   title: MySpringTV API
   version: 1.0.0
 servers:
-- description: Generated server url
-  url: http://localhost
+- description: 同源部署：按调用方当前的 origin 拼路径
+  url: /
 paths:
   /api/v1/admin/comments/{id}:
     delete:
@@ -31,8 +32,22 @@ paths:
           type: integer
           format: int64
       responses:
-        "200":
-          description: OK
+        "204":
+          description: 已生效，无响应体
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - admin-comment-controller
   /api/v1/admin/contents:
@@ -45,6 +60,14 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseListAdminContentVO"
           description: OK
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - admin-content-controller
   /api/v1/admin/contents/{id}/hidden:
@@ -58,8 +81,22 @@ paths:
           type: integer
           format: int64
       responses:
-        "200":
-          description: OK
+        "204":
+          description: 已生效，无响应体
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - admin-content-controller
     put:
@@ -78,6 +115,20 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseVoid"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - admin-content-controller
   /api/v1/admin/me:
@@ -90,6 +141,14 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseBoolean"
           description: OK
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - media-admin-controller
   /api/v1/admin/media:
@@ -102,6 +161,14 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseMediaAuditResult"
           description: OK
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - media-admin-controller
   /api/v1/admin/media/scan:
@@ -114,6 +181,16 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseMediaAuditResult"
           description: OK
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - media-admin-controller
   /api/v1/admin/media/{id}:
@@ -128,7 +205,7 @@ paths:
           format: int64
       requestBody:
         content:
-          application/json:
+          multipart/form-data:
             schema:
               type: object
               properties:
@@ -142,6 +219,22 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseRestoreResult"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - media-admin-controller
   /api/v1/comments:
@@ -160,6 +253,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseVoid"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - comment-controller
   /api/v1/comments/{id}:
@@ -173,8 +278,20 @@ paths:
           type: integer
           format: int64
       responses:
-        "200":
-          description: OK
+        "204":
+          description: 已生效，无响应体
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - comment-controller
   /api/v1/comments/{id}/like:
@@ -188,8 +305,20 @@ paths:
           type: integer
           format: int64
       responses:
-        "200":
-          description: OK
+        "204":
+          description: 已生效，无响应体
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - like-controller
     get:
@@ -208,6 +337,16 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseBoolean"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - like-controller
     put:
@@ -226,6 +365,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseVoid"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - like-controller
   /api/v1/comments/{id}/like-count:
@@ -245,6 +396,16 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseLong"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - like-controller
   /api/v1/comments/{id}/replies:
@@ -274,6 +435,14 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseCursorResultCommentVO"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - comment-controller
   /api/v1/contents:
@@ -302,6 +471,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponsePageResultContentVO"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - search-controller
   /api/v1/contents/posts:
@@ -325,7 +500,7 @@ paths:
           type: string
       requestBody:
         content:
-          application/json:
+          multipart/form-data:
             schema:
               type: object
               properties:
@@ -344,6 +519,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseContentCreatedVO"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - upload-controller
   /api/v1/contents/recommended:
@@ -367,6 +554,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseListContentVO"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - start-controller
   /api/v1/contents/videos:
@@ -390,7 +583,7 @@ paths:
           type: string
       requestBody:
         content:
-          application/json:
+          multipart/form-data:
             schema:
               type: object
               properties:
@@ -410,6 +603,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseContentCreatedVO"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - upload-controller
   /api/v1/contents/{id}:
@@ -423,8 +628,20 @@ paths:
           type: integer
           format: int64
       responses:
-        "200":
-          description: OK
+        "204":
+          description: 已生效，无响应体
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - content-controller
     get:
@@ -443,6 +660,14 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseContentDetailVO"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - search-controller
     put:
@@ -467,6 +692,20 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseVoid"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - content-controller
   /api/v1/contents/{id}/coins:
@@ -492,6 +731,20 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseCoinBalanceVO"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - coin-controller
   /api/v1/contents/{id}/comment-enabled:
@@ -517,6 +770,20 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseVoid"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - content-controller
   /api/v1/contents/{id}/comments:
@@ -546,6 +813,14 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponsePageResultCommentVO"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - comment-controller
   /api/v1/contents/{id}/favorite:
@@ -565,6 +840,16 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseFavoriteStatusVO"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - favorite-controller
   /api/v1/contents/{id}/favorite-count:
@@ -584,6 +869,14 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseLong"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - favorite-controller
   /api/v1/contents/{id}/like:
@@ -597,8 +890,20 @@ paths:
           type: integer
           format: int64
       responses:
-        "200":
-          description: OK
+        "204":
+          description: 已生效，无响应体
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - like-controller
     get:
@@ -617,6 +922,16 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseBoolean"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - like-controller
     put:
@@ -635,6 +950,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseVoid"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - like-controller
   /api/v1/contents/{id}/like-count:
@@ -654,6 +981,16 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseLong"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - like-controller
   /api/v1/contents/{id}/media:
@@ -679,8 +1016,20 @@ paths:
           type: integer
           format: int32
       responses:
-        "200":
-          description: OK
+        "204":
+          description: 已生效，无响应体
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - content-controller
     put:
@@ -706,7 +1055,7 @@ paths:
           format: int32
       requestBody:
         content:
-          application/json:
+          multipart/form-data:
             schema:
               type: object
               properties:
@@ -720,6 +1069,20 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseMediaReplacedVO"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - upload-controller
   /api/v1/contents/{id}/play:
@@ -739,6 +1102,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseVoid"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - history-controller
   /api/v1/contents/{id}/progress:
@@ -758,6 +1133,16 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseHistoryPositionVO"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - history-controller
     put:
@@ -782,6 +1167,20 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseVoid"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - history-controller
   /api/v1/coupons:
@@ -794,6 +1193,10 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseListCouponVO"
           description: OK
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - coupon-controller
   /api/v1/coupons/{id}/claims:
@@ -813,6 +1216,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseCouponClaimVO"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - coupon-controller
   /api/v1/favorite-folders:
@@ -825,6 +1240,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseListFavoriteFolderVO"
           description: OK
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - favorite-controller
     post:
@@ -842,6 +1263,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseVoid"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - favorite-controller
   /api/v1/favorite-folders/{id}:
@@ -855,8 +1288,20 @@ paths:
           type: integer
           format: int64
       responses:
-        "200":
-          description: OK
+        "204":
+          description: 已生效，无响应体
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - favorite-controller
     put:
@@ -881,6 +1326,20 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseVoid"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - favorite-controller
   /api/v1/favorite-folders/{id}/items:
@@ -910,6 +1369,14 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponsePageResultFavoriteItemVO"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - favorite-controller
   /api/v1/favorites:
@@ -931,8 +1398,18 @@ paths:
             type: integer
             format: int64
       responses:
-        "200":
-          description: OK
+        "204":
+          description: 已生效，无响应体
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - favorite-controller
     get:
@@ -961,6 +1438,14 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponsePageResultFavoriteItemVO"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - favorite-controller
     post:
@@ -978,6 +1463,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseVoid"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - favorite-controller
   /api/v1/favorites/{id}:
@@ -1003,6 +1500,20 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseVoid"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - favorite-controller
   /api/v1/feed:
@@ -1026,6 +1537,14 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponsePageResultContentVO"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - feed-controller
   /api/v1/follows/{id}:
@@ -1039,8 +1558,20 @@ paths:
           type: integer
           format: int64
       responses:
-        "200":
-          description: OK
+        "204":
+          description: 已生效，无响应体
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - follow-controller
     put:
@@ -1059,6 +1590,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseVoid"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - follow-controller
   /api/v1/history:
@@ -1082,6 +1625,14 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponsePageResultHistoryItemVO"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - history-controller
   /api/v1/history/flush:
@@ -1094,6 +1645,14 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseVoid"
           description: OK
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - history-controller
   /api/v1/sessions:
@@ -1112,6 +1671,16 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseLoginVO"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - user-controller
   /api/v1/users:
@@ -1130,6 +1699,16 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseLoginVO"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - user-controller
   /api/v1/users/me:
@@ -1142,6 +1721,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseUserInfoVO"
           description: OK
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - user-controller
   /api/v1/users/me/check-ins:
@@ -1154,6 +1739,14 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseSignInVO"
           description: OK
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - coin-controller
   /api/v1/users/me/coupons:
@@ -1166,6 +1759,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseListCouponOrderVO"
           description: OK
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - coupon-controller
   /api/v1/users/me/password:
@@ -1184,6 +1783,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseVoid"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - user-controller
   /api/v1/users/me/username:
@@ -1202,6 +1813,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseVoid"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - user-controller
   /api/v1/users/{id}:
@@ -1230,6 +1853,14 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseProfileVO"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - profile-controller
   /api/v1/users/{id}/favorite-folders:
@@ -1249,6 +1880,14 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseListPublicFavoriteFolderVO"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - favorite-controller
   /api/v1/users/{id}/followers:
@@ -1278,6 +1917,16 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponsePageResultFollowUserVO"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - follow-controller
   /api/v1/users/{id}/following:
@@ -1307,6 +1956,16 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponsePageResultFollowUserVO"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - follow-controller
   /api/v1/watch-later:
@@ -1322,8 +1981,18 @@ paths:
             type: integer
             format: int64
       responses:
-        "200":
-          description: OK
+        "204":
+          description: 已生效，无响应体
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - watch-later-controller
     get:
@@ -1346,6 +2015,14 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponsePageResultWatchLaterItemVO"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - watch-later-controller
   /api/v1/watch-later/{id}:
@@ -1365,6 +2042,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseVoid"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - watch-later-controller
   /api/v1/watch-later/{id}/folder:
@@ -1389,9 +2078,78 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseVoid"
           description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
       tags:
       - watch-later-controller
 components:
+  responses:
+    Conflict:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+      description: 唯一性占用 / 资源状态不允许该操作（`code` 指明具体原因）
+    Forbidden:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+      description: 已登录但无权限（`AUTH_FORBIDDEN`）
+    InternalError:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+      description: 服务器内部错误（`SYSTEM_INTERNAL` / `SYSTEM_DATABASE`）
+    NotFound:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+      description: 资源不存在（`code` 指明是哪类资源，如 `CONTENT_NOT_FOUND`）
+    ParamInvalid:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+      description: "请求参数不合法（校验族失败时带 `errors[]`；业务拒绝只有 `msg`）"
+    RateLimited:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+      description: 触发限流（`RATE_LIMITED`）
+      headers:
+        Retry-After:
+          description: 建议退避的秒数
+          schema:
+            type: integer
+            format: int32
+    Unauthorized:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+      description: 未登录 / 令牌无效或过期（`code` ∈ `AUTH_UNAUTHORIZED` / `AUTH_TOKEN_EXPIRED`）
+    UnsupportedMediaType:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+      description: 不支持的 `Content-Type`（`PARAM_MEDIA_TYPE_UNSUPPORTED`）
   schemas:
     AddCoinRequest:
       type: object
@@ -1444,57 +2202,39 @@ components:
         type:
           type: integer
           format: int32
-    ApiFieldError:
+    ApiError:
       type: object
+      description: "失败体：`{code, msg, errors?}`。**没有 `data`** —— 成功体才是 `{code:\"OK\"\
+        , msg, data?}`。"
       properties:
         code:
+          $ref: "#/components/schemas/ErrorCode"
+        errors:
+          type: array
+          description: 字段级错误；只在**校验族**（`@Valid` / 缺参 / 类型不可转换 / 请求体不可解析）出现
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
           type: string
-          enum:
-          - PARAM_INVALID
-          - PARAM_METHOD_NOT_ALLOWED
-          - PARAM_MEDIA_TYPE_UNSUPPORTED
-          - AUTH_UNAUTHORIZED
-          - AUTH_TOKEN_EXPIRED
-          - AUTH_BAD_CREDENTIALS
-          - AUTH_OLD_PASSWORD_WRONG
-          - AUTH_USER_NOT_FOUND
-          - AUTH_FORBIDDEN
-          - USER_NOT_FOUND
-          - CONTENT_NOT_FOUND
-          - COMMENT_NOT_FOUND
-          - FAVORITE_FOLDER_NOT_FOUND
-          - CONTENT_MEDIA_NOT_FOUND
-          - SYSTEM_ENDPOINT_NOT_FOUND
-          - USER_PHONE_TAKEN
-          - USER_NAME_TAKEN
-          - FOLLOW_SELF
-          - COIN_ALREADY_FULL
-          - COMMENT_DISABLED
-          - COMMENT_REPLY_TARGET_INVALID
-          - FAVORITE_FOLDER_DEFAULT
-          - CONTENT_STATUS_CONFLICT
-          - COUPON_UNAVAILABLE
-          - SYSTEM_DUPLICATE_KEY
-          - COIN_INSUFFICIENT
-          - COIN_NOT_SUPPORTED
-          - COIN_SELF_FORBIDDEN
-          - FAVORITE_FOLDER_LIMIT
-          - FAVORITE_FOLDER_FULL
-          - WATCHLATER_FULL
-          - WATCHLATER_TYPE_INVALID
-          - HISTORY_TYPE_INVALID
-          - CONTENT_TYPE_INVALID
-          - CONTENT_CATEGORY_INVALID
-          - UPLOAD_TYPE_INVALID
-          - USER_PHONE_MISMATCH
-          - RATE_LIMITED
-          - SYSTEM_UNAVAILABLE
-          - SYSTEM_INTERNAL
-          - SYSTEM_DATABASE
+          description: 给人读的兜底文案（前端可覆盖；不要按它的中文做分支）
+      required:
+      - code
+      - msg
+    ApiFieldError:
+      type: object
+      description: "`errors[]` 元素（`T57`）：把错误挂到具体输入框上。"
+      properties:
+        code:
+          $ref: "#/components/schemas/ErrorCode"
         field:
           type: string
+          description: '**请求里的字段名**；定位不到时该键不出现（不编名）'
         message:
           type: string
+          description: 稳定文案；**不回显**异常 message（那里面可能有客户端发来的值）
+      required:
+      - code
+      - message
     ApiResponseBoolean:
       type: object
       properties:
@@ -2152,6 +2892,51 @@ components:
         total:
           type: integer
           format: int32
+    ErrorCode:
+      type: string
+      description: 业务码字典（= `ErrorCode` 枚举名）。HTTP status 只表类别，精确分支看本字段。
+      enum:
+      - PARAM_INVALID
+      - PARAM_METHOD_NOT_ALLOWED
+      - PARAM_MEDIA_TYPE_UNSUPPORTED
+      - AUTH_UNAUTHORIZED
+      - AUTH_TOKEN_EXPIRED
+      - AUTH_BAD_CREDENTIALS
+      - AUTH_OLD_PASSWORD_WRONG
+      - AUTH_USER_NOT_FOUND
+      - AUTH_FORBIDDEN
+      - USER_NOT_FOUND
+      - CONTENT_NOT_FOUND
+      - COMMENT_NOT_FOUND
+      - FAVORITE_FOLDER_NOT_FOUND
+      - CONTENT_MEDIA_NOT_FOUND
+      - SYSTEM_ENDPOINT_NOT_FOUND
+      - USER_PHONE_TAKEN
+      - USER_NAME_TAKEN
+      - FOLLOW_SELF
+      - COIN_ALREADY_FULL
+      - COMMENT_DISABLED
+      - COMMENT_REPLY_TARGET_INVALID
+      - FAVORITE_FOLDER_DEFAULT
+      - CONTENT_STATUS_CONFLICT
+      - COUPON_UNAVAILABLE
+      - SYSTEM_DUPLICATE_KEY
+      - COIN_INSUFFICIENT
+      - COIN_NOT_SUPPORTED
+      - COIN_SELF_FORBIDDEN
+      - FAVORITE_FOLDER_LIMIT
+      - FAVORITE_FOLDER_FULL
+      - WATCHLATER_FULL
+      - WATCHLATER_TYPE_INVALID
+      - HISTORY_TYPE_INVALID
+      - CONTENT_TYPE_INVALID
+      - CONTENT_CATEGORY_INVALID
+      - UPLOAD_TYPE_INVALID
+      - USER_PHONE_MISMATCH
+      - RATE_LIMITED
+      - SYSTEM_UNAVAILABLE
+      - SYSTEM_INTERNAL
+      - SYSTEM_DATABASE
     FavoriteFolderBriefVO:
       type: object
       properties:

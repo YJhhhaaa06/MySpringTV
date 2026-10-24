@@ -25,7 +25,7 @@
   [限流.md](../architecture/tech/rate-limit/限流.md)（`cost.base` 权重表口径）。
   ★ **代码注释只引这些篇 + `类#方法`**；不得引用任何草稿 / 本登记台。
 * ★ **编号**：`T54`–`T62`（9 项，可自拆子任务）。**`T54`–`T59` ✅（2026-10-22 → 10-23）**、
-  **`T60-1` ✅（10-24）**，余 `T60-2`/`T60-3`（OpenAPI 形状 / 收口）/ `T61` 搁置（`R-23`：前端不跟随）/
+  **`T60-1`/`T60-2` ✅（10-24）**，余 `T60-3`（OpenAPI 收尾）/ `T61` 搁置（`R-23`：前端不跟随）/
   `T62`（收口）。
   **下一编号从 `T63` 起**，`R-21`/`R-22` 之后的决策从 `R-23` 起（**`R-23` = 前端不跟随**，2026-10-23；
   `R-24` = requestId 去重另立专项，待拍板）。
@@ -35,9 +35,9 @@
 * ★ **顺序纪律（本专项特有）**：`T54` → `T55`/`T56`/`T57`（错误面）→ `T58`/`T59`（路由面 / 载荷面）→
   `T60` → `T61` → `T62`。**码表不定就改码 = 改两遍；路径不定就改形状 = 前端映射表重写两次。**
   路由一改，限流权重表（键是 `"[POST /x]"`）、安全契约测试、前端调用点**必须同一 commit 跟上**。
-* **回归基线**（2026-10-24，**`T60-1` 后复跑**）：默认集 **800/800 绿**（`-DexcludedGroups=resilience`），
-  `resilience` 组另跑 **41/41 绿** ⇒ 合计 **841/841**（`T59` 后是 797 + 41 = 838，`T60-1` 新增 3 例：
-  `OpenApiSpecExportTests`）。
+* **回归基线**（2026-10-24，**`T60-2` 后复跑**）：默认集 **803/803 绿**（`-DexcludedGroups=resilience`），
+  `resilience` 组另跑 **41/41 绿** ⇒ 合计 **844/844**（`T59` 后是 797 + 41 = 838；`T60-1` 新增 3 例、
+  `T60-2` 再加 3 例，全在 `OpenApiSpecExportTests`）。
   ⚠️ 本环境跑全量需 `DB_POOL_MAX_SIZE=4`（否则 Testcontainers MySQL 报 `Too many connections`）。
 * ★ **本专项不动 schema**（纯 HTTP 层）⇒ 不产生 Flyway 迁移；若执行中发现必须动表，先停下登记 `I-##`。
 
@@ -345,7 +345,7 @@
 
 ### 接口契约专项：交付与收口（`T60`–`T62`）
 
-#### T60 OpenAPI 导出（来源 前端重制需要 / 设计 §〇）【执行中 —— `T60-1` ✅ 2026-10-24，`T60-2`/`T60-3` 待做】
+#### T60 OpenAPI 导出（来源 前端重制需要 / 设计 §〇）【执行中 —— `T60-1`/`T60-2` ✅ 2026-10-24，余 `T60-3`】
 
 > ⚠️ **先质疑（G14）**：
 > - **任务**：一个学习项目要 OpenAPI 是不是"为了简历加个依赖"？—— 有真实用途：重制的前端要按契约写调用，
@@ -371,16 +371,26 @@
   `@RequestPart` 为何渲染成 `application/json`；`operationId`（`delete_2`）是否随扫描序变化；
   ★ `servers` 覆盖不掉 —— `OpenApiCustomizer` 在 `calculateServerUrl` **之前**跑。
 * **验收**：path+method 集合 == `T54` 清单（差异即红）；重生成与入库逐字一致；`userId` 不在参数表；匿名面为零。
-* **拆分**：`T60-1` 导出机制 + 三条护栏（✅）；`T60-2` 形状定稿（错误响应 / 204 / multipart / `operationId` / `servers`，
-  并删掉 spec `description` 的中间态段）；`T60-3` 文档收口（§2.10 · §2.3 去重 · §〇 进度）。
+* **拆分**：`T60-1` 导出机制 + 三条护栏（✅）；`T60-2` 形状定稿（✅：错误响应 / 204 / multipart / `servers`）；
+  `T60-3` 文档收口（§2.3 清单降级为指针 · §〇 进度 · 全仓路径/码 grep）。
 * **回写（`T60-1` ✅ 2026-10-24）**：交付 `pom.xml` 依赖 + `application.yaml` 的 `springdoc:` 段
   （关端点 / `packages-to-scan` / 键排序 / `produces: application/json`）+ `OpenApiConfig`（info + 忽略 `@CurrentUserId`）
   + `OpenApiSpecExportTests` 三例 + `openapi.yaml`（**67 条** / 60 KB）。
   ★ 入库判据实测：连续两次生成**逐字相同**，改一处值 diff 恰好 1 行 ⇒ 键序稳定，入库成立。
   反向验证三处真红（摘忽略 ⇒ 41 个端点带假 `userId`；登记簿注入假端点 ⇒ 集合红；改代码不重生成 ⇒ 快照红）。
   ⚠️ 踩坑：`openapiYaml(request, null, locale)` 会 NPE（第二参是 **docs 路径**不是 group）。
-  ⚠️ 本切片是**中间态**（错误响应 / 204 / multipart / `operationId` / `servers` 未定稿），已在 spec `description` 明写
-  "不要据此写前端"，`T60-2` 收口时删除。
+* **回写（`T60-2` ✅ 2026-10-24）**：`OpenApiConfig` 补齐公共组件（`ApiError` / `ApiFieldError` /
+  `ErrorCode` 41 项字典 + 8 个 `components.responses`）与 `OperationCustomizer`：
+  401/403 走 `RequestMappingLookup#resolve(HandlerMethod)`（**新增的第二个入口，判定仍只有一份**）、
+  404 看 path 变量、400 看有无入参、409 看是否写、415 看有无 body、429/500 全站；
+  `ResponseEntity<Void>` ⇒ **204 且删 200**；`@RequestPart` ⇒ requestBody 改 **`multipart/form-data`**；
+  `servers` 固定 `/`（`OpenApiCustomizer` 在 `updateServers` **之后**执行才盖得掉 —— `T60-1` 时猜反了，实测纠正）。
+  spec 由 60 KB 涨到 **88 KB**（错误类别 × 67 端点），`OpenApiSpecExportTests` 3 例扩到 **6 例**。
+  反向验证三处真红：① 关掉 204 重写 ⇒「422 条问题」里点名每个 DELETE；② 401 无条件挂 ⇒ 匿名端点全中招；
+  ③ 关 multipart 重写 / 把 servers 改回 `http://localhost` ⇒ 两条各自点名。
+  ⚠️ **不做的两件**：`operationId` 仍是方法名（同名带 `_2`）—— 它不作为契约，重命名为好看属"为文档改代码"；
+  503（`SYSTEM_UNAVAILABLE`）**不挂**到全站 —— 只发生在 flush 端点，挂上去等于虚增类别。
+
 
 
 

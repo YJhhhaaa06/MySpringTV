@@ -82,6 +82,19 @@ public class RequestMappingLookup {
             // 未映射的路径：不要求登录，交由 DispatcherServlet 产出 404
             return HandlerAuthz.NONE;
         }
+        return resolve(handler);
+    }
+
+    /**
+     * 同一份判定的**第二个入口**：处理器已经在手时直接问它要不要登录（`T60-2` 起由 OpenAPI 导出使用）。
+     *
+     * <p>为什么要开这个口子：spec 里的 401/403 必须与**运行期同一依据**声明，若在文档侧按注解另写一套，
+     * 两套口径迟早漂移（而漂移不可见 —— 文档不会报错）。所以这里只做"解析处理器 → 读注解"的拆分，
+     * 判定逻辑仍只有一份。
+     *
+     * @param handler 目标处理器（调用方保证它已是业务控制器的处理器；非控制器返回 {@link HandlerAuthz#NONE}）
+     */
+    public HandlerAuthz resolve(HandlerMethod handler) {
         if (!isControllerEndpoint(handler)) {
             // Spring 内部 handler（不属于任何业务控制器）⇒ 不参与授权判定。见方法注释。
             return HandlerAuthz.NONE;

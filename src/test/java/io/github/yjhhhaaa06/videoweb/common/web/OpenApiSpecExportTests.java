@@ -1,11 +1,15 @@
 package io.github.yjhhhaaa06.videoweb.common.web;
 
+import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.support.AbstractIntegrationTest;
 import io.swagger.v3.core.util.Yaml;
+import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.Operation;
 import io.swagger.v3.oas.models.PathItem;
+import io.swagger.v3.oas.models.media.Schema;
 import io.swagger.v3.oas.models.parameters.Parameter;
+import io.swagger.v3.oas.models.responses.ApiResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springdoc.webmvc.api.OpenApiWebMvcResource;
@@ -28,7 +32,7 @@ import java.util.TreeSet;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * OpenAPI spec 的导出与对齐护栏（`T60`）。口径见 {@code architecture/tech/api/接口契约.md} §2.10。
+ * OpenAPI spec 的导出与形状护栏（`T60`）。口径见 {@code architecture/tech/api/接口契约.md} §2.10。
  *
  * <h2>spec 的定位：产物，不是源</h2>
  * 代码是**唯一事实源**，本类只是把 springdoc 扫出来的结果落盘成 {@code api/openapi.yaml}。
@@ -46,16 +50,17 @@ import static org.assertj.core.api.Assertions.assertThat;
  * （生产不注册端点），spec 只在测试里由 {@link OpenApiWebMvcResource} **直接生成**。
  * 于是匿名面为零，登记簿仍是 67 条，安全契约与权重表都不用动。
  *
- * <h2>两条护栏为什么有判别力</h2>
+ * <h2>四条护栏各自钉住什么</h2>
  * <ol>
- *   <li><b>端点集对齐</b>：左边是 springdoc 扫 {@code RequestMappingHandlerMapping} 的结果，
- *       右边是本仓 {@code endpoint-inventory.tsv}（`T54` 用**自研扫描器**产出的快照）——
- *       两个独立来源比对，不是自己比自己。加/删/改端点而漏了一边 ⇒ 红。</li>
- *   <li><b>无假参数</b>：{@code @CurrentUserId} 不是请求参数（token 解析后注入）。
- *       不全局忽略的话 spec 里会多一个 {@code userId}，前端照着传 ⇒ 契约说谎。</li>
+ *   <li><b>快照一致</b>：入库的 spec 就是当前代码生成的（没人手改、也没人忘了重生成）。</li>
+ *   <li><b>端点集对齐</b>：左边 springdoc 扫 {@code RequestMappingHandlerMapping}，
+ *       右边 {@code endpoint-inventory.tsv}（`T54` 用**自研扫描器**产出）—— 两个独立来源。</li>
+ *   <li><b>无假参数</b>：{@code @CurrentUserId} 不是请求参数（token 解析后注入）。</li>
+ *   <li><b>响应类别</b>：401/403 与**登记簿的鉴权档位**一一对应（oracle 是 `T54` 的快照，
+ *       不是把生产推导再抄一遍）；{@code ResponseEntity<Void>} 必须 204 且不能留 200。</li>
  * </ol>
  */
-@DisplayName("T60 OpenAPI spec：导出 + 端点集对齐 + 无假参数")
+@DisplayName("T60 OpenAPI spec：导出 + 端点集对齐 + 无假参数 + 响应类别")
 @TestPropertySource(properties = {
         // 生产默认关（application.yaml），本测试单独打开：不打开就没有端点控制器 bean 可调。
         // 只影响"端点是否注册"，不影响 spec 内容。
@@ -66,11 +71,19 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
     /** 入库的契约快照（与登记簿同目录；`.gitignore` 已用 `!/src/test/resources/api/` 放行）。 */
     private static final Path SPEC = Path.of("src", "test", "resources", "api", "openapi.yaml");
 
-    /** `T54` 的端点登记簿：spec 的对齐基线。 */
+    /** `T54` 的端点登记簿：spec 的对齐基线（method / path / 鉴权档位 / 返回类型）。 */
     private static final Path INVENTORY = Path.of("src", "test", "resources", "api", "endpoint-inventory.tsv");
 
     /** 生成模式：`-Dapi.openapi.write=true`（见类注释）。 */
     private static final boolean WRITE_MODE = Boolean.getBoolean("api.openapi.write");
+
+    /**
+     * 声明了 {@code @RequestPart} 的端点（`T59` 登记为 multipart 例外，§2.5）。
+     * 显式列出的理由与 `T59-3` 的计数护栏相同：让"改名后脱保"这件事**变红**，而不是静默失配。
+     */
+    private static final List<String> MULTIPART_ENDPOINTS = List.of(
+            "POST /api/v1/contents/posts",
+            "POST /api/v1/contents/videos");
 
     @Autowired
     private OpenApiWebMvcResource specResource;
@@ -98,7 +111,7 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
                 .as("契约快照不存在：%s（首次生成见类注释）", SPEC.toAbsolutePath())
                 .exists();
         // 读侧同样归一化换行：Windows 检出可能把 LF 换成 CRLF，不归一化会假红。
-        assertThat(normalize(readSpec()))
+        assertThat(normalize(readFile(SPEC)))
                 .as("入库 spec 与当前代码生成的 spec 不一致 —— 改了端点却没重生成？"
                         + "（生成方式见类注释；确认 diff 合理后再提交）")
                 .isEqualTo(generated);
@@ -110,7 +123,8 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
     @DisplayName("★ spec 的 path+method 集合 == T54 登记簿（差异即红）")
     void 端点集与登记簿一致() {
         Set<String> fromSpec = operationKeys(parse(generate()));
-        Set<String> fromInventory = inventoryKeys();
+        Set<String> fromInventory = new TreeSet<>();
+        readInventory().forEach(r -> fromInventory.add(r.method() + " " + r.path()));
 
         Set<String> onlyInSpec = new TreeSet<>(fromSpec);
         onlyInSpec.removeAll(fromInventory);
@@ -119,7 +133,7 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
 
         assertThat(onlyInSpec)
                 .as("spec 里有、登记簿里没有 —— springdoc 扫到了自研扫描器漏掉的端点"
-                        + "（或扫描面配置 `springdoc.packages-to-scan` 与 BASE_PACKAGE 不一致）")
+                        + "（或 `springdoc.packages-to-scan` 与 BASE_PACKAGE 不一致）")
                 .isEmpty();
         assertThat(onlyInInventory)
                 .as("登记簿里有、spec 里没有 —— springdoc 没能表达该端点（多为映射写法超出它识别的范围）")
@@ -153,6 +167,119 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
                 .as("这些端点的 spec 里出现了 userId 参数 —— 全局忽略 `@CurrentUserId` 失效，"
                         + "前端会照它传值（实际由 token 注入）")
                 .isEmpty();
+    }
+
+    // ==================== 用例 4：响应类别 ↔ 鉴权档位 / 204 ====================
+
+    @Test
+    @DisplayName("★ 响应类别与登记簿一致：PUBLIC 无 401、ADMIN 有 403、ResponseEntity<Void> 必须 204")
+    void 响应类别与登记簿一致() {
+        OpenAPI spec = parse(generate());
+        List<String> problems = new ArrayList<>();
+
+        for (Row row : readInventory()) {
+            Operation op = operation(spec, row);
+            if (op == null) {
+                problems.add(row.method() + " " + row.path() + " —— spec 里找不到该操作");
+                continue;
+            }
+            Set<String> codes = op.getResponses().keySet();
+
+            // ① 鉴权档位 ⇒ 401/403。oracle = T54 登记簿（不是把生产推导再抄一遍）
+            switch (row.auth()) {
+                case "PUBLIC" -> {
+                    if (codes.contains("401")) {
+                        problems.add(row.method() + " " + row.path() + " —— 匿名端点却声明了 401");
+                    }
+                }
+                case "LOGIN" -> {
+                    if (!codes.contains("401")) {
+                        problems.add(row.method() + " " + row.path() + " —— 需登录却漏了 401");
+                    }
+                    if (codes.contains("403")) {
+                        problems.add(row.method() + " " + row.path() + " —— 非 admin 端点却声明了 403");
+                    }
+                }
+                case "ADMIN" -> {
+                    if (!codes.contains("401") || !codes.contains("403")) {
+                        problems.add(row.method() + " " + row.path() + " —— admin 端点必须同时声明 401 与 403");
+                    }
+                }
+                default -> problems.add(row.method() + " " + row.path() + " —— 未知鉴权档位 " + row.auth());
+            }
+
+            // ② 返回类型 ⇒ 204 / 200（T59-1 定稿：DELETE 与部分 PUT = 204 无体）
+            if ("ResponseEntity<Void>".equals(row.returns())) {
+                if (!codes.contains("204")) {
+                    problems.add(row.method() + " " + row.path() + " —— 返回 ResponseEntity<Void> 却没声明 204");
+                }
+                if (codes.contains("200")) {
+                    problems.add(row.method() + " " + row.path() + " —— 204 端点不该同时声明 200");
+                }
+            } else if (!codes.contains("200")) {
+                problems.add(row.method() + " " + row.path() + " —— 有响应体的端点漏了 200");
+            }
+        }
+
+        assertThat(problems)
+                .as("spec 的响应类别与运行期契约不一致（读法见 §2.10：类别是可能域，但不许自相矛盾）")
+                .isEmpty();
+    }
+
+    // ==================== 用例 5：错误信封 / 码字典 / multipart / servers ====================
+
+    @Test
+    @DisplayName("★ 错误信封与码字典：错误响应都指 ApiError，ErrorCode 枚举 = 41 项")
+    void 错误信封与码字典() {
+        OpenAPI spec = parse(generate());
+        Components components = spec.getComponents();
+        assertThat(components).as("spec 缺 components").isNotNull();
+
+        Schema<?> dictionary = components.getSchemas().get("ErrorCode");
+        assertThat(dictionary)
+                .as("缺 `ErrorCode` 码字典 schema")
+                .isNotNull();
+        List<String> enumValues = dictionary.getEnum() == null
+                ? List.of()
+                : dictionary.getEnum().stream().map(String::valueOf).toList();
+        assertThat(enumValues)
+                .as("码字典必须与 ErrorCode 枚举同源（不是手抄一份）")
+                .hasSize(ErrorCode.values().length)
+                .containsAll(java.util.Arrays.stream(ErrorCode.values()).map(ErrorCode::getCode).toList());
+
+        Schema<?> apiError = components.getSchemas().get("ApiError");
+        assertThat(apiError).as("缺 `ApiError` 失败体 schema").isNotNull();
+        assertThat(apiError.getProperties())
+                .as("失败体只能是 code/msg/errors —— 出现 data 就等于说失败也带业务数据")
+                .containsOnlyKeys("code", "msg", "errors");
+
+        // 每个 components.responses 的错误响应都必须指向同一个 ApiError（改一处形状即一处）
+        assertThat(components.getResponses())
+                .as("错误响应组件应覆盖 400/401/403/404/409/415/429/500 八类")
+                .hasSize(8);
+        components.getResponses().forEach((name, response) ->
+                assertThat(errorSchemaRef(response))
+                        .as("错误响应 `%s` 没有指向 #/components/schemas/ApiError", name)
+                        .isEqualTo("#/components/schemas/ApiError"));
+    }
+
+    @Test
+    @DisplayName("★ multipart 端点声明 multipart/form-data；servers 不是 localhost")
+    void 上传端点与服务器地址() {
+        OpenAPI spec = parse(generate());
+
+        for (String key : MULTIPART_ENDPOINTS) {
+            Operation op = operation(spec, key);
+            assertThat(op).as("%s 在 spec 里不存在（改名了？同步更新 MULTIPART_ENDPOINTS）", key).isNotNull();
+            assertThat(op.getRequestBody().getContent())
+                    .as("%s 必须声明 multipart/form-data —— 声明成 JSON，前端就会按 JSON 传文件", key)
+                    .containsOnlyKeys("multipart/form-data");
+        }
+
+        assertThat(spec.getServers())
+                .as("离线交付的 spec 不能钉 `http://localhost`（照它拼路径的调用方会打到本机）")
+                .isNotEmpty()
+                .noneMatch(s -> s.getUrl() != null && s.getUrl().contains("localhost"));
     }
 
     // ==================== 生成 ====================
@@ -194,24 +321,49 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
         return out;
     }
 
-    /** 登记簿的 (METHOD, PATH) 集合。只取前两列，鉴权/返回类型不在本类断言面。 */
-    private static Set<String> inventoryKeys() {
+    private static Operation operation(OpenAPI spec, Row row) {
+        return operation(spec, row.method() + " " + row.path());
+    }
+
+    /** `"GET /api/v1/x"` → 对应的 {@link Operation}；不存在返回 null。 */
+    private static Operation operation(OpenAPI spec, String methodAndPath) {
+        int split = methodAndPath.indexOf(' ');
+        PathItem.HttpMethod method = PathItem.HttpMethod.valueOf(methodAndPath.substring(0, split));
+        PathItem item = spec.getPaths().get(methodAndPath.substring(split + 1));
+        return item == null ? null : item.readOperationsMap().get(method);
+    }
+
+    /** 错误响应体里指向的 schema `$ref`（用于确认"所有错误响应同形"）。 */
+    private static String errorSchemaRef(ApiResponse response) {
+        if (response.getContent() == null) {
+            return null;
+        }
+        io.swagger.v3.oas.models.media.MediaType json = response.getContent().get("application/json");
+        if (json == null || json.getSchema() == null) {
+            return null;
+        }
+        return json.getSchema().get$ref();
+    }
+
+    // ==================== 登记簿读写 ====================
+
+    /** 登记簿的一行（`T54` 的四个列）。 */
+    private record Row(String method, String path, String auth, String returns) {
+    }
+
+    private static List<Row> readInventory() {
         assertThat(Files.exists(INVENTORY))
                 .as("登记簿不存在：%s", INVENTORY.toAbsolutePath())
                 .isTrue();
-        Set<String> out = new TreeSet<>();
-        for (String raw : readSpecLines(INVENTORY)) {
+        List<Row> out = new ArrayList<>();
+        for (String raw : readLines(INVENTORY)) {
             if (raw.isBlank() || raw.startsWith("#")) {
                 continue;
             }
             String[] cols = raw.split("\t", -1);
-            out.add(cols[0] + " " + cols[1]);
+            out.add(new Row(cols[0], cols[1], cols[2], cols[3]));
         }
         return out;
-    }
-
-    private static String readSpec() {
-        return readFile(SPEC);
     }
 
     private static String readFile(Path path) {
@@ -222,7 +374,7 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
         }
     }
 
-    private static List<String> readSpecLines(Path path) {
+    private static List<String> readLines(Path path) {
         try {
             return Files.readAllLines(path, StandardCharsets.UTF_8);
         } catch (IOException e) {
