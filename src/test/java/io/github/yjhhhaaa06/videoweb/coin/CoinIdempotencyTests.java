@@ -61,6 +61,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 不含路径 ⇒ 同一个 key 打到另一条内容、body 又一样时，拿到的是第一次的快照（重放）。
  * 那是"key 是意图标识"的直接推论（客户端复用 key ⇒ 同一个意图），故对照一律换 key。
  *
+ * <h2>★ "重放的是首次快照"怎么才**可判别**（用例 1）</h2>
+ * 只断言"两次的 {@code balance} 相同"是**假绿**：实时重算余额也会得到同一个值（首次已扣过一次）。
+ * 故用例 1 在**首次 2xx 之后、重放之前**把 {@code users.coin_deci} 直接改成 99 分位（9.9 枚）：
+ * 读快照 ⇒ 仍回 2.0；读当前余额 ⇒ 9.9；重新执行一次业务 ⇒ 8.9 且列变 89。
+ * 三种实现只有"真的读快照"能过。★ 这一手只放在用例 1：累加语义那条（判别力最强）不掺无关变量。
+ *
  * <h2>Redis 清理</h2>
  * key 形态是 {@code idem:{slug}:{uid}:{clientKey}}，基类 {@code AbstractCoinIntegrationTest#resetState}
  * 已整体清 Redis；本类进门再断一次"没有任何 {@code idem:*} 残留"——
@@ -86,7 +92,7 @@ class CoinIdempotencyTests extends AbstractCoinIntegrationTest {
     // ==================== 用例 1：同 key 重发 ⇒ 同一份响应 ====================
 
     @Test
-    @DisplayName("用例1：同 key 重发两次都 200，body 逐字节相同（含同一个 balance）；仅第二次带 Idempotent-Replayed")
+    @DisplayName("用例1：同 key 重发两次都 200，body 逐字节相同；★把 DB 余额改到 9.9 后重放仍回首次的 2.0；仅第二次带 Idempotent-Replayed")
     void 同key重发_逐字节重放首次响应() {
         TestUser voter = registerUser(VOTER_PHONE, "t67_replay");
         TestUser author = registerUser(AUTHOR_PHONE, "t67_replay_author");
@@ -102,19 +108,38 @@ class CoinIdempotencyTests extends AbstractCoinIntegrationTest {
         assertThat(Envelope.data(first).path("balance").decimalValue())
                 .as("30 − 1×10 = 20 分位 = 2.0 枚").isEqualByComparingTo("2.0");
 
+        // 独立 oracle：三处列终态（不读上面的回显）。
+        // ★ 必须落在下面"改库"之前：此后 coin_deci 是测试改出来的值，不再反映业务口径。
+        assertThat(coinDeciOf(voter.id())).as("只扣一次：30 − 10 = 20").isEqualTo(20);
+        assertThat(amountOf(voter.id(), contentId)).as("关系行只累加一次").isEqualTo(1);
+        assertThat(coinCountOf(contentId)).as("累计被投币数只 +1").isEqualTo(1);
+        assertThat(authorCoinDeciOf(author.id())).as("作者只收一次：+1 分位").isEqualTo(1);
+
+        // ★★ 让"重放的是首次快照"**可判别**（否则这条用例区分不了"读快照"与"重新算账"）：
+        //   把投币人的余额直接改成 99 分位（9.9 枚）。此后
+        //     · 读**首次快照** ⇒ body 仍回 2.0（30 − 10）；
+        //     · 读**当前余额**渲染 ⇒ 9.9；
+        //     · 落回**重新执行**一次业务 ⇒ 8.9 且余额列变 89。
+        //   三种实现只有第一种能通过下面两条断言 —— 这正是本用例区别于"同 key 两次都成功"的判别点。
+        jdbcTemplate.update("UPDATE users SET coin_deci = 99 WHERE id = ?", voter.id());
+        assertThat(coinDeciOf(voter.id())).as("改库必须真的生效（否则下面的断言是真空转）").isEqualTo(99);
+
         ResponseEntity<String> second = addCoin(voter.token(), contentId, 1, idemKey(key));
 
         assertThat(second.getStatusCode()).isEqualTo(HttpStatus.OK);
+        // ★ 先断"快照 vs 重算"：这是本用例的核心判别点，失败信息要直接显示两边的余额
+        assertThat(Envelope.data(second).path("balance").decimalValue())
+                .as("★快照 vs 重算：DB 已是 99 分位（9.9 枚），重放仍必须回首次的 2.0")
+                .isEqualByComparingTo("2.0");
         assertThat(second.getHeaders().getFirst(IdempotencyFilter.HEADER_REPLAYED)).isEqualTo("true");
         assertThat(second.getBody())
                 .as("重放必须逐字节相同——含同一个 balance（投币的 2xx 快照就是它）")
                 .isEqualTo(first.getBody());
 
-        // 独立 oracle：三处列终态（不读上面的回显）
-        assertThat(coinDeciOf(voter.id())).as("只扣一次：30 − 10 = 20").isEqualTo(20);
-        assertThat(amountOf(voter.id(), contentId)).as("关系行只累加一次").isEqualTo(1);
-        assertThat(coinCountOf(contentId)).as("累计被投币数只 +1").isEqualTo(1);
-        assertThat(authorCoinDeciOf(author.id())).as("作者只收一次：+1 分位").isEqualTo(1);
+        // 重放**没有**再执行一遍业务：余额停在测试改出来的 99（真扣一次会是 89）
+        assertThat(coinDeciOf(voter.id())).as("重放不扣款：停在改库后的 99（不是 89）").isEqualTo(99);
+        assertThat(amountOf(voter.id(), contentId)).as("重放不改关系行").isEqualTo(1);
+        assertThat(coinCountOf(contentId)).as("重放不动累计数").isEqualTo(1);
 
         // ★ 对照：另一个用户用**同一个 clientKey** ⇒ 一次独立执行（key 里含 uid）
         TestUser other = registerUser(OTHER_PHONE, "t67_replay_other");
@@ -126,7 +151,7 @@ class CoinIdempotencyTests extends AbstractCoinIntegrationTest {
                 .as("另一个用户命中别人的快照 = key 里漏了 uid（跨用户串味）").isNull();
         assertThat(amountOf(other.id(), contentId)).as("另一用户自己的一行").isEqualTo(1);
         assertThat(coinCountOf(contentId)).as("另一人是独立的一次投币").isEqualTo(2);
-        assertThat(coinDeciOf(voter.id())).as("对照不得动到本人余额").isEqualTo(20);
+        assertThat(coinDeciOf(voter.id())).as("对照不得动到本人余额（仍是测试改出来的 99）").isEqualTo(99);
     }
 
     // ==================== 用例 2：独立 oracle 复算副作用 ====================
@@ -144,7 +169,10 @@ class CoinIdempotencyTests extends AbstractCoinIntegrationTest {
         addCoin(voter.token(), contentId, 1, idemKey(key));
         addCoin(voter.token(), contentId, 1, idemKey(key));
 
-        assertThat(countCoinRows()).as("同 key 两次只有一行（uk_user_content 也兜得住）").isEqualTo(1);
+        assertThat(countCoinRows())
+                .as("行数由 uk_user_content 唯一键兜底，**不是**幂等的判别点"
+                        + "（真正的判别点是下面的 amount / coin_deci / coin_count）")
+                .isEqualTo(1);
         assertThat(amountOf(voter.id(), contentId)).as("amount 只 +1").isEqualTo(1);
         assertThat(coinDeciOf(voter.id())).as("coin_deci 只减一次：40 − 10 = 30").isEqualTo(30);
         assertThat(coinCountOf(contentId)).as("coin_count 只 +1").isEqualTo(1);
@@ -276,10 +304,17 @@ class CoinIdempotencyTests extends AbstractCoinIntegrationTest {
         assertThat(amountOf(voter.id(), contentId)).as("关系行随事务回滚").isNull();
         assertThat(coinCountOf(contentId)).isZero();
 
+        // ★★ 本用例的判据**不止"能重试"**，它同时钉住"失败必须写墓碑"：
+        //   若实现从不写 FAILED（`ACQUIRE` 的 `FAILED ⇒ 可覆盖` 分支也就用不上），
+        //   占位会一直停在 PENDING 直到 PENDING TTL（投币 = 注册表里的 30 s）到期；
+        //   而这里紧接着重发 ⇒ **必然 409 IDEMPOTENCY_IN_PROGRESS** ⇒ 本条同样会红。
+        //   ⇒ 两个方向都由这一条守着：停在 PENDING（红在 409）／墓碑被当成锁（红在 400/409）。
         setCoinDeci(voter.id(), 20);              // 充硬币：外部状态恢复
         ResponseEntity<String> retried = addCoin(voter.token(), contentId, 2, idemKey(key));
 
-        assertThat(retried.getStatusCode()).as("FAILED 墓碑必须允许重新占位执行").isEqualTo(HttpStatus.OK);
+        assertThat(retried.getStatusCode())
+                .as("FAILED 是墓碑不是锁：若停在 PENDING，这里会 409（30 s TTL 内不会自愈）")
+                .isEqualTo(HttpStatus.OK);
         assertThat(retried.getHeaders().getFirst(IdempotencyFilter.HEADER_REPLAYED))
                 .as("这次是真的执行，不是重放").isNull();
         assertThat(amountOf(voter.id(), contentId)).isEqualTo(2);
