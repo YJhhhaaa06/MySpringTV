@@ -85,3 +85,18 @@ __pycache__/
 # ⚠️ 必须写成 `/src/test/resources/*`（不能是 `/src/test/resources`）：gitignore 的父目录一旦被排除，
 #    子项就无法再 `!` 回来。
 !/src/test/resources/api/
+
+### ==================== 前端重制（Vue 3 + TS + Vite） ====================
+# 依赖 / 构建产物不入库
+/frontend/node_modules/
+/frontend/dist/
+/frontend/.vite/
+*.tsbuildinfo
+# ⚠️ 例外（**不要**忽略）：`frontend/src/types/api.d.ts` 是 `openapi-typescript` 的生成物，
+#    但**必须入库** —— 重制期的契约漂移判据 = `npm run gen:api && git diff --exit-code`（见 `.docs/task/CURRENT_FRONTEND.md` §六）。
+
+### 视觉基准截图（可复算：命令记在 `CURRENT_FRONTEND.md`，图不入库，逐次重拍）
+/.screenshots/
+# Chrome 无头截图的临时 profile（可重建，勿入库）
+/.screenshots/**/_profile/
+/.tmp
