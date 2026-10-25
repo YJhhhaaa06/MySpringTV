@@ -59,6 +59,13 @@ openapi.yaml ──gen──▶ frontend/src/types/api.d.ts     生成，只读�
 | GAP-09 | M3 端点缺 | 首页 / HeroBanner | 运营 banner 位（B 站首页大轮播是广告/活动位） | 无任何 banner/运营端点 | 前端适配 | 用 `recommended` 前 3 条**有封面的**做「推荐橱窗」轮播（真封面真标题，非假图）；无内容时不渲染轮播 | 无（不补） | 长期 |
 | GAP-10 | M3 端点缺（参数） | 搜索页 / tabs·排序条 | `type` 筛选（视频/专栏）+ 排序（播放/最新） | `GET /contents` 只有 `keyword/page/pageSize` | 后端补（P3） | 只留「综合」tab；视频/专栏**灰态禁用**；**不渲染排序条**（不假装有） | `/contents` 加 `type`、`order` 参数 | 待补 |
 | GAP-11 | M3 端点缺 | 首页 / ChannelWall「热门」 | 热门榜 | 没有排行榜端点（`recommended` 是推荐流，不是排行） | 前端不做 | 灰态占位 → `/placeholder/popular` | 无 | 不做 |
+| GAP-12 | M1 字段缺 | 播放页 / 评论区 | 评论发布时间 | `CommentVO` 没有 `createTime`（只有 `commentId` 可推先后） | 后端补（P3） | **不显示时间**（不写"刚刚"顶上） | 评论 VO 加 `createTime` | 待补 |
+| GAP-13 | M3 参数缺 | 播放页 / 评论排序 | 热度 / 时间排序 | `GET /contents/{id}/comments` 只有 `page/pageSize`，固定按 `comment_id` 升序 | 前端适配 | **不渲染排序条**；发布后跳到末页并高亮 | 加 `order` 参数 | 长期 |
+| GAP-14 | M1 字段缺 | 空间页 / 头部 | banner 图 / 签名 / 生日 / 地区 | `ProfileVO` 只有 id、username、两个计数、`contentPage` | 前端适配（不做资料域） | **低饱和渐变 banner**；资料卡只放真计数 | 无 | 长期 |
+| GAP-15 | M3 端点缺 | 空间页 / tabs | 动态 / 合集和系列 / 最近点赞 | 无对应端点（`/feed` 是「我关注的动态」，不是某人的） | 前端不做 | **不渲染这三个 tab**（不摆点不动的） | 无 | 不做 |
+| GAP-16 | M1 字段缺 | 空间页 / 收藏条目卡 | 条目要带 `authorId` / `type` / `durationSeconds` / 发布时间 | `FavoriteItemVO` 只有 contentId/title/coverUrl/authorName/favoriteTime/invalid | 前端适配 | 作者渲染成**纯文本**（不做死链）、不显示时长与日期、`invalid` 打「已失效」灰角标 | 无 | 长期 |
+| GAP-17 | M1 字段缺 | 空间页 / 收藏夹卡 | 收藏夹封面（B 站是四宫格缩略图） | `PublicFavoriteFolderVO` 只有 id/name/itemCount | 前端适配 | 纯文字卡片（名字 + 条目数） | 无 | 长期 |
+| GAP-18 | M4 语义异 | 播放页 / 播放进度 | 匿名观看也计播放量（B 站口径） | `/play`、`/progress`、`/flush` **全部 `@RequiresLogin`** | 前端适配 | 未登录**整段不接**进度上报（不打一串 401） | 若要做需匿名计数端点 | 长期 |
 
 > 实测补充（2026-10-25 起后端 curl，非文档推断）：
 > ① `GET /api/v1/contents?page=1&pageSize=3` → **400 `PARAM_INVALID / 输入不能为空`** —— 该端点只服务关键词搜索，不是通用列表；
@@ -67,6 +74,12 @@ openapi.yaml ──gen──▶ frontend/src/types/api.d.ts     生成，只读�
 > ④ **spec 漏标 nullable**：匿名响应里 `coverUrl` / `durationSeconds` / `interaction` 会出现**显式 `null`**，
 > 而 spec 只声明"可缺省" ⇒ `api.d.ts` 生成 `string | undefined`，与运行时不一致（GAP-07）。
 > 前端已按 `null` 兜底，但**别拿生成类型当运行时真相**。
+> ⑤ ★ `CommentVO.children` 运行时是**带 `isLiked` 的 `CommentVO`**（spec 声明成缩水的 `CommentCacheDTO`）
+> ⇒ 楼中楼点赞态可以直接用；按 spec 写会以为"回复没有点赞态"。
+> ⑥ ★ 三态是**字段级**的：`GET /users/{id}` 的 `contentPage.list[].interaction` 返回
+> `{coin:null, isFavorited:null, isFollowed:null, isLiked:false}` —— 只有整块 `null` 才表示"匿名、本面不查"。
+> ⑦ 限流会**真的咬到正常操作**：登录桶 `20 枚 / 2 枚每秒` + 缓存 miss `×3` ⇒ 首屏 + 连续三个写操作就可能 429；
+> 前端必须能说清"等多久"（吃 `Retry-After`），**这不是 bug**。
 
 > 只**做一页列一页**，不预演全站；ID 不回收。台账超过约 40 KB 再拆独立文件。
 
@@ -91,8 +104,11 @@ openapi.yaml ──gen──▶ frontend/src/types/api.d.ts     生成，只读�
 | 会员购 / 直播 / 游戏中心 | 不做 | 同上，走同一个占位路由（不单独建应用） |
 | 弹幕 | 不做 | 播放页无弹幕层；卡片**不显示弹幕数**（假数字一问就穿帮） |
 | 分区列表 | 前端常量 | 18 项硬编码（无 `GET /categories`） |
+| 评论排序（热度/时间） | 不做 | **不渲染排序条**（后端无排序参数，GAP-13） |
+| 空间「动态 / 合集和系列 / 最近点赞」 | 不做 | **不渲染 tab**（无端点，GAP-15） |
 
-- fixture 只在 `frontend/src/mock/*.fixture.ts`，**仅占位组件可 import**，用 ESLint `no-restricted-imports` 拦死。
+- ★ 本仓**目前一个 fixture 都没有**：占位组件只靠文案 + 图标，不需要假数据。
+  若将来真需要，只许放 `frontend/src/mock/*.fixture.ts`，且仅占位组件可 import（用 ESLint `no-restricted-imports` 拦死）。
 - 判据：界面上任何数字，要么来自真接口，要么来自占位组件，**不许从 fixture 流进真卡片**。
 
 ---
@@ -103,13 +119,25 @@ openapi.yaml ──gen──▶ frontend/src/types/api.d.ts     生成，只读�
 cd frontend
 npm run gen:api && git diff --exit-code src/types/api.d.ts   # 类型落后于后端 ⇒ 红
 npm run typecheck                                            # vue-tsc -b（类型硬门禁）
-npm run test                                                 # vitest：adapters 的缺口 fallback 行为（要能变红）
-npm run build                                                # 多入口产物：dist/{index,search,video}.html
+npm run test                                                 # vitest：适配器 fallback + 请求层 + 进度上报规则
+npm run build                                                # 多入口产物：dist/{index,search,video,space}.html
 ```
 
-`npm run test` 只跑 `src/api/adapters/**/*.test.ts`（纯函数，无 DOM 依赖）：断言落在**业务口径**上
-（`formatCount` 的万/亿、`formatRelativeDate` 的 N天前、`splitHero` 的"无封面不进轮播"、
-`playCountText` 恒 null 等），不是"调用了哪个函数"。
+`npm run test` 跑 `src/**/*.test.ts`（node 环境，**无 DOM 依赖**），断言落在**业务口径**上，
+不是"调用了哪个函数"：
+
+| 文件 | 钉住的口径 |
+|---|---|
+| `api/adapters/format.test.ts` | 万/亿、`mm:ss`、相对时间 |
+| `api/adapters/{videoCard,hero,search,videoDetail,user,interaction,comment,space}.test.ts` | 各页 VM 的缺口 fallback（列表无计数 ⇒ `null`、三态 `null ≠ false`、评论无时间 ⇒ 空串…） |
+| `api/http.test.ts` | 信封 / 204 / `Retry-After` / 幂等键 / 数组 query |
+| `player/progressReporter.test.ts` | 播放进度契约：45s 节奏、503 退避与**恢复**、停报条件、续播 `max`、本地补偿 TTL |
+
+★ **能变红**是判据：改坏 `playCountText: null`、三态归一、退避恢复条件，对应断言必须红（本窗口两次 mutation 实测）。
+
+**真浏览器 E2E**（一次性脚本，放 `.tmp/`，**不入库**）：登录 / 互动 / 评论 / 进度 / 空间各一支，
+必须真接口真写（`node .tmp/<name>-e2e.mjs`，需 Chrome `--remote-debugging-port=9222` + `npm run dev`）。
+⚠️ 脚本里的"撞上限流 ⇒ 等 8s 重试"是**真实现**（登录桶 20 枚 / 2 枚每秒 + 缓存 miss ×3），不是脚本噪声。
 
 ---
 
@@ -124,13 +152,14 @@ npm run build                                                # 多入口产物�
 
 ## 八、开工顺序（重制窗口照此走）
 
-> **进度（2026-10-25，本窗口交付）**：① 脚手架 ✅ ② `VideoCard` + `VideoGrid` + **首页闭环** ✅
-> ③ 搜索页 ✅（真 Page 分页）④ 播放页**只读** ✅（播放器 + 真计数 + 相关推荐 + UP 主卡）
-> ⑤ 占位路由 + 登录真接口 ✅。
-> **设计沉淀**：前端应用口径已落 [architecture/frontend/前端.md](../architecture/frontend/前端.md)（本窗口）；
-> 视觉规范 / 请求层 / 已知代价随对应实现窗口补（不提前造空表）。
-> **下一窗口**：播放页互动（点赞/投币/收藏）+ 评论（Page + Cursor 楼中楼）+ 播放进度上报
-> → 用户空间 → 收藏 / 历史／稍后再看 →（可选）后台。
+> **进度（2026-10-25 第二窗口交付）**：
+> ① 脚手架 ✅ ② `VideoCard` + `VideoGrid` + **首页闭环** ✅ ③ 搜索页 ✅（真 Page 分页）
+> ④ 播放页 ✅（**只读 → 完整**：点赞/投币/收藏/关注 + 评论区 + 播放进度）
+> ⑤ 占位路由 + 登录真接口 ✅ ⑥ **UP 空间页** ✅（`space.html`：资料 / 投稿分页 / 公开收藏夹）
+> **下一窗口**：**生产静态转发 + 删老 SPA**（§十三，唯一还没做的"上线"前置）
+> → 收藏页 / 历史页 / 投稿页 →（可选）后台页 → 契约批次（GAP-01 / 07 / 10）。
+> **设计沉淀**：前端应用口径在 [architecture/frontend/前端.md](../architecture/frontend/前端.md)；
+> 播放进度客户端行为**不在本篇**，以 [history-客户端契约](../architecture/domain/history/history-客户端契约.md) 为准。
 
 1. `frontend/` 脚手架（Vue + TS + Vite + vue-router）→ 配 **多入口**（`vite.config.ts` 的 `build.rollupOptions.input`）+ 每个入口一个 router → `npm run gen:api` 出类型
 2. 先做 `VideoCard` + `VideoGrid`（会立刻暴露 GAP-01）
@@ -257,13 +286,13 @@ New-Item -ItemType Directory -Force -Path $prof | Out-Null
 | 应用（入口） | 应用内路由（vue-router，history） | 主要接口 |
 |---|---|---|
 | `index.html` | `/`、`/placeholder/:feature` | `GET /contents/recommended` |
-| `video.html` | `/video/:id`（分 P 用 `?p=`） | `GET /contents/{id}` + 评论 + 互动 |
+| `video.html` | `/video/:id`（分 P 用 `?p=`） | `GET /contents/{id}` + 互动 + 评论 + 进度 + `GET /users/{id}` |
 | `search.html` | `/search?keyword=java`（tab / 排序用 query） | `GET /contents?keyword=` |
-| `space.html` | `/space/:id`（tab 用 query） | `GET /users/{id}` |
+| `space.html` | `/space/:id`（tab / 翻页 / 夹用 query） | `GET /users/{id}` + `GET /users/{id}/favorite-folders` + `GET /favorite-folders/{id}/items` |
 | `upload.html` | `/upload` | `POST /contents/videos`、`/contents/posts` |
 
-> 2026-10-25 已落地 **`index` / `search` / `video`** 三个入口（video 目前是**只读**：播放器 + 真计数 + 相关推荐 + UP 主卡）；
-> `space` / `upload` 尚未建入口（灰态导航走 `/placeholder/*`）。
+> 2026-10-25 已落地 **`index` / `search` / `video` / `space`** 四个入口。
+> `video` 已从"只读"补成完整页（互动 / 评论 / 进度）；`upload` 尚未建入口（灰态导航走 `/placeholder/*`）。
 
 - **跨应用**一律 `<a href="/video/77" target="_blank" rel="noopener">` —— 新标签、可中键、可复制链接，与 B 站一致。
 - **应用内**用 vue-router（每个入口一个实例，`createWebHistory`），切 tab 只改 URL、不重载。
@@ -280,9 +309,10 @@ New-Item -ItemType Directory -Force -Path $prof | Out-Null
   ★ **状态（2026-10-25）**：① **仍未做**。本窗口只落了 dev/preview 侧（下一条），所以**打包产物目前不能被
   Spring 直接服务** —— 部署前必须先补这条，否则刷新 `/video/92` 就是 404。
 - ✅ **dev 侧 fallback 已落地**：`vite.config.ts` 的 `htmlHistoryFallback()` 把 `/search` → `search.html`、
-  `/video/<digits>` → `video.html`、`/placeholder/*` → `index.html`，并挂在 `configureServer` **与**
-  `configurePreviewServer` 上 ⇒ `npm run preview` 也能验打包产物。它只接管 `Accept: text/html` 的导航请求
-  （`/api`、`/upload`、带扩展名的资源全部放行）。
+  `/video/<digits>` → `video.html`、`/space/<digits>` → `space.html`、`/placeholder/*` → `index.html`，
+  并挂在 `configureServer` **与** `configurePreviewServer` 上 ⇒ `npm run preview` 也能验打包产物。
+  它只接管 `Accept: text/html` 的导航请求（`/api`、`/upload`、带扩展名的资源全部放行）。
+  ★ **生产转发要补的正是这份映射表**（4 个入口，见 §十三 第 1 条）。
 - ⚠️ **dev 代理要转发两段**：`/api` **和** `/upload` —— 封面是后端静态路径（`/upload/cover/…`），只代理 `/api` 会让所有图片 404。
 - **明确接受的代价**：跨应用整页刷新、公共请求（`/users/me`）每次进应用重复一次；**换来**与参考实现同构。
 
@@ -313,3 +343,22 @@ New-Item -ItemType Directory -Force -Path $prof | Out-Null
 5. **验收**：`static/static/js` 零残留 + 第 1 条的四条路径全 200 + `mvnw -B clean verify` 绿 + 三条文档门禁 0。
 
 **删除时不做的事**：不动 `src/main/resources/db/migration/**`（逐字节冻结）、不动 `old-project/`（行为判据）。
+
+---
+
+## 十四、客户端行为口径（2026-10-25 第二窗口沉淀；下个窗口照此写，别重新发明）
+
+这一节只放**跨页面复用**的约定。页面级视觉细节进 [architecture/frontend/前端.md](../architecture/frontend/前端.md)，
+播放进度的节奏 / 退避 / 崩溃补偿进 [history-客户端契约](../architecture/domain/history/history-客户端契约.md)。
+
+| 口径 | 做法 | 反例（别这么写） |
+|---|---|---|
+| **写动词** | `api/http.ts` 的 `getJson/postJson/putJson/deleteJson`，返回类型由 spec 推导；`204` 是成功 | 每个页面自己 `fetch` / 自己判信封 |
+| **幂等键** | 只有 4 条 `KEYED` 端点需要；键在"用户按下按钮"时取，**同一草稿的重试复用**，草稿一改就作废 | 每次请求新生成（重试 = 两条评论）；或让请求层自动加（掩盖"这个端点要不要幂等"） |
+| **登录闸门** | **动作级**：`await requireLogin()`，弹浮层并阻塞到用户给出结果；登录成功后**这一次点击的意图继续执行** | 页面级跳登录页；浮层关掉就丢了这次操作 |
+| **写后对齐** | 乐观更新 → 失败回滚 → 成功后用**服务端权威值**再对齐一次（详情 / 资料重读） | 只做乐观、不回滚；或回滚后不回读（并行请求会把状态写回旧值） |
+| **三态** | `null` = **本面不查**（≠ `false`）：`interaction` 整体为 null 是匿名；字段为 null 是这一维没查 | `?? false` 归一（关注按钮永远显示"关注"） |
+| **429** | 吃 `Retry-After` 说人话（"N 秒后再试"），别只说"请求过于频繁" | 静默重试 / 立即重试 |
+| **瞬态错误** | 页面级错误态给「重试」按钮（429 / 网络 / 5xx 都是瞬态） | 只给「回首页」，逼用户重进 |
+| **不该重试的** | 400 / 401 / 403 / 404 是**确定失败**：停手并说清楚 | 循环重试把 429 也刷出来 |
+| **本地存储** | 只有两处：`myspringtv.token`（`auth/token.ts`）与 `history:pending:{id}`（崩溃补偿） | 把页面状态塞 localStorage 冒充缓存 |
