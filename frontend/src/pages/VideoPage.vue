@@ -8,6 +8,7 @@ import { formatCount } from '../api/adapters/format'
 import { sessionState } from '../auth/session'
 import { showToast } from '../common/toast'
 import { useVideoInteractions } from '../composables/useVideoInteractions'
+import { usePlaybackProgress } from '../composables/usePlaybackProgress'
 import AppIcon from '../components/common/AppIcon.vue'
 import EmptyState from '../components/common/EmptyState.vue'
 import VideoCard from '../components/common/VideoCard.vue'
@@ -46,8 +47,11 @@ const author = ref<AuthorCardVM | null>(null)
 const related = ref<VideoCardVM[]>([])
 const loading = ref(true)
 const error = ref('')
+const videoEl = ref<HTMLVideoElement | null>(null)
 
 const interactions = useVideoInteractions(detail, author)
+/** 播放进度：续播定位 + 45s 上报 + 暂停/拖动/播完即时上报 + 退出 keepalive（契约见 player/） */
+usePlaybackProgress(videoEl, detail)
 /** 解构是为了模板里能直接用（对象里的 ref 在模板中不会自动解包） */
 const {
   busy,
@@ -181,6 +185,7 @@ function onCommentCount(count: number): void {
         <div class="player">
           <video
             v-if="detail.videoUrl"
+            ref="videoEl"
             class="player__video"
             :src="detail.videoUrl"
             :poster="detail.coverUrl ?? undefined"
