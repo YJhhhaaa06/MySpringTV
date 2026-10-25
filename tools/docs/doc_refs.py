@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""校验 `src/` 里**代码注释的文档引用**能不能指到 —— 只读门禁，退出码 0/1。
+"""校验 `src/` 与 `frontend/src/` 里**代码注释的文档引用**能不能指到 —— 只读门禁，退出码 0/1。
 
 ## 为什么需要它（与 `doc_links.py` 的分工）
 
-`doc_links.py` 只扫 `.docs/**`（**不扫 `src/`**），且只认 5 种形态。实测代价：
+`doc_links.py` 只扫 `.docs/**`（**不扫代码**），且只认 5 种形态。实测代价：
 2026-10-15 收藏专项收口，把四份设计文档从 `task/` 挪进 `archive/favorite-2026-10-15/` 时，
 `src/` 里**约 180 处**注释引用（含 `需求篇` / `设计篇` / `骨架 §x` 这类**别名**）**全部在它的检测面外**，
 只能靠手工 grep（`.docs/INDEX.md` §四 那条）—— 那正是"**静默断链**"的温床。
 
 本工具把那条手工 grep 升级为**会失败的命令**（本仓的"可复算"哲学）。
+2026-10-25 起扫描面加上 `frontend/src/`（前端注释同样只许引用 `architecture/**` / `archive/**`）。
 
-## 检查什么（扫 `src/` 下九类后缀，**跳过 `src/main/resources/db/migration/**`**）
+## 检查什么（扫 `src/` 与 `frontend/src/`；跳过 Flyway 冻结目录与前端生成物）
 
 1. **`.md` 引用可解析**：注释里出现的文档名（`xxx.md`）必须能指到**真实文件** ——
    带路径的按路径解析；只有基名的按**基名**在 `.docs/` 全树与仓库根查找。
@@ -34,8 +35,10 @@
   不能验"活文档是不是在 T1 就建了"。
 - 别名黑名单只覆盖**已登记的词**；名单外的别名仍然测不到。
 
-⚠️ `src/main/resources/db/migration/**` 里的 **Flyway 迁移逐字节冻结**（checksum 覆盖全文，**改不了**）
-⇒ 那里的旧路径由**归档 README** 承接重定向（`.docs/INDEX.md` **§五.3**）⇒ 本工具**跳过**该目录。
+⚠️ 两处**故意不扫**：
+- `src/main/resources/db/migration/**` 里的 **Flyway 迁移逐字节冻结**（checksum 覆盖全文，**改不了**）
+  ⇒ 那里的旧路径由**归档 README** 承接重定向（`.docs/INDEX.md` **§五.3**）。
+- `frontend/src/types/api.d.ts` 是 **openapi-typescript 生成物**（文案来自 spec 描述，不是我们写的注释）。
 
 ## 用法
 
@@ -60,11 +63,19 @@ else:  # `python tools/docs/doc_refs.py`（文档化用法：脚本目录自动�
 setup_stdio()  # tools/README.md §3.1：中文输出必须强制 UTF-8
 
 SRC = ROOT / "src"
+FRONTEND_SRC = ROOT / "frontend" / "src"
+# 扫描面 = 后端 + 前端（前端自 2026-10-25 起；引用规则与后端一致）
+SCAN_ROOTS = (SRC, FRONTEND_SRC)
 # 冻结目录 = `src/main/resources/db/migration/**`（Flyway checksum 覆盖全文，改不了）。
 # ⚠️ 判据用**精确路径**而不是"路径里有 `migration` 段就跳"：后者会把未来某个
 #    `src/main/java/.../migration/` 包**静默漏扫**（2026-10-18 复查收窄）。
 SKIP_DIR = SRC / "main" / "resources" / "db" / "migration"
-SCAN_SUFFIXES = {".java", ".xml", ".yaml", ".yml", ".js", ".json", ".properties", ".html", ".sql"}
+# 前端生成物：openapi-typescript 产出（文案来自 spec 描述，不是我们写的注释）⇒ 不扫
+GENERATED = FRONTEND_SRC / "types" / "api.d.ts"
+SCAN_SUFFIXES = {
+    ".java", ".xml", ".yaml", ".yml", ".js", ".json", ".properties", ".html", ".sql",
+    ".ts", ".vue",  # 前端：TypeScript 与 SFC（`.vue` 里的注释同样只许引用稳定层）
+}
 MD_TOKEN = re.compile(r"(?<![\w./-])([\w./-]+\.md)")
 # 别名黑名单：这些词**不是文件名**，任何工具都测不到 ⇒ 写进代码即静默断链
 ALIASES = re.compile(r"需求篇|设计稿|设计篇|分期篇|三期设计|骨架\s*§")
@@ -147,52 +158,57 @@ def scan() -> tuple[list[tuple[Path, int, str, str]], int]:
     by_name, rels = md_index()
     bad: list[tuple[Path, int, str, str]] = []
     scanned = 0
-    for p in sorted(SRC.rglob("*")):
-        if not p.is_file() or p.suffix.lower() not in SCAN_SUFFIXES:
+    for root in SCAN_ROOTS:
+        if not root.is_dir():
             continue
-        if p.is_relative_to(SKIP_DIR):  # 冻结的迁移目录（checksum 改不了），跳过
-            continue
-        scanned += 1
-        for i, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
-            for m in MD_TOKEN.finditer(line):
-                raw = m.group(1)
-                if raw.startswith(("http", "www")):
-                    continue
-                ref, status = pick(raw, by_name, rels)
-                if status == DANGLING:
-                    bad.append((p, i, ref, "文档引用指不到（改名 / 挪家 / 删了？）"))
-                elif status == ARCHIVE_ONLY:
-                    bad.append((p, i, ref, "裸文件名只解析到 archive 冻结副本 ⇒ 改指活文档，或写显式 `archive/` 路径（§五.5②）"))
-                elif status == TASK_REGISTRY:
-                    bad.append((p, i, ref, "引用了 task/ 登记台 ⇒ 每期重建会消失；改指 architecture/** 活文档或 archive/**（§五.5②）"))
-            if t := TASK_TOKEN.search(line):
-                bad.append((p, i, t.group(0), "裸登记台 token 禁入代码（CURRENT_* 每期重建；§五.5②）"))
-            if a := ALIASES.search(_strip_md_tokens(line)):
-                bad.append((p, i, a.group(0), "别名禁入代码（INDEX §五.5③）"))
+        for p in sorted(root.rglob("*")):
+            if not p.is_file() or p.suffix.lower() not in SCAN_SUFFIXES:
+                continue
+            if p.is_relative_to(SKIP_DIR):  # 冻结的迁移目录（checksum 改不了），跳过
+                continue
+            if p == GENERATED:  # 前端生成物（文案来自 spec，不是我们的注释），跳过
+                continue
+            scanned += 1
+            for i, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+                for m in MD_TOKEN.finditer(line):
+                    raw = m.group(1)
+                    if raw.startswith(("http", "www")):
+                        continue
+                    ref, status = pick(raw, by_name, rels)
+                    if status == DANGLING:
+                        bad.append((p, i, ref, "文档引用指不到（改名 / 挪家 / 删了？）"))
+                    elif status == ARCHIVE_ONLY:
+                        bad.append((p, i, ref, "裸文件名只解析到 archive 冻结副本 ⇒ 改指活文档，或写显式 `archive/` 路径（§五.5②）"))
+                    elif status == TASK_REGISTRY:
+                        bad.append((p, i, ref, "引用了 task/ 登记台 ⇒ 每期重建会消失；改指 architecture/** 活文档或 archive/**（§五.5②）"))
+                if t := TASK_TOKEN.search(line):
+                    bad.append((p, i, t.group(0), "裸登记台 token 禁入代码（CURRENT_* 每期重建；§五.5②）"))
+                if a := ALIASES.search(_strip_md_tokens(line)):
+                    bad.append((p, i, a.group(0), "别名禁入代码（INDEX §五.5③）"))
     return bad, scanned
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="校验 src/ 的文档引用、别名与 task 登记台引用（只读门禁）")
+    parser = argparse.ArgumentParser(description="校验 src/ 与 frontend/src/ 的文档引用、别名与 task 登记台引用（只读门禁）")
     parser.add_argument("--verbose", "-v", action="store_true", help="附行号")
     args = parser.parse_args(argv)
 
     bad, scanned = scan()
     # 零样本守卫：一个文件都没扫到时，"0 违规"是假绿（多半是仓库根解析错了）
     if scanned == 0:
-        print(f"未扫描到任何文件：{SRC}", file=sys.stderr)
+        print(f"未扫描到任何文件：{SCAN_ROOTS}", file=sys.stderr)
         print("（这几乎一定是仓库根解析错了或目录被挪走 —— 不做'扫 0 份 ⇒ 报绿'的假绿。）", file=sys.stderr)
         return 2
     if not bad:
         print("=" * 64)
-        print("✅ src/ 的文档引用全部指得到；无别名；未引用 `task/` 登记台（`FURTHER_ISSUES` 结转池除外）")
+        print("✅ src/ 与 frontend/src/ 的文档引用全部指得到；无别名；未引用 `task/` 登记台（`FURTHER_ISSUES` 结转池除外）")
         print(f"   （扫描 {scanned} 个文件；INDEX §五.5 ①②③ 的**可测面**：解析可指到 / 非 archive-only / 非 task 登记台 / 已登记别名）")
         print("   ⚠️ 仍不可测：④ 第二锚点是否真的存在、是否指对；① 活文档是否在 T1 就建（开工纪律）")
         print("=" * 64)
         return 0
 
     print("=" * 64)
-    print("src/ 代码引用违规")
+    print("代码引用违规（src/ + frontend/src/）")
     print("=" * 64)
     seen: set[tuple[str, str]] = set()
     for path, lineno, ref, why in bad:

@@ -19,7 +19,7 @@ Flyway + Testcontainers。由 `old-project/TVhomework1`（Servlet + 手写连接
 
 | 现在该知道什么 | 值 |
 |---|---|
-| **写代码读哪里** | `architecture/` 是**唯一活的事实源**（域设计 + 横切机制），主索引 `architecture/ARCHITECTURE.md` |
+| **写代码读哪里** | `architecture/` 是**唯一活的事实源**（域设计 + 横切机制 + **前端应用层**），主索引 `architecture/ARCHITECTURE.md` |
 | **本期做什么**（★ **前端重制期**） | ★ **`task/CURRENT_FRONTEND.md`**（唯一入口：选型 / 类型三层 / GAP 台账 / 门禁）｜后端期登记台 `CURRENT_{NEEDS,TASKS,ISSUES}.md` **已收口冻结、勿读**｜后端遗留池仍为 `task/FURTHER_ISSUES.md` |
 | **已收口的专项** | 收藏（2026-10-15）、限流（2026-10-17）、接口契约（2026-10-24）、**写接口幂等（2026-10-25）** —— 结论已沉淀进 `architecture/`（幂等 / 接口契约的设计是**活文档**，不建 `archive/`） |
 | **回归基线** | `python tools/run_tests.py`（默认排除 `resilience`）＋ `--group resilience`；**最近一次 = 默认集 852 + resilience 41 = 893 例全绿**（2026-10-25，`T68` 后复跑）。数字会漂，以最近一次复跑为准。⚠️ 跑全量须设 `DB_POOL_MAX_SIZE=4` |
@@ -29,7 +29,8 @@ Flyway + Testcontainers。由 `old-project/TVhomework1`（Servlet + 手写连接
 > ⚠️ **三条必须知道的边界**：
 > ① **前端**：新工程在 `frontend/`（Vue3 + TS + Vite，MPA 三入口，2026-10-25 起）。旧 SPA
 > `src/main/resources/static/` **已冻结**（接口重构后失效，**不再同步、不再修**）——**删除随「dist 上 Spring」同批**
-> （前置清单 = `task/CURRENT_FRONTEND.md` §十三）。**重制期入口 = `task/CURRENT_FRONTEND.md`**。
+> （前置清单 = `task/CURRENT_FRONTEND.md` §十三）。**重制期入口 = `task/CURRENT_FRONTEND.md`**；
+> **前端应用口径 = `architecture/frontend/前端.md`**。
 > ② 鉴权**不迁 Spring Security**（2026-10-18 拍板，F-01/F-02 已核销）：自研 `JwtAuthFilter` + **默认拒绝**
 > （`@Public` 是唯一放行口）+ 处理器级角色判定（`@RequiresAdmin`）—— `SecurityPassthroughConfig` 是**终态**，
 > 不是临时态。口径 = `architecture/tech/security/安全与鉴权.md`，代价 = 同目录 `安全与鉴权-已知代价.md`。
@@ -43,10 +44,11 @@ Flyway + Testcontainers。由 `old-project/TVhomework1`（Servlet + 手写连接
 ```
 .docs/
 ├── INDEX.md              ← 本文件（唯一入口）
-├── architecture/         ← ★ **活的事实源**（域设计 + 横切机制）—— 功能"沉淀"的落点；主索引 = `architecture/ARCHITECTURE.md`
+├── architecture/         ← ★ **活的事实源**（域设计 + 横切机制 + 前端应用层）—— 功能"沉淀"的落点；主索引 = `architecture/ARCHITECTURE.md`
 │   ├── domain/           ← 业务域（**按域分目录**）：`favorite/` · `feed/`（每域 = `<域>.md` 设计 + 可选 `<域>-需求.md` / `<域>-已知代价.md` / `<域>-术语表.md`）
 │   ├── tech/             ← 横切机制（**按面分目录**）：`security/` · `rate-limit/` · `idempotency/` · `observability/` · `cache/` ·
 │   │                        `resilience/` · `mq/` · `events/` · `transaction/` · `module-boundary/` · `data-evolution/` · `api/`
+│   ├── frontend/         ← ★ **前端应用层**：`前端.md`（入口 / 路由 / 类型三层 / 页面×端点矩阵 / 降级约定）+ 后续视觉 / 请求层 / 代价
 │   └── 已知代价-模板.md   ← 代价台账**通用模板**（新建域 / 横切面复制即用；登记纪律与标签定义内嵌）
 ├── task/                 ← **执行登记台**（随期滚动）：**`CURRENT_FRONTEND.md`（前端重制期唯一入口）** + `CURRENT_{TASKS,NEEDS,ISSUES}.md`（后端期，已冻结）+ `FURTHER_ISSUES.md` + 两份模板
 │                            ⚠️ 完成即清出（归宿 = git commit），文件**复用不改名**；**编号（T# / R-## / I-## / F-## / G#）不回收**
@@ -61,7 +63,8 @@ Flyway + Testcontainers。由 `old-project/TVhomework1`（Servlet + 手写连接
 
 | 我要… | 读这个 | 何时更新 |
 |------|--------|---------|
-| ★ **写新代码 / 了解架构** | **`architecture/ARCHITECTURE.md`**（模块地图 + "写代码前读哪篇" + 写作规范）→ 横切机制进 `architecture/tech/` 各篇、业务域进 `architecture/domain/` | 架构变更时 |
+| ★ **写新代码 / 了解架构** | **`architecture/ARCHITECTURE.md`**（模块地图 + "写代码前读哪篇" + 写作规范）→ 横切机制进 `architecture/tech/` 各篇、业务域进 `architecture/domain/`、**前端进 `architecture/frontend/`** | 架构变更时 |
+| ★ **写前端页面 / 了解前端** | **`architecture/frontend/前端.md`**（应用形态 + 页面 × 端点矩阵 + 降级约定）；跑起来 / 门禁 → `frontend/README.md`；本阶段任务与缺口 → `task/CURRENT_FRONTEND.md` | 入口 / 路由 / 消费口径变更 |
 | ★ **执行中登记（任务 / 需求 / 问题）** | ★ **前端重制期 → `task/CURRENT_FRONTEND.md`（唯一入口）**；后端期（已冻结）→ `CURRENT_{NEEDS,TASKS,ISSUES}.md`；结转池 → `FURTHER_ISSUES.md` | 每窗开 / 收时 |
 | ★ **查某个编号是什么**（`T#` / `R-##` / `I-##` / `G#` / `F-##`） | **活速查**（每号**只许一行结论**）：`favorite.md` / `coin.md` / **`history.md`** / `tech/idempotency/写接口幂等.md` 各篇 **附录「编号速查」**；限流的在 `architecture/tech/rate-limit/限流.md` 附录。★ **按专项找**，别在一个附录里找别的域的号 | 每期收尾把已终结的编号收编进速查 |
 | ★ **加新功能 / 看设计** | `architecture/domain/favorite/`（`favorite.md` 设计 + `favorite-需求.md` 用户可见规则 + `favorite-已知代价.md` 台账）、`feed/feed.md`（域文档样板）、`history/history.md`（播放记录：写读路径 + 时长 + 编号速查）。本期做哪些 ⇒ `task/CURRENT_NEEDS.md` | 开工前登记 / 设计变更时 |
@@ -85,16 +88,16 @@ Flyway + Testcontainers。由 `old-project/TVhomework1`（Servlet + 手写连接
 ```bash
 python tools/docs/doc_stats.py     # 文档体量（防膨胀；阈值 单文件 40 KB / 单章节 300 行）
 python tools/docs/doc_links.py     # 文档交叉引用指得到吗（**归档 / 清出后必跑**）
-python tools/docs/doc_refs.py      # ★ `src/` 代码注释的文档引用（含别名黑名单；**挪家后必跑**，见 §五.5）
+python tools/docs/doc_refs.py      # ★ 代码注释的文档引用（`src/` + `frontend/src/`；含别名黑名单；**挪家后必跑**，见 §五.5）
 .\mvnw.cmd -B clean verify         # 回归基线（⚠️ 必须带 clean，见下）
 ```
 
 > ⚠️ **跑"全绿"必须带 `clean`**：`target/classes` 留着上一轮 class 时增量编译会跳过重编，
 > "源码编译不过"会被旧 class 掩盖而测试照样绿（2026-10-03 实测到该路径）。
 >
-> ⚠️ **编号引用不在 `doc_links.py` 的检测面内**（不扫 `src/`、不认反引号裸文件名）——
+> ⚠️ **编号引用不在 `doc_links.py` 的检测面内**（不扫代码、不认反引号裸文件名）——
 > 清出 / 挪家时必须手工跑
-> `grep -rnE "\b(R-[0-9]{2}|I-0[0-9]|G1[0-9]|T[0-9]{1,2})\b" src .docs`，逐条改指新家。
+> `grep -rnE "\b(R-[0-9]{2}|I-0[0-9]|G1[0-9]|T[0-9]{1,2})\b" src frontend/src .docs`，逐条改指新家。
 > ⚠️ **`src/main/resources/db/migration/**` 是例外** —— 已应用的迁移**逐字节冻结**（改不了），
 > 其旧路径由**归档 README** 承接重定向（见 `archive/favorite-2026-10-15/README.md` §三）。
 

@@ -1,3 +1,7 @@
+/**
+ * 端点封装。页面 × 端点矩阵见 `architecture/frontend/前端.md` §四；
+ * 本层只返回**生成类型**，映射成页面形状一律在 `adapters/`（缺口 fallback 的落点）。
+ */
 import type { components } from '../types/api'
 import type { AuthorCardVM, HeroSlideVM, SearchResultVM, VideoCardVM, VideoDetailVM } from '../types/ui'
 import { splitHero } from './adapters/hero'
