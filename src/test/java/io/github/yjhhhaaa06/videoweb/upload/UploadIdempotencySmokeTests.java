@@ -44,7 +44,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       {@code slug} 也不同（{@code video} / {@code post}），同一个 clientKey 落在**两个 Redis 键**上，
  *       指纹根本不会被比对 ⇒ 结果是"各建一条"而不是 422。这条用例钉住的是**键空间的隔离**。</li>
  *   <li>{@link #同path换文件_仍是重放_已知代价()}：同 path 换文件 ⇒ 指纹相同 ⇒ **仍是重放**。
- *       这是**有意保留的已知代价**（multipart 没有 body 指纹），见设计篇 §十三 第 3 条。</li>
+ *       这是**有意保留的已知代价**（multipart 没有 body 指纹），见
+ *       {@code architecture/tech/idempotency/写接口幂等.md} §十三 第 3 条。</li>
  * </ul>
  */
 class UploadIdempotencySmokeTests extends AbstractHttpIntegrationTest {
@@ -180,7 +181,7 @@ class UploadIdempotencySmokeTests extends AbstractHttpIntegrationTest {
         assertThat(second.getHeaders().getFirst(IdempotencyFilter.HEADER_REPLAYED))
                 .as("★★ 这是**有意保留的已知代价**（不是 bug、也不是漏接线）：multipart 无 body 指纹"
                         + "⇒ 同 path 换文件仍是重放。要识别它必须把上传通路改成流式摘要，"
-                        + "读文件进内存更贵 —— 见设计篇 §十三 第 3 条")
+                        + "读文件进内存更贵 —— 见 {@code architecture/tech/idempotency/写接口幂等.md} §十三 第 3 条")
                 .isEqualTo("true");
         assertThat(Envelope.num(second, "contentId"))
                 .as("回的是**第一份**那个 contentId（第二份的标题/封面从未生效）")

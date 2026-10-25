@@ -25,7 +25,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * 指纹**公式本身**的单元证明（写接口幂等专项 `T69`；口径 = 设计篇 §九）。
+ * 指纹**公式本身**的单元证明（写接口幂等专项 `T69`；口径 = {@code architecture/tech/idempotency/写接口幂等.md} §九）。
  *
  * <h2>为什么必须有一份单测：三条性质在 HTTP 层不可观测</h2>
  * <ol>
