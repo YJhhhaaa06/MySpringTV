@@ -81,6 +81,28 @@ public abstract class AbstractHttpIntegrationTest extends AbstractIntegrationTes
         });
     }
 
+    /**
+     * 带**额外请求头**的 JSON POST（`T66` 起：幂等契约要发 {@code Idempotency-Key}）。
+     *
+     * <p>★ 为什么是 4 参重载而不是 {@code post(path, body, HttpHeaders)}：后者会让既有的
+     * {@code post(path, body, null)} 在编译期产生歧义（{@code String} 与 {@code HttpHeaders} 都接受
+     * {@code null}）——本仓有几十处这样的调用，等于逼所有既有用例改签名。
+     *
+     * @param extraHeaders 追加的请求头（可为 {@code null}）；与 {@code Authorization} 不冲突时各自生效
+     */
+    protected ResponseEntity<String> post(String path, Object body, String token, HttpHeaders extraHeaders) {
+        return send(spec -> {
+            RestClient.RequestBodySpec request = spec.uri(path).contentType(MediaType.APPLICATION_JSON);
+            if (token != null) {
+                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+            }
+            if (extraHeaders != null && !extraHeaders.isEmpty()) {
+                request = request.headers(headers -> extraHeaders.forEach(headers::addAll));
+            }
+            return body == null ? request : request.body(body);
+        });
+    }
+
     /** 带可选 Bearer token 的 GET。{@code token == null} 表示匿名请求。 */
     protected ResponseEntity<String> get(String path, String token) {
         return sendGet(spec -> {
