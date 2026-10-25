@@ -16,8 +16,7 @@
 
 ## 周期头（每窗开读）
 
-* ★ **当前状态：本期 = 幂等专项 P1（`R-24` 已拍板 2026-10-24）** —— `T66` / `T67` ✅ **已交付**（2026-10-25）；
-  `T68` **待执行**。
+* ★ **当前状态：本期 = 幂等专项 P1（`R-24` 已拍板 2026-10-24）** —— `T66` / `T67` / `T68` / `T69` ✅ **全部已交付**（2026-10-25）—— 4 个写端点全部接入，等期收口。
   设计 = [写接口幂等](../architecture/tech/idempotency/写接口幂等.md)（用例与对外契约见
   [测试与契约](../architecture/tech/idempotency/写接口幂等-测试与契约.md)）。
   上一窗口 P0（`T63`–`T65`）已交付；更早的接口契约专项（`T54`–`T62`）结论见
@@ -25,7 +24,7 @@
 * ★ **下一编号** = 任务 **`T69`** / 决策 **`R-25`** / 问题 **`I-30`** / 结转 **`F-28`**。
   开工前先读：`CURRENT_NEEDS.md`（本期范围与反面清单）· `FURTHER_ISSUES.md`（结转池）·
   `architecture/tech/idempotency/写接口幂等.md`（设计）· `architecture/tech/api/接口契约.md`（现在的对外契约长什么样）。
-* ★ **回归基线**（2026-10-25，`T69` 后复跑）：默认集 **843 例全绿**（827 + `T67` 8 条 + `T69` 8 条）（`-DexcludedGroups=resilience`，0 红）；
+* ★ **回归基线**（2026-10-25，`T68` 后复跑）：默认集 **852 例全绿**（827 + 幂等专项新增 25 条）（`-DexcludedGroups=resilience`，0 红）；
   `resilience` 组 **41/41 绿**。
   ⚠️ 本环境跑全量需 `DB_POOL_MAX_SIZE=4`（否则 Testcontainers MySQL 报 `Too many connections`）。
   ⚠️ `CoinAddTests#并发各投一枚不突破封顶` 是**已知抖动**（`I-28` 的既存死锁），偶发红时隔离复跑判定，**非回归引入**。
@@ -105,7 +104,7 @@
 * **回写**：（完成后三句内写清改了什么、验证结果；探索过程不写）
 ```
 
-**本期：`T66` / `T67` / `T69` ✅ 已交付；`T68` 待执行**（幂等专项 P1，来源 `R-24`） —— 设计 = [写接口幂等](../architecture/tech/idempotency/写接口幂等.md)；
+**本期：`T66` / `T67` / `T68` / `T69` ✅ 全部已交付**（幂等专项 P1，来源 `R-24`） —— 设计 = [写接口幂等](../architecture/tech/idempotency/写接口幂等.md)；
 用例与对外契约 = [测试与契约](../architecture/tech/idempotency/写接口幂等-测试与契约.md)。
 **上一窗口 `T63`–`T65` ✅ 已交付**（卡片保留在下方作留痕）。
 
@@ -193,15 +192,13 @@
     `contentId` ⇒ 本用例必红）。
   - 同 key 重试：`content_coin` 行数不变、`users.coin_deci` 只减一次、`content.coin_count` 只 +1（独立 oracle）。
   - 全量 + resilience 绿。
-* **回写**：（同上）
-
 * **回写**：新增 `CoinIdempotencyTests`（6 条通用 + 2 条专属，8 例）——**主代码零改动**（机制已由 `T66` 通用化，本任务只证明它对累加语义成立）。
   判别力最重的一条 = "两个不同 key 各投 1 枚 ⇒ `amount` / `coin_count` / 作者收益 / 投币人余额四路都对、累计 2 枚"；
   另加"**快照 vs 重算**"：首次 2xx 后把投币人 `coin_deci` 改成 99，重放仍回 `2.0`（重算会给 `8.9`、读当前余额会给 `9.9`，两种坏实现都被排除）。
   定向 8/8、全量 **835** + resilience **41** 绿；反向验证 **4 红**（去掉 `clientKey` ⇒ 累加用例 `expected 2 but was 1`；`DONE` 改重新执行 ⇒ `expected 2.0 but was 8.9`；指纹短路 ⇒ 422 变 200；缺 key 也占位 ⇒ `idem:*` 非空），其中最强的一条由主会话复验。
   ⚠️ 残留：**指纹只覆盖请求体、不含路径** ⇒ 同 key 换目标会重放而非 422（已登记 `I-30` 待裁决）；`Retry-After` 与 `PENDING` 到期接管仍不可断言（同测试篇 §3.1）。
 
-### T68 上传两条接入幂等（来源 `R-24` / 设计篇 §三、§九）【待执行】
+### T68 上传两条接入幂等（来源 `R-24` / 设计篇 §三、§九）【已完成】
 
 > ⚠️ **先质疑（G14）**：
 > - **任务**：上传类已有 `T63` 的稳定标识删图，幂等键是否重复劳动？—— 不重复：`T63` 解决"重试删错行"，
@@ -225,7 +222,17 @@
   - ★ 第二次同 key 请求 ⇒ **上传目录文件数不变**、`content` / `content_media` 行数不变（独立 oracle）。
   - 反向：把 filter 移到 `DispatcherServlet` 之后（或删掉占位的前置性）⇒ 文件数用例必红。
   - 全量 + resilience 绿。
-* **回写**：（同上）
+* **回写**：矩阵下沉为 `AbstractUploadIdempotencyTests`（6 条模板 × 2 端点 = **12 例**）
+  ＋ `VideoUploadIdempotencyTests` / `PostUploadIdempotencyTests` / `UploadIdempotencyCrossEndpointTests`；
+  原 `UploadIdempotencySmokeTests` 的 3 条冒烟折进模板后删除。带 header 的 `postMultipart` 下沉到
+  `AbstractHttpIntegrationTest`（**纯增量** 28 行；只加 4 参重载——子类同名 3 参私有方法会"用更弱权限覆盖"而编译失败）。
+  ★ **本任务独有验收**：第二次请求**不落任何文件** —— 断言 `target/test-media` 相对路径集合的**差集为空**
+  （不用"文件总数"：定向跑不 clean、历史文件是噪声；也不断言"没调用 `saveFile`"= 断言内部调用）。
+  定向 13、全量 **852** + resilience **41** 绿（主会话复跑确认）。
+  ★ 反向验证：命中 `DONE` 不短路（重放也执行一遍）⇒ **7 红**（★差集先红；视频 3 / 图文 4）；
+  `PENDING` 可抢占 ⇒ **2 红**（两条并发）。
+  ⚠️ 残留：multipart 无 body 级指纹 ⇒ **同 path 换载荷仍重放**（用例 4 按"已知代价"钉住，
+  并配了"换新 key 才真执行"的对照，防止它被误读成 bug）。
 
 ### T69 指纹纳入 method + 实际路径（来源 `I-30`）【已完成】
 
