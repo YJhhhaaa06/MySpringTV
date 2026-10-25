@@ -59,3 +59,19 @@ export function signOut(): void {
   state.user = null
   state.status = 'anonymous'
 }
+
+/** 是否已登录（动作级闸门与组件都读它，别各自判断 `status === 'authenticated'`）。 */
+export function isAuthenticated(): boolean {
+  return state.status === 'authenticated' && state.user !== null
+}
+
+/**
+ * 服务端回来的**权威余额**覆盖本地硬币数（投币 / 签到之后）。
+ *
+ * <p>为什么必须由服务端给：本地的 `coin - 1` 只是乐观展示；余额是会被
+ * 签到 / 其它标签页改动的共享事实，前端自己算必然漂移。
+ */
+export function applyCoinBalance(balance: number | null | undefined): void {
+  if (!state.user || typeof balance !== 'number' || !Number.isFinite(balance)) return
+  state.user = { ...state.user, coin: balance }
+}

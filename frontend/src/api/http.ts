@@ -31,8 +31,15 @@ import type { components, paths } from '../types/api'
  * 成功响应的 data 类型。
  *
  * <p>`200 + JSON` 取信封里的 `data`；`204` 没有响应体 ⇒ `undefined`（删除类端点）。
+ * <p>★ `ApiResponseVoid` 的 `data` 在 spec 里是空 schema ⇒ 生成成 `data?: unknown`
+ * （`POST /contents/{id}/like`、`/history/flush` 这类"成功但没有值"的端点）。
+ * 这里把它归一到 `undefined`，而不是让调用方拿到一个 `{}`（读它就是错的）。
  */
-type JsonBody<R> = R extends { data?: infer D } ? NonNullable<D> : never
+type JsonBody<R> = R extends { data?: infer D }
+  ? unknown extends D
+    ? undefined
+    : NonNullable<D>
+  : never
 type OkData<Op> = Op extends { responses: { 200: { content: { 'application/json': infer R } } } }
   ? JsonBody<R>
   : Op extends { responses: { 204: unknown } }
@@ -233,4 +240,19 @@ export function deleteJson<K extends keyof paths>(
 ): Promise<OkData<OpFor<K, 'delete'>>> {
   const url = buildUrl(expandPath(path as string, options?.path), options?.query)
   return request(url, { method: 'DELETE' }, mergeHeaders(options))
+}
+
+/**
+ * 把失败翻成**页面级**人话（字段级错误请用 {@link ApiError#fieldMessage}）。
+ *
+ * <p>为什么不让页面直接吃 `error.message`：服务端的 `msg` 是给日志/接口调试看的
+ * （"请求过于频繁"、"输入不能为空"），在整页错误态里既不说明"该不该重试"，
+ * 也不说明"等多久"。三个瞬态类别必须分开说，否则用户只能盲点重试。
+ */
+export function describeError(error: unknown, fallback = '请求失败，请稍后重试'): string {
+  if (!(error instanceof ApiError)) return fallback
+  if (error.status === 0) return '连不上后端（服务可能没启动），请稍后重试'
+  if (error.status === 429) return `访问太频繁了，${error.retryAfterSeconds ?? 30} 秒后再试`
+  if (error.status >= 500) return '服务端开小差了，请稍后重试'
+  return error.message
 }

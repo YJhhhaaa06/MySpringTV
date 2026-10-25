@@ -138,6 +138,18 @@ ol {
   color: var(--text-2) !important;
 }
 
+/* 弹层遮罩（登录 / 投币 / 收藏共用）：半透明黑 + 居中 */
+.dialog-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--bg-mask);
+}
+
 /* 骨架屏 */
 .skeleton {
   background: linear-gradient(90deg, var(--bg-1) 25%, #eceef0 37%, var(--bg-1) 63%);

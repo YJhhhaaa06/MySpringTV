@@ -2,7 +2,6 @@
  * 端点封装。页面 × 端点矩阵见 `architecture/frontend/前端.md` §四；
  * 本层只返回**生成类型**，映射成页面形状一律在 `adapters/`（缺口 fallback 的落点）。
  */
-import type { components } from '../types/api'
 import type { AuthorCardVM, HeroSlideVM, SearchResultVM, VideoCardVM, VideoDetailVM } from '../types/ui'
 import { splitHero } from './adapters/hero'
 import { toSearchResult } from './adapters/search'
@@ -43,16 +42,26 @@ export interface VideoPageData {
   related: VideoCardVM[]
 }
 
+/**
+ * `GET /users/{id}` → 侧栏 UP 主卡。失败返回 null（侧栏降级为空，不阻塞页面）。
+ *
+ * <p>单独抽出来是因为它有两个调用点：播放页首次装载，以及**登录 / 退出后重读**
+ * （`isFollowed` 匿名时是 `null`，登录后必须重读，否则关注按钮停在假象上）。
+ */
+export async function loadAuthorCard(userId: number): Promise<AuthorCardVM | null> {
+  if (!Number.isInteger(userId) || userId <= 0) return null
+  try {
+    return toAuthorCard(await getJson('/api/v1/users/{id}', { path: { id: userId } }))
+  } catch {
+    return null
+  }
+}
+
 /** 播放页：详情 →（并行）作者资料 + 相关推荐 */
 export async function loadVideoPage(id: number, now: Date = new Date()): Promise<VideoPageData> {
   const detail = toVideoDetail(await getJson('/api/v1/contents/{id}', { path: { id } }))
 
-  const authorPromise: Promise<AuthorCardVM | null> =
-    detail.authorId > 0
-      ? getJson('/api/v1/users/{id}', { path: { id: detail.authorId } })
-          .then((profile: components['schemas']['ProfileVO']) => toAuthorCard(profile))
-          .catch(() => null)
-      : Promise.resolve(null)
+  const authorPromise: Promise<AuthorCardVM | null> = loadAuthorCard(detail.authorId)
 
   const relatedPromise: Promise<VideoCardVM[]> = getJson('/api/v1/contents/recommended')
     .then((items) =>

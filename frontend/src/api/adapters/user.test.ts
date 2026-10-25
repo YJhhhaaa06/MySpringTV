@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { components } from '../../types/api'
-import { toCurrentUser, toAuthorCard } from './user'
+import { toAuthorCard, toCurrentUser } from './user'
 
 type ProfileVO = components['schemas']['ProfileVO']
 
@@ -34,24 +34,34 @@ describe('toCurrentUser', () => {
 })
 
 describe('toAuthorCard', () => {
-  it('粉丝/关注/投稿都是真接口数字的格式化结果', () => {
-    const profile: ProfileVO = {
-      userId: 3,
-      username: '基米',
-      followerCount: 12_345,
-      followCount: 2,
-      contentPage: { total: 8, page: 1, pageSize: 10, totalPages: 1, list: [] },
-    }
+  const profile: ProfileVO = {
+    userId: 3,
+    username: '基米',
+    followerCount: 12_345,
+    followCount: 2,
+    isFollowed: false,
+    contentPage: { total: 8, page: 1, pageSize: 10, totalPages: 1, list: [] },
+  }
+
+  it('粉丝/关注/投稿保持数字（关注按钮的乐观加减要用）', () => {
     const card = toAuthorCard(profile)
     expect(card.name).toBe('基米')
-    expect(card.followerText).toBe('1.2万')
-    expect(card.followingText).toBe('2')
-    expect(card.worksText).toBe('8')
+    expect(card.initial).toBe('基')
+    expect(card.followerCount).toBe(12_345)
+    expect(card.followingCount).toBe(2)
+    expect(card.worksCount).toBe(8)
     expect(card.href).toBe('/placeholder/space?uid=3')
   })
 
-  it('缺失的计数显示 `-`（不假装是 0）', () => {
-    expect(toAuthorCard({}).followerText).toBe('-')
-    expect(toAuthorCard({}).worksText).toBe('-')
+  it('缺失的计数 ⇒ null（渲染成 `-`，不假装是 0）', () => {
+    expect(toAuthorCard({}).followerCount).toBeNull()
+    expect(toAuthorCard({}).worksCount).toBeNull()
+  })
+
+  it('★ isFollowed 匿名时是 null ⇒ VM 也是 null（不回退成 false）', () => {
+    expect(toAuthorCard({}).followed).toBeNull()
+    expect(toAuthorCard({ isFollowed: null } as unknown as ProfileVO).followed).toBeNull()
+    expect(toAuthorCard(profile).followed).toBe(false)
+    expect(toAuthorCard({ ...profile, isFollowed: true }).followed).toBe(true)
   })
 })

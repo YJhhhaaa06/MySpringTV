@@ -2,6 +2,7 @@ import { CONTENT_TYPE_POST, CONTENT_TYPE_VIDEO } from '../contentTypes'
 import type { components } from '../../types/api'
 import type { VideoCardVM } from '../../types/ui'
 import { formatDuration, formatRelativeDate } from './format'
+import { likedOf } from './interaction'
 import { spaceHref, videoHref } from './links'
 
 /**
@@ -31,5 +32,7 @@ export function toVideoCard(
     playCountText: null, // 列表 VO 无计数（等后端给列表带计数后再改这里）
     danmakuText: null, // 无弹幕域（永不销账）
     isPost: item.type === CONTENT_TYPE_POST,
+    // 列表面只回「赞」这一维（三态：null = 本面不查 / 未登录）
+    liked: likedOf(item.interaction),
   }
 }

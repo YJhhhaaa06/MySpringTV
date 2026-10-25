@@ -73,4 +73,11 @@ describe('toVideoCard', () => {
   it('★ 没有弹幕域 ⇒ 弹幕数恒 null，永远不显示', () => {
     expect(toVideoCard(content(), now).danmakuText).toBeNull()
   })
+
+  it('★ 互动态三态：匿名 ⇒ null，"点过赞"才是 true', () => {
+    // 列表面（/users/{id}）只回"赞"这一维；null 表示本面不查，不等于"没点过"
+    expect(toVideoCard(content(), now).liked).toBeNull()
+    expect(toVideoCard(content({ interaction: { isLiked: true } }), now).liked).toBe(true)
+    expect(toVideoCard(content({ interaction: { isLiked: false } }), now).liked).toBe(false)
+  })
 })
