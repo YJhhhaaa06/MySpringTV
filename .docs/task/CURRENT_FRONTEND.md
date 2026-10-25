@@ -10,9 +10,13 @@
 
 ## 一、一屏结论（2026-10-25 拍板）
 
+> **本专项目标（用户口径，两句话）**：**尽量像 B 站网页版**；**有接口就调真接口，调不到就先降级/占位、记账等后端**
+> （记账 = §三 GAP 台账，`临时表现` 必填）。**永远不适配的功能 = 永远占位**，不进「等后端」清单，也不阻塞重制（见 §五）。
+
 | 决策 | 结论 |
 |---|---|
-| 框架 | **Vue 3 + TypeScript + Vite**（+ Vue Router；Pinia 暂不装，等跨页共享真出现） |
+| 框架 | **Vue 3 + TypeScript + Vite + Vue Router**（Pinia 暂不装，等跨页共享真出现） |
+| 页面形态 | ★ **混合**：**外壳多入口**（跨应用整页 / 新标签跳转）+ **每个入口一个 vue-router**（应用内 SPA，见 §十二） |
 | 列表计数 | **P1：列表 VO 直接带计数**（B 站行为优先）。不推翻 T43 的**缓存**口径（计数已是独立 key），代价降级为**读放大**，靠一次 pipeline MGET 摊平 |
 | 类型 | **三层**：`openapi.yaml` → 生成 `api.d.ts` → 手写 `ui.ts` → `adapters/` 映射 |
 | 不做的功能 | **占位**：弹幕 / 会员购 / 番剧 / 直播 / 游戏中心（见 §五） |
@@ -49,7 +53,7 @@ openapi.yaml ──gen──▶ frontend/src/types/api.d.ts     生成，只读�
 | GAP-03 | M4 语义异 | 播放页 / DanmakuLayer | 弹幕流 | 无弹幕域（无表/无端点） | 前端适配 | **不做 + 占位角标** | 无 | 不做 |
 | GAP-04 | M1 字段缺 | 首页 / VideoCard | 弹幕数角标 | 同 GAP-03 | 前端不做 | **不显示该数字** | 无 | 不做 |
 | GAP-05 | M4 语义异 | 首页·播放页 / NumberText | 图文 `play_count` 语义 | 列叫 play，图文实为「浏览」 | 前端适配 | 按 `type` 切文案 | 无 | 长期 |
-| GAP-06 | M3 端点缺 | 首页 / VideoGrid | 推荐流分页（无限加载） | `GET /contents/recommended` **固定 12 条、无 page 参数**；`GET /contents` 是**搜索专用**（`keyword` 必填，空白即 400 `输入不能为空`） | 后端补（或前端"换一换"重拉） | 只渲染 12 条、不做无限滚动 | 给 recommended 加分页参数，或新增推荐分页端点 | 待定 |
+| GAP-06 | M3 端点缺 | 首页 / VideoGrid | 推荐流分页（无限加载） | `GET /contents/recommended` **固定 12 条、无 page 参数**；`GET /contents` 是**搜索专用**（`keyword` 必填，空白即 400 `输入不能为空`） | 后端补（**已拍板：等后端**） | 只渲染 12 条；**不做无限滚动** | 给 recommended 加分页参数，或新增推荐分页端点 | 待补（等后端） |
 
 > 实测补充（2026-10-25 起后端 curl，非文档推断）：
 > ① `GET /api/v1/contents?page=1&pageSize=3` → **400 `PARAM_INVALID / 输入不能为空`** —— 该端点只服务关键词搜索，不是通用列表；
@@ -75,8 +79,8 @@ openapi.yaml ──gen──▶ frontend/src/types/api.d.ts     生成，只读�
 
 | 功能 | 状态 | 表现 |
 |---|---|---|
-| 番剧 / 国创 / 电影…等分区 | 不做 | 导航项保留但灰态；点击进 `PlaceholderCard` |
-| 会员购 / 直播 / 游戏中心 | 不做 | 同上，不注册路由 |
+| 番剧 / 国创 / 电影…等分区 | 不做 | 导航项保留但灰态；点击进应用内占位路由 `/placeholder/:feature` |
+| 会员购 / 直播 / 游戏中心 | 不做 | 同上，走同一个占位路由（不单独建应用） |
 | 弹幕 | 不做 | 播放页无弹幕层；卡片**不显示弹幕数**（假数字一问就穿帮） |
 | 分区列表 | 前端常量 | 18 项硬编码（无 `GET /categories`） |
 
@@ -105,7 +109,7 @@ npx vitest run src/api/adapters                               # 缺口 fallback 
 
 ## 八、开工顺序（重制窗口照此走）
 
-1. `frontend/` 脚手架（Vue + TS + Vite）→ `npm run gen:api` 出类型
+1. `frontend/` 脚手架（Vue + TS + Vite + vue-router）→ 配 **多入口**（`vite.config.ts` 的 `build.rollupOptions.input`）+ 每个入口一个 router → `npm run gen:api` 出类型
 2. 先做 `VideoCard` + `VideoGrid`（会立刻暴露 GAP-01）
 3. 首页闭环 → 截一张 B 站首页对照 → 攒第一批契约批次
 4. 播放页 → 搜索 → 用户空间 → 收藏 / 历史 →（可选）后台
@@ -179,3 +183,41 @@ $chrome = "C:\Program Files\Google\Chrome\Application\chrome.exe"
 **中间件现状**（2026-10-25 20:45 实测）：
 - `3306` **在监听** —— 本地 MySQL（**不是**容器；容器 `springbook-mysql` 是 Exited，别再起它抢端口）；
 - `6379` / `5672` 曾未监听，容器 `redis` / `rabbitmq` 已 `docker start` 拉起（起后端前先确认这三个端口都在）。
+
+---
+
+## 十二、页面形态：MPA 外壳 + 应用内 SPA（**混合**，以 B 站网页版实际为准）
+
+**B 站的实际形态**（2026-10-25 首页 DOM 实测 + 用户复核）：
+- **跨应用 = 整页跳转**：首页 DOM 有 **149 处 `target="_blank"`**；视频卡片指向 `www.bilibili.com/video/BV…`、
+  UP 主指向 `space.bilibili.com/<uid>` —— **不同子域 = 不同文档**，点开即新标签、整页加载。
+- **应用内 = 客户端路由（SPA）**：播放页分 P、空间页 tab、搜索页 tab/排序，是 URL 变化而**不整页重载**。
+
+⇒ 我们照抄这个**混合**结构，而不是二选一。
+
+**怎么落地**：
+
+| 应用（入口） | 应用内路由（vue-router，history） | 主要接口 |
+|---|---|---|
+| `index.html` | `/`、`/placeholder/:feature` | `GET /contents/recommended` |
+| `video.html` | `/video/:id`（分 P 用 `?p=`） | `GET /contents/{id}` + 评论 + 互动 |
+| `search.html` | `/search?keyword=java`（tab / 排序用 query） | `GET /contents?keyword=` |
+| `space.html` | `/space/:id`（tab 用 query） | `GET /users/{id}` |
+| `upload.html` | `/upload` | `POST /contents/videos`、`/contents/posts` |
+
+- **跨应用**一律 `<a href="/video/77" target="_blank" rel="noopener">` —— 新标签、可中键、可复制链接，与 B 站一致。
+- **应用内**用 vue-router（每个入口一个实例，`createWebHistory`），切 tab 只改 URL、不重载。
+- 页面之间**不共享内存状态**；`AppHeader` 等组件在每页各自 import（Vite 抽公共 chunk）。登录态从 `localStorage`
+  读 `token`（后端是 `Authorization: Bearer`，不是 Cookie），每页自己请求 `GET /users/me` 渲染头像。
+- ⚠️ **history 模式要服务端 fallback**：`/video/77` 必须落到 `video.html`。两条路 ——
+  ① **加静态转发**（Spring 视图映射 / 资源 resolver fallback）⇒ URL 与 B 站同构；**待验**：默认拒绝过滤器对
+  「非 `@RequestMapping` 的转发路径」是否放行（大概率放行，开工时 `curl /video/1` 一条验）；
+  ② 退一步：入口保留 `?id=`（`/video.html?id=77`），router 只管应用内 tab ⇒ 零后端改动，但 URL 不像 B 站。
+  **决策：先走 ①**，被拦再退 ②。此改动属**静态路由**，不涉接口契约（不触发登记簿 / spec）。
+- ⚠️ **dev 侧也要 fallback**：Vite 多入口（`appType: 'mpa'`）不会自动把 `/video/77` 映射到 `video.html`，
+  需要一条中间件 rewrite；生产由 Spring 承担。
+- ⚠️ **dev 代理要转发两段**：`/api` **和** `/upload` —— 封面是后端静态路径（`/upload/cover/…`），只代理 `/api` 会让所有图片 404。
+- **明确接受的代价**：跨应用整页刷新、公共请求（`/users/me`）每次进应用重复一次；**换来**与参考实现同构。
+
+⚠️ **一个真实差异**：B 站是 `/video/BV1xx`，本仓内容 id 是数据库自增（`/video/77`）。路径形状可仿，
+**id 语义仿不了**；重制期不改契约，将来若要短链 / 公开 id，单独开 GAP。
