@@ -24,11 +24,25 @@ const state = reactive<SessionState>({ status: 'restoring', user: null })
 export const sessionState = readonly(state) as Readonly<SessionState>
 
 /**
- * 从 localStorage 恢复登录态。**幂等**：只在本应用首次挂载时调一次，重复调用直接返回。
+ * 从 localStorage 恢复登录态。**幂等**：只在本应用首次挂载时真正发请求。
+ *
+ * <p>★ 并发调用复用**同一个 promise**：入口文件与页面组件都会调它，
+ * 不合并的话一个页面装载会打两次 `GET /users/me`（同源、同 token，纯浪费一枚限流令牌）。
  * token 失效（401）时清掉本地 token，退化为匿名 —— 不把用户卡在"看起来登录了但什么都点不了"。
  */
-export async function restoreSession(): Promise<void> {
-  if (state.status !== 'restoring') return
+export function restoreSession(): Promise<void> {
+  if (state.status !== 'restoring') return Promise.resolve()
+  if (!restoring) {
+    restoring = doRestore().finally(() => {
+      restoring = null
+    })
+  }
+  return restoring
+}
+
+let restoring: Promise<void> | null = null
+
+async function doRestore(): Promise<void> {
   if (!readToken()) {
     state.status = 'anonymous'
     return
@@ -63,6 +77,11 @@ export function signOut(): void {
 /** 是否已登录（动作级闸门与组件都读它，别各自判断 `status === 'authenticated'`）。 */
 export function isAuthenticated(): boolean {
   return state.status === 'authenticated' && state.user !== null
+}
+
+/** 当前用户 id（未登录 / 恢复中 ⇒ null）。adapter 的 `canDelete` 等判断用它。 */
+export function currentUserId(): number | null {
+  return state.user?.id ?? null
 }
 
 /**

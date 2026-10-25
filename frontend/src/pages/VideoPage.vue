@@ -13,6 +13,7 @@ import EmptyState from '../components/common/EmptyState.vue'
 import VideoCard from '../components/common/VideoCard.vue'
 import VideoActionBar from '../components/video/VideoActionBar.vue'
 import CoinDialog from '../components/video/CoinDialog.vue'
+import CommentSection from '../components/video/CommentSection.vue'
 import FavoriteDialog from '../components/video/FavoriteDialog.vue'
 
 /**
@@ -143,6 +144,11 @@ async function share(): Promise<void> {
 const isSelf = computed(
   () => sessionState.user !== null && detail.value !== null && sessionState.user.id === detail.value.authorId,
 )
+
+/** 评论区自己维护"含楼中楼"的总数（发表 +1 / 删除 -N），详情侧的计数跟着走 */
+function onCommentCount(count: number): void {
+  if (detail.value) detail.value.stats.comment = count
+}
 </script>
 
 <template>
@@ -223,12 +229,12 @@ const isSelf = computed(
           />
         </section>
 
-        <section class="comments-placeholder">
-          <h2 class="comments-placeholder__head">评论</h2>
-          <p class="comments-placeholder__text">
-            评论区在后续窗口接入（评论分页与楼中楼后端都已就绪）。
-          </p>
-        </section>
+        <CommentSection
+          :content-id="detail.id"
+          :comment-enabled="detail.commentEnabled"
+          :initial-count="detail.stats.comment"
+          @count-changed="onCommentCount"
+        />
       </div>
 
       <aside class="video-side">
@@ -394,26 +400,6 @@ const isSelf = computed(
 .image-list__item {
   width: 100%;
   border-radius: var(--radius-sm);
-}
-
-.comments-placeholder {
-  margin-top: 24px;
-  padding: 18px 16px;
-  border: 1px dashed var(--line-1);
-  border-radius: var(--radius);
-}
-
-.comments-placeholder__head {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-1);
-}
-
-.comments-placeholder__text {
-  margin-top: 8px;
-  font-size: 13px;
-  line-height: 20px;
-  color: var(--text-3);
 }
 
 .video-side {
