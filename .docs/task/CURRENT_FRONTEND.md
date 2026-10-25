@@ -117,7 +117,8 @@ npm run build                                                # 多入口产物�
 
 - Node `v24.15.0` / npm `11.12.1` / registry 已是 npmmirror；pnpm 未装（`corepack enable` 即可）。
 - ★ 沙箱下**子进程建不了 TLS、Chrome 起不来** ⇒ `npm install` 与页面截图**各需一次 `danger-full-access` 授权**（建议合并在一条命令里）。
-- 老前端：`src/main/resources/static/`（18 文件，原生 JS，接口重构后已失效）→ 重制时整体替换为 `dist` 产物。
+- 老前端：`src/main/resources/static/`（18 文件，原生 JS，接口重构后已失效）→ **已冻结（2026-10-25）**：
+  不再同步、不再修；**删除随 dist 上线同批**（前置清单与验收见 §十三）。
 
 ---
 
@@ -141,7 +142,7 @@ npm run build                                                # 多入口产物�
 | 来源 | 事项 | 处置 |
 |---|---|---|
 | `F-15`（2026-10-15 清出） | **互动态维度常量**：后端返回的 `interaction` 是正确契约，缺的是前端「哪个面读哪几维」 | 重制时**先把常量加回**：`/contents/recommended` → `{关注}`；`/contents`（搜索）→ **0 维**；`/feed` 与 `/users/{id}` → `{赞}`；详情 → 三维。表见 [favorite.md §六](../architecture/domain/favorite/favorite.md)。⚠️ 三态：`null` = **本面不查**（≠ `false`）；匿名时整个 `interaction` 才是 `null` |
-| `T61`（`R-23` 搁置） | 旧 SPA 是否留作「接口消费样例」 | **本专项重定**；默认随重制整体删除，不为将死代码续命 |
+| `T61`（`R-23` 搁置） | 旧 SPA 是否留作「接口消费样例」 | **已关闭**（2026-10-25 用户复核：旧前端简陋、功能未跟进、接口规范化后完全不可用，**无参考价值**）⇒ 不留样例；删除随 dist 上线（§十三）。`T61` 不再排期 |
 
 ---
 
@@ -270,7 +271,10 @@ New-Item -ItemType Directory -Force -Path $prof | Out-Null
   ① **加静态转发**（Spring 视图映射 / 资源 resolver fallback）⇒ URL 与 B 站同构；**待验**：默认拒绝过滤器对
   「非 `@RequestMapping` 的转发路径」是否放行（大概率放行，开工时 `curl /video/1` 一条验）；
   ② 退一步：入口保留 `?id=`（`/video.html?id=77`），router 只管应用内 tab ⇒ 零后端改动，但 URL 不像 B 站。
-  **决策：先走 ①**，被拦再退 ②。此改动属**静态路由**，不涉接口契约（不触发登记簿 / spec）。
+  **决策：先走 ①**，被拦再退 ②。
+  ★ **补充（2026-10-25 复查）**：它**不触发端点登记簿 / spec**，但**不是纯配置改动** ——
+  转发路由必须标 `@Public`（默认拒绝）、静态/HTML 入口是否进限流跳过清单要明确决定，
+  且 dist 的资源目录从 `/static/` 变成 `/assets/` ⇒ 白名单要一起改（见 §十三）。
   ★ **状态（2026-10-25）**：① **仍未做**。本窗口只落了 dev/preview 侧（下一条），所以**打包产物目前不能被
   Spring 直接服务** —— 部署前必须先补这条，否则刷新 `/video/92` 就是 404。
 - ✅ **dev 侧 fallback 已落地**：`vite.config.ts` 的 `htmlHistoryFallback()` 把 `/search` → `search.html`、
@@ -282,3 +286,28 @@ New-Item -ItemType Directory -Force -Path $prof | Out-Null
 
 ⚠️ **一个真实差异**：B 站是 `/video/BV1xx`，本仓内容 id 是数据库自增（`/video/77`）。路径形状可仿，
 **id 语义仿不了**；重制期不改契约，将来若要短链 / 公开 id，单独开 GAP。
+
+---
+
+## 十三、迁移收尾：旧 SPA 删除（**已冻结 2026-10-25；删除随 dist 上线同批**）
+
+**决策**：旧 SPA **不再同步、不再修**（`T61` 已关闭，见 §九）。
+**删除时点 = 「dist 上 Spring + 静态转发」那一个提交**（与部署、静态白名单、引用清扫同批）——
+不提前（`/` 会 404 到替代品上线），也不等重制完（活文档会继续把它当"实现位置"，规则会继续逼你为死代码同步）。
+**兜底**：若静态转发被拖过一个窗口，按下面同一清单**立即删**、接受 `:8080/` 404 —— 坏页面比 404 更坏。
+
+**前置条件（缺一不可）**
+
+1. **替代品可验证**：dist 已上 Spring，`/`、`/search`、`/video/:id`、`/assets/*` 全 200。
+2. **静态白名单一起改**（否则新站首屏资源逐枚吃匿名令牌 ⇒ **429 掉 CSS**）：
+   `RateLimitFilter.SKIP_PREFIXES` 的 `/static/` → `/assets/`，并明确 `/search`、`/video/*` 这些 HTML 入口是否跳过；
+   `GlobalExceptionHandler.STATIC_PREFIXES` 同步；转发路由标 `@Public`（默认拒绝）。
+3. **测试同步**：`RateLimitFilterContractTests` 的 `/static/css/common.css` 用例与"前端 18 文件"措辞；
+   补一条 `/assets/*` 零扣费断言（**要能变红**：去掉白名单应红）。
+4. **引用清扫**（活文档改指新前端；**历史裁决保留 + 只加状态行，不改写**）：
+   `INDEX.md` §一① · 本文件 §七/§九/§十二 · `favorite.md` 的 `T7`/`T19`/`I-08` 锚点 ·
+   `history-术语表.md` 的"页面 ↔ 端点矩阵" · `history.md` / `history-需求.md` 的"`static/` 不动" ·
+   `接口契约.md` 的 `R-23`/`T61` · `FURTHER_ISSUES.md` 的 `F-27`。
+5. **验收**：`static/static/js` 零残留 + 第 1 条的四条路径全 200 + `mvnw -B clean verify` 绿 + 三条文档门禁 0。
+
+**删除时不做的事**：不动 `src/main/resources/db/migration/**`（逐字节冻结）、不动 `old-project/`（行为判据）。
