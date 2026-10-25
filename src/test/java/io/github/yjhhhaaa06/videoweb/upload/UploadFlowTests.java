@@ -455,8 +455,12 @@ class UploadFlowTests extends AbstractHttpIntegrationTest {
         Path firstPath = diskPathOf(firstUrl);
         assertThat(firstPath).exists();
 
-        ResponseEntity<String> resp = delete(
-                "/api/v1/contents/" + contentId + "/media?type=2&sort=1", token);
+        // `T63` 契约跟随（G8）：删图的选择参数 sort → 稳定标识 url（接口契约 §2.4①/§2.5）
+        MultiValueMap<String, String> deleteParams = new LinkedMultiValueMap<>();
+        deleteParams.add("type", "2");
+        deleteParams.add("url", firstUrl);
+        ResponseEntity<String> resp = deleteQuery(
+                "/api/v1/contents/" + contentId + "/media", deleteParams, token);
         assertThat(resp.getStatusCode().value()).as("`T59`：删除 = 204").isEqualTo(204);
 
         // 删掉的是第 1 张：它的文件消失；第 2 张的文件仍在，且 sort 由 2 重排为 1

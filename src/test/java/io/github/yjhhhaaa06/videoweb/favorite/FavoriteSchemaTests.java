@@ -28,8 +28,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * <ol>
  *   <li><b>列集</b>：{@code is_private} / {@code description}（R-05）、{@code favorite_count}（R-06）
  *       —— 建表时带上零成本，之后补要新版本号 + 回填存量行。</li>
- *   <li><b>唯一键</b>：{@code uk_folder_content} 是 T4「重复收藏 409」的唯一实现手段
- *       （不靠"先查后插"）；{@code uk_user_default} 是 T2「默认夹懒建」在并发下**唯一**的
+ *   <li><b>唯一键</b>：{@code uk_folder_content} 是"夹内至多一条"的**唯一**实现手段
+ *       （`T65` 起重复收藏的 200 也靠它：{@code INSERT IGNORE} 的 0 行就是"早就在了"的判据，
+ *       **不靠**"先查后插"）；{@code uk_user_default} 是 T2「默认夹懒建」在并发下**唯一**的
  *       防重复手段。两者丢一个，对应任务就只能退回"靠时序运气"。</li>
  *   <li><b>索引</b>：{@code idx_user_content}（按人去重）与 {@code idx_folder_time}（夹内倒序分页）
  *       —— 这两个**没有可观察行为**可断言（不写索引功能照样对），故只能在这里查
@@ -88,7 +89,7 @@ class FavoriteSchemaTests extends AbstractIntegrationTest {
     // ==================== 2. 唯一键（真插两行，看它拦不拦） ====================
 
     @Test
-    @DisplayName("★同一夹内同一内容只能有一条：重复收藏撞 uk_folder_content（T4 的 409 就靠它）")
+    @DisplayName("★同一夹内同一内容只能有一条：重复收藏撞 uk_folder_content（T65 的幂等判据就靠它）")
     void 同一夹内重复收藏撞唯一键() {
         long folderId = 插入收藏夹(1L, "自建夹", 0);
         long contentId = 插入内容(9001L);

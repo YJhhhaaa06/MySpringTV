@@ -48,11 +48,15 @@ class ErrorCodeContractTests {
      *       本用例第一次跑就红了，属于该护栏挣到的第一分；</li>
      *   <li>{@code PARAM} —— **横切命名空间**，不是业务域：{@code PARAM_INVALID} 覆盖全站
      *       "字段缺失 / 格式不合法"这一族，前端处置恒为「把字段错误标出来」。</li>
+     *   <li>{@code IDEMPOTENCY}（`T66`）—— **横切命名空间**：幂等键的三个结果
+     *       （不合法 / 处理中 / 载荷冲突）与任何业务域无关，且三者的客户端处置各不相同
+     *       （修 bug / 按 Retry-After 重试 / 换 key）。</li>
      * </ul>
      */
     private static final Set<String> PREFIXES = Set.of(
             "AUTH", "USER", "CONTENT", "COMMENT", "LIKE", "FAVORITE", "WATCHLATER", "COIN",
-            "HISTORY", "COUPON", "UPLOAD", "ADMIN", "RATE", "SYSTEM", "FOLLOW", "PARAM");
+            "HISTORY", "COUPON", "UPLOAD", "ADMIN", "RATE", "SYSTEM", "FOLLOW", "PARAM",
+            "IDEMPOTENCY");
 
     @Test
     @DisplayName("码形态 = 大写多段 + 域前缀在白名单内（写成 401 或 camelCase 都能编译，只有前端会翻不到）")

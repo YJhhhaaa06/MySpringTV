@@ -40,7 +40,7 @@ class CommentFlowTests extends AbstractCommentIntegrationTest {
     // ==================== 发表：成功路径 ====================
 
     @Test
-    @DisplayName("发主楼评论：200 + 无 data（`T59`：写成功不再回文案）；comment 落一行（parent_id 为空）、content.comment_count +1")
+    @DisplayName("发主楼评论：200 + data.commentId（`T66`/`N5` 起回新标识）；comment 落一行（parent_id 为空）、content.comment_count +1")
     void 发主楼评论() {
         String token = registerAndGetToken(AUTHOR_PHONE, AUTHOR);
         long contentId = insertContent(userIdOf(AUTHOR_PHONE), true);
@@ -49,10 +49,15 @@ class CommentFlowTests extends AbstractCommentIntegrationTest {
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(Envelope.code(resp)).isEqualTo("OK");
-        assertThat(resp.getBody()).as("`T59` 起 data 不出现").doesNotContain("\"data\"");
+        // ★ `T66` / `N5` 契约变更：2xx 从「无 data」改为 {"commentId": N} ——
+        //   幂等重放要让客户端能定位"刚创建的是哪一条"（`T59` 的"无 data"断言已随契约退场）。
+        long commentId = Envelope.num(resp, "commentId");
+        assertThat(commentId).isPositive();
 
         // 独立 oracle：不读接口回显，直接查列
-        long commentId = findCommentId(contentId, "第一条评论");
+        assertThat(findCommentId(contentId, "第一条评论"))
+                .as("接口回的 commentId 必须就是 DB 里那一行（不信回显，用正文反查复算）")
+                .isEqualTo(commentId);
         assertThat(parentIdOf(commentId)).isNull();
         assertThat(replyToUserIdOf(commentId)).isNull();
         assertThat(commentCountOf(contentId)).isEqualTo(1);

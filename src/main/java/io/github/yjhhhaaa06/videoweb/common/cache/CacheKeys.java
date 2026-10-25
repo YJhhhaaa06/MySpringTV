@@ -337,6 +337,26 @@ public final class CacheKeys {
         return "ratelimit:server";
     }
 
+    // ==================== 写接口幂等（IdempotencyRedisOps / IdempotencyStore，T66） ====================
+
+    /**
+     * 幂等占位 / 快照：{@code idem:{slug}:{userId}:{clientKey}}（**HASH**，字段见
+     * {@code architecture/tech/idempotency/写接口幂等.md} §十）。
+     *
+     * <p>★ <b>边界唯一可解析</b>靠"客户端 key 的字符集排除 {@code :} 与 {@code /}"：
+     * {@code Idempotency-Key} 只允许 {@code [A-Za-z0-9._-]{1,64}}，故不存在
+     * "两个不同的 (slug, uid, key) 三元组拼出同一个字符串"的可能。不做哈希、不补零
+     * （只有"无分隔符拼接后再哈希"才需要长度前缀；明文 key 让 {@code redis-cli}
+     * 一眼看出是谁的哪个端点）。
+     *
+     * @param slug      端点短标识（来自 {@code IdempotencyScope}，不在产码点硬编码）
+     * @param userId    当前登录用户（由 {@code JwtAuthFilter} 放进请求属性）
+     * @param clientKey 客户端生成的 {@code Idempotency-Key}（已通过字符集校验）
+     */
+    public static String idempotency(String slug, long userId, String clientKey) {
+        return "idem:" + slug + ":" + userId + ":" + clientKey;
+    }
+
     // ==================== 播放记录上报缓冲（HistoryReportBuffer，R-19 / T51-1） ====================
 
     /**

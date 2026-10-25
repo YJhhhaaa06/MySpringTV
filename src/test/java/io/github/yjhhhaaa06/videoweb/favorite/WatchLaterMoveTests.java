@@ -29,7 +29,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>★ <b>缺省 folderId = 默认夹（懒建）</b>（决策 D4）；</li>
  *   <li>★ <b>目标夹已满 ⇒ 400</b>（复用 {@code FavoriteService.addItem} 的容量闸，T16）；</li>
  *   <li>★ <b>内容不存在 / 已软删 ⇒ 404</b>（R-07「失效不可移入」）；<b>非视频 ⇒ 400</b>；</li>
- *   <li>★ <b>目标夹已有同内容 ⇒ 409 且稍后再看条目保留</b>（事务回滚 ⇒ 不是"移出后丢失"）；</li>
+ *   <li>★ <b>目标夹已有同内容 ⇒ 幂等 200 且稍后再看条目被清</b>（`T59` 起；`T65` 把同一口径
+ *       推广到 {@code POST /api/v1/favorites}）；</li>
  *   <li>目标夹不存在 404 / 非我 403（口径同 {@code POST /api/v1/favorites}）。</li>
  * </ul>
  *

@@ -13,16 +13,18 @@ import java.util.List;
  * <h2>只搬本切片端点在用的方法（决策表 §二·G 盘点 B）</h2>
  * 读：{@link #findMediaByContentId}（内容详情的媒体聚合）、
  * {@link #findMediaByContentIds}（批量装载的媒体聚合）、
- * {@link #findMediaByContentTypeSort}（作者删单条图的前置定位）。
- * 写：{@link #deleteMediaByContentIdAndTypeSort}（删单条图）、
+ * {@link #findMediaByContentTypeSort}（作者**换源**的前置定位）、
+ * {@link #findMediaByContentTypeUrl}（作者**删图**的前置定位，`T63`）。
+ * 写：{@link #deleteMediaById}（删单条图，按查出来的代理键删，`T63`）、
  * {@link #compactImageSort}（删图后重排 sort 保持 1..n 连续）、
  * {@link #deleteByContentId}（删作品时级联清媒体记录）。
  *
- * <p><b>不搬</b>（各有归属）：
- * <ul>
- *   <li>{@code deleteMediaById} — **无消费者**：全量实测无一端点/服务调用它（TV 的死代码），
- *       按"不搬无主代码"丢弃</li>
- * </ul>
+ * <h2>`T63`：删图的两条 SQL 为什么按 {@code id} 而不是 {@code (type,sort)}</h2>
+ * {@code sort} 是**可变位置**（`compactImageSort` 会把它前移），删完第 N 张后再发一次
+ * "删 sort=N"会命中**原来的第 N+1 张** ⇒ 重试删掉另一个对象（接口契约 §2.4① 的反例）。
+ * 故删图改为：按稳定标识（{@code url}）**查出代理键**{@code id} → **按 id 删** → 判 affected rows。
+ * {@code findMediaByContentTypeSort} 仍保留（换源 `PUT /contents/{id}/media` 按 `type+sort`，
+ * 那是既存形态、`T63` 不修）。
  *
  * <p>（S7 起 {@code addMedia} / {@code updateMediaUrl} 已由 upload 批次补搬；
  * S8 起 {@code findAllMedia} / {@code findMediaById} / {@code updateFileExists}
@@ -61,12 +63,29 @@ public interface ContentMediaDao {
                                             @Param("sort") int sort);
 
     /**
-     * 按 {@code (contentId, type, sort)} 删除单条媒体（作者删错图）。
-     * TV: {@code delete from content_media where content_id=? and type=? and sort=?}
+     * 按 {@code (contentId, type, url)} 定位单条媒体（`T63`：作者**删图**的前置定位）。
+     * 查不到返回 {@code null} ⇒ 调用方抛 404「媒体资源不存在」。
+     *
+     * <p>⚠️ <b>必须 {@code order by id limit 1}</b>：{@code content_media} 只有主键与
+     * {@code idx_content_id}，**没有** {@code (content_id,url)} 唯一键；存量数据的 url 也不是 UUID
+     * （可能同内容内重复）⇒ 命中多行时返回 {@code List} 会抛 {@code TooManyResultsException}（500）。
+     * 取最小 id 那一行，与本方法"单条"的语义一致。
+     *
+     * @param url 已由调用方归一化（剥掉 {@code video.media.base-url} 前缀）的**库内原值**
      */
-    int deleteMediaByContentIdAndTypeSort(@Param("contentId") long contentId,
-                                          @Param("type") int type,
-                                          @Param("sort") int sort);
+    ContentMedia findMediaByContentTypeUrl(@Param("contentId") long contentId,
+                                           @Param("type") int type,
+                                           @Param("url") String url);
+
+    /**
+     * 按主键删除单条媒体（`T63`：作者删图）。
+     * TV: {@code delete from content_media where id=?}（TV 里无消费者，`T63` 起才有）
+     *
+     * <p>★ 与 {@code findMediaByContentTypeUrl} 配对使用：**查出来的 id** 即删除条件，
+     * 中途别处的 {@code compactImageSort} 改了 {@code sort} 也不会删错行。
+     * 返回 0 表示"这一行已被别的请求删掉"⇒ 调用方抛 404（并发双删）。
+     */
+    int deleteMediaById(@Param("mediaId") long mediaId);
 
     /**
      * 删图后重排剩余图片的 {@code sort}，保持 {@code 1..n} 连续

@@ -15,7 +15,8 @@ import java.util.Set;
  * <h2>本接口的 SQL 随任务逐个补</h2>
  * T1 只确立包与 mapper 注册路径（当时是空接口）；**T2 补入第一条** ——
  * {@link #deleteByFolderId}（删夹一并删条目，R-02）；**T4 补入收藏与移出** ——
- * {@link #insertItem} / {@link #deleteByFolderAndContentIds}；
+ * 收藏（★ `T65` 起只剩幂等形态 {@link #insertItemIgnore}：`POST /favorites` 的重复也改成 200，
+ * 裸 {@code insertItem} 已无调用方 ⇒ 删除）与 {@link #deleteByFolderAndContentIds}；
  * **T5 补入状态与计数** —— {@link #findFoldersByUserAndContent}（"收在哪些夹"）与
  * 单内容实时计数（收藏数，按人去重；★ T12 读路径切列时已退役删除，oracle 口径由测试 SQL 承接）；
  * **T6 补入夹内分页** —— {@link #countByFolderId}（total）+ {@link #findPageByFolderId}（页内行）；
@@ -54,8 +55,8 @@ import java.util.Set;
  * <h2>表上的两个索引（各自服务什么）</h2>
  * <ul>
  *   <li>{@code uk_folder_content (folder_id, content_id)} —— 同一夹内同一内容至多一条：
- *       重复收藏**撞唯一键** ⇒ {@code DuplicateKeyException} ⇒ 全局出口 409，
- *       不靠"先查后插"（并发下先查后插必然漏）。</li>
+ *       重复收藏**撞唯一键**，由 {@code INSERT IGNORE} 表达成"0 行受影响"（`T65` 起重复 = 200，
+ *       终态已达成）；键仍是并发的唯一判据（先查后插在并发下必然漏），但不再产生 409。</li>
  *   <li>{@code idx_user_content (user_id, content_id)} —— 按人去重（上条口径 4）与
  *       {@code /api/v1/contents/{id}/favorite} 的成员判定。</li>
  *   <li>{@code idx_folder_time (folder_id, create_time)} —— 夹内列表按收藏时间倒序分页（T6）。</li>
@@ -92,37 +93,12 @@ public interface FavoriteItemDao {
     int deleteByFolderId(@Param("folderId") long folderId);
 
     /**
-     * 收藏一条内容进一个夹（T4，{@code POST /api/v1/favorites} 与 {@code PUT /api/v1/favorites/{id}} 共用）。
+     * 幂等收藏一条（`T59` 引入；★ `T65` 起是**全部**收藏写路径的唯一插入语句）：
+     * 目标夹已有该内容 / 并发重复 ⇒ 0 行，调用方视为"终态已达成"。
      *
-     * <h2>三条口径（写调用方前先读）</h2>
-     * <ol>
-     *   <li><b>重复收藏不在这里拦</b>：撞唯一键 {@code uk_folder_content} ⇒
-     *       {@code DuplicateKeyException} ⇒ 全局出口 409。不写"先查后插"——
-     *       并发下先查后插必然漏，且多一次查询（{@code FavoriteFolderDao} 类注释同款理由）。</li>
-     *   <li><b>内容存在性由调用方先校验</b>（{@code ContentDao.isContentExist}，带
-     *       {@code is_deleted = 0}）——本条 SQL 不碰 content 表，「失效不可移入」由校验
-     *       **自然产生**，不写专门分支。</li>
-     *   <li><b>{@code userId} 是收藏人（冗余列）</b>：调用方已通过
-     *       {@code FavoriteService.requireOwnedFolder} 校验"夹是我的"，故传入的
-     *       {@code userId} 恒等于 {@code folder.user_id}——判"同一人是否收藏过"按
-     *       {@code (user_id, content_id)} 时两列必然自洽。</li>
-     * </ol>
-     *
-     * @param folderId  目标夹（调用方保证存在且属于当前用户）
-     * @param userId    收藏人（调用方保证等于该夹的归属用户）
-     * @param contentId 内容 id（调用方保证内容存在且未失效）
-     * @return 受影响行数（正常恒为 1；撞唯一键时异常而非 0）
-     */
-    int insertItem(@Param("folderId") long folderId,
-                   @Param("userId") long userId,
-                   @Param("contentId") long contentId);
-
-    /**
-     * 幂等收藏一条（`T59`）：目标夹已有该内容 / 并发重复 ⇒ 0 行，调用方视为成功。
-     *
-     * <p>仅用于「幂等设置」语义的两个 PUT（{@code PUT /favorites/{id}} 的移动、
-     * {@code PUT /watch-later/{id}/folder}）；{@code POST /favorites} 仍走
-     * {@link #insertItem}（创建语义，重复 = 409）。
+     * <p>★ `T65`：{@code POST /favorites} 的重复也改成 200 ⇒ 原先的裸 {@code INSERT}
+     * （撞 {@code uk_folder_content} ⇒ 409）已无调用方，**删除**。判据是**受影响行数**，
+     * 不是"先查后插"—— 并发下两个事务都可能查到"没有"，只有这一行能定真。
      *
      * @return 受影响行数（首次收进 1；已在目标夹 / 并发重复 0）
      */
@@ -131,10 +107,12 @@ public interface FavoriteItemDao {
                          @Param("contentId") long contentId);
 
     /**
-     * 该内容是否已在指定夹里（`T59` 幂等移动的判定）。
+     * 该内容是否已在指定夹里（`T59` 幂等移动的判定；`T65` 起也服务 add 的满夹分支）。
      *
-     * <p>用于"目标夹已有 ⇒ 跳过容量判定与插入、只清源夹"——否则满夹时重复移动会被
-     * 容量闸误判成 400，幂等语义不成立。走 {@code uk_folder_content (folder_id, content_id)} 点查。
+     * <p>用途只有两处：① "目标夹已有 ⇒ 跳过插入、只清源夹"；② **满夹时先判重复**
+     * —— 否则"满夹 + 重复"会得到与首次成功矛盾的 400（`T65` 的目标强制项）。
+     * ⇒ 它**不承担并发正确性**（那是 {@code insertItemIgnore} 的 0 行），只为"省一次写"
+     * 与"满夹重复成功"服务。走 {@code uk_folder_content (folder_id, content_id)} 点查。
      */
     boolean existsByFolderAndContent(@Param("folderId") long folderId,
                                      @Param("contentId") long contentId);

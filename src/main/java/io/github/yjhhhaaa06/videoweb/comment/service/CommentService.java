@@ -119,9 +119,10 @@ public class CommentService {
      *
      * @param userId  当前登录用户 id（由 {@code @CurrentUserId} 注入）
      * @param request 已通过 {@code @Valid} 的请求（contentId 正数、message 非空且 ≤1000 字）
+     * @return 新评论的 id（`T66` / `N5` 起回给客户端：幂等重放要让客户端能定位"刚创建的是哪一条"）
      */
     @Transactional
-    public void addComment(long userId, AddCommentRequest request) {
+    public long addComment(long userId, AddCommentRequest request) {
         long contentId = request.contentId();
         Long parentId = request.parentId();
 
@@ -182,6 +183,9 @@ public class CommentService {
         // TV 在事务内还回查了一遍 findCommentById(commentId)，其唯一用途是给失效做
         // newComment != null 判据。S5 恢复失效时**仍不恢复该回查**——刚插入的行必然存在，
         // "插入成功"本身就是判据（CM-1 的补回说明已预告这个结论）。
+
+        // `T66` / `N5`：把回填的 id 交回调用方（幂等的响应层要求"客户端能定位刚创建的那一条"）。
+        return comment.getCommentId();
     }
 
     // ========================================================================

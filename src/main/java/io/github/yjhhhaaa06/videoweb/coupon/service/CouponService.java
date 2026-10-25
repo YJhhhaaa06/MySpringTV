@@ -1,15 +1,13 @@
 package io.github.yjhhhaaa06.videoweb.coupon.service;
 
 import io.github.yjhhhaaa06.videoweb.common.exception.ConflictException;
-import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.coupon.dao.CouponDao;
 import io.github.yjhhhaaa06.videoweb.coupon.model.vo.CouponOrderVO;
 import io.github.yjhhhaaa06.videoweb.coupon.model.vo.CouponVO;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.UUID;
 
 /**
  * 优惠券业务。
@@ -23,13 +21,12 @@ import java.util.UUID;
  * <ol>
  *   <li><b>C-1 删掉 MySQL 错误码 1062 判断</b>：Spring 把唯一键冲突翻译为
  *       {@code DuplicateKeyException}，由 {@code GlobalExceptionHandler} 统一映射为 409。
- *       副作用是重复抢券的 {@code msg} 由 <i>"您已抢过该优惠券"</i> 变为 <i>"操作冲突"</i>——
- *       HTTP 状态码与 body {@code code} 仍是 409 不变（DoD 冻结的是路径/信封/状态码）。
- *       <p>★ `T55` 起对外码是 {@code SYSTEM_DUPLICATE_KEY}（不是 {@code COUPON_UNAVAILABLE}）：
- *       出口拿到的是 {@code DuplicateKeyException}，**无法知道撞的是 {@code uk_coupon_user} 还是
- *       {@code uk_coupon_code}**，硬猜会把两种原因报反。要恢复"您已抢过该优惠券"这句精确提示，
- *       得在这里 catch 唯一键异常再翻译 —— 那会推翻 C-1 的「不判 1062」决定，故登记为已知代价
- *       （{@code architecture/tech/api/接口契约.md} §2.2「已知代价·第二例」），本类**不**自行改。</p></li>
+ *       <p>★ `T64` 起<b>重复领券不再 409</b>：改为幂等重放（200 + 原券码）。
+ *       做法是**回查订单表**（确定事实），<b>不是</b> catch 1062 后猜键 ——
+ *       出口拿到的 {@code DuplicateKeyException} **无法知道撞的是 {@code uk_coupon_user}
+ *       还是 {@code uk_coupon_code}**，硬猜会把"券码随机撞车"这种真故障报成"您已抢过"。
+ *       判据见 {@link #grabCoupon}：回查命中 ⇒ 原码；查不到 ⇒ 原样重抛（真故障仍是 409
+ *       {@code SYSTEM_DUPLICATE_KEY}）。C-1 的「不判 1062」**保持不变**。</p></li>
  *   <li><b>C-2 / C-3 去掉读路径的事务包装</b>：TV 用 {@code transactionTemplate.execute}
  *       仅为了"顺手拿到 Connection"，纯读无原子性需求（同决策表 U-3 / U-4）。</li>
  *   <li><b>不再手写 {@code ServerException} 包装与 SEVERE 堆栈日志</b>：TV 的
@@ -41,47 +38,72 @@ import java.util.UUID;
 public class CouponService {
 
     private final CouponDao couponDao;
+    private final CouponClaimer couponClaimer;
 
-    public CouponService(CouponDao couponDao) {
+    public CouponService(CouponDao couponDao, CouponClaimer couponClaimer) {
         this.couponDao = couponDao;
+        this.couponClaimer = couponClaimer;
     }
 
     // ========================================================================
-    // C-1：grabCoupon —— 单事务（扣库存 + 插订单必须原子）
+    // 抢券：无事务的编排层（回查 → 写入 → 撞键后再回查）
     // ========================================================================
 
     /**
-     * 抢券，成功返回 16 位券码。
+     * 抢券，返回 16 位券码。
      *
-     * <p><b>决策表 C-1：✅ 保持单事务。</b>「扣库存 + 插订单」必须原子——
-     * 否则会出现"白扣库存"或"超发"。
+     * <p><b>幂等口径（`T64`，依据需求编号 `N4` §G·P0-3）</b>：
+     * 同一 {@code (couponId, userId)} 重复领取 ⇒ 仍返回**原券码**（200），
+     * 库存不重复扣、订单仍 1 行。这是"客户端丢 2xx 后自动重试"的前提。
      *
-     * <p>两条失败路径都在事务内抛异常，故都会回滚：
-     * <ul>
-     *   <li>{@code deductStock} 返回 0 ⇒ {@link ConflictException}
-     *       "库存不足或活动未开始/已结束"。三语义在 Service 层不可区分——
-     *       判定条件全在那条 SQL 的 WHERE 里（见 {@code CouponMapper.xml}）。</li>
-     *   <li>{@code insertOrder} 撞唯一键 ⇒ {@code DuplicateKeyException}（{@code DataAccessException} 子类，
-     *       是 RuntimeException ⇒ 默认触发回滚）⇒ 出口映射 409。
-     *       <b>回滚是关键</b>：重复抢券时刚扣掉的库存必须被还原，即"库存只扣一次"。</li>
-     * </ul>
+     * <p>★ <b>优先级：回查在前</b> —— 已领过 ⇒ 直接回原码，**与库存 / 时间窗无关**；
+     * 只有**未领过**的人才可能因库存 0 / 未开始 / 已结束拿到
+     * {@link ConflictException}（{@code COUPON_UNAVAILABLE}）。反过来写（先扣减后判断）
+     * 会让"活动刚结束的已领用户重试"变成 409，正是本任务要消掉的那类窗口。
      *
-     * <p>⚠️ 本方法**不得**把时间窗判断挪进 Java，也不得把 {@code insertOrder} 移出事务——
-     * 见决策表 C-1 的两条反模式警告。
+     * <h2>为什么本方法**不带** {@code @Transactional}</h2>
+     * 它只做编排，真正的原子动作在 {@link CouponClaimer#claim}（另一个 bean 的
+     * {@code @Transactional} 方法）。这里再加事务会同时毁掉两件事：
+     * <ol>
+     *   <li>撞键异常被本层 catch 时，内层事务会**随本层事务提交**（若此处也用同一事务）
+     *       ⇒ {@code deductStock} 白扣；</li>
+     *   <li>MySQL 默认 RR 下，同事务内的一致性读**看不到赢家刚提交的行** ⇒ 回查必拿 null。</li>
+     * </ol>
+     * 拆开的顺序保证：异常穿出 {@link CouponClaimer#claim} 的 {@code @Transactional} 边界 ⇒
+     * 整笔回滚（库存还原、连接归还）⇒ 本层再回查时读的是**赢家已提交**的行。
+     *
+     * <p>⚠️ <b>不许在这里猜键</b>：不能把 {@code DuplicateKeyException} 一律当"已领"。
+     * 回查查不到 ⇒ 说明撞的是 {@code uk_coupon_code}（券码随机撞车，真故障）⇒ 原样重抛。
+     * 同理 {@link ConflictException}（并发窗口里赢家抢走了最后一张库存，本请求的
+     * {@code deductStock} 匹配 0 行）也要回查一次——已领过的人不该因为库存刚好归零而拿到 409。
+     *
+     * <p>⚠️ <b>不得</b>用 {@code SELECT … FOR UPDATE} 串行化（本仓已排除该手法），
+     * 也不得把 {@code insertOrder} 移出事务（见决策表 C-1 的两条反模式警告）。
      *
      * @param couponId 优惠券 id（控制器已做非空/正数校验）
      * @param userId   当前登录用户 id
      */
-    @Transactional
     public String grabCoupon(long couponId, long userId) {
-        int rows = couponDao.deductStock(couponId);
-        if (rows == 0) {
-            throw new ConflictException(ErrorCode.COUPON_UNAVAILABLE, "库存不足或活动未开始/已结束");
+        // ① 已领过：直接给原码（此路径**不扣库存**，也不判时间窗/库存）
+        String claimed = couponDao.findCouponCode(couponId, userId);
+        if (claimed != null) {
+            return claimed;
         }
 
-        String couponCode = generateCouponCode();
-        couponDao.insertOrder(couponId, userId, couponCode);
-        return couponCode;
+        // ② 未领过：进入原子写入（扣减 + 插入，同一事务）
+        try {
+            return couponClaimer.claim(couponId, userId);
+        } catch (DuplicateKeyException | ConflictException ex) {
+            // ③ 撞键（输家）或"最后一张库存被赢家拿走后本请求扣减 0 行"：
+            //    此刻内层事务**已回滚结束**，回查是独立连接、能看到赢家已提交的行。
+            //    命中 ⇒ 幂等重放；未命中 ⇒ 真失败（撞 uk_coupon_code / 库存或时间窗确实不满足），
+            //    保持原异常类型与文案不变。
+            String replayed = couponDao.findCouponCode(couponId, userId);
+            if (replayed != null) {
+                return replayed;
+            }
+            throw ex;
+        }
     }
 
     // ========================================================================
@@ -107,19 +129,5 @@ public class CouponService {
      */
     public List<CouponOrderVO> listMyCoupons(long userId) {
         return couponDao.findOrdersByUserId(userId);
-    }
-
-    // ========================================================================
-    // 券码生成（TV 原样保留：UUID 去横线取前 16 位转大写）
-    // ========================================================================
-
-    /**
-     * 生成券码：{@code UUID} 去横线后取前 16 位并大写。
-     *
-     * <p>TV 原实现原样保留（《切片计划》§一 要点 3）。字符集为 {@code [0-9A-F]}（UUID 是十六进制），
-     * 更宽的 {@code [0-9A-Z]} 断言同样成立。
-     */
-    private String generateCouponCode() {
-        return UUID.randomUUID().toString().replace("-", "").substring(0, 16).toUpperCase();
     }
 }

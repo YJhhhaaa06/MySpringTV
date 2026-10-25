@@ -22,10 +22,12 @@ import java.util.List;
  * </ul>
  * <b>SQL 文本、表名、列名、条件、排序——原样保留</b>（见 {@code CouponMapper.xml} 内逐条 TV 对照注释）。
  *
- * <h2>只搬 4 个方法（能力闭环，不按文件横向搬运）</h2>
+ * <h2>只搬 4 个方法（能力闭环，不按文件横向搬运）+ `T64` 新增 1 个</h2>
  * TV 的 {@code CouponDao} 共 5 个方法，{@code findById} **未搬**：
  * 它在 TV 全仓（main/test/tools）**零引用**，是 dead code——
  * 既非本切片交付的能力，也非任何下游模块的依赖。搬它只会带来无主的维护面。
+ * <p>{@link #findCouponCode} 是 `T64` **新增**的（TV 没有）：幂等重放要按 {@code (coupon,user)}
+ * 窄查原券码，见其 Javadoc。
  */
 @Mapper
 public interface CouponDao {
@@ -46,10 +48,12 @@ public interface CouponDao {
     /**
      * 插入抢券订单。
      *
-     * <p>撞唯一键 {@code uk_coupon_user}（同一用户重复抢）或 {@code uk_coupon_code}（券码撞车）
-     * 时，MyBatis 的异常翻译会抛 {@code DuplicateKeyException}——
-     * 由 {@code GlobalExceptionHandler} 统一映射为 409。
-     * 业务层**不再**判断 MySQL 错误码 1062（决策表 C-1 要点 1）。
+     * <p>撞唯一键 {@code uk_coupon_user}（同一用户并发重复抢）或 {@code uk_coupon_code}（券码撞车）
+     * 时，MyBatis 的异常翻译会抛 {@code DuplicateKeyException}，并让所在事务整笔回滚。
+     * <p>★ `T64` 起这两种撞键**不再等价**：{@code CouponService#grabCoupon} 在事务外回查
+     * {@link #findCouponCode}，命中 ⇒ 幂等返回原券码；查不到 ⇒ 撞的是 {@code uk_coupon_code}
+     * （真故障）⇒ 原样重抛 ⇒ {@code GlobalExceptionHandler} 映射 409 {@code SYSTEM_DUPLICATE_KEY}。
+     * 业务层**不判断** MySQL 错误码 1062（决策表 C-1 要点 1）。
      *
      * @return 受影响行数（正常恒为 1；MyBatis 不回填主键，本切片无需订单 id）
      */
@@ -67,4 +71,18 @@ public interface CouponDao {
 
     /** 某用户的优惠券（{@code coupon_order JOIN coupon}，按抢购时间倒序）。查无记录返回空列表而非 null。 */
     List<CouponOrderVO> findOrdersByUserId(@Param("userId") long userId);
+
+    /**
+     * 某用户在某张券上的券码（`T64` 幂等重放用）；**没有订单行 ⇒ null**。
+     *
+     * <p>这是"重复领取"的唯一判据（不是猜唯一键）：命中即"本人已领过"，直接回原码。
+     * 必须走这个窄查询——{@link #findOrdersByUserId} 会拉该用户**全部**订单再在内存里筛，
+     * 既多取行，又把"是否领过"的判断摊到调用方。
+     *
+     * <p>⚠️ **已知边界（有意不修）**：不过滤 {@code coupon_order.status}。
+     * 该列目前**只读不写**（默认 1=成功，2=已使用尚无写入方）—— 一旦将来出现"已使用/已作废"状态，
+     * "领过 ⇒ 回原码"就得改成"状态仍可用才回原码"，届时与本查询一并重定。现在加过滤条件只会
+     * 凭一个没有写入方的列编造语义。
+     */
+    String findCouponCode(@Param("couponId") long couponId, @Param("userId") long userId);
 }

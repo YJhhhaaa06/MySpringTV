@@ -253,7 +253,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ApiResponseVoid"
+                $ref: "#/components/schemas/ApiResponseCommentCreatedVO"
           description: OK
         "400":
           $ref: "#/components/responses/ParamInvalid"
@@ -1056,11 +1056,10 @@ paths:
           type: integer
           format: int32
       - in: query
-        name: sort
+        name: url
         required: true
         schema:
-          type: integer
-          format: int32
+          type: string
       responses:
         "204":
           description: 已生效，无响应体
@@ -2407,6 +2406,19 @@ components:
             $ref: "#/components/schemas/ApiFieldError"
         msg:
           type: string
+    ApiResponseCommentCreatedVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          $ref: "#/components/schemas/CommentCreatedVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
     ApiResponseContentCreatedVO:
       type: object
       properties:
@@ -2834,6 +2846,12 @@ components:
           format: int64
         username:
           type: string
+    CommentCreatedVO:
+      type: object
+      properties:
+        commentId:
+          type: integer
+          format: int64
     CommentEnabledRequest:
       type: object
       properties:
@@ -3045,6 +3063,7 @@ components:
       - PARAM_INVALID
       - PARAM_METHOD_NOT_ALLOWED
       - PARAM_MEDIA_TYPE_UNSUPPORTED
+      - IDEMPOTENCY_KEY_INVALID
       - AUTH_UNAUTHORIZED
       - AUTH_TOKEN_EXPIRED
       - AUTH_BAD_CREDENTIALS
@@ -3067,6 +3086,8 @@ components:
       - CONTENT_STATUS_CONFLICT
       - COUPON_UNAVAILABLE
       - SYSTEM_DUPLICATE_KEY
+      - IDEMPOTENCY_IN_PROGRESS
+      - IDEMPOTENCY_KEY_CONFLICT
       - COIN_INSUFFICIENT
       - COIN_NOT_SUPPORTED
       - COIN_SELF_FORBIDDEN

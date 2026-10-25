@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.content.service;
 
+import io.github.yjhhhaaa06.videoweb.common.config.MediaProperties;
 import io.github.yjhhhaaa06.videoweb.common.exception.ConflictException;
 import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.common.exception.ForbiddenException;
@@ -89,6 +90,12 @@ public class ContentService {
     private final ApplicationEventPublisher events;
 
     /**
+     * 只为 {@link #stripMediaBaseUrl} 而注入（`T63`）：详情出参的 url 拼了这个前缀，
+     * 删图入参要先脱前缀才能与库内值比较。同域（{@code common.config} → {@code content}），无新跨域依赖。
+     */
+    private final MediaProperties mediaProps;
+
+    /**
      * ★ 搜索结果带哪几维互动态（R-13 的**编译期常量**）—— **空集（0 维）**。
      *
      * <p>对标 B站：搜索结果卡片只给"封面 + 标题 + UP 主 + 播放量"，**不显示**赞 / 藏 / 关注态
@@ -108,7 +115,8 @@ public class ContentService {
                           ContentCountAggregate countAggregate,
                           InteractionService interactionService,
                           ContentStatusFiller contentStatusFiller,
-                          ApplicationEventPublisher events) {
+                          ApplicationEventPublisher events,
+                          MediaProperties mediaProps) {
         this.contentDao = contentDao;
         this.contentMediaDao = contentMediaDao;
         this.commentDao = commentDao;
@@ -118,6 +126,7 @@ public class ContentService {
         this.interactionService = interactionService;
         this.contentStatusFiller = contentStatusFiller;
         this.events = events;
+        this.mediaProps = mediaProps;
     }
 
     // ========================================================================
@@ -363,7 +372,7 @@ public class ContentService {
     // ========================================================================
 
     /**
-     * 作者删除自己作品的单条**图片**（{@code POST /content/mediaDelete?contentId=&type=&sort=}）。
+     * 作者删除自己作品的单条**图片**（{@code DELETE /api/v1/contents/{id}/media?type=2&url=…}）。
      *
      * <p>两条**不得"顺手优化"**的规则（TV 原注释）：
      * <ol>
@@ -374,22 +383,60 @@ public class ContentService {
      *       {@code sort} 出现空洞会让"第 3 张"指错。重排与删除同一事务（重排失败会留空洞）。</li>
      * </ol>
      *
+     * <h2>★ `T63`：定位用 {@code url}（稳定标识），不用 {@code sort}（可变位置）</h2>
+     * 旧形态按 {@code (type,sort)} 定位 → 删完 {@code compactImageSort} 把 {@code sort>} 前移
+     * ⇒ 客户端重试"删第 2 张"会命中**原来的第 3 张**并仍回 204（全站唯一"重试破坏**另一个**对象"的面）。
+     * 改后重试同一 url 只可能 404（`接口契约` §2.4①"已删视为不存在"）。
+     * <ul>
+     *   <li><b>三步不可省</b>：查（按 url 拿代理键） → **按 id 删** → **判 affected rows**
+     *       （0 行 ⇒ 404，并发双删的输家）。只换查询不换删除是**无效修复**：
+     *       查完到删之间别的请求压缩过 {@code sort}，照样删错行。</li>
+     *   <li><b>url 归一化</b>：详情出参是 {@code base-url + 库内 url}（{@code ContentCache#jointUrl}），
+     *       客户端回传的多半就是拼好的值 ⇒ 比较前剥掉 {@code video.media.base-url} 前缀。
+     *       物理删除仍只用**DB 行原值**（{@link #deleteMedia} 的返回值），绝不用入参。</li>
+     *   <li><b>{@code sort} 只用于 {@code compactImageSort}</b>，取被删行的值（不是入参）。</li>
+     * </ul>
+     *
      * <p>提交后 {@code REFRESH} 内容 key —— 详情的 {@code imageUrls} 与封面可能变了。
      *
-     * @return 被删媒体的 url（**调用方据此清理物理文件**——S7 已补回：
+     * @param url 客户端给的媒体标识（可带 {@code video.media.base-url} 前缀；含 {@code +} 的文件名须 URL-encode）
+     * @return 被删媒体的 url（**DB 行原值**，供调用方清理物理文件：
      *         {@code ContentController.mediaDelete} 提交后调 {@code deleteFileByUrl}）
      */
     @Transactional
-    public String deleteMedia(long contentId, long userId, int type, int sort) {
+    public String deleteMedia(long contentId, long userId, int type, String url) {
         if (type != 2) {
             throw new ParamException(ErrorCode.PARAM_INVALID, "仅支持删除图片");
         }
-        ContentMedia media = findOwnedMedia(contentId, userId, type, sort);
-        String oldUrl = media.getUrl();
-        contentMediaDao.deleteMediaByContentIdAndTypeSort(contentId, type, sort);
-        contentMediaDao.compactImageSort(contentId, sort);
+        findOwnedContent(contentId, userId);
+        String dbUrl = stripMediaBaseUrl(url);
+        ContentMedia media = contentMediaDao.findMediaByContentTypeUrl(contentId, type, dbUrl);
+        if (media == null) {
+            throw new NotFoundException(ErrorCode.CONTENT_MEDIA_NOT_FOUND, "媒体资源不存在");
+        }
+        // ★ 按查出来的代理键删 + 判 affected rows：0 行 = 并发下另一个请求已删掉它 ⇒ 404
+        if (contentMediaDao.deleteMediaById(media.getMediaId()) == 0) {
+            throw new NotFoundException(ErrorCode.CONTENT_MEDIA_NOT_FOUND, "媒体资源不存在");
+        }
+        contentMediaDao.compactImageSort(contentId, media.getSort());
         events.publishEvent(ContentCacheChangedEvent.refresh(contentId));
-        return oldUrl;
+        return media.getUrl();
+    }
+
+    /**
+     * 剥掉入参上的 {@code video.media.base-url} 前缀（`T63`）。
+     *
+     * <p>详情出参拼了前缀（{@code ContentCache#jointUrl}），而库里存的是
+     * {@code /upload/image/xxx.jpg} 这样的应用内相对路径 ⇒ 客户端原样回传时必须先脱前缀，
+     * 否则 {@code url=} 的比较永远不命中（带前缀的 url 还会让 {@code deleteFileByUrl} 静默不删）。
+     * 前缀为空（默认）时原样返回。
+     */
+    private String stripMediaBaseUrl(String url) {
+        String base = mediaProps.baseUrl();
+        if (url == null || base == null || base.isEmpty() || !url.startsWith(base)) {
+            return url;
+        }
+        return url.substring(base.length());
     }
 
     // ========================================================================

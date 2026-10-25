@@ -23,10 +23,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <h2>覆盖什么（期望值全部出自业务口径，盖住实现照样写得出来）</h2>
  * <ul>
- *   <li><b>收藏</b>：落库终态（folder_id / user_id / content_id）、★ 重复收藏 409 且
- *       **无副作用**（行数不变）、★ 同一内容进多夹是合法状态（favorite-需求.md §三，与 like 的
- *       单行模型不同）、★ 不带夹收藏 → 默认夹**懒建**且**不重复建**（R-01 +
- *       {@code uk_user_default}）；</li>
+ *   <li><b>收藏</b>：落库终态（folder_id / user_id / content_id）、★ 重复收藏 <b>200</b> 且
+ *       **无副作用**（行数不变、{@code favorite_count} 不 +1）、★ 同一内容进多夹是合法状态
+ *       （favorite-需求.md §三，与 like 的单行模型不同）、★ 不带夹收藏 → 默认夹**懒建**且
+ *       **不重复建**（R-01 + {@code uk_user_default}）；</li>
  *   <li><b>失效不可移入</b>（R-07）：{@code is_deleted} 三态里的 1（作者删）与
  *       2（下架）收藏都 404，且**不留任何行**（内容校验先行 ⇒ 懒建也不发生）；</li>
  *   <li><b>★ 失效条目能移出</b>（G11 验收）：占位记录（内容行被物理删的"幽灵 id"与
@@ -34,8 +34,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li><b>移出幂等</b>：记录不存在照常 200（0 行不算错）；**别的夹不受影响**
  *       （favorite-需求.md §三「那些夹里的不受影响」）；</li>
  *   <li><b>移动</b>：终态 = 目标夹有一行、源夹没有、第三个夹不动；★ 失效内容 move 被拒
- *       且**留在原位**（R-07「不可移动但保留原位」）；★ 目标夹已有同内容 → 409 且
- *       **两边都保留**（先插后删 + 同事务的可观察结果）；</li>
+ *       且**留在原位**（R-07「不可移动但保留原位」）；★ 目标夹已有同内容 ⇒ 幂等 200 且
+ *       **两边收敛成一行**（`T59` 起；先插后删 + 同事务的可观察结果）；</li>
  *   <li>错误线：404（夹/内容不存在）、403（不是我的夹）、400（空 contentIds）、401（未登录）。</li>
  * </ul>
  *
@@ -57,10 +57,15 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       {@code 批量移出_失效条目能移出} 变红（G11 契约的判别力所在）；</li>
  *   <li>删掉 {@code addItem} / {@code moveItem} 的 {@code isContentExist} 调用 ⇒
  *       {@code 失效内容不可收藏} / {@code 失效内容不可移动} 变红；</li>
+ *   <li>★ <b>`T65`</b>：把 {@code insertIdempotent} 的 {@code insertItemIgnore} 换回裸 {@code INSERT}
+ *       （或在插入前"先查后插"、只靠先查判重复）⇒ {@code 收藏落库_重复200_多夹合法} 与
+ *       {@code FavoriteConcurrencyTests} 变红（并发下撞 {@code uk_folder_content} ⇒ 409）；</li>
+ *   <li>把 {@code insertIdempotent} 的"满夹分支先判重复"删掉（回到"容量先判、满即 400"）⇒
+ *       {@code FavoriteCapacityTests.满夹时重复收藏也返回200} 变红；</li>
  *   <li>把 {@code moveItem} 改成**先删后插**并去掉 {@code @Transactional}（"两段式"形态）⇒
- *       {@code 移动目标重复409} 变红 —— 409 时源夹行已被删掉且无人回滚。
+ *       {@code 移动目标重复幂等} 变红 —— 目标夹只剩 1 行而源夹已删、插入撞键后无人回滚。
  *       ⚠️ 只换顺序、保留事务**不会红**（回滚兜住了），这正好说明该用例的红**依赖事务在场**：
- *       它钉的是"409 ⇒ 什么都不变"这条可观察契约；</li>
+ *       它钉的是"幂等移动 ⇒ 终态恰一行"这条可观察契约；</li>
  *   <li>删掉 {@code removeItems} 的空列表守卫 ⇒ MyBatis 生成 {@code IN ()} 语法错 500 ⇒
  *       {@code 移出错误线} 变红；</li>
  *   <li>把 {@code insertDefaultFolderIfAbsent} 的 {@code is_default} 改成 0（建出自建夹）⇒
@@ -90,8 +95,8 @@ class FavoriteItemWriteTests extends AbstractHttpIntegrationTest {
     // ========================================================================
 
     @Test
-    @DisplayName("收藏到指定夹：200 + 落库终态；重复收藏 409 无副作用；同内容进另一夹合法")
-    void 收藏落库_重复409_多夹合法() {
+    @DisplayName("收藏到指定夹：200 + 落库终态；重复收藏 200 无副作用（行 1 / 计数 1）；同内容进另一夹合法")
+    void 收藏落库_重复200_多夹合法() {
         TestUser me = register("13800002001", "收藏人甲");
         long folderA = insertFolderRow(me.id, "夹A");
         long folderB = insertFolderRow(me.id, "夹B");
@@ -106,17 +111,33 @@ class FavoriteItemWriteTests extends AbstractHttpIntegrationTest {
         // 独立 oracle：行存在且三列精确对上（user_id 是冗余列，必须等于收藏人）
         assertThat(itemRowExists(folderA, content)).as("(folder_id, content_id) 落库").isOne();
         assertThat(itemUserId(folderA, content)).as("冗余列 user_id = 收藏人").isEqualTo(me.id);
+        assertThat(favoriteCountOf(content)).as("首次收藏后 content.favorite_count = 1").isEqualTo(1L);
 
-        // 重复收藏：409（幂等拒绝），且**不产生第二行**
-        assertThat(addItem(me.token, content, folderA).getStatusCode().value())
-                .as("同夹重复收藏 → 撞 uk_folder_content 的幂等拒绝（409）").isEqualTo(409);
-        assertThat(itemRowCount(folderA, content)).as("409 后行数仍是 1（无副作用）").isOne();
+        // 重复收藏：200（`T65`：与 `T59` 的点赞/关注同口径 —— 终态已达成，不是冲突），
+        // 依据 `N4` §G·P0-4 / `T65`。response 与首次成功**逐字相同**，客户端重试无法、也不需要区分。
+        ResponseEntity<String> dup = addItem(me.token, content, folderA);
+        assertThat(dup.getStatusCode().value())
+                .as("同夹重复收藏 ⇒ 200（旧口径 409 已作废：重试必须幂等）").isEqualTo(200);
+        assertThat(Envelope.code(dup)).as("信封与首次成功一致（无 data、code=OK）").isEqualTo("OK");
+        assertThat(dup.getBody()).isEqualTo(resp.getBody());
+        assertThat(itemRowCount(folderA, content)).as("重复后行数仍是 1（不重复插入）").isOne();
+        assertThat(favoriteCountOf(content))
+                .as("★ 独立 oracle 直查列：重复收藏不得 +1（不变量 favorite_count == COUNT(DISTINCT user_id)）")
+                .isEqualTo(1L);
+        assertThat(oracleDistinctUserCount(content))
+                .as("★ 独立复算 COUNT(DISTINCT user_id) 与列一致").isEqualTo(1L);
 
         // 同一内容进另一夹：合法（favorite-需求.md §三「同一视频可以同时躺在我的多个夹里」）
         assertThat(addItem(me.token, content, folderB).getStatusCode().value())
                 .as("另一夹收同一内容不是重复（唯一键是 (folder_id, content_id)）").isEqualTo(200);
         assertThat(itemRowCount(folderA, content)).isOne();
         assertThat(itemRowCount(folderB, content)).isOne();
+
+        // 对照夹具：同一内容此刻在**两个夹**里 ⇒ 按人去重仍只算 1（夹具若少了这条，
+        // "计数实现按夹累加"与"按人去重"在断言上无法区分）
+        assertThat(favoriteCountOf(content))
+                .as("★ 同一人收进两个夹 ⇒ 收藏数仍按人去重为 1").isEqualTo(1L);
+        assertThat(oracleDistinctUserCount(content)).isEqualTo(1L);
     }
 
     @Test
@@ -525,6 +546,25 @@ class FavoriteItemWriteTests extends AbstractHttpIntegrationTest {
         Long n = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM favorite_item WHERE folder_id = ? AND content_id = ?",
                 Long.class, folderId, contentId);
+        return n == null ? 0L : n;
+    }
+
+    /**
+     * ★ 独立 oracle：直查冗余列 {@code content.favorite_count}（**不读接口回显、不读缓存**）。
+     * 重复收藏的"不得 +1"就靠它判。
+     */
+    private long favoriteCountOf(long contentId) {
+        Long n = jdbcTemplate.queryForObject(
+                "SELECT favorite_count FROM content WHERE id = ?", Long.class, contentId);
+        assertThat(n).as("内容行应存在（contentId=%s）", contentId).isNotNull();
+        return n;
+    }
+
+    /** ★ 独立复算：{@code COUNT(DISTINCT user_id)}（与列的维护实现无关的第二套算法）。 */
+    private long oracleDistinctUserCount(long contentId) {
+        Long n = jdbcTemplate.queryForObject(
+                "SELECT COUNT(DISTINCT user_id) FROM favorite_item WHERE content_id = ?",
+                Long.class, contentId);
         return n == null ? 0L : n;
     }
 

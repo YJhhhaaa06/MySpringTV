@@ -89,6 +89,17 @@ public enum ErrorCode {
      */
     PARAM_MEDIA_TYPE_UNSUPPORTED(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "不支持的 Content-Type"),
 
+    /**
+     * {@code Idempotency-Key} 不合法（400）：超长（&gt; 64）或字符集不在 {@code [A-Za-z0-9._-]}。
+     *
+     * <p>★ 与"<b>没传</b> key"严格分开：没传 = 放行且不占位（可选增强，退化为普通请求）；
+     * 传了但不合法 = <b>400</b>——客户端 bug，假装成功等于骗它"你有幂等保护"
+     * （口径见 {@code architecture/tech/idempotency/写接口幂等.md} §七）。
+     *
+     * <p>⚠️ 对外文案**不回显入参**（客户端可控字符串只进日志）。
+     */
+    IDEMPOTENCY_KEY_INVALID(HttpStatus.BAD_REQUEST, "幂等键不合法"),
+
     // ========================================================================
     // 401 认证（未登录 / 凭证无效 / 凭证过期）
     // ========================================================================
@@ -198,17 +209,45 @@ public enum ErrorCode {
     /**
      * DB 唯一键竞态兜底（409）。
      *
-     * <p>业务层已先查重，并发下仍可能撞唯一键（{@code users.phone} / {@code users.username} /
-     * 点赞、收藏、关注、优惠券的联合唯一键）。{@code GlobalExceptionHandler} 拿到的是
-     * {@code DuplicateKeyException}，**无法知道撞的是哪个键** —— 硬猜会把「用户名占用」错报成「手机号占用」。
+     * <p>业务层已先查重，并发下仍可能撞唯一键（{@code users.phone} / {@code users.username}）。
+     * ★ 点赞 / 关注（`T59`）与收藏（`T65`）的联合唯一键**不再落到本码**：它们的重复是幂等
+     * 终态（{@code INSERT IGNORE} 的 0 行 = 成功），不产生 409。
+     * {@code GlobalExceptionHandler} 拿到的是 {@code DuplicateKeyException}，**无法知道撞的是哪个键**
+     * —— 硬猜会把「用户名占用」错报成「手机号占用」。
      * 故用 SYSTEM 前缀如实表达「基础设施层冲突，值已存在」。
+     * <p>★ 优惠券自 `T64` 起只剩 {@code uk_coupon_code}（券码随机撞车）会落到本码：
+     * 重复领券改为**回查订单表**后返回原券码，不再进 409。
      *
-     * <p>⚠️ `T59` 起文案去掉「请重试」：重复领券这类冲突**重试必然仍失败**，
+     * <p>⚠️ `T59` 起文案去掉「请重试」：手机号/用户名占用这类冲突**重试必然仍失败**，
      * 原文案给了错误建议（`I-25` 的处置之一；码仍不细分，原因见该条登记）。
      *
      * <p>判据 ③（运维统计）：出现本码说明「先查后插」的窗口被穿越了，值得单独统计。
      */
     SYSTEM_DUPLICATE_KEY(HttpStatus.CONFLICT, "数据已存在"),
+
+    /**
+     * 同一个 {@code Idempotency-Key} 的上一次请求**仍在处理**（409），带 {@code Retry-After: 1}。
+     *
+     * <p>语义是"<b>可重试</b>（同一 key）"：短轮询耗尽后仍未看到结果，客户端按 {@code Retry-After}
+     * 再发一次即可命中重放（口径见 {@code architecture/tech/idempotency/写接口幂等.md} §五）。
+     * 与 {@link #IDEMPOTENCY_KEY_CONFLICT} 严格分开：那个是**别重试**（载荷变了）。
+     */
+    IDEMPOTENCY_IN_PROGRESS(HttpStatus.CONFLICT, "同一请求正在处理中，请稍后重试"),
+
+    // ========================================================================
+    // 422 幂等冲突（本仓第一个 422；状态码集合的扩展已登记在接口契约）
+    // ========================================================================
+
+    /**
+     * 同一个 {@code Idempotency-Key} 配了**不同的载荷**（422）。
+     *
+     * <p>客户端 bug（复用了 key 却改了内容）。若不拦，会把 A 的结果当 B 的返回——
+     * <b>比重复更坏（数据错乱）</b>。客户端处置：换个 key 重发，或不要重试。
+     *
+     * <p>★ 状态常量用 {@code UNPROCESSABLE_CONTENT}（Spring 7 的 422 名；
+     * {@code UNPROCESSABLE_ENTITY} 已弃用但仍是同一个 422）。
+     */
+    IDEMPOTENCY_KEY_CONFLICT(HttpStatus.UNPROCESSABLE_CONTENT, "同一幂等键的请求内容不一致"),
 
     // ========================================================================
     // 400 域内约束（参数合法但业务上不允许；与 PARAM_INVALID 分开是因为前端要给出**不同**引导）

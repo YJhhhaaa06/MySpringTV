@@ -4,7 +4,15 @@ import io.github.yjhhhaaa06.videoweb.support.Envelope;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.MultiValueMap;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -25,6 +33,15 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       只证明其中一处被失效不足以证明链路完整——而这正是"一次业务事实、三处缓存"的全部。</li>
  *   <li><b>权限与边界</b>：非作者 403（且不得产生任何写入）、不存在 404、未登录 401。</li>
  * </ul>
+ *
+ * <h2>★ `T63` 契约跟随（G8）：删图的选择参数 {@code sort} → {@code url}</h2>
+ * 本类原有的 4 处 {@code query("type","2","sort",…)} 一并改成 {@code query("type","2","url",…)}。
+ * <b>依据</b>：《接口契约.md》§2.4①（"重复删除 = 404，已删亦视为不存在"）+ §2.5（DELETE 的选择参数走 query）
+ * —— {@code sort} 是**可变位置**（删完一张 {@code compactImageSort} 就把后面的前移），
+ * 于是"重试删第 2 张"会删掉**原来的第 3 张**且仍回 204（全站唯一"重试破坏另一个对象"的面）。
+ * 这不是"把期望值改成实际值"：期望值仍从契约推导（§2.4① 已删视为不存在 ⇒ 重试 404），
+ * 变的只是**定位载体**。反向验证：把定位改回 {@code sort} ⇒
+ * {@link #删单图_重试同一url只可能404且不误删下一张()} 必红（终态只剩第 1 张）。
  */
 class ContentAuthorTests extends AbstractContentIntegrationTest {
 
@@ -126,8 +143,9 @@ class ContentAuthorTests extends AbstractContentIntegrationTest {
 
         assertThat(mediaTypeSorts(contentId, MEDIA_TYPE_IMAGE)).containsExactly("2:1", "2:2", "2:3");
 
-        // 删中间那张
-        assertThat(deleteQuery("/api/v1/contents/" + String.valueOf(contentId) + "/media",query("type", "2","sort", "2"), token)
+        // 删中间那张（`T63`：按稳定标识 url 定位，不再用可变位置 sort）
+        assertThat(deleteQuery("/api/v1/contents/" + String.valueOf(contentId) + "/media",
+                query("type", "2", "url", "/upload/image/b.jpg"), token)
                 .getStatusCode().value()).as("`T59`：删除 = 204").isEqualTo(204);
 
         assertThat(mediaTypeSorts(contentId, MEDIA_TYPE_IMAGE))
@@ -149,22 +167,109 @@ class ContentAuthorTests extends AbstractContentIntegrationTest {
         long authorId = userIdOf(AUTHOR_PHONE);
         long contentId = insertVideoContent(authorId, "视频内容");
 
-        ResponseEntity<String> video = deleteQuery("/api/v1/contents/" + String.valueOf(contentId) + "/media",query("type", "1","sort", "1"), token);
+        ResponseEntity<String> video = deleteQuery("/api/v1/contents/" + String.valueOf(contentId) + "/media",
+                query("type", "1", "url", "/upload/video/" + contentId + ".mp4"), token);
         assertThat(video.getStatusCode().value()).isEqualTo(400);
         assertThat(Envelope.msg(video)).isEqualTo("仅支持删除图片");
         assertThat(countMediaRows(contentId)).as("400 时不得删除任何行").isEqualTo(2);
 
-        ResponseEntity<String> missing = deleteQuery("/api/v1/contents/" + String.valueOf(contentId) + "/media",query("type", "2","sort", "9"), token);
+        ResponseEntity<String> missing = deleteQuery("/api/v1/contents/" + String.valueOf(contentId) + "/media",
+                query("type", "2", "url", "/upload/image/never-uploaded.jpg"), token);
         assertThat(missing.getStatusCode().value()).isEqualTo(404);
         assertThat(Envelope.msg(missing)).isEqualTo("媒体资源不存在");
 
-        assertThat(deleteQuery("/api/v1/contents/" + String.valueOf(contentId) + "/media",query("type", "2","sort", "1"), null)
+        assertThat(deleteQuery("/api/v1/contents/" + String.valueOf(contentId) + "/media",
+                query("type", "2", "url", "/upload/video/" + contentId + ".mp4"), null)
                 .getStatusCode().value()).as("未登录 ⇒ 401").isEqualTo(401);
+    }
+
+    @Test
+    @DisplayName("★删单图重试：同一 url 再删一次 ⇒ 404，且不会删到下一张（`T63` 的存在理由）")
+    void 删单图_重试同一url只可能404且不误删下一张() {
+        String token = registerAndGetToken(AUTHOR_PHONE, AUTHOR);
+        long authorId = userIdOf(AUTHOR_PHONE);
+        long contentId = insertContent(authorId, CONTENT_TYPE_IMAGE, "三图重试", "简介", 2);
+        insertMedia(contentId, "/upload/image/a.jpg", MEDIA_TYPE_IMAGE, 1);
+        insertMedia(contentId, "/upload/image/b.jpg", MEDIA_TYPE_IMAGE, 2);
+        insertMedia(contentId, "/upload/image/c.jpg", MEDIA_TYPE_IMAGE, 3);
+
+        // 与客户端完全相同的请求（模拟"丢了 2xx 后自动重试"）
+        MultiValueMap<String, String> deleteMiddle =
+                query("type", "2", "url", "/upload/image/b.jpg");
+        String path = "/api/v1/contents/" + contentId + "/media";
+
+        assertThat(deleteQuery(path, deleteMiddle, token).getStatusCode().value())
+                .as("首次删除 = 204").isEqualTo(204);
+
+        ResponseEntity<String> retry = deleteQuery(path, deleteMiddle, token);
+        assertThat(retry.getStatusCode().value())
+                .as("重试必须是 404（§2.4①：已删视为不存在）——若回 204，说明它删掉了**另一张**")
+                .isEqualTo(404);
+        assertThat(Envelope.msg(retry)).isEqualTo("媒体资源不存在");
+
+        // 独立 oracle：终态 url 集合 = 原第 1、3 张（第 3 张必须还在）
+        assertThat(imageUrlsOf(contentId))
+                .as("重试不得命中下一张：c.jpg 必须仍在")
+                .containsExactly("/upload/image/a.jpg", "/upload/image/c.jpg");
+        assertThat(mediaTypeSorts(contentId, MEDIA_TYPE_IMAGE))
+                .as("两次请求只允许压缩一次 sort").containsExactly("2:1", "2:2");
+    }
+
+    @Test
+    @DisplayName("★并发删同一 url：恰好一个 204、一个 404，且剩余 sort 仍 1..n（打红『不看 affected rows / 再压一次』）")
+    void 并发删同一url_恰好一个成功一个404() throws Exception {
+        String token = registerAndGetToken(AUTHOR_PHONE, AUTHOR);
+        long authorId = userIdOf(AUTHOR_PHONE);
+        long contentId = insertContent(authorId, CONTENT_TYPE_IMAGE, "三图并发", "简介", 2);
+        insertMedia(contentId, "/upload/image/a.jpg", MEDIA_TYPE_IMAGE, 1);
+        insertMedia(contentId, "/upload/image/b.jpg", MEDIA_TYPE_IMAGE, 2);
+        insertMedia(contentId, "/upload/image/c.jpg", MEDIA_TYPE_IMAGE, 3);
+
+        String path = "/api/v1/contents/" + contentId + "/media";
+        MultiValueMap<String, String> deleteMiddle =
+                query("type", "2", "url", "/upload/image/b.jpg");
+
+        // CountDownLatch 真同时起跑（不是"提交后各跑各的"）：两个线程都阻塞在 gate 上再一起冲
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch startGate = new CountDownLatch(1);
+        List<Future<Integer>> futures = new ArrayList<>(2);
+        try {
+            for (int i = 0; i < 2; i++) {
+                futures.add(pool.submit(() -> {
+                    startGate.await();
+                    return deleteQuery(path, deleteMiddle, token).getStatusCode().value();
+                }));
+            }
+            startGate.countDown();
+            List<Integer> statuses = new ArrayList<>(2);
+            for (Future<Integer> future : futures) {
+                statuses.add(future.get(60, TimeUnit.SECONDS));
+            }
+            assertThat(statuses)
+                    .as("并发双删同一行：恰好一个 204、一个 404（0 行 affected ⇒ 404）")
+                    .containsExactlyInAnyOrder(204, 404);
+        } finally {
+            pool.shutdownNow();
+        }
+
+        // 独立 oracle：只剩 a、c，且 sort 仍 1..2（输家不得再压一次 sort）
+        assertThat(imageUrlsOf(contentId))
+                .as("只删掉 b.jpg").containsExactly("/upload/image/a.jpg", "/upload/image/c.jpg");
+        assertThat(mediaTypeSorts(contentId, MEDIA_TYPE_IMAGE))
+                .as("只有一次删除成功 ⇒ 只压缩一次：c 从 3 变 2；若两个请求都压缩，会变成 1、1")
+                .containsExactly("2:1", "2:2");
     }
 
     // ========================================================================
     // 辅助
     // ========================================================================
+
+    /** 该内容全部媒体 url（按 {@code type, sort} 排序；独立 oracle，不读接口回显）。 */
+    private List<String> imageUrlsOf(long contentId) {
+        return jdbcTemplate.queryForList(
+                "SELECT url FROM content_media WHERE content_id = ? AND type = ? ORDER BY sort",
+                String.class, contentId, MEDIA_TYPE_IMAGE);
+    }
 
     private int countSoftDeletedComments(long contentId) {
         Integer n = jdbcTemplate.queryForObject(
