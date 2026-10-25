@@ -17,7 +17,7 @@
 ## 周期头（每窗开读）
 
 * ★ **当前状态：本期 = 幂等专项 P1（`R-24` 已拍板 2026-10-24）** —— `T66` / `T67` ✅ **已交付**（2026-10-25）；
-  `T68` **待执行**。
+  `T68` / `T69` **待执行**（`T69` 先做：它会改变 `T68` 要断言的 multipart 指纹语义）。
   设计 = [写接口幂等](../architecture/tech/idempotency/写接口幂等.md)（用例与对外契约见
   [测试与契约](../architecture/tech/idempotency/写接口幂等-测试与契约.md)）。
   上一窗口 P0（`T63`–`T65`）已交付；更早的接口契约专项（`T54`–`T62`）结论见
@@ -223,6 +223,37 @@
   - 反向：把 filter 移到 `DispatcherServlet` 之后（或删掉占位的前置性）⇒ 文件数用例必红。
   - 全量 + resilience 绿。
 * **回写**：（同上）
+
+### T69 指纹纳入 method + 实际路径（来源 `I-30`）【待执行】
+
+> ⚠️ **先质疑（G14）**：
+> - **任务**：这算"过度设计"吗？—— 不算，但它修的**只是窄口**：评论的 `contentId` 在 body 里（本来就会 422），
+>   真正受影响的是 `coin`（`{id}` 在路径上）与"同一 key 跨 `videos` / `posts` 用"。
+> - **设计**：★ **"同 key + 同目标 + 两次独立意图"修不了，也不该修** —— 那是 `Idempotency-Key` 的定义；
+>   客户端复用 key = 它自己声明"这是同一次请求"。本任务只修"**换了目标却不报错**"这一类（假成功）。
+
+* **入口线索**：`IdempotencyFilter#fingerprintOfCachedRequest`（当前 = `SHA-256(请求体)`）·
+  `IdempotencyScope`（slug 是端点级常量，不含 `{id}`）· `CacheKeys#idempotency`（key 形状**不动**）·
+  设计篇 §九（载荷口径）与 §十三 第 3 条（multipart 无指纹）。
+* **目标**：指纹 = `SHA-256(method + "\n" + 实际请求路径 + "\n" + 请求体)`（JSON）；
+  multipart ⇒ `SHA-256(method + "\n" + 实际请求路径)`（**仅路径级**）。
+  于是"同 key 换目标 ⇒ 422 `IDEMPOTENCY_KEY_CONFLICT`"，而"同 key 同目标（含换文件）⇒ 仍是重放"。
+* **红线边界**：
+  - ★ **必须用实际 URI**（`getRequestURI()`），**不得**用 `BEST_MATCHING_PATTERN_ATTRIBUTE`——
+    路由模式对 `/contents/1/coins` 与 `/contents/2/coins` **完全相同**，用它等于没改。
+  - **不含 query**：4 条 KEYED 端点都不用 query；拼进去会让"重试时加了 `?_t=`"误判 422。
+  - JSON 且 body 取不到 / 超 `fingerprint-bytes` ⇒ fp **仍为 `null`**（**不得**退化成"仅路径"），
+    否则"不同 body 被判成相同"。
+  - key 形状不动（仍是 `idem:{slug}:{uid}:{key}`）；不改 schema；不动 `static/**`。
+* **强制探索**：① `getRequestURI()` 是否含 contextPath / 是否已 URL-decode（决定要不要归一化）；
+  ② 现有 `fp == null ⇒ 跳过比对` 的分支在 multipart 变成"非 null"后是否仍正确（`PENDING` 不带 fp、`DONE` 写 fp 的三时机不变）。
+* **验收**：
+  - ★ **coin：同 key + 同 body + 换 `{id}` ⇒ 422**，且两条内容的 `content_coin` / `coin_count` / 余额**全部不变**（零副作用）。
+  - ★ **videos vs posts：同一 key 跨两个端点 ⇒ 422**（multipart 仅路径级指纹生效）。
+  - 回归：coin 同 key **同** `{id}` 重发 ⇒ 仍重放；multipart 同 path 换文件 ⇒ **仍是重放**（不报 422，登记为已知代价）。
+  - 反向验证：把指纹改成用**路由模式**（而非实际 URI）⇒ coin 那条**必红**（证明"用 pattern 修了个寂寞"）。
+  - 全量 + resilience 绿；契约无变化（不涉及端点形状）。
+* **回写**：（完成后三句内写清改了什么、验证结果；探索过程不写）
 
 ### T63 媒体删除改为稳定标识定位（来源 `N4` §G·P0-1）【已完成】
 
