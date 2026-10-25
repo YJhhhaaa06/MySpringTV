@@ -54,11 +54,19 @@ openapi.yaml ──gen──▶ frontend/src/types/api.d.ts     生成，只读�
 | GAP-04 | M1 字段缺 | 首页 / VideoCard | 弹幕数角标 | 同 GAP-03 | 前端不做 | **不显示该数字** | 无 | 不做 |
 | GAP-05 | M4 语义异 | 首页·播放页 / NumberText | 图文 `play_count` 语义 | 列叫 play，图文实为「浏览」 | 前端适配 | 按 `type` 切文案 | 无 | 长期 |
 | GAP-06 | M3 端点缺 | 首页 / VideoGrid | 推荐流分页（无限加载） | `GET /contents/recommended` **固定 12 条、无 page 参数**；`GET /contents` 是**搜索专用**（`keyword` 必填，空白即 400 `输入不能为空`） | 后端补（**已拍板：等后端**） | 只渲染 12 条；**不做无限滚动** | 给 recommended 加分页参数，或新增推荐分页端点 | 待补（等后端） |
+| GAP-07 | M2 形状异 | 全部页面 / `api/adapters/*` | 生成类型与运行时一致 | spec 里 `coverUrl` / `durationSeconds` / `interaction` 等只标「可缺省」，**实际匿名响应返回显式 `null`** ⇒ `api.d.ts` 是 `string \| undefined`，与运行时不符 | 后端补（spec 生成侧标 nullable） | adapter 一律按 `null` 兜底（`?.trim()` / `?? null`）；测试夹具 `as` 掉类型谎言 | `OpenApiConfig` 给可空字段标 nullable → 重生成 spec | 待补 |
+| GAP-08 | M1 字段缺 | 顶栏 / 播放页侧栏 / 头像 | 头像 URL | `UserInfoVO` / `ProfileVO` 都**没有头像字段**，也没有头像上传域 | 前端适配（不做头像域） | **昵称首字圆形头像**（渐变底，B 站观感近似） | 无（不补） | 长期 |
+| GAP-09 | M3 端点缺 | 首页 / HeroBanner | 运营 banner 位（B 站首页大轮播是广告/活动位） | 无任何 banner/运营端点 | 前端适配 | 用 `recommended` 前 3 条**有封面的**做「推荐橱窗」轮播（真封面真标题，非假图）；无内容时不渲染轮播 | 无（不补） | 长期 |
+| GAP-10 | M3 端点缺（参数） | 搜索页 / tabs·排序条 | `type` 筛选（视频/专栏）+ 排序（播放/最新） | `GET /contents` 只有 `keyword/page/pageSize` | 后端补（P3） | 只留「综合」tab；视频/专栏**灰态禁用**；**不渲染排序条**（不假装有） | `/contents` 加 `type`、`order` 参数 | 待补 |
+| GAP-11 | M3 端点缺 | 首页 / ChannelWall「热门」 | 热门榜 | 没有排行榜端点（`recommended` 是推荐流，不是排行） | 前端不做 | 灰态占位 → `/placeholder/popular` | 无 | 不做 |
 
 > 实测补充（2026-10-25 起后端 curl，非文档推断）：
 > ① `GET /api/v1/contents?page=1&pageSize=3` → **400 `PARAM_INVALID / 输入不能为空`** —— 该端点只服务关键词搜索，不是通用列表；
 > ② `coverUrl` 是**相对路径**（`/upload/cover/xxx.png`），前端按同源拼即可，**别写死 localhost**；
-> ③ 匿名请求 `interaction: null`（不是 `{}`、也不是四个 `false`）。
+> ③ 匿名请求 `interaction: null`（不是 `{}`、也不是四个 `false`）；
+> ④ **spec 漏标 nullable**：匿名响应里 `coverUrl` / `durationSeconds` / `interaction` 会出现**显式 `null`**，
+> 而 spec 只声明"可缺省" ⇒ `api.d.ts` 生成 `string | undefined`，与运行时不一致（GAP-07）。
+> 前端已按 `null` 兜底，但**别拿生成类型当运行时真相**。
 
 > 只**做一页列一页**，不预演全站；ID 不回收。台账超过约 40 KB 再拆独立文件。
 
@@ -89,13 +97,19 @@ openapi.yaml ──gen──▶ frontend/src/types/api.d.ts     生成，只读�
 
 ---
 
-## 六、门禁（三条命令）
+## 六、门禁（四条命令，都是 `frontend/` 下的 npm script）
 
 ```bash
+cd frontend
 npm run gen:api && git diff --exit-code src/types/api.d.ts   # 类型落后于后端 ⇒ 红
-npx vue-tsc --noEmit                                          # 类型硬门禁
-npx vitest run src/api/adapters                               # 缺口 fallback 行为测试（要能变红）
+npm run typecheck                                            # vue-tsc -b（类型硬门禁）
+npm run test                                                 # vitest：adapters 的缺口 fallback 行为（要能变红）
+npm run build                                                # 多入口产物：dist/{index,search,video}.html
 ```
+
+`npm run test` 只跑 `src/api/adapters/**/*.test.ts`（纯函数，无 DOM 依赖）：断言落在**业务口径**上
+（`formatCount` 的万/亿、`formatRelativeDate` 的 N天前、`splitHero` 的"无封面不进轮播"、
+`playCountText` 恒 null 等），不是"调用了哪个函数"。
 
 ---
 
@@ -108,6 +122,12 @@ npx vitest run src/api/adapters                               # 缺口 fallback 
 ---
 
 ## 八、开工顺序（重制窗口照此走）
+
+> **进度（2026-10-25，本窗口交付）**：① 脚手架 ✅ ② `VideoCard` + `VideoGrid` + **首页闭环** ✅
+> ③ 搜索页 ✅（真 Page 分页）④ 播放页**只读** ✅（播放器 + 真计数 + 相关推荐 + UP 主卡）
+> ⑤ 占位路由 + 登录真接口 ✅。
+> **下一窗口**：播放页互动（点赞/投币/收藏）+ 评论（Page + Cursor 楼中楼）+ 播放进度上报
+> → 用户空间 → 收藏 / 历史／稍后再看 →（可选）后台。
 
 1. `frontend/` 脚手架（Vue + TS + Vite + vue-router）→ 配 **多入口**（`vite.config.ts` 的 `build.rollupOptions.input`）+ 每个入口一个 router → `npm run gen:api` 出类型
 2. 先做 `VideoCard` + `VideoGrid`（会立刻暴露 GAP-01）
@@ -152,29 +172,58 @@ $chrome = "C:\Program Files\Google\Chrome\Application\chrome.exe"
 2. **BV / UID 从搜索结果页 `--dump-dom` 里取**（`/video/(BV[0-9A-Za-z]{10})`、`space\.bilibili\.com/(\d+)`）；从首页正则取会捞到广告壳的假号 ⇒ 拍出 404。
 3. 登录浮层是**未登录态常态**，对照时看浮层底下的真实布局。
 
+> **本窗口（2026-10-25）拍我们自己的页面时新增两条**：
+> 4. ★ `--screenshot` 必须给**绝对路径**。相对路径会报 `Failed to write file …: 0x3`，**退出码仍是 0** ——
+>    看起来"跑过了"，其实没产物。
+> 5. ★ `--user-data-dir` 不能复用旧 profile（复用会 `exit 21` 且**无任何输出**）。每次在 `%TEMP%` 下建新目录；
+>    必要时补 `--no-sandbox --disable-dev-shm-usage`。命令模板：
+
+```powershell
+$chrome = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+$out = (Resolve-Path ".screenshots\frontend-<日期>").Path
+$prof = Join-Path $env:TEMP ("chrome-shot-" + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Force -Path $prof | Out-Null
+& $chrome --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --hide-scrollbars `
+  --user-data-dir="$prof" --window-size=1600,1000 --virtual-time-budget=15000 `
+  --screenshot="$out\home-1600.png" "http://localhost:5173/"
+```
+
+**重制产物对照图**（同样图不入库，2026-10-25 本窗口实拍）在 `.screenshots/frontend-2026-10-25/`：
+`home-1600` / `home-full`（整页）/ `search-1600` / `video-1600` / `placeholder-1600` / `home-logged-in-1600`。
+⚠️ 推荐流顺序**每次请求都不同**（后端随机），所以两次截图的卡片集合不同是正常的、不是 bug。
+
 ---
 
-## 十一、工具链实测（2026-10-25，临时工程验证后已删除）
+## 十一、工具链实测（2026-10-25；**本窗口已落地为 `frontend/`**）
 
 | 项 | 结果 |
 |---|---|
-| `npm create vite@latest … -- --template vue-ts` | ✅ 生成成功 |
-| 模板自带版本 | `vue 3.5.44` · `vite 8.3.4` · `@vitejs/plugin-vue 6.0.10` · `vue-tsc 3.3.13` · **`typescript ~6.0.3`** |
-| `vue-tsc --noEmit` | ✅ exit 0 |
-| `openapi-typescript` 读本仓 spec | ✅ 3529 行 / ~106 ms |
+| `npm create vite@latest … -- --template vue-ts` | ✅ create-vite **v9.3.1** |
+| 模板自带版本 | `vue 3.5.44` · `vite 8.3.5` · `@vitejs/plugin-vue 6.0.10` · `vue-tsc 3.3.13` · **`typescript ~6.0.3`** |
+| `npm run typecheck`（`vue-tsc -b`） | ✅ exit 0（钉 TS 5.9.3 后仍绿） |
+| `openapi-typescript` 读本仓 spec | ✅ 3529 行 / ~116 ms → `src/types/api.d.ts` 入库 |
+| 装完的实际版本 | `typescript 5.9.3` · `vue-router 4.6.4` · `vitest 5.0.5` · `openapi-typescript 7.13.0` |
+| `npm install` | ✅ 100 包 / ~5 s（npmmirror） |
 
 ★ **唯一的坑（必踩）**：`openapi-typescript@7.13` 的 peer 是 `typescript@^5.x`，模板默认 TS 6.0.3
 ⇒ `npm i -D openapi-typescript` **ERESOLVE 报错**（`npx` 兜底能跑通，但**掩盖了问题**，将来 CI 会红）。
 **修法（已实测）**：把 TS 钉到 5.9 —— `npm i -D typescript@~5.9.0`，再装 `openapi-typescript` 即 0 错误，
 `vue-tsc` 仍绿。
 
-建议的 `package.json` 脚本（路径**相对 `frontend/`**，不是仓库根）：
+★ **vue-router 钉 4.x 不升 5**：npm 上 `vue-router@5.4.0` 已是最新，但它是**未勘察的新 major**
+（peer 里还挂了 pinia）。脚手架阶段拿未验证主版本当底座，等于把"跑不起来"混进"写页面"里。
+要升单独开一个窗口做，别在功能窗口里顺手升。
+
+实际的 `package.json` 脚本（路径**相对 `frontend/`**，不是仓库根）：
 
 ```json
 {
   "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc -b && vite build",
+    "preview": "vite preview",
     "gen:api": "openapi-typescript ../src/test/resources/api/openapi.yaml -o src/types/api.d.ts",
-    "typecheck": "vue-tsc --noEmit",
+    "typecheck": "vue-tsc -b",
     "test": "vitest run"
   }
 }
@@ -205,6 +254,9 @@ $chrome = "C:\Program Files\Google\Chrome\Application\chrome.exe"
 | `space.html` | `/space/:id`（tab 用 query） | `GET /users/{id}` |
 | `upload.html` | `/upload` | `POST /contents/videos`、`/contents/posts` |
 
+> 2026-10-25 已落地 **`index` / `search` / `video`** 三个入口（video 目前是**只读**：播放器 + 真计数 + 相关推荐 + UP 主卡）；
+> `space` / `upload` 尚未建入口（灰态导航走 `/placeholder/*`）。
+
 - **跨应用**一律 `<a href="/video/77" target="_blank" rel="noopener">` —— 新标签、可中键、可复制链接，与 B 站一致。
 - **应用内**用 vue-router（每个入口一个实例，`createWebHistory`），切 tab 只改 URL、不重载。
 - 页面之间**不共享内存状态**；`AppHeader` 等组件在每页各自 import（Vite 抽公共 chunk）。登录态从 `localStorage`
@@ -214,8 +266,12 @@ $chrome = "C:\Program Files\Google\Chrome\Application\chrome.exe"
   「非 `@RequestMapping` 的转发路径」是否放行（大概率放行，开工时 `curl /video/1` 一条验）；
   ② 退一步：入口保留 `?id=`（`/video.html?id=77`），router 只管应用内 tab ⇒ 零后端改动，但 URL 不像 B 站。
   **决策：先走 ①**，被拦再退 ②。此改动属**静态路由**，不涉接口契约（不触发登记簿 / spec）。
-- ⚠️ **dev 侧也要 fallback**：Vite 多入口（`appType: 'mpa'`）不会自动把 `/video/77` 映射到 `video.html`，
-  需要一条中间件 rewrite；生产由 Spring 承担。
+  ★ **状态（2026-10-25）**：① **仍未做**。本窗口只落了 dev/preview 侧（下一条），所以**打包产物目前不能被
+  Spring 直接服务** —— 部署前必须先补这条，否则刷新 `/video/92` 就是 404。
+- ✅ **dev 侧 fallback 已落地**：`vite.config.ts` 的 `htmlHistoryFallback()` 把 `/search` → `search.html`、
+  `/video/<digits>` → `video.html`、`/placeholder/*` → `index.html`，并挂在 `configureServer` **与**
+  `configurePreviewServer` 上 ⇒ `npm run preview` 也能验打包产物。它只接管 `Accept: text/html` 的导航请求
+  （`/api`、`/upload`、带扩展名的资源全部放行）。
 - ⚠️ **dev 代理要转发两段**：`/api` **和** `/upload` —— 封面是后端静态路径（`/upload/cover/…`），只代理 `/api` 会让所有图片 404。
 - **明确接受的代价**：跨应用整页刷新、公共请求（`/users/me`）每次进应用重复一次；**换来**与参考实现同构。
 

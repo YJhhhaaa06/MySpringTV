@@ -1,0 +1,174 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-1);
+  background: var(--bg-0);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+a:hover {
+  color: var(--brand-blue);
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
+}
+
+ul,
+ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--brand-blue);
+  outline-offset: 2px;
+}
+
+/* 内容容器：B 站 1600 视口下内容宽 1320 + 左右各 140 留白 */
+.page-content {
+  width: min(var(--content-w), calc(100vw - 48px));
+  margin: 0 auto;
+}
+
+/* 非首页应用的顶部留白（header 是 fixed） */
+.page-main {
+  min-height: calc(100vh - var(--header-h) - 120px);
+  padding-top: calc(var(--header-h) + 20px);
+  padding-bottom: 48px;
+}
+
+/* 按钮 */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 16px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  line-height: 1;
+  transition: background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+}
+
+.btn-primary {
+  background: var(--brand-pink);
+  color: var(--text-inverse);
+}
+
+.btn-primary:hover {
+  background: var(--brand-pink-dark);
+  color: var(--text-inverse);
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+}
+
+.btn-blue {
+  background: var(--brand-blue);
+  color: var(--text-inverse);
+}
+
+.btn-blue:hover {
+  background: var(--brand-blue-dark);
+  color: var(--text-inverse);
+}
+
+.btn-ghost {
+  background: var(--bg-1);
+  color: var(--text-2);
+}
+
+.btn-ghost:hover {
+  background: var(--bg-2);
+  color: var(--text-1);
+}
+
+/* 占位 / 灰态：**可点但要走占位页**，视觉上明确不是可用功能 */
+.is-placeholder {
+  color: var(--text-3) !important;
+}
+
+.is-placeholder:hover {
+  color: var(--text-2) !important;
+}
+
+/* 骨架屏 */
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-1) 25%, #eceef0 37%, var(--bg-1) 63%);
+  background-size: 400% 100%;
+  animation: skeleton-loading 1.4s ease infinite;
+  border-radius: var(--radius);
+}
+
+@keyframes skeleton-loading {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
