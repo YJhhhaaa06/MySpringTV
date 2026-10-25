@@ -21,8 +21,8 @@ Flyway + Testcontainers。由 `old-project/TVhomework1`（Servlet + 手写连接
 |---|---|
 | **写代码读哪里** | `architecture/` 是**唯一活的事实源**（域设计 + 横切机制），主索引 `architecture/ARCHITECTURE.md` |
 | **本期做什么** | `task/CURRENT_NEEDS.md`（需求 / 决策源）+ `task/CURRENT_TASKS.md`（任务）+ `task/CURRENT_ISSUES.md`（本期问题）+ `task/FURTHER_ISSUES.md`（结转池） |
-| **已收口的专项** | 收藏（2026-10-15 收口）、限流（2026-10-17 收口）—— 结论已沉淀进 `architecture/`，过程文档留着只作追溯 |
-| **回归基线** | `python tools/run_tests.py`（默认排除 `resilience`）＋ `--group resilience`；**最近一次 = 默认集 806 + resilience 41 = 847 例全绿**（2026-10-24，`T60-3` 后复跑）。数字会漂，以最近一次复跑为准。⚠️ 跑全量须设 `DB_POOL_MAX_SIZE=4` |
+| **已收口的专项** | 收藏（2026-10-15）、限流（2026-10-17）、接口契约（2026-10-24）、**写接口幂等（2026-10-25）** —— 结论已沉淀进 `architecture/`（幂等 / 接口契约的设计是**活文档**，不建 `archive/`） |
+| **回归基线** | `python tools/run_tests.py`（默认排除 `resilience`）＋ `--group resilience`；**最近一次 = 默认集 852 + resilience 41 = 893 例全绿**（2026-10-25，`T68` 后复跑）。数字会漂，以最近一次复跑为准。⚠️ 跑全量须设 `DB_POOL_MAX_SIZE=4` |
 | **环境** | dev 库 `spring_tv`@3306、媒体根 `D:/data/projects/MySpringTV/media` |
 | **还欠什么** | `task/FURTHER_ISSUES.md`（`F-##` 结转池）+ 各域 `*-已知代价.md`（**已拍板接受、不修**的账） |
 
@@ -61,7 +61,7 @@ Flyway + Testcontainers。由 `old-project/TVhomework1`（Servlet + 手写连接
 |------|--------|---------|
 | ★ **写新代码 / 了解架构** | **`architecture/ARCHITECTURE.md`**（模块地图 + "写代码前读哪篇" + 写作规范）→ 横切机制进 `architecture/tech/` 各篇、业务域进 `architecture/domain/` | 架构变更时 |
 | ★ **执行中登记（任务 / 需求 / 问题）** | `task/CURRENT_NEEDS.md`（当期需求，决策源 `N#` / `R-##`）+ `CURRENT_TASKS.md`（四要素 + 回写）+ `CURRENT_ISSUES.md`（**本期**问题）+ `FURTHER_ISSUES.md`（结转池） | 每窗开 / 收时 |
-| ★ **查某个编号是什么**（`T#` / `R-##` / `I-##` / `G#` / `F-##`） | **活速查**（每号**只许一行结论**）：`favorite.md` / `coin.md` / **`history.md`** 各篇 **附录「编号速查」**；限流的在 `architecture/tech/rate-limit/限流.md` 附录。★ **按专项找**，别在一个附录里找别的域的号 | 每期收尾把已终结的编号收编进速查 |
+| ★ **查某个编号是什么**（`T#` / `R-##` / `I-##` / `G#` / `F-##`） | **活速查**（每号**只许一行结论**）：`favorite.md` / `coin.md` / **`history.md`** / `tech/idempotency/写接口幂等.md` 各篇 **附录「编号速查」**；限流的在 `architecture/tech/rate-limit/限流.md` 附录。★ **按专项找**，别在一个附录里找别的域的号 | 每期收尾把已终结的编号收编进速查 |
 | ★ **加新功能 / 看设计** | `architecture/domain/favorite/`（`favorite.md` 设计 + `favorite-需求.md` 用户可见规则 + `favorite-已知代价.md` 台账）、`feed/feed.md`（域文档样板）、`history/history.md`（播放记录：写读路径 + 时长 + 编号速查）。本期做哪些 ⇒ `task/CURRENT_NEEDS.md` | 开工前登记 / 设计变更时 |
 | ★ **改端点 / 加端点**（路径、HTTP 方法、状态码、错误码、入参出参形状） | [接口契约](architecture/tech/api/接口契约.md)（状态码分层 + 码表 + 路径/方法判据 + 载荷规范；`R-21` 起为唯一活事实源）；护栏与产物（端点登记簿 / `openapi.yaml` 的生成与更新纪律）→ [接口契约-护栏与Spec](architecture/tech/api/接口契约-护栏与Spec.md) | 端点或契约变更时 |
 | ★ **让写端点"重试不重复"**（幂等键 / 响应重放 / 新增 `Idempotency-Key`） | [写接口幂等](architecture/tech/idempotency/写接口幂等.md)（设计 + 为什么不做 X）；用例与对外契约 → [写接口幂等-测试与契约](architecture/tech/idempotency/写接口幂等-测试与契约.md) | 幂等覆盖范围、状态机或 TTL 变更时 |
