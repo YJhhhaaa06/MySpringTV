@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.comment.controller;
 
 import io.github.yjhhhaaa06.videoweb.comment.model.dto.AddCommentRequest;
+import io.github.yjhhhaaa06.videoweb.comment.model.vo.CommentCreatedVO;
 import io.github.yjhhhaaa06.videoweb.comment.model.vo.CommentVO;
 import io.github.yjhhhaaa06.videoweb.comment.service.CommentService;
 import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
@@ -97,15 +98,16 @@ public class CommentController {
     /**
      * 发表评论（主楼或楼中楼回复）。
      *
-     * <p>`T59` 起成功 = **200 + 无 data**（不再回「评论成功」文案）；
-     * 新评论的标识由客户端重新拉列表获得（本仓不提供单条评论详情端点）。
+     * <p>`T59` 起成功 = **200 + 无 data**；★ **`T66`（`N5`）起改为 `200 + {"commentId": N}`**
+     * ——幂等重放要让客户端能定位"刚创建的是哪一条"（此前只能知道"成功过"）。
+     * 契约变更依据见 {@code architecture/tech/api/接口契约.md} §2.5。
      */
     @RequiresLogin
     @PostMapping("/api/v1/comments")
-    public ApiResponse<Void> add(@CurrentUserId long userId,
-                                 @RequestBody @Valid AddCommentRequest request) {
-        commentService.addComment(userId, request);
-        return ApiResponse.success();
+    public ApiResponse<CommentCreatedVO> add(@CurrentUserId long userId,
+                                             @RequestBody @Valid AddCommentRequest request) {
+        long commentId = commentService.addComment(userId, request);
+        return ApiResponse.success(new CommentCreatedVO(commentId));
     }
 
     /**

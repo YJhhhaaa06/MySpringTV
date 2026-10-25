@@ -15,7 +15,7 @@ GET	/api/v1/admin/me	ADMIN	ApiResponse<Boolean>
 GET	/api/v1/admin/media	ADMIN	ApiResponse<MediaAuditResult>
 POST	/api/v1/admin/media/scan	ADMIN	ApiResponse<MediaAuditResult>
 PUT	/api/v1/admin/media/{id}	ADMIN	ApiResponse<RestoreResult>
-POST	/api/v1/comments	LOGIN	ApiResponse<Void>
+POST	/api/v1/comments	LOGIN	ApiResponse<CommentCreatedVO>
 DELETE	/api/v1/comments/{id}	LOGIN	ResponseEntity<Void>
 DELETE	/api/v1/comments/{id}/like	LOGIN	ResponseEntity<Void>
 GET	/api/v1/comments/{id}/like	LOGIN	ApiResponse<Boolean>

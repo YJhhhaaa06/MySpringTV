@@ -253,7 +253,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ApiResponseVoid"
+                $ref: "#/components/schemas/ApiResponseCommentCreatedVO"
           description: OK
         "400":
           $ref: "#/components/responses/ParamInvalid"
@@ -2406,6 +2406,19 @@ components:
             $ref: "#/components/schemas/ApiFieldError"
         msg:
           type: string
+    ApiResponseCommentCreatedVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          $ref: "#/components/schemas/CommentCreatedVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
     ApiResponseContentCreatedVO:
       type: object
       properties:
@@ -2833,6 +2846,12 @@ components:
           format: int64
         username:
           type: string
+    CommentCreatedVO:
+      type: object
+      properties:
+        commentId:
+          type: integer
+          format: int64
     CommentEnabledRequest:
       type: object
       properties:
