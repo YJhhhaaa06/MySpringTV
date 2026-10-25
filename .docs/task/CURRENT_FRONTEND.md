@@ -192,6 +192,11 @@ New-Item -ItemType Directory -Force -Path $prof | Out-Null
 `home-1600` / `home-full`（整页）/ `search-1600` / `video-1600` / `placeholder-1600` / `home-logged-in-1600`。
 ⚠️ 推荐流顺序**每次请求都不同**（后端随机），所以两次截图的卡片集合不同是正常的、不是 bug。
 
+> 6. ★ **拍我们自己的页面时，`--screenshot` + `--virtual-time-budget` 会在懒加载图片解码前收工** ⇒
+>    卡片封面截成**灰块**（不是 404，用 CDP 查 `img.complete/naturalWidth` 全是 true）。
+>    可信的产物图要走 CDP：等 `img.complete` 全真再 `Page.captureScreenshot`（本窗口脚本 `.tmp/shots.mjs`，
+>    temp）；或临时把 `loading="lazy"` 去掉再拍。
+
 ---
 
 ## 十一、工具链实测（2026-10-25；**本窗口已落地为 `frontend/`**）
