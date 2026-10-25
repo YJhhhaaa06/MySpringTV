@@ -36,10 +36,16 @@ import static org.assertj.core.api.Assertions.assertThat;
  * multipart 根本没被解析。这条冒烟同时是"链序位置正确"的一个可观察证据：
  * 若把机制挪进 Controller/AOP，第二个请求会先落盘再幂等，{@code content} 行数就会是 2。
  *
- * <h2>multipart 没有指纹（刻意的）</h2>
- * 过滤器只对 {@code application/json} 包装 request；multipart 不包装（避免把整个文件读进内存），
- * 因此 {@code Snapshot#fingerprint} 为空 ⇒ 重放路径**不比对载荷**。这不是缺陷，是已登记的取舍
- * （见 {@code architecture/tech/idempotency/写接口幂等.md} §九）。
+ * <h2>multipart 的指纹：<b>仅路径级</b>（`T69` 起）</h2>
+ * 过滤器只对 {@code application/json} 包装 request（避免把整个文件读进内存）⇒ multipart 的指纹是
+ * {@code SHA-256(method + "\n" + 实际路径)}，<b>不含 body</b>。由此得到两条**都写进断言**的性质：
+ * <ul>
+ *   <li>{@link #跨端点同key_各建一条()}：换端点时路径不同 ⇒ 指纹不同 —— 但本仓两条上传端点的
+ *       {@code slug} 也不同（{@code video} / {@code post}），同一个 clientKey 落在**两个 Redis 键**上，
+ *       指纹根本不会被比对 ⇒ 结果是"各建一条"而不是 422。这条用例钉住的是**键空间的隔离**。</li>
+ *   <li>{@link #同path换文件_仍是重放_已知代价()}：同 path 换文件 ⇒ 指纹相同 ⇒ **仍是重放**。
+ *       这是**有意保留的已知代价**（multipart 没有 body 指纹），见设计篇 §十三 第 3 条。</li>
+ * </ul>
  */
 class UploadIdempotencySmokeTests extends AbstractHttpIntegrationTest {
 
@@ -119,15 +125,88 @@ class UploadIdempotencySmokeTests extends AbstractHttpIntegrationTest {
         assertThat(countMedia(contentId)).as("零媒体也允许发布（旧版口径）").isZero();
     }
 
+    // ==================== T69：multipart 的路径级指纹 ====================
+
+    @Test
+    @DisplayName("跨端点同 key：videos 与 posts 各建一条（key 空间按 slug 隔离 ⇒ 路径级指纹在这两条端点之间不会相遇）")
+    void 跨端点同key_各建一条() {
+        String token = registerAndGetToken(PHONE, "idem-cross", PASSWORD);
+        long authorId = userIdOf(PHONE);
+        String key = clientKey("cross-endpoint");
+
+        ResponseEntity<String> video = postMultipart("/api/v1/contents/videos", videoForm(authorId),
+                token, idemKey(key));
+        assertThat(video.getStatusCode()).isEqualTo(HttpStatus.OK);
+        long videoContentId = Envelope.num(video, "contentId");
+
+        ResponseEntity<String> post = postMultipart("/api/v1/contents/posts", postForm(), token, idemKey(key));
+
+        assertThat(post.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(post.getHeaders().getFirst(IdempotencyFilter.HEADER_REPLAYED))
+                .as("换了端点 ⇒ 必须是新执行，不是重放").isNull();
+        assertThat(Envelope.num(post, "contentId")).isNotEqualTo(videoContentId);
+        assertThat(countContent()).as("两条端点各建一条").isEqualTo(2);
+
+        // ★ 为什么这里不是 422（任务卡 `T69` 场景 3 的原判据在本实现下不成立）：
+        //   key = `idem:{slug}:{uid}:{clientKey}`，videos 的 slug 是 `video`、posts 是 `post`
+        //   ⇒ 同一个 clientKey 天然落在**两个不同的 Redis 键**上，`ACQUIRE` 各占各的，
+        //   指纹**连比对的机会都没有**。跨端点串味是被**键命名空间**挡住的 —— 比 422 更强
+        //   （连占位都不共享）。下面两行把这个事实钉住：合并 slug 的实现会在这里变红。
+        assertThat(idemKeys()).as("两条端点各自一个占位键（slug 不同）")
+                .anyMatch(k -> k.startsWith("idem:video:"))
+                .anyMatch(k -> k.startsWith("idem:post:"));
+    }
+
+    @Test
+    @DisplayName("同 path 换文件 ⇒ 仍是重放（已知代价：multipart 指纹只含 method + 路径，不含 body）")
+    void 同path换文件_仍是重放_已知代价() {
+        String token = registerAndGetToken(OTHER_PHONE, "idem-swap-file", PASSWORD);
+        long authorId = userIdOf(OTHER_PHONE);
+        String key = clientKey("swap-file");
+
+        ResponseEntity<String> first = postMultipart("/api/v1/contents/videos",
+                videoForm(authorId, "T69 换文件-第一份", "test_cover.png", "image/png"),
+                token, idemKey(key));
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.OK);
+        long contentId = Envelope.num(first, "contentId");
+
+        // ★ 标题与封面文件都换了 ⇒ multipart body 确实不同。但指纹是**仅路径级**的
+        //   ⇒ 第二次仍被判成"同一次请求"。
+        ResponseEntity<String> second = postMultipart("/api/v1/contents/videos",
+                videoForm(authorId, "T69 换文件-第二份", "test_image.jpg", "image/jpeg"),
+                token, idemKey(key));
+
+        assertThat(second.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(second.getHeaders().getFirst(IdempotencyFilter.HEADER_REPLAYED))
+                .as("★★ 这是**有意保留的已知代价**（不是 bug、也不是漏接线）：multipart 无 body 指纹"
+                        + "⇒ 同 path 换文件仍是重放。要识别它必须把上传通路改成流式摘要，"
+                        + "读文件进内存更贵 —— 见设计篇 §十三 第 3 条")
+                .isEqualTo("true");
+        assertThat(Envelope.num(second, "contentId"))
+                .as("回的是**第一份**那个 contentId（第二份的标题/封面从未生效）")
+                .isEqualTo(contentId);
+        assertThat(second.getBody()).as("重放逐字节相同").isEqualTo(first.getBody());
+        assertThat(countContent()).as("同 key 两次只落一条 content").isEqualTo(1);
+    }
+
     // ==================== multipart 夹具（同 UploadFlowTests 形态） ====================
 
     private MultiValueMap<String, Object> videoForm(long authorId) {
+        return videoForm(authorId, "T66 幂等视频 " + authorId, "test_cover.png", "image/png");
+    }
+
+    /**
+     * 视频表单：标题与封面可换（`T69` 的"同 path 换文件"用例要造一份**不同的 multipart body**）。
+     * 封面换成 {@code test_image.jpg} 仍是合法后缀（{@code UploadType.COVER} 允许 {@code .jpg/.png}）。
+     */
+    private MultiValueMap<String, Object> videoForm(long authorId, String title,
+                                                    String coverFileName, String coverContentType) {
         MultiValueMap<String, Object> form = new LinkedMultiValueMap<>();
-        form.add("title", "T66 幂等视频 " + authorId);
+        form.add("title", title);
         form.add("description", "T66 idempotency smoke");
         form.add("categoryId", "1");
         addFilePart(form, "video", "test_video.mp4", "video/mp4");
-        addFilePart(form, "cover", "test_cover.png", "image/png");
+        addFilePart(form, "cover", coverFileName, coverContentType);
         return form;
     }
 
@@ -173,6 +252,12 @@ class UploadIdempotencySmokeTests extends AbstractHttpIntegrationTest {
     private long countContent() {
         Long n = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM content", Long.class);
         return n == null ? 0 : n;
+    }
+
+    /** 当前 {@code idem:*} 键（跨端点用例要证明两个端点各占一个键）。 */
+    private Set<String> idemKeys() {
+        Set<String> keys = redis.keys("idem:*");
+        return keys == null ? Set.of() : keys;
     }
 
     private long countMedia(long contentId) {

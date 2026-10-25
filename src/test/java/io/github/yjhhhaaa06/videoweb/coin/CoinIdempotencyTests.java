@@ -57,9 +57,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li><b>不断言谁先谁后</b>：并发用例只断言"合法结果集合"与列终态，见
  *       {@link #并发同key_业务只执行一次()}。</li>
  * </ol>
- * ⚠️ <b>对照为什么"换内容"时必须同时换 key</b>：指纹只覆盖**请求体**（{@code {"count":N}}），
- * 不含路径 ⇒ 同一个 key 打到另一条内容、body 又一样时，拿到的是第一次的快照（重放）。
- * 那是"key 是意图标识"的直接推论（客户端复用 key ⇒ 同一个意图），故对照一律换 key。
+ * <h2>★ 指纹含实际路径（`T69`）：换目标 ⇒ 422，不再是"借着重放假装成功"</h2>
+ * 指纹 = {@code SHA-256(method + "\n" + 实际请求路径 + "\n" + 请求体)} ⇒ 同一个 key 打到
+ * <b>另一条内容</b>（{@code {id}} 变了、body 逐字节相同）现在是
+ * {@code 422 IDEMPOTENCY_KEY_CONFLICT}，见 {@link #同key同body换内容_422零副作用()}。
+ * <p>⚠️ <b>本任务<b>没有</b>修</b>"同 key + 同目标 + 两次独立意图"——那仍是重放，而且不该修：
+ * {@code Idempotency-Key} 的定义就是"客户端声明这是同一次请求"。故各用例的对照
+ * 一律用<b>新 key</b>（不是为了绕开指纹，而是"独立意图"的正确表达）。
  *
  * <h2>★ "重放的是首次快照"怎么才**可判别**（用例 1）</h2>
  * 只断言"两次的 {@code balance} 相同"是**假绿**：实时重算余额也会得到同一个值（首次已扣过一次）。
@@ -281,6 +285,59 @@ class CoinIdempotencyTests extends AbstractCoinIntegrationTest {
         assertThat(otherResp.getHeaders().getFirst(IdempotencyFilter.HEADER_REPLAYED)).isNull();
         assertThat(amountOf(other.id(), contentId)).isEqualTo(2);
         assertThat(coinCountOf(contentId)).as("1（本人）+ 2（另一用户）= 3").isEqualTo(3);
+    }
+
+    // ==================== ★ 换目标：指纹含实际路径（T69） ====================
+
+    @Test
+    @DisplayName("★换目标：同 key + 同 body 打到另一条内容 ⇒ 422 IDEMPOTENCY_KEY_CONFLICT，两条内容与双方余额全部不变")
+    void 同key同body换内容_422零副作用() {
+        TestUser voter = registerUser(VOTER_PHONE, "t69_target");
+        TestUser author = registerUser(AUTHOR_PHONE, "t69_target_author");
+        setCoinDeci(voter.id(), 40);
+        long contentId = insertContent(author.id(), VIDEO, "T69 幂等视频-目标A");
+        long otherContentId = insertContent(author.id(), VIDEO, "T69 幂等视频-目标B");
+        String key = clientKey("target");
+
+        ResponseEntity<String> first = addCoin(voter.token(), contentId, 1, idemKey(key));
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.OK);
+        // 首次的列终态 = 下面"零副作用"的基线（直查 DB，不读回显）
+        assertThat(coinDeciOf(voter.id())).as("40 − 10 = 30").isEqualTo(30);
+        assertThat(amountOf(voter.id(), contentId)).isEqualTo(1);
+        assertThat(coinCountOf(contentId)).isEqualTo(1);
+        assertThat(authorCoinDeciOf(author.id())).isEqualTo(1);
+
+        // ★★ 同一个 key、**逐字节相同**的 body，只把路径上的 {id} 换掉。
+        //    判别点：指纹只算请求体（或误用路由模式 `/contents/{id}/coins`）时，这里会命中
+        //    首次快照 ⇒ **200 + Idempotent-Replayed**，回第一次的 balance —— 那正是"假成功"。
+        ResponseEntity<String> conflict = addCoin(voter.token(), otherContentId, 1, idemKey(key));
+
+        assertThat(conflict.getStatusCode())
+                .as("指纹含实际路径 ⇒ 换目标必须 422（回退成仅 body / 仅路由模式时会变 200 重放）")
+                .isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
+        assertThat(Envelope.code(conflict)).isEqualTo("IDEMPOTENCY_KEY_CONFLICT");
+        assertThat(conflict.getHeaders().getFirst(IdempotencyFilter.HEADER_REPLAYED))
+                .as("换目标走错误信封，不是重放（重放会带 Idempotent-Replayed: true）").isNull();
+
+        // ★ 零副作用：两条内容 / 关系行 / 累计数 / 双方余额全不动
+        assertThat(coinDeciOf(voter.id())).as("投币人余额不动（只有首次扣过）：30").isEqualTo(30);
+        assertThat(amountOf(voter.id(), otherContentId)).as("被换的目标上一条关系行都不许落").isNull();
+        assertThat(coinCountOf(otherContentId)).as("被换的目标 coin_count 仍是 0").isZero();
+        assertThat(amountOf(voter.id(), contentId)).as("首次那条不受影响").isEqualTo(1);
+        assertThat(coinCountOf(contentId)).isEqualTo(1);
+        assertThat(authorCoinDeciOf(author.id())).as("作者收益只来自首次：1 分位").isEqualTo(1);
+        assertThat(countCoinRows()).as("全局只有首次那一行").isEqualTo(1);
+
+        // ★ 对照：同一份 body、换**另一个 key** 打目标 B ⇒ 正常执行
+        //   （证明 422 是"key 复用 + 换目标"引起的，不是目标 B 本身不可投）
+        ResponseEntity<String> freshKey = addCoin(voter.token(), otherContentId, 1,
+                idemKey(clientKey("target-new-key")));
+
+        assertThat(freshKey.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(freshKey.getHeaders().getFirst(IdempotencyFilter.HEADER_REPLAYED)).isNull();
+        assertThat(amountOf(voter.id(), otherContentId)).isEqualTo(1);
+        assertThat(coinCountOf(otherContentId)).isEqualTo(1);
+        assertThat(coinDeciOf(voter.id())).as("40 − 10（首次）− 10（换 key 后的一次）").isEqualTo(20);
     }
 
     // ==================== 用例 5：首次失败（墓碑不是锁） ====================

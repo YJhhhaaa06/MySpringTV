@@ -82,10 +82,16 @@ import java.util.regex.Pattern;
  *   <tr><td>写 {@code DONE}</td><td>写 fp</td><td>handler 已读完 body，从请求缓存算</td></tr>
  *   <tr><td>命中 {@code DONE}</td><td>算本次并比对</td><td>不同 ⇒ 422；这条路径<b>不进 chain</b>，读坏请求流无副作用</td></tr>
  * </table>
- * <p>只对 {@code application/json} 包装 request（multipart 不包装 ⇒ 不把文件读进内存，
- * 登记为"上传类不做指纹校验"）。请求缓存达到 {@code limits.fingerprint-bytes} 即视为<b>无指纹</b>
+ * <p>★ <b>指纹 = {@code SHA-256(method + "\n" + 实际请求路径 + "\n" + 请求体)}</b>（JSON）；
+ * multipart / 非 JSON ⇒ {@code SHA-256(method + "\n" + 实际请求路径)}（<b>仅路径级</b>，不含 body）。
+ * 路径取 {@code getRequestURI()} 而<b>不是</b>路由模式——两者对
+ * {@code /contents/1/coins} 与 {@code /contents/2/coins} 分别相同与不同，用模式等于没算路径。
+ * <p>只对 {@code application/json} 包装 request（multipart 不包装 ⇒ 不把文件读进内存）。
+ * 请求缓存达到 {@code limits.fingerprint-bytes} 即视为<b>无指纹</b>
  * ——★ 因为 {@code ContentCachingRequestWrapper} 超限是<b>静默截断</b>（不抛异常、只是不再缓存），
  * 只能靠 {@code cached.length >= limit} 判定；<b>不可用截断后的 body 算指纹</b>。
+ * ⚠️ JSON 且算不出 body（未读 / 为空 / 超限）时 fp <b>仍为 {@code null}</b>，
+ * <b>不得</b>退化成"仅路径级"——那会把"不同 body"判成同一份载荷。
  *
  * <h2>★ 失败分档（两档不能合并）</h2>
  * <table>
@@ -253,7 +259,8 @@ public class IdempotencyFilter extends OncePerRequestFilter {
                                   FilterChain chain, String key, String owner,
                                   String routeKey, Long userId) throws ServletException, IOException {
         ContentCachingResponseWrapper responseWrapper = new ContentCachingResponseWrapper(response);
-        // ★ 只有 JSON 才包装 request：multipart 包装会把整个文件读进内存（上传类不做指纹校验）。
+        // ★ 只有 JSON 才包装 request：multipart 包装会把整个文件读进内存。
+        //   multipart 的指纹走"仅路径级"分支（见 fingerprintOfCachedRequest），不需要读 body。
         HttpServletRequest chainRequest = isJson(request)
                 ? new ContentCachingRequestWrapper(request, properties.limits().fingerprintBytes())
                 : request;
@@ -319,15 +326,19 @@ public class IdempotencyFilter extends OncePerRequestFilter {
      * 命中 {@code DONE}：校验指纹后重放首次响应。
      *
      * <p>★ 这条路径<b>不进 chain</b> ⇒ 可以直接读请求流，读坏的流没有副作用。
-     * 指纹比对只在"快照里有 fp 且本次能算出 fp"时进行；<b>算不出</b>（multipart / 超限 / handler 未读）
+     * 指纹比对只在"快照里有 fp 且本次能算出 fp"时进行；<b>算不出</b>（JSON 的超限 / handler 未读）
      * 时视为"无指纹"而不是"不匹配"——后者会把正常重试误判成 422。
+     * <p>★ 两条来源不同、口径必须一致：JSON ⇒ body 级；multipart / 非 JSON ⇒ <b>仅路径级</b>
+     * （首次写 {@code DONE} 时 {@link #fingerprintOfCachedRequest} 也是这么算的）。
      */
     private void replayOrConflict(HttpServletRequest request, HttpServletResponse response,
                                   String routeKey, Long userId,
                                   IdempotencyRedisOps.Snapshot snapshot) throws IOException {
         String currentFingerprint = null;
-        if (snapshot.fingerprint() != null && isJson(request)) {
-            currentFingerprint = fingerprintOfRawRequest(request);
+        if (snapshot.fingerprint() != null) {
+            currentFingerprint = isJson(request)
+                    ? fingerprintOfRawRequest(request)
+                    : fingerprintOfPath(request);
             if (currentFingerprint != null && !currentFingerprint.equals(snapshot.fingerprint())) {
                 metrics.recordDecision(Decision.CONFLICT);
                 log.warn("同一幂等键配了不同载荷（422，零副作用）: route={} userId={}", routeKey, userId);
@@ -457,12 +468,44 @@ public class IdempotencyFilter extends OncePerRequestFilter {
         }
     }
 
-    /** chain 之后取指纹：从 {@link ContentCachingRequestWrapper} 的缓存算（handler 已把 body 读完）。 */
-    private String fingerprintOfCachedRequest(HttpServletRequest chainRequest) {
-        if (!(chainRequest instanceof ContentCachingRequestWrapper wrapper)) {
-            return null;
+    /**
+     * 指纹里的<b>实际请求路径</b>：{@code getRequestURI()} 去掉 {@code contextPath}，<b>不含 query</b>。
+     *
+     * <p>★ 为什么是原始 URI 而不是 {@link HandlerMapping#BEST_MATCHING_PATTERN_ATTRIBUTE}：
+     * 路由模式对 {@code /contents/1/coins} 与 {@code /contents/2/coins} <b>完全相同</b>
+     * （都是 {@code /contents/{id}/coins}）——拿它算指纹，等于"换了目标也算同一份载荷"，
+     * 本任务要修的正是这一类<b>假成功</b>。（查表仍必须用模式，见 {@link #patternOf}：
+     * 两处口径不同是刻意的——查表要"端点身份"，指纹要"这一次打的到底是谁"。）
+     *
+     * <p>归一化只做"去 contextPath"一项：本仓未配置 {@code server.servlet.context-path}
+     * （实测为空，且 {@code AccessLogFilter} 也是这么取的），这一句是防御性的，口径与
+     * {@link #patternOf} 的回退分支一致。
+     * <p>★ 不额外做 URL 解码：Servlet 规范的 {@code getRequestURI()} 返回<b>未解码</b>的 URI
+     * （Tomcat 同此），而写入与比对两侧取的是同一个来源 ⇒ 天然自洽；主动解码反而会让
+     * {@code %2F} 与 {@code /} 两种写法撞在一起，把两种不同的请求算成同一份。
+     * <p>★ 不含 query：4 条 {@code KEYED} 端点都不读 query，拼进去只会让"重试时顺手加个
+     * {@code ?_t=} 破缓存"被误判成 422。
+     */
+    private static String actualPathOf(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        String contextPath = request.getContextPath();
+        if (contextPath == null || contextPath.isEmpty() || !uri.startsWith(contextPath)) {
+            return uri;
         }
-        return fingerprintOfCached(wrapper.getContentAsByteArray());
+        return uri.substring(contextPath.length());
+    }
+
+    /** 指纹的公共前缀：{@code method + "\n" + 实际路径}（JSON 分支再追加 {@code "\n" + body}）。 */
+    private static String fingerprintHead(HttpServletRequest request) {
+        return request.getMethod() + "\n" + actualPathOf(request);
+    }
+
+    /** chain 之后的指纹：JSON ⇒ body 级；multipart / 非 JSON ⇒ <b>仅路径级</b>。 */
+    private String fingerprintOfCachedRequest(HttpServletRequest chainRequest) {
+        if (chainRequest instanceof ContentCachingRequestWrapper wrapper) {
+            return fingerprintOfBody(chainRequest, wrapper.getContentAsByteArray());
+        }
+        return fingerprintOfPath(chainRequest);
     }
 
     /**
@@ -478,17 +521,23 @@ public class IdempotencyFilter extends OncePerRequestFilter {
         while (wrapper.getContentAsByteArray().length < limit && in.read(buffer) >= 0) {
             // 只为把请求体填进 wrapper 的缓存
         }
-        return fingerprintOfCached(wrapper.getContentAsByteArray());
+        return fingerprintOfBody(request, wrapper.getContentAsByteArray());
+    }
+
+    /** 仅路径级指纹（multipart / 非 JSON）：{@code SHA-256(method + "\n" + 路径)}。 */
+    private String fingerprintOfPath(HttpServletRequest request) {
+        return sha256(fingerprintHead(request), null);
     }
 
     /**
-     * 缓存 → 指纹。
+     * body 级指纹：{@code SHA-256(method + "\n" + 路径 + "\n" + body)}。
      *
      * <p>三种"无指纹"：① handler 没读 body（缓存为空 —— 不能因此判"不匹配"）；
      * ② 达到 {@code fingerprint-bytes} 上限（★ {@code ContentCachingRequestWrapper} 超限是
-     * <b>静默截断</b>，只能靠长度判定）；③ 真的没有 body。三者都返回 {@code null}。
+     * <b>静默截断</b>，只能靠长度判定）；③ 真的没有 body。三者都返回 {@code null}，
+     * <b>绝不</b>退化成"仅路径级"（否则不同 body 会被判成同一份载荷）。
      */
-    private String fingerprintOfCached(byte[] cached) {
+    private String fingerprintOfBody(HttpServletRequest request, byte[] cached) {
         int limit = properties.limits().fingerprintBytes();
         if (cached == null || cached.length == 0) {
             return null;
@@ -498,8 +547,18 @@ public class IdempotencyFilter extends OncePerRequestFilter {
                     cached.length, limit);
             return null;
         }
+        return sha256(fingerprintHead(request) + "\n", cached);
+    }
+
+    /** 分段喂 SHA-256：body 可能是原始字节（JSON 不保证是合法 UTF-8 子串），不经字符串转换。 */
+    private static String sha256(String head, byte[] body) {
         try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(cached));
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            digest.update(head.getBytes(StandardCharsets.UTF_8));
+            if (body != null) {
+                digest.update(body);
+            }
+            return HexFormat.of().formatHex(digest.digest());
         } catch (NoSuchAlgorithmException e) {
             // SHA-256 是 JDK 强制实现，走不到这里；真到了也不该让请求失败 ⇒ 当作"无指纹"。
             log.error("SHA-256 不可用（JDK 异常），本次不校验指纹", e);

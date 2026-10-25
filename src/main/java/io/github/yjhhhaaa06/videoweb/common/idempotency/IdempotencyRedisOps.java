@@ -19,7 +19,8 @@ import java.util.List;
  * KEY   idem:{slug}:{uid}:{clientKey}
  * FIELD state   PENDING | DONE | FAILED
  * FIELD owner   随机 token（CAS 用）
- * FIELD fp      SHA-256(请求体)，仅 JSON 端点、仅 DONE（multipart 无指纹 ⇒ 空）
+ * FIELD fp      SHA-256(method \\n 实际路径 [\\n 请求体])，仅 DONE：
+ *               JSON = body 级；multipart / 非 JSON = <b>仅路径级</b>（`T69`）
  * FIELD code    首次响应的 HTTP status
  * FIELD body    首次响应的 body（<= snapshot-bytes）
  * FIELD ctype   Content-Type
@@ -288,7 +289,8 @@ public class IdempotencyRedisOps extends RedisOps {
     /**
      * 首次响应快照（重放所需的<b>最小集</b>）。
      *
-     * @param fingerprint {@code SHA-256(请求体)}；{@code null} = 无指纹（multipart / 请求体超限 / handler 未读 body）
+     * @param fingerprint 指纹：JSON 为 {@code SHA-256(method\n路径\nbody)}、multipart 为
+     *                    {@code SHA-256(method\n路径)}；{@code null} = 无指纹（JSON 的请求体超限 / 未读 / 为空）
      * @param status      首次响应的 HTTP 状态（只会是 2xx——非 2xx 从不进快照）
      * @param contentType 首次响应的 Content-Type（原样回放；空串 = 原响应就没有 Content-Type）
      * @param body        首次响应的 body（UTF-8 解码后的字符串，<= {@code limits.snapshot-bytes}）
