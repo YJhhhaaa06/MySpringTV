@@ -123,17 +123,33 @@ public class IdempotencyFilter extends OncePerRequestFilter {
     /** key 合法形态：字符集排除 {@code :} 与 {@code /}，故 {@code idem:{slug}:{uid}:{key}} 的边界唯一可解析。 */
     private static final Pattern CLIENT_KEY = Pattern.compile("[A-Za-z0-9._-]{1,64}");
 
-    /** {@code missing_key} 日志的按端点节流窗口（写接口幂等.md §七：按端点 5 min）。 */
-    private static final long MISSING_KEY_LOG_INTERVAL_MILLIS = 5 * 60 * 1000L;
+    /** {@code missing_key} / 回退查表 的按端点日志节流窗口（写接口幂等.md §七：按端点 5 min）。 */
+    private static final long LOG_THROTTLE_INTERVAL_MILLIS = 5 * 60 * 1000L;
 
     /** 409 的 {@code Retry-After}：短轮询已等过 {@code poll.attempts × interval-millis}，再给 1 s。 */
     private static final long IN_PROGRESS_RETRY_AFTER_SECONDS = 1;
+
+    /** 回退节流表的容量上限：只在"链序已坏"的世界里生效，超出即整体清空（不做 LRU，太重）。 */
+    private static final int FALLBACK_LOG_MAX_ENTRIES = 64;
 
     /**
      * {@code missing_key} 的日志节流表（key = 路由，只有 4 条 KEYED ⇒ 天然有界）。
      * 不加锁：并发下最多多打一行，无正确性影响。
      */
     private final ConcurrentMap<String, Long> missingKeyLoggedAt = new ConcurrentHashMap<>();
+
+    /**
+     * 查表回退的日志节流表（key = 「方法 空格 原始路径」）。
+     *
+     * <p>★ 回退本身是<b>结构性异常</b>（见 {@link #patternOf(HttpServletRequest)}），必须留痕；
+     * 但链序真的坏掉时它会按请求命中 ⇒ 必须节流，否则会把 {@code system.log} 刷满。
+     * 与 {@link #missingKeyLoggedAt} 分开两张表：两类事件的频次不同源，合并会让"回退 5 min 内
+     * 只打一次"被缺 key 的正常流量吃掉。
+     *
+     * <p>⚠️ 这张表的 key 含<b>原始路径</b>（路由模式正是拿不到的那个东西），故它**不是天然有界**的
+     * ——用 {@link #FALLBACK_LOG_MAX_ENTRIES} 兜住上限（清空重建的代价只是多打几行）。
+     */
+    private final ConcurrentMap<String, Long> patternFallbackLoggedAt = new ConcurrentHashMap<>();
 
     private final IdempotencyProperties properties;
     private final IdempotencyStore store;
@@ -328,7 +344,14 @@ public class IdempotencyFilter extends OncePerRequestFilter {
         response.setContentLength(body.length);
         // ★ 只在这里出现（首次响应不带）。
         response.setHeader(HEADER_REPLAYED, REPLAYED_TRUE);
-        response.getOutputStream().write(body);
+        try {
+            response.getOutputStream().write(body);
+        } catch (IOException e) {
+            // 与 executeAndSettle 的 copyBodyToResponse 同款：断连是常态，快照已在盘上 ⇒ DEBUG。
+            // ★ 不能让它冒出去：一次成功的重放若因对端断开而抛 IOException，就会被容器的错误分发
+            //   记成 5xx（幂等器自身"重放失败"却污染访问日志，排障时会以为是业务失败）。
+            log.debug("重放响应体失败（客户端可能已断开；幂等快照不受影响）: route={}", routeKey, e);
+        }
         metrics.recordDecision(Decision.HIT);
         log.debug("重放首次响应: route={} userId={} status={} bytes={} fpMatched={}",
                 routeKey, userId, snapshot.status(), body.length, currentFingerprint != null);
@@ -384,15 +407,36 @@ public class IdempotencyFilter extends OncePerRequestFilter {
      * {@code POST /api/v1/contents/{id}/coins} 静默落"未登记"——那等于幂等保护**静默消失**
      * （限流那张表踩过这个坑，{@code RateLimitFilter#costOf} 同款处理）。
      *
-     * @return 未映射 / 不可解析时返回原始路径（口径仍是"未登记 ⇒ 放行"）
+     * <h2>★ 取不到属性时<b>不接受静默回退</b></h2>
+     * 属性缺失只有一种成因：<b>链序被改坏</b>（本类跑到了 {@code JwtAuthFilter} 之前，或
+     * {@code RequestMappingLookup} 被摘掉）。回退到原始 URI 后，带 {@code {id}} 的路由会查不到登记 ⇒
+     * 幂等保护静默消失。故回退分支必须同时做两件事：
+     * <ul>
+     *   <li>记一次 {@link Decision#DEGRADED}（"幂等已降级"的唯一观测口）；</li>
+     *   <li>按端点 <b>5 min 节流</b>打 WARN（链序坏了是缺陷，但按请求打会刷满日志）。</li>
+     * </ul>
+     *
+     * @return 未映射 / 不可解析时返回原始路径（口径仍是"未登记 ⇒ 放行"，但已留痕）
      */
-    private static String patternOf(HttpServletRequest request) {
+    private String patternOf(HttpServletRequest request) {
         Object bestMatchingPattern = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
         if (bestMatchingPattern != null) {
             return bestMatchingPattern.toString();
         }
         String uri = request.getRequestURI();
-        return uri.substring(request.getContextPath().length());
+        String path = uri.substring(request.getContextPath().length());
+        metrics.recordDecision(Decision.DEGRADED);
+        String routeKey = request.getMethod() + " " + path;
+        if (patternFallbackLoggedAt.size() >= FALLBACK_LOG_MAX_ENTRIES) {
+            // 只有"链序已坏 + 有人在扫不同路径"同时成立才会走到这里；清空的代价只是再打几行
+            patternFallbackLoggedAt.clear();
+        }
+        if (throttled(patternFallbackLoggedAt, routeKey)) {
+            log.warn("取不到路由模式（HandlerMapping.BEST_MATCHING_PATTERN 缺失），回退原始路径查表"
+                    + "——链序可能被改坏（本类必须排在 JwtAuthFilter 之内侧），带 {id} 的端点会静默失去幂等: "
+                    + "route={}", routeKey);
+        }
+        return path;
     }
 
     private static Long userIdOf(HttpServletRequest request) {
@@ -470,13 +514,26 @@ public class IdempotencyFilter extends OncePerRequestFilter {
      * 频次由指标 {@code idempotency.decisions{result=missing_key}} 全量承载。
      */
     private void logMissingKey(String routeKey, Long userId) {
-        long now = System.currentTimeMillis();
-        Long previous = missingKeyLoggedAt.get(routeKey);
-        if (previous != null && now - previous < MISSING_KEY_LOG_INTERVAL_MILLIS) {
+        if (!throttled(missingKeyLoggedAt, routeKey)) {
             return;
         }
-        missingKeyLoggedAt.put(routeKey, now);
         log.warn("未带 Idempotency-Key，放行且不占位（可选增强，退化为普通请求）: route={} userId={}",
                 routeKey, userId);
+    }
+
+    /**
+     * 按端点节流的判定：{@code true} = 本次该打日志。
+     *
+     * <p>不加锁：并发下最多多打一行，无正确性影响。容量由调用方的表决定
+     * （{@code missing_key} 的 key 是路由模式，天然有界；回退表的 key 含原始路径，故另加了上限）。
+     */
+    private static boolean throttled(ConcurrentMap<String, Long> loggedAt, String routeKey) {
+        long now = System.currentTimeMillis();
+        Long previous = loggedAt.get(routeKey);
+        if (previous != null && now - previous < LOG_THROTTLE_INTERVAL_MILLIS) {
+            return false;
+        }
+        loggedAt.put(routeKey, now);
+        return true;
     }
 }
