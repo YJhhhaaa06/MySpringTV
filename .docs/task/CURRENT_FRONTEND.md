@@ -222,8 +222,11 @@ New-Item -ItemType Directory -Force -Path $prof | Out-Null
   --screenshot="$out\home-1600.png" "http://localhost:5173/"
 ```
 
-**重制产物对照图**（同样图不入库，2026-10-25 本窗口实拍）在 `.screenshots/frontend-2026-10-25/`：
-`home-1600` / `home-full`（整页）/ `search-1600` / `video-1600` / `placeholder-1600` / `home-logged-in-1600`。
+**重制产物对照图**（同样图不入库）在 `.screenshots/frontend-2026-10-25/`：
+`home-1600` · `home-full`（整页）· `search-1600` · `video-1600` · `video-comments-full`（整页：播放器 + 操作栏 + 主楼 + 楼中楼）·
+`video-interactions-anon-1600` / `-logged-in-1600` / `-final-1600` / `-full` · `video-coin-dialog-1600` ·
+`video-favorite-dialog-1600` · `video-progress-resume-1600`（续播提示）· `space-anon-1600` · `space-folders-1600` ·
+`placeholder-1600` · `home-logged-in-1600`。
 ⚠️ 推荐流顺序**每次请求都不同**（后端随机），所以两次截图的卡片集合不同是正常的、不是 bug。
 
 > 6. ★ **拍我们自己的页面时，`--screenshot` + `--virtual-time-budget` 会在懒加载图片解码前收工** ⇒
