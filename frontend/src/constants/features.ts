@@ -112,12 +112,8 @@ Object.assign(registry, {
     kind: 'never',
     note: '本仓没有弹幕域（无表、无端点、无 WS）。卡片也不显示弹幕数 —— 假数字一问就穿帮。',
   },
-  space: {
-    key: 'space',
-    label: 'UP 空间',
-    kind: 'pending',
-    note: '后端已有 GET /users/{id}（资料 + 作品分页 Page）。页面在后续窗口交付。',
-  },
+  // ★ `space`（UP 空间）已于 2026-10-25 交付（`space.html` + `/space/:id`）⇒ 从本注册表移除。
+  //   `/placeholder/space` 因此落到「页面不存在」，真链接在 `adapters/links.ts#spaceHref`。
   favorites: {
     key: 'favorites',
     label: '收藏',

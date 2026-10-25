@@ -35,6 +35,7 @@ const showCover = computed(() => Boolean(props.item.coverUrl) && !coverBroken.va
         <AppIcon name="tv" :size="30" />
       </span>
       <span v-if="item.isPost" class="video-card__type">图文</span>
+      <span v-if="item.invalid" class="video-card__invalid">已失效</span>
       <span v-if="item.durationText" class="video-card__duration">{{ item.durationText }}</span>
       <!-- 列表 VO 没有任何计数 ⇒ 播放量角标**不渲染**（不编数字）；
            本仓没有弹幕域 ⇒ 弹幕数**永不渲染** -->
@@ -44,9 +45,16 @@ const showCover = computed(() => Boolean(props.item.coverUrl) && !coverBroken.va
       <a class="video-card__title" :href="item.href" target="_blank" rel="noopener">{{ item.title }}</a>
       <p class="video-card__meta">
         <AppIcon name="user" :size="13" />
-        <a class="video-card__author" :href="item.authorHref" :title="`进入 ${item.authorName} 的空间（占位页）`">
+        <!-- 收藏夹条目（FavoriteItemVO）没有 authorId ⇒ 作者只能渲染成纯文本，不做死链 -->
+        <a
+          v-if="item.authorHref"
+          class="video-card__author"
+          :href="item.authorHref"
+          :title="`进入 ${item.authorName} 的空间`"
+        >
           {{ item.authorName }}
         </a>
+        <span v-else class="video-card__author">{{ item.authorName }}</span>
         <template v-if="item.dateText">
           <span class="video-card__dot">·</span>
           <span>{{ item.dateText }}</span>
@@ -117,6 +125,19 @@ const showCover = computed(() => Boolean(props.item.coverUrl) && !coverBroken.va
   line-height: 16px;
   color: var(--text-1);
   background: rgba(255, 255, 255, 0.86);
+}
+
+/* 已失效（收藏夹里的内容被删）：B 站留灰卡 + 角标，用户才知道自己收藏过什么 */
+.video-card__invalid {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-inverse);
+  background: rgba(0, 0, 0, 0.62);
 }
 
 .video-card__info {

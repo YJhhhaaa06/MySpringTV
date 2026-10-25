@@ -25,8 +25,9 @@ export interface VideoCardVM {
   /** 时长角标（`mm:ss` / `h:mm:ss`）；null = 不显示（纵向图文或后端未回填时长） */
   durationText: string | null
   authorName: string
-  authorHref: string
-  /** 相对发布时间（B 站口径：`3天前` / `09-28`） */
+  /** UP 主空间链接；`null` = 这个 VO 没带作者 id（收藏夹条目 `FavoriteItemVO` 就是） */
+  authorHref: string | null
+  /** 相对发布时间（B 站口径：`3天前` / `09-28`）；空串 = 不显示（收藏条目没有发布时间） */
   dateText: string
   /** 播放量。列表 VO 没有任何计数 ⇒ 恒 null（**隐藏角标，不许用假数字**） */
   playCountText: string | null
@@ -36,6 +37,8 @@ export interface VideoCardVM {
   isPost: boolean
   /** 该内容是否已被**当前登录用户**点过赞（列表面只回这一维，见互动态三态） */
   liked: boolean | null
+  /** 内容已删除 / 不可见（收藏夹条目才有这个标记）⇒ 卡片打灰、标题写"已失效" */
+  invalid?: boolean
 }
 
 /** 首页大轮播的一屏（真封面 + 真标题，不是运营广告位 —— 见 GAP 台账） */

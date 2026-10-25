@@ -33,8 +33,8 @@ describe('toVideoCard', () => {
     expect(card.title).toBe('这期具有教育意义🐧')
     expect(card.href).toBe('/video/92')
     expect(card.authorName).toBe('一号员工')
-    // 空间页后续窗口才交付 ⇒ 暂挂占位路由（改 links.ts 一处即可换回 /space/{id}）
-    expect(card.authorHref).toBe('/placeholder/space?uid=1')
+    // 空间页已交付（2026-10-25）⇒ 跨应用链接指向 /space/{id}（links.ts 是唯一出处）
+    expect(card.authorHref).toBe('/space/1')
     // 2026-05-09 距 now 超过 30 天且同年 ⇒ MM-DD
     expect(card.dateText).toBe('05-09')
   })
@@ -81,3 +81,4 @@ describe('toVideoCard', () => {
     expect(toVideoCard(content({ interaction: { isLiked: false } }), now).liked).toBe(false)
   })
 })
+

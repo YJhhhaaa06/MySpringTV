@@ -9,7 +9,7 @@ describe('toCurrentUser', () => {
     const user = toCurrentUser({ id: 233, username: 'frontend_demo', phone: '13900000002', admin: false, coin: 3 })
     expect(user.initial).toBe('F')
     expect(user.name).toBe('frontend_demo')
-    expect(user.spaceHref).toBe('/placeholder/space?uid=233')
+    expect(user.spaceHref).toBe('/space/233')
   })
 
   it('中文昵称取第一个字（不是首字节）', () => {
@@ -50,7 +50,7 @@ describe('toAuthorCard', () => {
     expect(card.followerCount).toBe(12_345)
     expect(card.followingCount).toBe(2)
     expect(card.worksCount).toBe(8)
-    expect(card.href).toBe('/placeholder/space?uid=3')
+    expect(card.href).toBe('/space/3')
   })
 
   it('缺失的计数 ⇒ null（渲染成 `-`，不假装是 0）', () => {
@@ -65,3 +65,4 @@ describe('toAuthorCard', () => {
     expect(toAuthorCard({ ...profile, isFollowed: true }).followed).toBe(true)
   })
 })
+
