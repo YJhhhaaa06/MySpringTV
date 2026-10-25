@@ -16,7 +16,6 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestClient;
 
 import java.util.Set;
 import java.util.UUID;
@@ -224,20 +223,6 @@ class UploadIdempotencySmokeTests extends AbstractHttpIntegrationTest {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.valueOf(contentType));
         form.add(name, new HttpEntity<>(new FileSystemResource(testResource(fileName)), headers));
-    }
-
-    private ResponseEntity<String> postMultipart(String path, MultiValueMap<String, Object> form,
-                                                 String token, HttpHeaders extraHeaders) {
-        return send(spec -> {
-            RestClient.RequestBodySpec request = spec.uri(path).contentType(MediaType.MULTIPART_FORM_DATA);
-            if (token != null) {
-                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-            }
-            if (extraHeaders != null && !extraHeaders.isEmpty()) {
-                request = request.headers(headers -> extraHeaders.forEach(headers::addAll));
-            }
-            return request.body(form);
-        });
     }
 
     private static String clientKey(String tag) {

@@ -172,6 +172,34 @@ public abstract class AbstractHttpIntegrationTest extends AbstractIntegrationTes
         return execute(request);
     }
 
+    /**
+     * POST + multipart + **可选额外请求头**（`T68` 起：上传端点的幂等契约要发 {@code Idempotency-Key}）。
+     *
+     * <p>★ 为什么下沉：上传域此前有**两份逐字相同**的私有实现（{@code UploadFlowTests} 与上传幂等用例），
+     * 再多一个用例类就会把漂移复制一遍。
+     *
+     * <p>★ 为什么**只**加 4 参重载、不加 3 参：子类里那些同名的私有 3 参方法
+     * （{@code UploadFlowTests#postMultipart}）会变成"用更弱的访问权限覆盖父类方法" ⇒ 编译失败。
+     * 3 参形态（无额外头）继续留在各域测试里，语义不变。
+     *
+     * @param extraHeaders 追加的请求头（可为 {@code null}）；与 {@code Authorization} 不冲突时各自生效
+     */
+    protected ResponseEntity<String> postMultipart(String path,
+                                                  org.springframework.util.MultiValueMap<String, Object> form,
+                                                  String token, HttpHeaders extraHeaders) {
+        return send(spec -> {
+            RestClient.RequestBodySpec request = spec.uri(path)
+                    .contentType(MediaType.MULTIPART_FORM_DATA);
+            if (token != null) {
+                request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+            }
+            if (extraHeaders != null && !extraHeaders.isEmpty()) {
+                request = request.headers(headers -> extraHeaders.forEach(headers::addAll));
+            }
+            return request.body(form);
+        });
+    }
+
     /** PUT + multipart（`T58` 起"换源"是 {@code PUT /contents/{id}/media}）。 */
     protected ResponseEntity<String> putMultipart(String path,
                                                   org.springframework.util.MultiValueMap<String, Object> form,
