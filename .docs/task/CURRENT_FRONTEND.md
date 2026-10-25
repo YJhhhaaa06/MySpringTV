@@ -133,7 +133,9 @@ npm run build                                                # 多入口产物�
 | `api/http.test.ts` | 信封 / 204 / `Retry-After` / 幂等键 / 数组 query |
 | `player/progressReporter.test.ts` | 播放进度契约：45s 节奏、503 退避与**恢复**、停报条件、续播 `max`、本地补偿 TTL |
 
-★ **能变红**是判据：改坏 `playCountText: null`、三态归一、退避恢复条件，对应断言必须红（本窗口两次 mutation 实测）。
+★ **能变红**是判据：本窗口三次 mutation 实测 —— ①把列表 `playCountText` 编成 `'0'` ⇒ 卡片那条红；
+②把三态 `followed` 归一成 `false` ⇒ 三态那条红；③删掉进度上报的"收到 200 回到 45s"分支
+⇒ 退避恢复那条红。还原后 107/107 绿。
 
 **真浏览器 E2E**（一次性脚本，放 `.tmp/`，**不入库**）：登录 / 互动 / 评论 / 进度 / 空间各一支，
 必须真接口真写（`node .tmp/<name>-e2e.mjs`，需 Chrome `--remote-debugging-port=9222` + `npm run dev`）。
