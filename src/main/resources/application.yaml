@@ -388,18 +388,17 @@ video:
       task-cost: ${RATE_LIMIT_SERVER_TASK_COST:10}
     # 用户桶：per-key 配额（登录态 key = user:{userId}、匿名态 key = anon:{ip}）。
     # ⚠️ 匿名桶刻意比登录桶**宽 3 倍**：IP 是共享的（NAT / 内网 / 校园网下一片用户共用一个出口 IP），
-    #    按登录桶口径会误伤整片人。锚点：登录 20/2 = "正常人远达不到每分钟 120 次"。
-    #    推翻条件：有真实用户行为分布 / 真实匿名请求分布。
+    #    按登录桶口径会误伤整片人。锚点：登录 200/10  旧20/2导致手速快了一点就被限流，已10倍/5倍提高
     user:
       authed:
-        capacity: ${RATE_LIMIT_USER_AUTHED_CAPACITY:20}
-        refill-per-sec: ${RATE_LIMIT_USER_AUTHED_REFILL_PER_SEC:2}
+        capacity: ${RATE_LIMIT_USER_AUTHED_CAPACITY:200}
+        refill-per-sec: ${RATE_LIMIT_USER_AUTHED_REFILL_PER_SEC:10}
       # ⚠️⚠️ 匿名桶在 MockMvc 里**全是 127.0.0.1** ⇒ 测试互相吃额度（NAT 语义退化成全局限流）。
       #    故这两键必须可覆盖：非限流测试若被误伤，把它调成一个很大的数即可（对冲口径见
       #    architecture/tech/rate-limit/限流.md §六；该环境的测试夹具前提见 T25）。
       anon:
-        capacity: ${RATE_LIMIT_USER_ANON_CAPACITY:60}
-        refill-per-sec: ${RATE_LIMIT_USER_ANON_REFILL_PER_SEC:6}
+        capacity: ${RATE_LIMIT_USER_ANON_CAPACITY:600}
+        refill-per-sec: ${RATE_LIMIT_USER_ANON_REFILL_PER_SEC:30}
     cost:
       # 未登记路由的兜底权重。★ **不是 0** —— "漏配 = 不限"正是要防的。
       default-base: ${RATE_LIMIT_COST_DEFAULT_BASE:1}
