@@ -26,7 +26,7 @@ import java.util.List;
  * 于是对外 JSON 的键集 = 父类键集 − {videoUrl, imageUrls}
  * + {interaction, likeCount, commentCount, playCount}，
  * 即 {@code {id, authorId, type, title, description, categoryId, commentEnabled, authorName,
- * coverUrl, createTime, interaction, likeCount, commentCount, playCount}}。
+ * coverUrl, durationSeconds, createTime, interaction, likeCount, commentCount, playCount}}。
  *
  * <h2>★ GAP-01（2026-10-26）：列表平铺三个**可空**计数，按面按需填充</h2>
  * T43 的"列表零计数"已被按面推翻。三类卡片对计数的需求不同（B站对照见

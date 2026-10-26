@@ -143,9 +143,10 @@ public class FeedService {
     /**
      * 页内容装载（两路读共用）：**事务外**批量读内容 + 互动态，按原序跳过 null。
      *
-     * <h2>★ T43：列表不再带公共计数</h2>
-     * T40 曾在这里自持一趟 {@code CoinService#batchGetCoinCount}；T43 起四个计数只在详情
-     * 平铺返回（用户 2026-10-19 拍板）⇒ feed 列表页省掉这趟批量，本类也**不再依赖 coin 域**。
+     * <h2>★ T43 → GAP-01：列表计数回来了，但不是 T40 那套</h2>
+     * T40 曾在这里自持一趟 {@code CoinService#batchGetCoinCount}；T43 删掉它（列表零计数）。
+     * GAP-01（2026-10-26）按动态卡片的展示位恢复三维：{@code play / like / comment}，
+     * 走 content 域的 {@link ContentCountFiller}（本域仍**不依赖 coin 域**）。
      *
      * <h2>★ T13（R-13）：互动态改走**互动域**，只带 {@code LIKE} 一维</h2>
      * T13 之前这里**直连** {@code LikeService.batchIsContentLiked}，而条目的关注态

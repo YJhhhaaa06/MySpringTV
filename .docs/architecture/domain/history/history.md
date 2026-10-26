@@ -38,7 +38,7 @@
 **三条最容易记错的口径**：
 
 1. **一人一内容一行**（`uk_user_content`）：重复上报只改这一行，列表里不会出现两条。
-2. **播放量按人去重、只增**，且**只在详情平铺**；列表卡片一个计数都不带（本仓口径）。
+2. **播放量按人去重、只增**；详情平铺，列表卡片也带播放量（GAP-01 起网格封面角标 / 动态嵌入块）。
 3. **进度后到即新（LWW）**，没有"只能增"守卫 ⇒ 重看从头会把进度改回 0（刻意偏离 B站，§十 #1）。
 
 **代码落点**（想读实现直接跳这里）：
@@ -254,7 +254,8 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
 | 失效 | `content.event.PlayCountChangedListener` 订阅 `history.event.PlayCountChangedEvent`，**条件 `INCRBY 1`**（冷 key 不建，同 coin 的 `content:coinCount`） |
 | 不变量 | `content.play_count == COUNT(*) FROM watch_history WHERE content_id = ? AND play_counted = 1` |
 
-- **只在详情平铺**（`ContentDetailVO.playCount`），**不进列表**、**不进 `ContentCacheDTO`**。
+- **详情平铺**（`ContentDetailVO.playCount`）；GAP-01 起列表也带 `playCount`（按面，见
+  [缓存与数据一致性 §5.3](../../tech/cache/缓存与数据一致性.md)），但**不进 `ContentCacheDTO`**。
 - 图文帖 `play_count` 恒 0（没有 `/play` 路径能通过类型校验）。
 - 内容删除：详情 404 在聚合之前短路；`play_count` 与历史行都**不动**（失效占位要它）；
   `content:playCount:{id}` 在 `ContentCache#removeContent` 里**一并失效**（同 `commentCount` 的孤儿键口径
@@ -349,7 +350,7 @@ filesort；新索引前三列即排序键（前向索引扫描）：
 
 `ContentDetailVO` 加 `playCount`（第 5 个公共计数），由 `ContentCountAggregate` 一趟提供；
 `durationSeconds` 随父类 `ContentCacheDTO` 返回。详情路径的 Redis / DB 趟数不变
-（仍是 2 趟 Redis + 冷内容 1 条列查）。**列表不带 `playCount`**（§五）。
+（仍是 2 趟 Redis + 冷内容 1 条列查）。**列表也带 `playCount`**（GAP-01，§五.3）。
 
 ---
 

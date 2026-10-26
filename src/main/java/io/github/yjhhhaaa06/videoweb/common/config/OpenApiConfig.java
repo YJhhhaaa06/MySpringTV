@@ -142,12 +142,23 @@ public class OpenApiConfig {
             "ContentDetailVO", Set.of("coverUrl", "durationSeconds", "videoUrl", "imageUrls", "interaction"),
             // 匿名 / 看自己 ⇒ null（三态，不是 false）
             "ProfileVO", Set.of("isFollowed"),
-            // 主楼没有 parent / replyTo；叶子没有 children
+            // 主楼没有 parent / replyTo；叶子没有 children（CommentVO 与 children 的 item 类型各一份）
             "CommentVO", Set.of("parentId", "replyToUserId", "replyToUsername", "children"),
+            "CommentCacheDTO", Set.of("parentId", "replyToUserId", "replyToUsername", "children"),
             // 失效占位条目的展示字段确实为 null
             "FavoriteItemVO", Set.of("coverUrl", "authorName"),
             "WatchLaterItemVO", Set.of("coverUrl", "authorName"),
             "HistoryItemVO", Set.of("coverUrl", "authorName", "durationSeconds"));
+
+    /**
+     * 供 spec 护栏测试遍历（{@code OpenApiSpecExportTests}）——**不是业务 API**，运行期不要读它。
+     *
+     * <p>暴露出来的理由：测试若手抄一份字段清单，注册表改名时两边会一起漂；遍历同一份表，
+     * 才能让"注册了但没生效"变红。
+     */
+    public static Map<String, Set<String>> nullableVoFields() {
+        return NULLABLE_VO_FIELDS;
+    }
 
 
     public OpenApiConfig() {

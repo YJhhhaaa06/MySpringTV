@@ -126,6 +126,37 @@ class ContentListCountTests extends AbstractContentIntegrationTest {
                         "favoriteCount", "coinCount");
     }
 
+    // ==================== 端点矩阵：网格面只带播放量 ====================
+
+    @Test
+    @DisplayName("★网格面矩阵：搜索 / 空间投稿只填 play；like/comment 列非零也必须为 null")
+    void 网格面只填播放量() {
+        registerAndGetToken(AUTHOR_PHONE, AUTHOR);
+        long authorId = userIdOf(AUTHOR_PHONE);
+        long contentId = insertVideoContent(authorId, "gridmatrix 网格矩阵内容");
+        // 三列都钉非零且不同：若接线误填三维，like/comment 就不再是 null ⇒ 红
+        jdbcTemplate.update("UPDATE content SET play_count = 21, like_count = 3, comment_count = 5 WHERE id = ?",
+                contentId);
+
+        JsonNode searchItem = itemOf(
+                Envelope.data(get("/api/v1/contents?keyword=gridmatrix", null)).path("list"), contentId);
+        assertThat(searchItem.path("playCount").asLong())
+                .as("网格卡片带播放量；oracle = DB 列").isEqualTo(21L);
+        assertThat(searchItem.path("likeCount").isNull())
+                .as("搜索网格不查赞维 ⇒ null（列里是 3）").isTrue();
+        assertThat(searchItem.path("commentCount").isNull())
+                .as("搜索网格不查评论维 ⇒ null（列里是 5）").isTrue();
+
+        JsonNode profileItem = itemOf(
+                Envelope.data(get("/api/v1/users/" + authorId, null)).path("contentPage").path("list"), contentId);
+        assertThat(profileItem.path("playCount").asLong())
+                .as("主页投稿网格带播放量；oracle = DB 列").isEqualTo(21L);
+        assertThat(profileItem.path("likeCount").isNull())
+                .as("主页投稿网格不查赞维 ⇒ null（列里是 3）").isTrue();
+        assertThat(profileItem.path("commentCount").isNull())
+                .as("主页投稿网格不查评论维 ⇒ null（列里是 5）").isTrue();
+    }
+
     // ==================== 聚合层：有选择回填 / 不做单飞 / 失败 / 脏值 / 缺行 ====================
 
     @Test
@@ -233,6 +264,29 @@ class ContentListCountTests extends AbstractContentIntegrationTest {
         assertThat(row.playCount()).as("脏值不外显（按 miss 回源列）").isEqualTo(8L);
         assertThat(redis.opsForValue().get(CacheKeys.contentPlayCount(contentId)))
                 .as("★ 回填覆盖脏值").isEqualTo("8");
+    }
+
+    @Test
+    @DisplayName("★空输入 / 重复 id：空集合与空维度不发连接；重复 id 去重后只一条 IN")
+    void 空输入与重复id() {
+        // 空集合 / 全 null / 空维度 ⇒ 提前返回，不碰 Redis / DB
+        assertThat(aggregate.readCounts(List.of(), Set.of(ContentCountField.PLAY))).isEmpty();
+        assertThat(aggregate.readCounts(java.util.Arrays.asList(null, null),
+                Set.of(ContentCountField.PLAY))).isEmpty();
+        assertThat(aggregate.readCounts(List.of(1L), Set.of())).isEmpty();
+        Mockito.verifyNoInteractions(contentDao);
+
+        registerAndGetToken(AUTHOR_PHONE, AUTHOR);
+        long authorId = userIdOf(AUTHOR_PHONE);
+        long contentId = insertVideoContent(authorId, "列表计数重复 id");
+        jdbcTemplate.update("UPDATE content SET play_count = 12 WHERE id = ?", contentId);
+
+        Map<Long, ContentCountRow> rows = aggregate.readCounts(List.of(contentId, contentId),
+                Set.of(ContentCountField.PLAY));
+
+        assertThat(rows).as("重复 id 去重 ⇒ 每个 id 恰好一行").hasSize(1).containsKey(contentId);
+        assertThat(rows.get(contentId).playCount()).isEqualTo(12L);
+        verify(contentDao, times(1)).findCountColumnsByIds(eq(Set.of(contentId)));
     }
 
     @Test

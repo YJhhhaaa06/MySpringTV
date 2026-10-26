@@ -2816,9 +2816,11 @@ components:
       type: object
       properties:
         children:
-          type: array
-          items:
-            $ref: "#/components/schemas/CommentCacheDTO"
+          anyOf:
+          - type: array
+            items:
+              $ref: "#/components/schemas/CommentCacheDTO"
+          - type: "null"
         commentId:
           type: integer
           format: int64
@@ -2831,16 +2833,22 @@ components:
           type: integer
           format: int32
         parentId:
-          type: integer
-          format: int64
+          anyOf:
+          - type: integer
+            format: int64
+          - type: "null"
         replyCount:
           type: integer
           format: int32
         replyToUserId:
-          type: integer
-          format: int64
+          anyOf:
+          - type: integer
+            format: int64
+          - type: "null"
         replyToUsername:
-          type: string
+          anyOf:
+          - type: string
+          - type: "null"
         userId:
           type: integer
           format: int64

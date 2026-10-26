@@ -41,9 +41,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       {@link #详情与列表的interaction恰好四维()}（视频详情的 coin 值断言）变红；</li>
  *   <li>把 {@code type == 1} 的分流写反 / 去掉（图文也查）⇒ 图文用例的
  *       {@code coin == null} 变红；</li>
- *   <li>详情不再平铺 {@code coinCount}（比如回到"只走列表批量"）⇒
+ *   <li>详情不再平铺 {@code coinCount} ⇒
  *       {@link #详情视频_投币后coin与coinCount都与DB一致()} 变红；</li>
- *   <li>把 {@code coinCount} 加回列表 VO ⇒ {@link #列表不返回任何公共计数()} 的
+ *   <li>把 {@code coinCount} 加回列表 VO ⇒ {@link #列表不返回投币收藏计数()} 的
  *       {@code has(...) == false} 变红；</li>
  *   <li>把批量改成逐条（或让缓存事件不生效）⇒ {@link #投币后立即读详情_缓存写后读回填链路通()}
  *       会读到陈旧的 0。</li>
@@ -283,7 +283,8 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
     }
 
     // ========================================================================
-    // 8. 列表批量 —— ⛔ T43 已删除（列表不再返回任何计数，"一趟批量"这条红线随之消失）
+    // 8. 列表批量 —— ⛔ T43 删过 coinCount 批量；GAP-01 的列表批量只走 content 域，
+    //    投币维仍不在任何列表面上（`ContentVO` 没有 coinCount 字段）
     // ========================================================================
 
     // ========================================================================

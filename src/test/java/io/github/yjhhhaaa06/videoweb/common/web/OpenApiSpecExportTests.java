@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.common.web;
 
+import io.github.yjhhhaaa06.videoweb.common.config.OpenApiConfig;
 import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.support.AbstractIntegrationTest;
 import io.swagger.v3.core.util.Yaml;
@@ -381,35 +382,23 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("★ GAP-07：已登记的可空字段是 3.1 的 null 类型；未登记的承诺非空字段不受影响")
+    @DisplayName("★ GAP-07：注册表里每个可空字段都是 3.1 的 null 类型；未登记的承诺非空字段不受影响")
     void 可空字段确实标了null() {
         OpenAPI spec = parse(generate());
 
-        // 互动态三态：null = 本面不查 / 匿名 —— 这是 R-13 的核心表达力
-        assertNullable(spec, "InteractionStatusVO", "isLiked");
-        assertNullable(spec, "InteractionStatusVO", "isFavorited");
-        assertNullable(spec, "InteractionStatusVO", "isFollowed");
-        assertNullable(spec, "InteractionStatusVO", "coin");
-        // 列表：按面裁剪的计数 + 图文无封面 / 时长未知 + 匿名无 interaction
-        assertNullable(spec, "ContentVO", "playCount");
-        assertNullable(spec, "ContentVO", "likeCount");
-        assertNullable(spec, "ContentVO", "commentCount");
-        assertNullable(spec, "ContentVO", "coverUrl");
-        assertNullable(spec, "ContentVO", "durationSeconds");
-        assertNullable(spec, "ContentVO", "interaction");
-        // 详情
-        assertNullable(spec, "ContentDetailVO", "videoUrl");
-        assertNullable(spec, "ContentDetailVO", "imageUrls");
-        assertNullable(spec, "ContentDetailVO", "interaction");
-        assertNullable(spec, "ProfileVO", "isFollowed");
+        // ★ 遍历**与生成侧同一份注册表**：手抄清单会在两边一起漂，遍历才能让"注册了但没生效"变红
+        OpenApiConfig.nullableVoFields().forEach((schemaName, fields) ->
+                fields.forEach(field -> assertNullable(spec, schemaName, field)));
 
         // 对照：承诺非空的字段不能被一并标 null（否则生成类型退化成"什么都要判空"）
         assertNotNullType(property(spec, "ContentVO", "title"), "title 契约上承诺非空");
         assertNotNullType(property(spec, "ContentVO", "id"), "原生 long 不可能为 null");
     }
 
-    /** 断言属性不是可空表达（兼容 3.1 下 `type` 与 `types` 两种承载方式）。 */
+    /** 断言属性不是可空表达（兼容 3.1 下 `type` / `types` / `anyOf` 三种承载方式）。 */
     private static void assertNotNullType(Schema<?> property, String reason) {
+        assertThat(property.getAnyOf()).as(reason + " ⇒ 不应被 anyOf 包成可空").isNull();
+        assertThat(property.get$ref()).as(reason + " ⇒ 不应是 $ref").isNull();
         if (property.getTypes() != null) {
             assertThat(property.getTypes()).as(reason + " ⇒ 不应含 null").doesNotContain("null");
         }
@@ -417,8 +406,8 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
     }
 
     /**
-     * 断言一个属性是 3.1 的可空表达：普通 schema 的 {@code type} 含 {@code "null"}；
-     * {@code $ref} 用 {@code anyOf: [$ref, {type: 'null'}]}（{@code nullable: true} 是 3.0 写法）。
+     * 断言一个属性是 3.1 的可空表达：统一为 {@code anyOf: [原 schema, {type: "null"}]}。
+     * ⚠️ swagger-core 读回 `type: "null"` 时会留一个 null 元素（模型表达不了这种 schema）。
      */
     private static void assertNullable(OpenAPI spec, String schemaName, String field) {
         Schema<?> property = property(spec, schemaName, field);

@@ -177,7 +177,8 @@ UPDATE users SET coin_deci = coin_deci + 10, last_sign_date = :today
   `backfillCoinCount` 转发回填。
 - ⚠️ **T40 → T43 的一处反转**：T40 曾让 `coinCount` 随**列表**各面返回（`ContentStatusFiller` /
   `FeedService` 各一趟 `MGET`）。T43 拍板"计数只在详情"，列表**不再带任何计数** ⇒
-  那两趟批量与 `feed → coin.service` 依赖一并删除。`ContentVO` 上**没有** `coinCount` 字段。
+  那两趟批量与 `feed → coin.service` 依赖一并删除。**GAP-01（2026-10-26）**起列表按面恢复
+  `play/like/comment` 三维，但投币仍无展示位 ⇒ `ContentVO` 上**仍然没有** `coinCount` 字段。
 - ⚠️ 由此 `InteractionStatusVO` 的键集 **3 → 4**（多一个 `coin`）；列表各面不选该维 ⇒ 列表里恒 `null`，
   前端静默忽略（沿用三态口径）。
 - ★ 与 like / favorite 的**第二处不同**：它们的"我的状态"走独立端点，投币走**详情内嵌**（§二）。
@@ -209,7 +210,8 @@ UPDATE users SET coin_deci = coin_deci + 10, last_sign_date = :today
 
 ★ **T43 删掉的两条边**：`content → coin.service`（详情/列表填 `coinCount`）与
 `feed → coin.service`（列表批量）。前者改由互动域聚合（`content → interaction` 是既有边），
-后者随"列表不带计数"一起消失。内容删除的级联与此无关（一直是事件，见下）。
+后者随"列表不带计数"一起消失。**GAP-01 的列表批量不恢复这条边**：它走 content 自己的
+`ContentCountBatchAggregate`，投币维不参与。内容删除的级联与此无关（一直是事件，见下）。
 
 ★ **内容删除的级联方向**：`coin.event.ContentRemovedCoinListener` **订阅** content 的
 `ContentCacheChangedEvent(REMOVE)` 并失效自己的 `content:coinCount` —— 内容域**不直调**
@@ -260,7 +262,8 @@ UPDATE users SET coin_deci = coin_deci + 10, last_sign_date = :today
 ⚠️ **不要写成"回滚 ⇒ key 不存在"**：冷 key 本来就不存在 ⇒ 那种断言在"事件没发"与"事件发了但回滚"
 两个世界都绿，**零判别力**（T42 复核时纠正的措辞；预热后断言"值没被动过"才是证明）。
 **列表不带 `coinCount`**（T43）：`/api/v1/contents/recommended` / `/api/v1/contents` / `/api/v1/users/{id}` 的条目里**没有**该键
-（`CoinReadTests#列表不返回任何公共计数` 用 `has(...)==false` 钉住 —— 用 `asLong()==0` 会因缺失节点也返回 0 而假绿）。
+（`CoinReadTests#列表不返回投币收藏计数` 用 `has(...)==false` 钉住 —— 用 `asLong()==0` 会因缺失节点也返回 0 而假绿）。
+GAP-01 后同面的 `play/like/comment` 键存在（按面可空），别把"没有 coinCount"误读成"列表没有计数"。
 
 **反向验证清单**（改哪一行必红）在开工时逐条实测登记。
 ★ **T42 复核补测的 7 条（已实测，默认组口径）**：① 去掉 `deductCoinDeci` 的 `coin_deci >= ?` ⇒

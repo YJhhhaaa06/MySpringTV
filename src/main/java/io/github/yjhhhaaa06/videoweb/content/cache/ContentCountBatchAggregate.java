@@ -36,8 +36,18 @@ import java.util.Set;
  *       按列表 id 再做单飞会把不同请求的结果串在一起（对齐 {@code CoinCache#batchGetCoinCount}
  *       的既有纪律）。并发两次批量读 ⇒ DB 至多 2 次，这是**预期**，不是缺陷。</li>
  *   <li><b>一趟 pipeline 覆盖 N × 维度数</b>：详情是固定 5 键；列表的键数随页长与维度集合变，
- *       但**趟数恒定**（1 趟 Redis + 至多 1 条 IN）。</li>
+ *       但**读趟数恒定**（1 趟 Redis + 至多 1 条 IN）。回填不在此列，见下条代价。</li>
  * </ol>
+ *
+ * <h2>已知代价（有意接受，逐条可讲清）</h2>
+ * <ul>
+ *   <li><b>回填是逐键 SET，不是一趟 pipeline</b>：每个 miss 的 `(id, field)` 各走一次域契约
+ *       （play / comment → {@link ContentCountCache}，like → {@link InteractionService}），
+ *       各自带自己的 TTL；冷 feed 页最坏 300 次 SET。合成一趟要跨域拼 TTL 语义、
+ *       或把写键收进聚合层（破"各域自持缓存"），两条都不值得为几毫秒的冷启动付。</li>
+ *   <li><b>不做 TTL 续期</b>：各域 TTL 不同，一趟 pipeline 无法带多种 EXPIRE 语义
+ *       （同详情聚合）。</li>
+ * </ul>
  *
  * <h2>正确性核心：有选择回填</h2>
  * 只回填**自己 miss 的 (id, field)**，命中键一个都不碰 —— 否则会用本次列快照覆盖别域
