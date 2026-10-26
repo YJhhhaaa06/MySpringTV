@@ -315,6 +315,11 @@ function onCommentCount(count: number): void {
 </template>
 
 <style scoped>
+.video-page {
+  /* B 站 1600 播放器区 = 1520（播放器 1138 + gap 32 + 侧栏 350），1707 = 1565 */
+  --content-w: var(--content-w-video);
+}
+
 .video-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 350px;

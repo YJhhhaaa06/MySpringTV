@@ -173,6 +173,11 @@ function goPage(nextPage: number): void {
 <style scoped>
 .history-page {
   min-height: 100vh;
+  /*
+   * 先锁 1600 基准的 1320：B 站历史页在 1707 CSS 下比首页窄（卡片区 4×258 CSS，
+   * 容器约 1160–1320），不能跟着首页的 82.5vw 一起放大 —— 单独一个校准单元。
+   */
+  --content-w: 1320px;
 }
 
 .history-head {

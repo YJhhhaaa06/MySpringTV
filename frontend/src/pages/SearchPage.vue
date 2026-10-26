@@ -129,7 +129,17 @@ function goPage(target: number): void {
 
 <style scoped>
 .search-page {
+  /* B 站 1600 = 1472（5×282 + 4×16）、1707 = 1500（6×237）——比首页宽，独立 token */
+  --content-w: var(--content-w-search);
+  --grid-gap: 16px;
   padding-bottom: 56px;
+}
+
+/* 搜索结果是唯一在宽屏上会从 5 列变 6 列的面（1600→1707 实测）；首页始终 5 列 */
+@media (min-width: 1680px) {
+  .search-page {
+    --grid-cols: 6;
+  }
 }
 
 .search-head__title {
