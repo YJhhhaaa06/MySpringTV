@@ -2,10 +2,16 @@
 import { computed, ref, watch } from 'vue'
 import type { VideoCardVM } from '../../types/ui'
 import AppIcon from './AppIcon.vue'
+import WatchLaterButton from './WatchLaterButton.vue'
 
-const props = withDefaults(defineProps<{ item: VideoCardVM; layout?: 'grid' | 'row' }>(), {
-  layout: 'grid',
-})
+const props = withDefaults(
+  defineProps<{ item: VideoCardVM; layout?: 'grid' | 'row'; watchLater?: boolean }>(),
+  {
+    layout: 'grid',
+    /** 默认给卡片挂「稍后再看」hover；稍后再看页自己关掉（页面级「移出」已经承担该动作） */
+    watchLater: true,
+  },
+)
 
 /** 封面 404 / 解码失败也走占位块 —— 否则破图比没有封面更难看（dev 数据里会撞到） */
 const coverBroken = ref(false)
@@ -33,33 +39,40 @@ function guardInvalid(event: MouseEvent): void {
 
 <template>
   <article class="video-card" :class="[`video-card--${layout}`, { 'is-invalid': item.invalid }]">
-    <a
-      class="video-card__cover"
-      :href="item.href"
-      target="_blank"
-      rel="noopener"
-      :aria-label="item.title"
-      :aria-disabled="item.invalid || undefined"
-      @click="guardInvalid"
-    >
-      <img
-        v-if="showCover"
-        class="video-card__img"
-        :src="item.coverUrl ?? undefined"
-        :alt="item.title"
-        loading="lazy"
-        decoding="async"
-        @error="coverBroken = true"
+    <div class="video-card__cover-wrap">
+      <a
+        class="video-card__cover"
+        :href="item.href"
+        target="_blank"
+        rel="noopener"
+        :aria-label="item.title"
+        :aria-disabled="item.invalid || undefined"
+        @click="guardInvalid"
+      >
+        <img
+          v-if="showCover"
+          class="video-card__img"
+          :src="item.coverUrl ?? undefined"
+          :alt="item.title"
+          loading="lazy"
+          decoding="async"
+          @error="coverBroken = true"
+        />
+        <span v-else class="video-card__cover-fallback" aria-hidden="true">
+          <AppIcon name="tv" :size="30" />
+        </span>
+        <span v-if="item.isPost" class="video-card__type">图文</span>
+        <span v-if="item.invalid" class="video-card__invalid">已失效</span>
+        <span v-if="item.durationText" class="video-card__duration">{{ item.durationText }}</span>
+        <!-- 列表 VO 没有任何计数 ⇒ 播放量角标**不渲染**（不编数字）；
+             本仓没有弹幕域 ⇒ 弹幕数**永不渲染** -->
+      </a>
+      <!-- 图文 / 失效内容不显示：后端「稍后再看」只收视频，摆一个必然 400 的按钮 = 撒谎 -->
+      <WatchLaterButton
+        v-if="watchLater && !item.isPost && !item.invalid && item.id > 0"
+        :content-id="item.id"
       />
-      <span v-else class="video-card__cover-fallback" aria-hidden="true">
-        <AppIcon name="tv" :size="30" />
-      </span>
-      <span v-if="item.isPost" class="video-card__type">图文</span>
-      <span v-if="item.invalid" class="video-card__invalid">已失效</span>
-      <span v-if="item.durationText" class="video-card__duration">{{ item.durationText }}</span>
-      <!-- 列表 VO 没有任何计数 ⇒ 播放量角标**不渲染**（不编数字）；
-           本仓没有弹幕域 ⇒ 弹幕数**永不渲染** -->
-    </a>
+    </div>
 
     <div class="video-card__info">
       <a
@@ -97,6 +110,11 @@ function guardInvalid(event: MouseEvent): void {
 .video-card {
   display: block;
   min-width: 0;
+}
+
+/* 封面链接 + hover「稍后再看」按钮的定位上下文（按钮不能放进 <a> 里） */
+.video-card__cover-wrap {
+  position: relative;
 }
 
 .video-card__cover {

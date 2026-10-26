@@ -24,7 +24,9 @@ import VideoGrid from '../components/home/VideoGrid.vue'
  *
  * <h2>版式按 B 站「我的收藏」</h2>
  * 左侧夹列表（名字 + 条目数 + 私密标记）→ 右侧当前夹的卡片网格 + Page 分页；
- * 「稍后再看」同一页、走 query `?tab=later`（与夹切换并列在左栏）。
+ * 「稍后再看」是**独立路由** `/watchlater`（2026-10-26 晚）：B 站网页版有独立页面，
+ * 复用同一个页面组件与卡片网格，但**隐藏左栏**、用 5 列 —— 与首页同宽，比塞在夹列表里更像"一页"。
+ * 旧链接 `/favorites?tab=later` 仍兼容（mode 同时看路由名与 query）。
  *
  * <h2>★ 页面级身份态（与动作级闸门不矛盾）</h2>
  * 这两个页面**整个内容都属于"我"**：未登录时请求必然 401，没有"匿名可见的一部分"。
@@ -49,7 +51,9 @@ const PAGE_SIZE = 12
 
 const sessionReady = ref(false)
 const loggedIn = computed(() => sessionState.status === 'authenticated')
-const mode = computed<'folder' | 'later'>(() => (route.query.tab === 'later' ? 'later' : 'folder'))
+const mode = computed<'folder' | 'later'>(() =>
+  route.name === 'watchlater' || route.query.tab === 'later' ? 'later' : 'folder',
+)
 /** 夹 id 缺省是 **0**（"没选中"）——不能像页码那样缺省回 1，否则会去拉 1 号夹 */
 const activeFolderId = computed(() => positive(route.query.folder))
 const page = computed(() => Math.max(1, positive(route.query.page)))
@@ -194,18 +198,21 @@ async function signIn(): Promise<void> {
 }
 
 function selectFolder(folderId: number): void {
-  void router.push({ query: { folder: String(folderId) } })
+  // 独立路由之间切换：带上 name，避免从 /watchlater 落回 /favorites?folder= 时丢失 folder 语义
+  void router.push({ name: 'favorites', query: { folder: String(folderId) } })
 }
 
 function selectLater(): void {
-  void router.push({ query: { tab: 'later' } })
+  void router.push({ name: 'watchlater' })
 }
 
 function goPage(nextPage: number): void {
-  const query = mode.value === 'later'
-    ? { tab: 'later', ...(nextPage > 1 ? { page: String(nextPage) } : {}) }
-    : { folder: String(activeFolderId.value), ...(nextPage > 1 ? { page: String(nextPage) } : {}) }
-  void router.push({ query })
+  if (mode.value === 'later') {
+    void router.push({ name: 'watchlater', query: nextPage > 1 ? { page: String(nextPage) } : {} })
+    return
+  }
+  const query = { folder: String(activeFolderId.value), ...(nextPage > 1 ? { page: String(nextPage) } : {}) }
+  void router.push({ name: 'favorites', query })
 }
 
 /**
@@ -276,9 +283,14 @@ async function refreshSilently(): Promise<void> {
   <main class="library-page page-main">
     <div class="page-content">
       <header class="library-head">
-        <span class="library-head__icon"><AppIcon name="star" :size="22" /></span>
-        <h1 class="library-head__title">收藏夹</h1>
-        <span v-if="loggedIn && folders.length" class="library-head__meta">
+        <span class="library-head__icon">
+          <AppIcon :name="mode === 'later' ? 'watch-later' : 'star'" :size="22" />
+        </span>
+        <h1 class="library-head__title">{{ mode === 'later' ? '稍后再看' : '收藏夹' }}</h1>
+        <span v-if="loggedIn && mode === 'later'" class="library-head__meta">
+          共 {{ total }} 个内容
+        </span>
+        <span v-else-if="loggedIn && folders.length" class="library-head__meta">
           {{ folders.length }} 个收藏夹 · 共 {{ folders.reduce((sum, folder) => sum + folder.itemCount, 0) }} 个内容
         </span>
       </header>
@@ -287,22 +299,22 @@ async function refreshSilently(): Promise<void> {
 
       <EmptyState
         v-else-if="!loggedIn"
-        icon="star"
-        title="登录后查看你的收藏"
+        :icon="mode === 'later' ? 'clock' : 'star'"
+        :title="mode === 'later' ? '登录后查看你的稍后再看' : '登录后查看你的收藏'"
         description="收藏夹与稍后再看都属于账号：登录后自动同步（本仓用 Bearer token，不用 Cookie）。"
       >
         <button class="btn btn-primary" type="button" @click="signIn">立即登录</button>
       </EmptyState>
 
-      <div v-else class="library-layout">
-        <aside class="library-side" aria-label="收藏夹列表">
+      <div v-else class="library-layout" :class="{ 'library-layout--single': mode === 'later' }">
+        <aside v-if="mode === 'folder'" class="library-side" aria-label="收藏夹列表">
           <p v-if="foldersLoading" class="library-side__hint">加载中…</p>
           <p v-else-if="foldersError" class="library-side__hint library-side__hint--error">{{ foldersError }}</p>
           <ul v-else class="library-side__list">
             <li v-for="folder in folders" :key="folder.id">
               <button
                 class="side-folder"
-                :class="{ 'is-active': mode === 'folder' && folder.id === activeFolderId }"
+                :class="{ 'is-active': folder.id === activeFolderId }"
                 type="button"
                 @click="selectFolder(folder.id)"
               >
@@ -311,22 +323,20 @@ async function refreshSilently(): Promise<void> {
                 <span class="side-folder__count">{{ folder.itemCount }}</span>
               </button>
             </li>
-            <li>
-              <button
-                class="side-folder side-folder--later"
-                :class="{ 'is-active': mode === 'later' }"
-                type="button"
-                @click="selectLater"
-              >
-                <span class="side-folder__name"><AppIcon name="clock" :size="14" /> 稍后再看</span>
-                <span class="side-folder__count">{{ laterTotal }}</span>
-              </button>
-            </li>
           </ul>
+          <!-- 稍后再看是独立路由：即使左栏只在夹模式显示，也保留这个入口（从夹切过去） -->
+          <button
+            class="side-folder side-folder--later"
+            type="button"
+            @click="selectLater"
+          >
+            <span class="side-folder__name"><AppIcon name="watch-later" :size="14" /> 稍后再看</span>
+            <span class="side-folder__count">{{ laterTotal }}</span>
+          </button>
         </aside>
 
-        <section class="library-main">
-          <header class="library-main__head">
+        <section class="library-main" :class="{ 'library-main--later': mode === 'later' }">
+          <header v-if="mode === 'folder'" class="library-main__head">
             <h2 class="library-main__title">{{ panelTitle }}</h2>
             <span class="library-main__count">{{ total }} 个内容</span>
           </header>
@@ -339,9 +349,9 @@ async function refreshSilently(): Promise<void> {
 
           <EmptyState
             v-else-if="!items.length"
-            icon="star"
+            :icon="mode === 'later' ? 'clock' : 'star'"
             :title="mode === 'later' ? '稍后再看是空的' : '这个收藏夹还是空的'"
-            :description="mode === 'later' ? '在播放页点「稍后再看」就会出现在这里。' : '在播放页点收藏，选一个夹存进去。'"
+            :description="mode === 'later' ? '在卡片或播放页点「稍后再看」就会出现在这里。' : '在播放页点收藏，选一个夹存进去。'"
           >
             <a class="btn btn-ghost" href="/">去首页看看</a>
           </EmptyState>
@@ -350,7 +360,8 @@ async function refreshSilently(): Promise<void> {
             <VideoGrid :items="items">
               <template #item="{ item }">
                 <div class="library-cell">
-                  <VideoCard :item="item" />
+                  <!-- 本页已有页面级「取消收藏 / 移出」按钮，不再叠一个 hover「稍后再看」 -->
+                  <VideoCard :item="item" :watch-later="false" />
                   <button
                     class="library-cell__remove"
                     type="button"
@@ -419,6 +430,11 @@ async function refreshSilently(): Promise<void> {
   gap: 24px;
   margin-top: 18px;
   align-items: start;
+}
+
+/* 稍后再看：没有左栏，整页一列 —— 5 列网格和首页同宽（1600 下 1320） */
+.library-layout--single {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .library-side {
@@ -494,7 +510,7 @@ async function refreshSilently(): Promise<void> {
 .side-folder--later {
   margin-top: 6px;
   border-top: 1px solid var(--line-1);
-  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  border-radius: var(--radius-sm);
 }
 
 .library-main {
@@ -502,6 +518,11 @@ async function refreshSilently(): Promise<void> {
   /* 左栏占掉 216px ⇒ 主区比首页窄；沿用首页的 5 列会让卡片只剩 ~200px。
      4 列（1600 下约 255px）更接近 B 站收藏页的卡片比例。 */
   --grid-cols: 4;
+}
+
+/* 稍后再看没有左栏 ⇒ 回到首页的 5 列（1600 下 248px/卡） */
+.library-main--later {
+  --grid-cols: 5;
 }
 
 .library-main__head {
@@ -554,6 +575,16 @@ async function refreshSilently(): Promise<void> {
   .library-main {
     --grid-cols: 3;
   }
+
+  .library-main--later {
+    --grid-cols: 4;
+  }
+}
+
+@media (max-width: 1100px) {
+  .library-main--later {
+    --grid-cols: 3;
+  }
 }
 
 @media (max-width: 900px) {
@@ -566,6 +597,10 @@ async function refreshSilently(): Promise<void> {
   }
 
   .library-main {
+    --grid-cols: 2;
+  }
+
+  .library-main--later {
     --grid-cols: 2;
   }
 }

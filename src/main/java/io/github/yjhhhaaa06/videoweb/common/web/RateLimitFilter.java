@@ -117,6 +117,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
             // 前端 HTML 外壳（`WebMvcConfig#addViewControllers` 的转发目标与入口本身）
             "/search", "/search.html",
             "/favorites", "/favorites.html",
+            "/watchlater",
             "/history", "/history.html",
             "/video.html", "/space.html");
 

@@ -9,6 +9,7 @@ import { sessionState } from '../auth/session'
 import { showToast } from '../common/toast'
 import { useVideoInteractions } from '../composables/useVideoInteractions'
 import { usePlaybackProgress } from '../composables/usePlaybackProgress'
+import { useWatchLaterAction } from '../composables/useWatchLaterAction'
 import AppIcon from '../components/common/AppIcon.vue'
 import EmptyState from '../components/common/EmptyState.vue'
 import VideoCard from '../components/common/VideoCard.vue'
@@ -52,6 +53,15 @@ const videoEl = ref<HTMLVideoElement | null>(null)
 const interactions = useVideoInteractions(detail, author)
 /** 播放进度：续播定位 + 45s 上报 + 暂停/拖动/播完即时上报 + 退出 keepalive（契约见 player/） */
 usePlaybackProgress(videoEl, detail)
+/**
+ * 稍后再看：**没有状态查询端点**（favorite.md §六 红线）⇒ 初始一律"未加入"；
+ * 只有本次页面点过之后才知道它在池里、才能再点取消（刷新 / 换页即忘，与 B 站实测一致）。
+ */
+const {
+  added: watchLaterAdded,
+  busy: watchLaterBusy,
+  toggle: toggleWatchLater,
+} = useWatchLaterAction(computed(() => detail.value?.id ?? 0))
 /** 解构是为了模板里能直接用（对象里的 ref 在模板中不会自动解包） */
 const {
   busy,
@@ -212,10 +222,14 @@ function onCommentCount(count: number): void {
           :stats="detail.stats"
           :interaction="detail.interaction"
           :busy="{ like: busy.like, coin: busy.coin, favorite: busy.favorite }"
+          :watch-later-added="watchLaterAdded"
+          :watch-later-busy="watchLaterBusy"
+          :watch-later-available="!detail.isPost"
           @like="toggleLike"
           @coin="openCoin"
           @favorite="openFavorite"
           @share="share"
+          @watch-later="toggleWatchLater"
         />
 
         <section class="video-desc">

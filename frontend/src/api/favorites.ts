@@ -14,7 +14,7 @@
 import type { MyFolderVM, PageVM, VideoCardVM } from '../types/ui'
 import { toMyFolder, toWatchLaterCard } from './adapters/favorites'
 import { toFavoriteItemCard } from './adapters/space'
-import { deleteJson, getJson } from './http'
+import { deleteJson, getJson, putJson } from './http'
 
 /** `GET /favorite-folders`：我的全部夹（含默认夹与私密夹） */
 export async function loadMyFolders(): Promise<MyFolderVM[]> {
@@ -60,6 +60,16 @@ export async function loadWatchLater(page = 1, pageSize = 12): Promise<PageVM<Vi
  */
 export function removeFavoriteItems(folderId: number, contentIds: number[]): Promise<undefined> {
   return deleteJson('/api/v1/favorites', { query: { folderId, contentIds } })
+}
+
+/**
+ * `PUT /watch-later/{id}` → 204：加入稍后再看（**只收视频**；重复加入 = 移到最前，幂等）。
+ *
+ * <p>⚠️ 没有"是否已在池中"的查询端点（favorite.md §六 红线）——调用方**不要**在装载时
+ * 用它反推状态，那会变成每个卡片一次请求。页面内记忆见 `common/watchLaterSession.ts`。
+ */
+export function addWatchLater(contentId: number): Promise<undefined> {
+  return putJson('/api/v1/watch-later/{id}', undefined, { path: { id: contentId } })
 }
 
 /** `DELETE /watch-later?contentIds=` → 204：从稍后再看批量移出（不校验内容存在性） */

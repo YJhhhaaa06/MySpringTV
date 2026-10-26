@@ -23,6 +23,11 @@ export const ICONS = {
   thumb: '<path d="M7.2 10.2v9.6H4V10.2z"/><path d="M7.2 10.2 11.4 4c.6-.8 1.8-.9 2.4-.1.3.4.5.9.5 1.5v4.4h4.3c1.2 0 2 1 1.8 2.1l-1.2 6.8c-.1.9-.9 1.6-2 1.6H7.2"/>',
   coin: '<circle cx="12" cy="12" r="8.4"/><path d="M9 9.4 12 15l3-5.6"/><path d="M8 12.2h8"/>',
   comment: '<path d="M20 15.2a3 3 0 0 1-3 3H8.3L4 21V6.4a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3z"/>',
+  /* B 站卡片 hover / 播放页菜单的「稍后再看」：圆周箭头 + 中间播放三角 */
+  'watch-later':
+    '<path d="M19.6 12a7.6 7.6 0 1 1-2.2-5.4"/><path d="M19.7 3.6v5h-5"/><path d="M10.4 8.8v6.4l5.2-3.2z" fill="currentColor" stroke="none"/>',
+  /* 操作栏右端的「更多」⋮（B 站把「用手机看 / 稍后再看」收在这里） */
+  more: '<circle cx="12" cy="5" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.6" fill="currentColor" stroke="none"/>',
 } as const
 
 export type IconName = keyof typeof ICONS

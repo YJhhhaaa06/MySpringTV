@@ -43,8 +43,9 @@ public class WebMvcConfig implements WebMvcConfigurer {
      * <h2>为什么必须补</h2>
      * 前端是「MPA 外壳 + 应用内 SPA」（口径见 {@code architecture/frontend/前端.md} §一）：
      * 每个入口一个 HTML、应用内用 {@code createWebHistory}。打包产物里只有
-     * {@code index.html / search.html / video.html / space.html} 这几个**文件名**，
-     * 而用户地址栏里是 {@code /search}、{@code /video/92} —— 没有这层转发，刷新深链就是 404。
+     * {@code index.html / search.html / video.html / space.html / favorites.html / history.html}
+     * 这几个**文件名**，而用户地址栏里是 {@code /search}、{@code /video/92}、{@code /watchlater}
+     * —— 没有这层转发，刷新深链就是 404。
      * dev / preview 侧由 {@code vite.config.ts} 的 {@code htmlHistoryFallback}
      * 承担**同一张映射表**；两处必须同步改（TS 与 Java 之间没法互相校验，靠这条注释 + review）。
      *
@@ -80,6 +81,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
         registry.addViewController("/video/{id}").setViewName("forward:/video.html");
         registry.addViewController("/space/{id}").setViewName("forward:/space.html");
         registry.addViewController("/favorites").setViewName("forward:/favorites.html");
+        // 稍后再看：独立 URL、复用收藏页入口（2026-10-26 晚）
+        registry.addViewController("/watchlater").setViewName("forward:/favorites.html");
         registry.addViewController("/history").setViewName("forward:/history.html");
         registry.addViewController("/placeholder/{feature}").setViewName("forward:/index.html");
     }

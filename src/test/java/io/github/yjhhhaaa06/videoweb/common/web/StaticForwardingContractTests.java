@@ -18,7 +18,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <h2>它钉住什么</h2>
  * 生产环境把「B 站式地址栏 URL」转发到**对应入口 HTML**：
  * {@code /search → search.html}、{@code /video/{id} → video.html}、{@code /space/{id} → space.html}、
- * {@code /placeholder/** → index.html}、{@code / → index.html}。
+ * {@code /favorites → favorites.html}、{@code /watchlater → favorites.html}（同一入口、独立路由）、
+ * {@code /history → history.html}、{@code /placeholder/** → index.html}、{@code / → index.html}。
  * 没有这层转发，打包产物上线后**刷新任意深链都是 404**（dev 侧由 Vite 中间件兜着，
  * 所以这个洞只在生产暴露 —— 正是"dev 绿、线上 404"的典型）。
  *
@@ -48,6 +49,7 @@ class StaticForwardingContractTests extends AbstractIntegrationTest {
         assertForward("/video/77", "/video.html");
         assertForward("/space/77", "/space.html");
         assertForward("/favorites", "/favorites.html");
+        assertForward("/watchlater", "/favorites.html");
         assertForward("/history", "/history.html");
         assertForward("/placeholder/live", "/index.html");
     }
