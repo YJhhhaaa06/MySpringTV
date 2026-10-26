@@ -156,8 +156,10 @@ npm run build                                                # 多入口产物�
 
 - Node `v24.15.0` / npm `11.12.1` / registry 已是 npmmirror；pnpm 未装（`corepack enable` 即可）。
 - ★ 沙箱下**子进程建不了 TLS、Chrome 起不来** ⇒ `npm install` 与页面截图**各需一次 `danger-full-access` 授权**（建议合并在一条命令里）。
-- 老前端：`src/main/resources/static/`（18 文件，原生 JS，接口重构后已失效）→ **已冻结（2026-10-25）**：
-  不再同步、不再修；**删除随 dist 上线同批**（前置清单与验收见 §十三）。
+- 老前端：`src/main/resources/static/` 的 18 个文件已于 **2026-10-26 删除**（随 dist 上线同批，§十三）。
+  该目录现在是**构建产物落点**（`npm run stage` 把 `frontend/dist` 拷进去，产物不入库），
+  由 Spring 直接服务 `/`、`/search`、`/video/:id`、`/space/:id`、`/assets/**`。
+  旧 SPA 已冻结过（2026-10-25），删除不影响任何活代码。
 
 ---
 
@@ -184,7 +186,7 @@ npm run build                                                # 多入口产物�
 | 来源 | 事项 | 处置 |
 |---|---|---|
 | `F-15`（2026-10-15 清出） | **互动态维度常量**：后端返回的 `interaction` 是正确契约，缺的是前端「哪个面读哪几维」 | 重制时**先把常量加回**：`/contents/recommended` → `{关注}`；`/contents`（搜索）→ **0 维**；`/feed` 与 `/users/{id}` → `{赞}`；详情 → 三维。表见 [favorite.md §六](../architecture/domain/favorite/favorite.md)。⚠️ 三态：`null` = **本面不查**（≠ `false`）；匿名时整个 `interaction` 才是 `null` |
-| `T61`（`R-23` 搁置） | 旧 SPA 是否留作「接口消费样例」 | **已关闭**（2026-10-25 用户复核：旧前端简陋、功能未跟进、接口规范化后完全不可用，**无参考价值**）⇒ 不留样例；删除随 dist 上线（§十三）。`T61` 不再排期 |
+| `T61`（`R-23` 搁置） | 旧 SPA 是否留作「接口消费样例」 | **已关闭**（2026-10-25 用户复核：旧前端简陋、功能未跟进、接口规范化后完全不可用，**无参考价值**）⇒ 不留样例；**18 个文件已于 2026-10-26 删除**（§十三）。`T61` 不再排期 |
 
 ---
 
@@ -320,8 +322,11 @@ New-Item -ItemType Directory -Force -Path $prof | Out-Null
   ★ **补充（2026-10-25 复查）**：它**不触发端点登记簿 / spec**，但**不是纯配置改动** ——
   转发路由必须标 `@Public`（默认拒绝）、静态/HTML 入口是否进限流跳过清单要明确决定，
   且 dist 的资源目录从 `/static/` 变成 `/assets/` ⇒ 白名单要一起改（见 §十三）。
-  ★ **状态（2026-10-25）**：① **仍未做**。本窗口只落了 dev/preview 侧（下一条），所以**打包产物目前不能被
-  Spring 直接服务** —— 部署前必须先补这条，否则刷新 `/video/92` 就是 404。
+  ★ **状态（2026-10-26）：① 已落地**。`WebMvcConfig#addViewControllers` 用 **forward**（不是 redirect）
+  把 `/`、`/search`、`/video/{id}`、`/space/{id}`、`/placeholder/{feature}` 转到入口 HTML；
+  **不用 `@Controller`**（那会进端点登记簿 / spec，还要为默认拒绝开 `@Public` —— 它只是页面导航）；
+  dist 由 `npm run stage` 落到 `src/main/resources/static/`（产物不入库）；`/assets/` 与 HTML 外壳进限流跳过清单。
+  `mvnw clean` 后实测：四入口 200、`/assets/*.js` 200、`/api/v1/**` 200、旧 `/static/**` 404。
 - ✅ **dev 侧 fallback 已落地**：`vite.config.ts` 的 `htmlHistoryFallback()` 把 `/search` → `search.html`、
   `/video/<digits>` → `video.html`、`/space/<digits>` → `space.html`、`/placeholder/*` → `index.html`，
   并挂在 `configureServer` **与** `configurePreviewServer` 上 ⇒ `npm run preview` 也能验打包产物。
@@ -343,6 +348,17 @@ New-Item -ItemType Directory -Force -Path $prof | Out-Null
 **兜底**：若静态转发被拖过一个窗口，按下面同一清单**立即删**、接受 `:8080/` 404 —— 坏页面比 404 更坏。
 
 **前置条件（缺一不可）**
+
+> ✅ **执行记录（2026-10-26，本项已收口）**：`b79dfe1`（静态转发 + 白名单）· `a916959`（幂等过滤器安全方法直通）·
+> `09ae36a`（dist 上 Spring + 删 18 文件）。下面五条是**当时的前置清单**，保留作判据；逐条结果：
+>
+> | # | 结果 |
+> |---|---|
+> | 1 替代品可验证 | `npm run build && npm run stage` 后 `mvnw clean spring-boot:run`：`/`、`/search`、`/video/65`、`/space/233`、`/assets/*.js` 全 200（`/api/v1/contents/recommended` 仍 200） |
+> | 2 白名单 | `SKIP_PREFIXES`：`/static/` → `/assets/`，**并补 HTML 外壳与 `/video/ /space/ /placeholder/`**（外壳是静态文件，页面里的 `/api/v1/**` 照常过闸）；`STATIC_PREFIXES` 同步；★ **转发用 ViewController，不需要 `@Public`**（没有 `@Controller` 端点，见 §十二） |
+> | 3 测试同步 | `RateLimitFilterContractTests` 探针改 `/assets/` 并补四个 HTML 外壳「零扣费」；`FrameworkErrorContractTests` 探针改 `/assets/`；**新增 `StaticForwardingContractTests`**（MockMvc 断言 `forwardedUrl`，不依赖产物是否存在；也钉住不是 redirect） |
+> | 4 引用清扫 | 活文档改指新前端（`INDEX` / `前端.md` / 限流 / 安全与鉴权 / 接口契约 / 幂等 / favorite / history）；历史裁决**只加状态行不改写** |
+> | 5 验收 | `git ls-files src/main/resources/static` 为空 + 四条路径 200 + `mvnw -B clean verify` 绿 + 三条文档门禁 0 |
 
 1. **替代品可验证**：dist 已上 Spring，`/`、`/search`、`/video/:id`、`/assets/*` 全 200。
 2. **静态白名单一起改**（否则新站首屏资源逐枚吃匿名令牌 ⇒ **429 掉 CSS**）：

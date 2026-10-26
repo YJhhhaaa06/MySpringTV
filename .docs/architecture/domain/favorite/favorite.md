@@ -256,6 +256,11 @@ content.favorite_count bigint（V2 加列 / V3 回填；冗余列，见 §四）
 
 **任务 `T#`**（`T1`–`T15` = 收藏一期 / 二期 / 第 3 张清单；`T16`–`T19` = 第 4 张清单；`T20` = 收藏专项收口；`T21` 起 = 第 5 张清单）
 
+> ⚠️ **2026-10-26：旧 SPA（`src/main/resources/static/`）已随 dist 上线删除。**
+> 下表 T7 / T19 / I-08 的「详见」列是**历史落点**（保留作决策留痕，不再可访问）；
+> 重制后的对应实现 = `frontend/src/components/video/FavoriteDialog.vue`（T7 收藏弹窗）
+> 与 `frontend/src/pages/FavoritesPage.vue`（收藏夹 / 稍后再看清单，T19 的一部分）。
+
 | 编号 | 一句话 | 详见 |
 |---|---|---|
 | T1 | V2 建表 + `favorite` 域骨架 + `ArchitectureTests.DOMAINS` 登记 | `V2__favorite_tables.sql` |

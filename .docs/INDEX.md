@@ -27,10 +27,11 @@ Flyway + Testcontainers。由 `old-project/TVhomework1`（Servlet + 手写连接
 | **还欠什么** | `task/FURTHER_ISSUES.md`（`F-##` 结转池）+ 各域 `*-已知代价.md`（**已拍板接受、不修**的账） |
 
 > ⚠️ **三条必须知道的边界**：
-> ① **前端**：新工程在 `frontend/`（Vue3 + TS + Vite，MPA 三入口，2026-10-25 起）。旧 SPA
-> `src/main/resources/static/` **已冻结**（接口重构后失效，**不再同步、不再修**）——**删除随「dist 上 Spring」同批**
-> （前置清单 = `task/CURRENT_FRONTEND.md` §十三）。**重制期入口 = `task/CURRENT_FRONTEND.md`**；
-> **前端应用口径 = `architecture/frontend/前端.md`**。
+> ① **前端**：新工程在 `frontend/`（Vue3 + TS + Vite，MPA 外壳 + 应用内 SPA，2026-10-25 起）。
+> ★ **2026-10-26 起 dist 上 Spring**：`npm run stage` 把 `frontend/dist` 同步到
+> `src/main/resources/static/`（**产物不入库**），由 Spring 直接服务（`/`、`/search`、`/video/:id`、
+> `/space/:id`、`/assets/**`）；**旧 SPA 的 18 个文件已删除**，`/static/**` 不再存在。
+> **重制期入口 = `task/CURRENT_FRONTEND.md`**；**前端应用口径 = `architecture/frontend/前端.md`**。
 > ② 鉴权**不迁 Spring Security**（2026-10-18 拍板，F-01/F-02 已核销）：自研 `JwtAuthFilter` + **默认拒绝**
 > （`@Public` 是唯一放行口）+ 处理器级角色判定（`@RequiresAdmin`）—— `SecurityPassthroughConfig` 是**终态**，
 > 不是临时态。口径 = `architecture/tech/security/安全与鉴权.md`，代价 = 同目录 `安全与鉴权-已知代价.md`。
