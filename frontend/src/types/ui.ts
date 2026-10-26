@@ -245,8 +245,9 @@ export interface MyFolderVM {
 /**
  * 历史列表里的一条（`GET /history`）。
  *
- * <p>与 `VideoCardVM` **刻意分开**：历史是"回看"场景，要画**观看进度**与**观看时刻**，
- * 而卡片那套（播放量 / 弹幕 / 发布时间）在这里一大半是假字段。
+ * <p>与 `VideoCardVM` **刻意分开**：历史是"回看"场景，封面要带**观看进度角标**
+ * （B 站口径 `已看/总长`，如 `18:09/49:45`），卡片 meta 要显示**观看时刻**
+ * （`今天 12:57`），而卡片那套（播放量 / 弹幕 / 发布时间）在这里全是假字段。
  */
 export interface HistoryItemVM {
   contentId: number
@@ -256,13 +257,15 @@ export interface HistoryItemVM {
   coverUrl: string | null
   /** 失效时为空串（后端不返回原作者 —— R-03 脱敏） */
   authorName: string
-  durationText: string | null
   invalid: boolean
-  /** 已看百分比 `0..100`；**无法计算时是 0**（不是"没看过"的同义词，见 `progressText`） */
+  /**
+   * 封面右下角角标（B 站历史页口径）：
+   * `18:09/49:45`（已看/总长）· `已看完` · `看到 12:00`（没有总时长时只给已看）· 空串（没进度）
+   */
+  badgeText: string
+  /** 进度条百分比 `0..100`；**算不出时是 0**（没有总时长就不画比例，不猜） */
   progressPercent: number
-  /** 「看到 03:21」/「已看完」/ 空串（不该显示时）。没有总时长就只给已看时长 */
-  progressText: string
-  /** 观看时刻 `HH:mm`（日期由分组标题承担） */
+  /** 观看时刻 `HH:mm`（日期由分组头/卡片 meta 承担） */
   watchedTimeText: string
   /** 原始观看时间（分组用；空串 = 后端没给） */
   watchedAt: string

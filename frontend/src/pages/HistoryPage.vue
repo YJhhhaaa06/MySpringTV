@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { HistoryItemVM } from '../types/ui'
 import { groupHistoryByDay, loadHistory } from '../api/history'
@@ -9,26 +9,28 @@ import { requireLogin } from '../auth/loginPrompt'
 import AppIcon from '../components/common/AppIcon.vue'
 import EmptyState from '../components/common/EmptyState.vue'
 import Pagination from '../components/common/Pagination.vue'
+import HistoryCard from '../components/history/HistoryCard.vue'
 
 /**
- * 观看历史（`/history`）：按天分组 → 每行 = 封面（带进度条）+ 标题 + UP + 看到哪儿 + 观看时刻。
+ * 观看历史（`/history`）：B 站 2026-10 版式 —— **左侧日期时间轴 + 右侧多列卡片网格**。
  *
- * <h2>版式按 B 站「历史记录」</h2>
- * 顶部图标 + 标题；登录后是**列表**（不是卡片网格），日期分组头 `今天 / 昨天 / MM-DD`；
- * 封面底部有一条播放进度条 —— 这是历史页与普通卡片列表唯一的形态差异，也是它的价值所在。
+ * <h2>版式对照（用户提供的登录态截图）</h2>
+ * - 时间轴：`今天` / `昨天` / `MM-DD` 在左栏，竖线 + 空心圆点贯穿整组；
+ * - 卡片：封面底「已看/总长」条（`18:09/49:45` / `已看完` / `看到 12:00`）+ 进度线，
+ *   标题两行，meta =「UP 主 · 今天 12:57」；
+ * - 1600 视口下 **4 列**（左栏 76px + 间距 24px 后约 290px/卡）——
+ *   旧版"一行一条"太稀，这一版是照截图重做的。
  *
- * <h2>★ GAP-19：后端没有「删除单条 / 清空历史」端点</h2>
- * `HistoryController` 只有 list / position / flush / report / play 五条。
- * ⇒ 页面**不渲染** B 站那样的单条删除与「清空历史」（摆了也点不动，等于撒谎），
- * 已登记进台账等后端；这不是本窗口漏做。
+ * <h2>★ 不渲染的 B 站控件（后端没有对应能力，摆了就是撒谎）</h2>
+ * - tabs「综合 / 视频 / 直播 / 专栏」+「更多筛选」+ 搜索框：`GET /history` 只有 `page/pageSize`
+ *   （GAP-20，无 `type` / `keyword` 参数）；
+ * - 「清空历史」「批量管理」与逐条删除：没有删除端点（GAP-19）；
+ * - 「记录浏览历史」开关：没有用户级开关端点（GAP-21）。
+ * 这三块**不是本窗口漏做**，台账里有记录；后端补了之后再加。
  *
  * <h2>页面级身份态</h2>
- * 同收藏页：整个列表都属于"我"，匿名请求必然 401 ⇒ 未登录渲染「登录后查看」+ 登录按钮，
- * 点按钮走动作级闸门 `requireLogin()`（登录成功后 watcher 自动装载）。
- *
- * <h2>失效条目</h2>
- * 后端保留 `contentId / progress / watchedTime`，但标题固定文案、封面/作者/时长是 `null`。
- * 页面渲染成灰行、不可点、不画进度条（**观看时间是事实，保留显示**）。
+ * 整个列表都属于"我" ⇒ 先 `await restoreSession()`，匿名渲染「登录后查看」+ 登录按钮
+ * （按钮走动作级闸门 `requireLogin()`，登录成功后 watcher 自动装载）。
  */
 const route = useRoute()
 const router = useRouter()
@@ -47,8 +49,6 @@ const total = ref(0)
 const totalPages = ref(0)
 const loading = ref(false)
 const error = ref('')
-/** 封面解码失败的行（避免破图；不是 404，用 CDN 也会偶发） */
-const brokenCovers = reactive<Record<number, boolean>>({})
 
 const groups = computed(() => groupHistoryByDay(items.value))
 
@@ -100,14 +100,6 @@ async function signIn(): Promise<void> {
 function goPage(nextPage: number): void {
   void router.push({ query: nextPage > 1 ? { page: String(nextPage) } : {} })
 }
-
-function guardInvalid(item: HistoryItemVM, event: MouseEvent): void {
-  if (item.invalid) event.preventDefault()
-}
-
-function markBroken(contentId: number): void {
-  brokenCovers[contentId] = true
-}
 </script>
 
 <template>
@@ -132,12 +124,10 @@ function markBroken(contentId: number): void {
 
       <template v-else>
         <div v-if="loading && !items.length" class="history-skeleton">
-          <div v-for="n in 5" :key="n" class="history-skeleton__row">
+          <div v-for="n in 8" :key="n" class="history-skeleton__cell">
             <div class="skeleton history-skeleton__cover" />
-            <div class="history-skeleton__body">
-              <div class="skeleton history-skeleton__line" />
-              <div class="skeleton history-skeleton__line history-skeleton__line--short" />
-            </div>
+            <div class="skeleton history-skeleton__line" />
+            <div class="skeleton history-skeleton__line history-skeleton__line--short" />
           </div>
         </div>
 
@@ -155,67 +145,24 @@ function markBroken(contentId: number): void {
         </EmptyState>
 
         <template v-else>
-          <section v-for="group in groups" :key="group.key" class="history-group">
-            <h2 class="history-group__title">{{ group.label }}</h2>
-            <ul class="history-list">
-              <li
-                v-for="item in group.items"
-                :key="item.contentId"
-                class="history-row"
-                :class="{ 'is-invalid': item.invalid }"
-              >
-                <a
-                  class="history-row__cover"
-                  :href="item.href"
-                  :aria-disabled="item.invalid || undefined"
-                  :aria-label="item.title"
-                  @click="guardInvalid(item, $event)"
-                >
-                  <img
-                    v-if="item.coverUrl && !brokenCovers[item.contentId]"
-                    class="history-row__img"
-                    :src="item.coverUrl"
-                    :alt="item.title"
-                    loading="lazy"
-                    decoding="async"
-                    @error="markBroken(item.contentId)"
+          <!-- 时间轴的竖线画在**整段**上（不是每组自己的 border），组与组之间才连续 -->
+          <div class="history-timeline">
+            <section v-for="group in groups" :key="group.key" class="history-group">
+              <div class="history-group__rail">
+                <h2 class="history-group__label">{{ group.label }}</h2>
+              </div>
+              <div class="history-group__main">
+                <div class="history-grid">
+                  <HistoryCard
+                    v-for="item in group.items"
+                    :key="item.contentId"
+                    :item="item"
+                    :day-label="group.label"
                   />
-                  <span v-else class="history-row__cover-fallback" aria-hidden="true">
-                    <AppIcon name="tv" :size="24" />
-                  </span>
-                  <span
-                    v-if="item.progressPercent > 0"
-                    class="history-row__bar"
-                    :style="{ width: `${item.progressPercent}%` }"
-                    aria-hidden="true"
-                  />
-                  <span v-if="item.invalid" class="history-row__badge">已失效</span>
-                </a>
-
-                <div class="history-row__body">
-                  <a
-                    class="history-row__title"
-                    :href="item.href"
-                    :aria-disabled="item.invalid || undefined"
-                    @click="guardInvalid(item, $event)"
-                  >{{ item.title }}</a>
-                  <p class="history-row__meta">
-                    <template v-if="item.authorName">
-                      <AppIcon name="user" :size="13" />
-                      <span>{{ item.authorName }}</span>
-                    </template>
-                    <template v-if="item.durationText">
-                      <span v-if="item.authorName" class="history-row__dot">·</span>
-                      <span>时长 {{ item.durationText }}</span>
-                    </template>
-                  </p>
-                  <p v-if="item.progressText" class="history-row__progress">{{ item.progressText }}</p>
                 </div>
-
-                <span class="history-row__time">{{ item.watchedTimeText }}</span>
-              </li>
-            </ul>
-          </section>
+              </div>
+            </section>
+          </div>
           <Pagination :page="page" :total-pages="totalPages" @update:page="goPage" />
         </template>
       </template>
@@ -254,7 +201,7 @@ function markBroken(contentId: number): void {
 }
 
 .history-head__meta {
-  margin-left: 4px;
+  margin-left: auto;
   font-size: 12px;
   color: var(--text-3);
 }
@@ -266,177 +213,119 @@ function markBroken(contentId: number): void {
   text-align: center;
 }
 
-.history-group {
-  margin-top: 22px;
+/* 时间轴：竖线画在整段容器上（组间连续），每组 = 左栏标签 + 右栏网格 */
+.history-timeline {
+  position: relative;
 }
 
-.history-group__title {
-  padding: 0 0 8px;
+.history-timeline::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 30px;
+  left: 76px;
+  width: 1px;
+  background: var(--line-1);
+}
+
+.history-group {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  margin-top: 26px;
+}
+
+.history-group__rail {
+  position: relative;
+  padding: 6px 24px 0 0;
+  text-align: right;
+}
+
+.history-group__rail::after {
+  content: '';
+  position: absolute;
+  top: 12px;
+  right: -4px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--text-4);
+  border-radius: 50%;
+  background: var(--bg-0);
+}
+
+.history-group__label {
   font-size: 15px;
   font-weight: 600;
-  color: var(--text-1);
-}
-
-.history-list {
-  border-top: 1px solid var(--line-2);
-}
-
-.history-row {
-  display: grid;
-  grid-template-columns: 168px minmax(0, 1fr) 56px;
-  gap: 16px;
-  align-items: center;
-  padding: 14px 0;
-  border-bottom: 1px solid var(--line-2);
-}
-
-.history-row__cover {
-  position: relative;
-  display: block;
-  aspect-ratio: 16 / 9;
-  overflow: hidden;
-  border-radius: var(--radius);
-  background: var(--bg-2);
-}
-
-.history-row__img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.history-row__cover-fallback {
-  display: flex;
-  width: 100%;
-  height: 100%;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-4);
-  background: linear-gradient(135deg, #f1f2f3 0%, #e3e5e7 100%);
-}
-
-/* 底部进度条：宽度 = progress / duration（B 站历史页的标志性元素） */
-.history-row__bar {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  height: 3px;
-  background: var(--brand-pink);
-}
-
-.history-row__badge {
-  position: absolute;
-  top: 6px;
-  left: 6px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--text-inverse);
-  background: rgba(0, 0, 0, 0.62);
-}
-
-.history-row__body {
-  min-width: 0;
-}
-
-.history-row__title {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-  font-size: 15px;
-  font-weight: 500;
   line-height: 22px;
-  color: var(--text-1);
-  word-break: break-word;
+  color: var(--text-2);
 }
 
-.history-row__title:hover {
-  color: var(--brand-blue);
+.history-group__main {
+  padding: 0 0 30px 24px;
 }
 
-.history-row__meta {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 6px;
-  font-size: 13px;
-  color: var(--text-3);
-}
-
-.history-row__dot {
-  color: var(--text-4);
-}
-
-.history-row__progress {
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--brand-pink);
-}
-
-.history-row__time {
-  font-size: 12px;
-  color: var(--text-3);
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-/* 失效行：灰卡不可点；观看时间仍是事实，保留 */
-.history-row.is-invalid .history-row__cover,
-.history-row.is-invalid .history-row__title {
-  cursor: default;
-}
-
-.history-row.is-invalid .history-row__img,
-.history-row.is-invalid .history-row__cover-fallback {
-  filter: grayscale(1);
-  opacity: 0.82;
-}
-
-.history-row.is-invalid .history-row__title {
-  color: var(--text-3);
+/* B 站 1600 下是 4 列；1372 起主区变窄，逐级降列 */
+.history-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 26px 16px;
 }
 
 .history-skeleton {
-  margin-top: 22px;
-}
-
-.history-skeleton__row {
   display: grid;
-  grid-template-columns: 168px minmax(0, 1fr);
-  gap: 16px;
-  padding: 14px 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 26px 16px;
+  margin-top: 26px;
 }
 
 .history-skeleton__cover {
   aspect-ratio: 16 / 9;
 }
 
-.history-skeleton__body {
-  padding-top: 8px;
-}
-
 .history-skeleton__line {
   height: 16px;
-  margin-bottom: 10px;
+  margin-top: 10px;
 }
 
 .history-skeleton__line--short {
-  width: 40%;
+  width: 45%;
+  margin-top: 8px;
+}
+
+@media (max-width: 1372px) {
+  .history-grid,
+  .history-skeleton {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1000px) {
+  .history-grid,
+  .history-skeleton {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 760px) {
-  .history-row {
-    grid-template-columns: 120px minmax(0, 1fr);
-  }
-
-  .history-row__time {
+  .history-timeline::before {
     display: none;
   }
 
-  .history-skeleton__row {
-    grid-template-columns: 120px minmax(0, 1fr);
+  .history-group {
+    grid-template-columns: minmax(0, 1fr);
+    margin-top: 18px;
+  }
+
+  .history-group__rail {
+    padding: 0 0 10px;
+    text-align: left;
+  }
+
+  .history-group__rail::after {
+    display: none;
+  }
+
+  .history-group__main {
+    padding: 0 0 20px;
   }
 }
 </style>

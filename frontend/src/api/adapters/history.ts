@@ -18,18 +18,27 @@ import type { HistoryGroupVM, HistoryItemVM } from '../../types/ui'
 import { formatDuration, parseDate } from './format'
 import { videoHref } from './links'
 
-/** `HistoryItemVO` → 历史行（进度按 `progress / durationSeconds` 真算） */
+/**
+ * `HistoryItemVO` → 历史卡片（进度按 `progress / durationSeconds` 真算）。
+ *
+ * <p>角标口径对齐 B 站历史页：有总时长 ⇒ `已看/总长`（`18:09/49:45`）；已看完 ⇒ `已看完`；
+ * 没有总时长（本仓存量内容常见）⇒ 只给 `看到 mm:ss`，**不猜比例**；没进度 ⇒ 空串（不渲染角标）。
+ */
 export function toHistoryItem(item: components['schemas']['HistoryItemVO']): HistoryItemVM {
   const invalid = item.invalid === true
   const progress = typeof item.progress === 'number' && item.progress > 0 ? item.progress : 0
   const duration = typeof item.durationSeconds === 'number' && item.durationSeconds > 0 ? item.durationSeconds : 0
   const watchedAt = item.watchedTime ?? ''
 
-  let progressText = ''
+  const progressText = formatDuration(progress)
+  const durationText = formatDuration(duration)
+  let badgeText = ''
   if (!invalid && progress > 0) {
-    progressText = duration > 0 && progress >= duration
-      ? '已看完'
-      : `看到 ${formatDuration(progress) ?? ''}`
+    if (duration > 0) {
+      badgeText = progress >= duration ? '已看完' : `${progressText}/${durationText}`
+    } else {
+      badgeText = `看到 ${progressText ?? ''}`
+    }
   }
   const progressPercent = !invalid && duration > 0
     ? Math.min(100, Math.max(0, Math.round((progress / duration) * 100)))
@@ -41,10 +50,9 @@ export function toHistoryItem(item: components['schemas']['HistoryItemVO']): His
     title: item.title?.trim() || '已失效内容',
     coverUrl: invalid ? null : item.coverUrl?.trim() || null,
     authorName: invalid ? '' : item.authorName?.trim() || '',
-    durationText: invalid ? null : formatDuration(duration),
     invalid,
+    badgeText,
     progressPercent,
-    progressText,
     watchedTimeText: formatClock(watchedAt),
     watchedAt,
   }
