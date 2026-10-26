@@ -43,9 +43,13 @@ import java.util.Set;
  * 除跳过清单外**全部过闸**：含匿名读接口、未映射路径（扫描流正是要防的对象之一）、
  * {@code /api/v1/admin}（通过鉴权的管理员请求同样过闸）。**无任何白名单**（含管理员——
  * 管理端人工操作流量极小，不值得开"绕过口"）。
- * <p>跳过清单 = 精确 {@code /}、{@code /index.html}、{@code /favicon.ico}（浏览器默认请求，
- * 文件不存在也是 404）＋ 前缀 {@code /static/}（前端 18 文件）、{@code /actuator/}、
- * {@code /upload/}。理由：静态资源不是业务成本，一起过闸会拖慢首屏、甚至 429 掉 CSS。
+ * <p>跳过清单 = 精确 {@code /}、{@code /index.html}、{@code /favicon.ico}、{@code /favicon.svg}
+ * 与**前端 HTML 外壳路由**（{@code /search} 和四个 {@code *.html} 入口）＋ 前缀 {@code /assets/}
+ * （前端构建产物）、{@code /video/}、{@code /space/}、
+ * {@code /placeholder/}（history 模式转发到入口 HTML 的应用内路由）、{@code /actuator/}、
+ * {@code /upload/}。理由：静态资源不是业务成本，一起过闸会拖慢首屏、甚至 429 掉 CSS；
+ * ★ **HTML 外壳也过闸**会变成"每翻一页先扣一枚令牌"，而页面里的 {@code /api/v1/**}
+ * 才是真正的成本来源（跳过外壳 ≠ 跳过数据）。
  * ⚠️ {@code /upload/}（静态媒体服务，{@code WebMvcConfig#addResourceHandlers}）在原始
  * 覆盖清单里**没有点名**——执行期按"ResourceHandler 静态服务一律跳过"的同一口径补上
  * （429 掉视频文件与 429 掉 CSS 是同一类事故），登记 {@code I-19}；
@@ -107,15 +111,25 @@ public class RateLimitFilter extends OncePerRequestFilter {
     public static final int RATE_LIMIT_ORDER = JwtAuthFilter.AUTH_FILTER_ORDER + 10;
 
     /** 跳过清单的**精确匹配**路径（上下文路径已剥）。 */
-    private static final Set<String> SKIP_EXACT = Set.of("/", "/index.html", "/favicon.ico");
+    private static final Set<String> SKIP_EXACT = Set.of(
+            // 浏览器默认请求（文件不存在也是 404）
+            "/", "/index.html", "/favicon.ico", "/favicon.svg",
+            // 前端 HTML 外壳（`WebMvcConfig#addViewControllers` 的转发目标与入口本身）
+            "/search", "/search.html",
+            "/video.html", "/space.html");
 
     /**
      * 跳过清单的**前缀**匹配（带尾 {@code /}，避免 {@code /staticfoo} 这类假想业务路径被误跳）。
      * {@code /actuator/} 用带斜杠前缀：{@code /actuator} 本身（端点链接页，200）不在清单内、
      * 会过闸——一次请求一枚令牌，可忽略。⚠️ 比原始清单的 {@code /actuator/**} 略窄
      * （多放行裸 {@code /actuator} 一个路径），已留痕 {@code architecture/tech/rate-limit/限流.md} §三。
+     * <p>{@code /video/}、{@code /space/}、{@code /placeholder/} 是**应用内路由的转发入口**
+     * （如 {@code /video/92} → {@code video.html}），请求只到 ViewController + 静态文件、
+     * 不碰 DB / Redis；它们的成本全在页面随后发出的 {@code /api/v1/**} 上。
      */
-    private static final List<String> SKIP_PREFIXES = List.of("/static/", "/actuator/", "/upload/");
+    private static final List<String> SKIP_PREFIXES = List.of(
+            "/assets/", "/actuator/", "/upload/",
+            "/video/", "/space/", "/placeholder/");
 
     private final RateLimitProperties properties;
     private final RateLimitRedisOps ops;

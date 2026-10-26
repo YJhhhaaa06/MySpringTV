@@ -4,6 +4,7 @@ import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserIdArgumentResolv
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
+import org.springframework.web.servlet.config.annotation.ViewControllerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import java.util.List;
@@ -15,8 +16,9 @@ import java.util.List;
  * {@code BaseServletUtil}（分页参数归一化，曾**反复重构四轮**）在此彻底退役——
  * 改由 Spring 的消息转换器与参数解析器承担（踩坑清单 §7【已爆】）。
  *
- * <p>目前承担两件事：① 注册 {@link CurrentUserIdArgumentResolver}；
- * ② 挂载 {@code /upload/**} 静态媒体服务（S7）。
+ * <p>目前承担三件事：① 注册 {@link CurrentUserIdArgumentResolver}；
+ * ② 挂载 {@code /upload/**} 静态媒体服务（S7）；
+ * ③ 前端 MPA 外壳的 **history 路由转发**（见 {@link #addViewControllers}）。
  */
 @Configuration
 public class WebMvcConfig implements WebMvcConfigurer {
@@ -33,6 +35,51 @@ public class WebMvcConfig implements WebMvcConfigurer {
     @Override
     public void addArgumentResolvers(List<HandlerMethodArgumentResolver> resolvers) {
         resolvers.add(currentUserIdArgumentResolver);
+    }
+
+    /**
+     * 前端 MPA 外壳的 history 路由：把「浏览器地址栏里的 B 站式 URL」转发到**对应入口 HTML**。
+     *
+     * <h2>为什么必须补</h2>
+     * 前端是「MPA 外壳 + 应用内 SPA」（口径见 {@code architecture/frontend/前端.md} §一）：
+     * 每个入口一个 HTML、应用内用 {@code createWebHistory}。打包产物里只有
+     * {@code index.html / search.html / video.html / space.html} 这几个**文件名**，
+     * 而用户地址栏里是 {@code /search}、{@code /video/92} —— 没有这层转发，刷新深链就是 404。
+     * dev / preview 侧由 {@code vite.config.ts} 的 {@code htmlHistoryFallback}
+     * 承担**同一张映射表**；两处必须同步改（TS 与 Java 之间没法互相校验，靠这条注释 + review）。
+     *
+     * <h2>★ 为什么用 ViewController 而不是 {@code @Controller}</h2>
+     * 这是一个**页面导航**，不是对外接口。用 {@code @Controller} 会带来三件错事：
+     * <ol>
+     *   <li>它会被 {@code ApiContractInventoryTests} 扫进端点登记簿（判据是「bean 上有
+     *       {@code @Controller}」），于是登记簿里多出几条 {@code GET /video/{id} → String}；
+     *       而登记簿同时要求「非 DELETE 端点必须返回 {@code ApiResponse}」⇒ 直接红；</li>
+     *   <li>{@code RequestMappingLookup} 会把它当业务端点 ⇒ 默认拒绝 ⇒ 每条都得标
+     *       {@code @Public}，凭空多出一个「放行口」要维护；</li>
+     *   <li>OpenAPI spec 会把它导成 API 端点。</li>
+     * </ol>
+     * {@code ViewController} 由独立的 {@code viewControllerHandlerMapping} 处理（order 1，先于
+     * {@code requestMappingHandlerMapping}），处理器是 {@code ParameterizableViewController}，
+     * **不是 {@code HandlerMethod}** ⇒ 不进登记簿、不进 spec、不参与三条鉴权注解的判定
+     * （静态 HTML 本来就该公开）。这才是「页面导航 ≠ 接口」的正确落点。
+     *
+     * <h2>★ 与限流跳过清单的关系</h2>
+     * 这些路径在 {@code RateLimitFilter#SKIP_EXACT} 里：HTML 外壳是静态文件、不产生业务成本，
+     * 与 {@code /assets/**} 同口径（429 掉一个 HTML 与 429 掉 CSS 是同一类事故）。
+     * 但**真正发业务请求的是页面里的 {@code /api/v1/**}** —— 跳过的是外壳，不是数据。
+     *
+     * <h2>转发保留地址栏</h2>
+     * {@code forward} 是服务端内部转发：浏览器 URL 仍是 {@code /video/92}，
+     * 应用内 router 因此能按真实路径匹配（换成 {@code redirect} 会把 URL 变成
+     * {@code /video.html}，router 立刻落到 not-found，且分享出去的深链也变了）。
+     */
+    @Override
+    public void addViewControllers(ViewControllerRegistry registry) {
+        registry.addViewController("/").setViewName("forward:/index.html");
+        registry.addViewController("/search").setViewName("forward:/search.html");
+        registry.addViewController("/video/{id}").setViewName("forward:/video.html");
+        registry.addViewController("/space/{id}").setViewName("forward:/space.html");
+        registry.addViewController("/placeholder/{feature}").setViewName("forward:/index.html");
     }
 
     /**

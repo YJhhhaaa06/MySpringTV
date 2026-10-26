@@ -76,9 +76,9 @@ class FrameworkErrorContractTests extends AbstractHttpIntegrationTest {
     @Test
     @DisplayName("静态资源与媒体缺文件：404 但**不产信封**（消费方不看 body），访问行 code 退回哨兵 0")
     void 静态资源与媒体缺文件_404但不产信封() {
-        // 三条覆盖两张清单：精确匹配（/favicon.ico）+ 两个前缀（/static/、/upload/）。
+        // 三条覆盖两张清单：精确匹配（/favicon.ico）+ 两个前缀（/assets/、/upload/）。
         // 用不存在的文件制造 404 —— 存在就变 200，断言会红，属预期。
-        for (String path : List.of("/favicon.ico", "/static/css/t56-missing.css", "/upload/t56-missing.mp4")) {
+        for (String path : List.of("/favicon.ico", "/assets/t56-missing.css", "/upload/t56-missing.mp4")) {
             ResponseEntity<String> resp = get(path, null);
 
             assertThat(resp.getStatusCode().value()).as("%s 必须是 404", path).isEqualTo(404);
