@@ -264,6 +264,19 @@ function guardInvalid(event: MouseEvent): void {
   align-items: start;
 }
 
+/* 104px 的封面放不下 40px 圆钮：缩小一档，避免盖住大半张图 */
+.video-card--row :deep(.watch-later-btn) {
+  top: 4px;
+  right: 4px;
+  width: 30px;
+  height: 30px;
+}
+
+.video-card--row :deep(.watch-later-btn svg) {
+  width: 16px;
+  height: 16px;
+}
+
 .video-card--row .video-card__cover {
   aspect-ratio: 16 / 10;
 }
