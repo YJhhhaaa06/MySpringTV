@@ -89,9 +89,10 @@ onUnmounted(() => {
         <a
           v-for="action in HEADER_ACTIONS"
           :key="action.label"
-          class="header-icon is-placeholder"
+          class="header-icon"
+          :class="{ 'is-placeholder': action.placeholder }"
           :href="action.href"
-          :title="`${action.label}（占位页）`"
+          :title="action.placeholder ? `${action.label}（占位页）` : action.label"
           :aria-label="action.label"
         >
           <AppIcon :name="action.icon" :size="20" />

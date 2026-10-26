@@ -114,18 +114,8 @@ Object.assign(registry, {
   },
   // ★ `space`（UP 空间）已于 2026-10-25 交付（`space.html` + `/space/:id`）⇒ 从本注册表移除。
   //   `/placeholder/space` 因此落到「页面不存在」，真链接在 `adapters/links.ts#spaceHref`。
-  favorites: {
-    key: 'favorites',
-    label: '收藏',
-    kind: 'pending',
-    note: '后端已有收藏夹与收藏条目的读接口（含 Cursor 楼中楼外的两种分页）。页面在后续窗口交付。',
-  },
-  history: {
-    key: 'history',
-    label: '历史',
-    kind: 'pending',
-    note: '后端已有历史与稍后再看接口。页面在后续窗口交付。',
-  },
+  // ★ `favorites` / `history` 已于 2026-10-26 交付（`favorites.html` / `history.html`）⇒ 同样移除；
+  //   真链接是 `/favorites` / `/history`（顶栏 `HEADER_ACTIONS`）。
   feed: {
     key: 'feed',
     label: '动态',
@@ -167,11 +157,20 @@ export const HEADER_NAV: ReadonlyArray<{ label: string; href: string; placeholde
   })),
 ]
 
-/** 顶栏右侧图标簇：全部为占位或后续窗口页面（本窗口只交付首页 / 搜索 / 播放页） */
-export const HEADER_ACTIONS: ReadonlyArray<{ label: string; icon: IconName; href: string }> = [
-  { label: '消息', icon: 'message', href: featureUrl('message') },
-  { label: '动态', icon: 'dynamic', href: featureUrl('feed') },
-  { label: '收藏', icon: 'star', href: featureUrl('favorites') },
-  { label: '历史', icon: 'clock', href: featureUrl('history') },
-  { label: '创作中心', icon: 'dashboard', href: featureUrl('upload') },
+/**
+ * 顶栏右侧图标簇：`收藏` / `历史` 已是真页面（2026-10-26）；
+ * 消息 / 动态 / 创作中心仍是**后续窗口**（`pending`，点进占位页）。
+ */
+export const HEADER_ACTIONS: ReadonlyArray<{
+  label: string
+  icon: IconName
+  href: string
+  /** true = 点进 `/placeholder/:feature`（灰态）；false / 缺省 = 真页面 */
+  placeholder?: boolean
+}> = [
+  { label: '消息', icon: 'message', href: featureUrl('message'), placeholder: true },
+  { label: '动态', icon: 'dynamic', href: featureUrl('feed'), placeholder: true },
+  { label: '收藏', icon: 'star', href: '/favorites' },
+  { label: '历史', icon: 'clock', href: '/history' },
+  { label: '创作中心', icon: 'dashboard', href: featureUrl('upload'), placeholder: true },
 ]
