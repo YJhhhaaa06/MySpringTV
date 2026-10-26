@@ -18,6 +18,8 @@ const pageEntries: ReadonlyArray<readonly [RegExp, string]> = [
   [/^\/search\/?$/, '/search.html'],
   [/^\/video\/\d+\/?$/, '/video.html'],
   [/^\/space\/\d+\/?$/, '/space.html'],
+  [/^\/favorites\/?$/, '/favorites.html'],
+  [/^\/history\/?$/, '/history.html'],
   [/^\/placeholder(\/.*)?$/, '/index.html'],
 ]
 
@@ -78,6 +80,8 @@ export default defineConfig({
         search: fileURLToPath(new URL('./search.html', import.meta.url)),
         video: fileURLToPath(new URL('./video.html', import.meta.url)),
         space: fileURLToPath(new URL('./space.html', import.meta.url)),
+        favorites: fileURLToPath(new URL('./favorites.html', import.meta.url)),
+        history: fileURLToPath(new URL('./history.html', import.meta.url)),
       },
     },
   },

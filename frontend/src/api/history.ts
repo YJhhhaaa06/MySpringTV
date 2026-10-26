@@ -1,5 +1,5 @@
 /**
- * 播放历史端点（客户端只用这五个，见 `architecture/domain/history/history-客户端契约.md` §二）。
+ * 播放历史端点。
  *
  * <p>口径要点（照抄契约，别自己发明）：
  * - 全部**需要登录**（类级 `@RequiresLogin`）⇒ 未登录时 401 不是"没有记录"；
@@ -7,9 +7,14 @@
  * - `flush` **没有 contentId 参数**：它写的是该用户缓冲里的**全部**内容；
  * - `PUT /progress` 是**唯一**可能 503 + `Retry-After` 的端点（Redis 不可用时），
  *   客户端必须按服务端给的节奏退避（见 `progressReporter.ts`）。
+ *
+ * <p>★ 2026-10-26 追加**列表读端点** `GET /history`（历史页交付）——
+ * 播放页用的五个写/读端点仍在；列表是第六个，前端只读不写（后端没有删除端点，GAP-19）。
  */
 import type { components } from '../types/api'
+import type { HistoryItemVM, PageVM } from '../types/ui'
 import { readToken } from '../auth/token'
+import { groupHistory, toHistoryItem } from './adapters/history'
 import { getJson, postJson, putJson } from './http'
 
 /** `POST /contents/{id}/play`：播放量去重计数（幂等，重复调不报错） */
@@ -33,6 +38,26 @@ export function fetchProgress(contentId: number): Promise<components['schemas'][
 export function flushHistory(): Promise<undefined> {
   return postJson('/api/v1/history/flush')
 }
+
+/** `GET /history`：观看历史（最后观看倒序；失效条目占位、**保留 progress**） */
+export async function loadHistory(page = 1, pageSize = 20): Promise<PageVM<HistoryItemVM>> {
+  const result = await getJson('/api/v1/history', { query: { page, pageSize } })
+  const list = result?.list ?? []
+  return {
+    items: list.map((item) => toHistoryItem(item)),
+    page: result?.page ?? 1,
+    total: result?.total ?? list.length,
+    totalPages: result?.totalPages ?? 0,
+  }
+}
+
+/**
+ * 按天分组（今天 / 昨天 / MM-DD）。
+ *
+ * <p>分组依赖"现在是几点"，属于**展示口径**，所以留在页面这一侧、不进端点层；
+ * 这里只做一个转发，省得页面同时 import 两个模块。
+ */
+export const groupHistoryByDay = groupHistory
 
 /**
  * 退出信号：`fetch(keepalive)` —— **不是** `navigator.sendBeacon`。

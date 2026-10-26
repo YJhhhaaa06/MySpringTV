@@ -13,7 +13,12 @@ withDefaults(
   <div class="video-grid">
     <!-- 首页的大轮播从 slot 进来（它自己声明 span 2×2），其余页面不用 -->
     <slot />
-    <VideoCard v-for="item in items" :key="item.id" :item="item" />
+    <!-- `#item` 给"卡片 + 悬浮操作"这类页面用（收藏页的「取消收藏」）；不传则保持纯卡片 -->
+    <template v-for="item in items" :key="item.id">
+      <slot name="item" :item="item">
+        <VideoCard :item="item" />
+      </slot>
+    </template>
     <template v-if="loading">
       <SkeletonCard v-for="n in skeletonCount" :key="`skeleton-${n}`" />
     </template>

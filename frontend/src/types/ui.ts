@@ -73,6 +73,19 @@ export interface SearchResultVM {
 }
 
 /**
+ * 通用 **Page 分页**形状（收藏 / 稍后再看 / 历史共用；区别只在 item 类型）。
+ *
+ * <p>与 `CommentRepliesVM`（Cursor）**刻意分开**：两种分页的边界（`page/totalPages` vs
+ * `nextCursor`）与翻页交互都不同，硬统一只会让两边都别扭（见 `architecture/frontend/前端.md` §四）。
+ */
+export interface PageVM<T> {
+  items: T[]
+  page: number
+  total: number
+  totalPages: number
+}
+
+/**
  * 互动态（`InteractionStatusVO`）。
  *
  * <p>★ **三态**：整个对象为 `null` = 匿名（本面不查）；`followed === null` = 本面**只查了赞**
@@ -215,4 +228,49 @@ export interface PublicFolderVM {
   id: number
   name: string
   itemCount: number
+}
+
+/**
+ * 我的收藏夹（`GET /favorite-folders`，**含私密夹**；与 `PublicFolderVM` 是两种视图：
+ * 后者只给公开夹、匿名可见）。
+ */
+export interface MyFolderVM {
+  id: number
+  name: string
+  itemCount: number
+  isDefault: boolean
+  isPrivate: boolean
+}
+
+/**
+ * 历史列表里的一条（`GET /history`）。
+ *
+ * <p>与 `VideoCardVM` **刻意分开**：历史是"回看"场景，要画**观看进度**与**观看时刻**，
+ * 而卡片那套（播放量 / 弹幕 / 发布时间）在这里一大半是假字段。
+ */
+export interface HistoryItemVM {
+  contentId: number
+  /** 跨应用链接；失效条目页面**不渲染成链接**（打不开） */
+  href: string
+  title: string
+  coverUrl: string | null
+  /** 失效时为空串（后端不返回原作者 —— R-03 脱敏） */
+  authorName: string
+  durationText: string | null
+  invalid: boolean
+  /** 已看百分比 `0..100`；**无法计算时是 0**（不是"没看过"的同义词，见 `progressText`） */
+  progressPercent: number
+  /** 「看到 03:21」/「已看完」/ 空串（不该显示时）。没有总时长就只给已看时长 */
+  progressText: string
+  /** 观看时刻 `HH:mm`（日期由分组标题承担） */
+  watchedTimeText: string
+  /** 原始观看时间（分组用；空串 = 后端没给） */
+  watchedAt: string
+}
+
+/** 历史按天分组（今天 / 昨天 / MM-DD / YYYY-MM-DD） */
+export interface HistoryGroupVM {
+  key: string
+  label: string
+  items: HistoryItemVM[]
 }

@@ -44,7 +44,7 @@ import java.util.Set;
  * {@code /api/v1/admin}（通过鉴权的管理员请求同样过闸）。**无任何白名单**（含管理员——
  * 管理端人工操作流量极小，不值得开"绕过口"）。
  * <p>跳过清单 = 精确 {@code /}、{@code /index.html}、{@code /favicon.ico}、{@code /favicon.svg}
- * 与**前端 HTML 外壳路由**（{@code /search} 和四个 {@code *.html} 入口）＋ 前缀 {@code /assets/}
+ * 与**前端 HTML 外壳路由**（{@code /search}、{@code /favorites}、{@code /history} 与各 {@code *.html} 入口）＋ 前缀 {@code /assets/}
  * （前端构建产物）、{@code /video/}、{@code /space/}、
  * {@code /placeholder/}（history 模式转发到入口 HTML 的应用内路由）、{@code /actuator/}、
  * {@code /upload/}。理由：静态资源不是业务成本，一起过闸会拖慢首屏、甚至 429 掉 CSS；
@@ -116,6 +116,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
             "/", "/index.html", "/favicon.ico", "/favicon.svg",
             // 前端 HTML 外壳（`WebMvcConfig#addViewControllers` 的转发目标与入口本身）
             "/search", "/search.html",
+            "/favorites", "/favorites.html",
+            "/history", "/history.html",
             "/video.html", "/space.html");
 
     /**

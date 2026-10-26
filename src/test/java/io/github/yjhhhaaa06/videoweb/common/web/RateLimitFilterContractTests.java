@@ -296,6 +296,8 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
             // ★ HTML 外壳 = 静态文件（生产由 WebMvcConfig#addViewControllers 转发到入口 HTML）：
             //   它们不碰 DB / Redis，跳过的只是外壳；页面随后发的 /api/v1/** 才是成本。
             hitSkippedAndAssertUntouched("/search");
+            hitSkippedAndAssertUntouched("/favorites");
+            hitSkippedAndAssertUntouched("/history");
             hitSkippedAndAssertUntouched("/video/999999");
             hitSkippedAndAssertUntouched("/space/999999");
             hitSkippedAndAssertUntouched("/placeholder/live");

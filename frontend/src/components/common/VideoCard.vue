@@ -17,11 +17,31 @@ watch(
 )
 
 const showCover = computed(() => Boolean(props.item.coverUrl) && !coverBroken.value)
+
+/**
+ * 失效条目（收藏夹 / 稍后再看里内容已被删或下架）**不跳转**：那个链接必然 404，
+ * 点进去只会看到错误页。B 站也是灰卡不可点。
+ *
+ * <p>为什么用 `preventDefault` 而不是把 `<a>` 换成 `<div>`：卡片在索引 / 搜索 / 空间 /
+ * 播放页侧栏 / 两个「我的」页里共用，换标签会牵动全部布局与样式；这里只关掉"跳转"这一件事，
+ * 链接仍然可聚焦（键盘用户能看到它），视觉由 `.is-invalid` 承担。
+ */
+function guardInvalid(event: MouseEvent): void {
+  if (props.item.invalid) event.preventDefault()
+}
 </script>
 
 <template>
-  <article class="video-card" :class="`video-card--${layout}`">
-    <a class="video-card__cover" :href="item.href" target="_blank" rel="noopener" :aria-label="item.title">
+  <article class="video-card" :class="[`video-card--${layout}`, { 'is-invalid': item.invalid }]">
+    <a
+      class="video-card__cover"
+      :href="item.href"
+      target="_blank"
+      rel="noopener"
+      :aria-label="item.title"
+      :aria-disabled="item.invalid || undefined"
+      @click="guardInvalid"
+    >
       <img
         v-if="showCover"
         class="video-card__img"
@@ -42,7 +62,14 @@ const showCover = computed(() => Boolean(props.item.coverUrl) && !coverBroken.va
     </a>
 
     <div class="video-card__info">
-      <a class="video-card__title" :href="item.href" target="_blank" rel="noopener">{{ item.title }}</a>
+      <a
+        class="video-card__title"
+        :href="item.href"
+        target="_blank"
+        rel="noopener"
+        :aria-disabled="item.invalid || undefined"
+        @click="guardInvalid"
+      >{{ item.title }}</a>
       <p class="video-card__meta">
         <AppIcon name="user" :size="13" />
         <!-- 收藏夹条目（FavoriteItemVO）没有 authorId ⇒ 作者只能渲染成纯文本，不做死链 -->
@@ -90,6 +117,22 @@ const showCover = computed(() => Boolean(props.item.coverUrl) && !coverBroken.va
 
 .video-card:hover .video-card__img {
   transform: scale(1.04);
+}
+
+/* 失效条目：整卡去饱和 + 链接不可点（否则是一个必然 404 的死链） */
+.video-card.is-invalid .video-card__cover,
+.video-card.is-invalid .video-card__title {
+  cursor: default;
+}
+
+.video-card.is-invalid .video-card__img,
+.video-card.is-invalid .video-card__cover-fallback {
+  filter: grayscale(1);
+  opacity: 0.82;
+}
+
+.video-card.is-invalid .video-card__title {
+  color: var(--text-3);
 }
 
 .video-card__cover-fallback {

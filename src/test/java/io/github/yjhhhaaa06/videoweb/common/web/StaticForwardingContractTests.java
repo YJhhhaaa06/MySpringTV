@@ -47,6 +47,8 @@ class StaticForwardingContractTests extends AbstractIntegrationTest {
         assertForward("/search", "/search.html");
         assertForward("/video/77", "/video.html");
         assertForward("/space/77", "/space.html");
+        assertForward("/favorites", "/favorites.html");
+        assertForward("/history", "/history.html");
         assertForward("/placeholder/live", "/index.html");
     }
 
