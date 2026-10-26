@@ -13,6 +13,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
+import org.springframework.data.redis.core.RedisOperations;
+import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import tools.jackson.databind.JsonNode;
 
@@ -28,8 +30,10 @@ import java.util.concurrent.Future;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -274,18 +278,36 @@ class ContentListCountTests extends AbstractContentIntegrationTest {
         assertThat(aggregate.readCounts(java.util.Arrays.asList(null, null),
                 Set.of(ContentCountField.PLAY))).isEmpty();
         assertThat(aggregate.readCounts(List.of(1L), Set.of())).isEmpty();
-        Mockito.verifyNoInteractions(contentDao);
+        // ★ 用**方法级** never（不是 verifyNoInteractions）：feed 的异步消费者也可能调 ContentDao，
+        //   全局窗口会偶发红；同时钉住"连 Redis pipeline 都没发起"。
+        verify(contentDao, never()).findCountColumnsByIds(any());
+        verify(aggregate, never()).pipeline(any());
 
         registerAndGetToken(AUTHOR_PHONE, AUTHOR);
         long authorId = userIdOf(AUTHOR_PHONE);
         long contentId = insertVideoContent(authorId, "列表计数重复 id");
         jdbcTemplate.update("UPDATE content SET play_count = 12 WHERE id = ?", contentId);
 
+        // ★ 只断言结果无法证明"去重"：missed/values 本身按 id 归并，去掉 distinct() 也照样绿。
+        //   用 mock 的 RedisOperations 捕获 pipeline 实际发出的 GET 键数才是判别点。
+        @SuppressWarnings("unchecked")
+        ValueOperations<String, String> valueOps = Mockito.mock(ValueOperations.class);
+        @SuppressWarnings("unchecked")
+        RedisOperations<String, String> ops = Mockito.mock(RedisOperations.class);
+        Mockito.when(ops.opsForValue()).thenReturn(valueOps);
+        Mockito.when(valueOps.get(Mockito.anyString())).thenReturn(null);
+        doAnswer(invocation -> {
+            java.util.function.Consumer<RedisOperations<String, String>> consumer = invocation.getArgument(0);
+            consumer.accept(ops);
+            return java.util.Collections.nCopies(4, null);
+        }).when(aggregate).pipeline(any());
+
         Map<Long, ContentCountRow> rows = aggregate.readCounts(List.of(contentId, contentId),
                 Set.of(ContentCountField.PLAY));
 
         assertThat(rows).as("重复 id 去重 ⇒ 每个 id 恰好一行").hasSize(1).containsKey(contentId);
         assertThat(rows.get(contentId).playCount()).isEqualTo(12L);
+        verify(valueOps, times(1)).get(Mockito.anyString());
         verify(contentDao, times(1)).findCountColumnsByIds(eq(Set.of(contentId)));
     }
 
