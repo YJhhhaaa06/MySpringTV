@@ -10,7 +10,7 @@ npm run gen:api     # openapi.yaml → src/types/api.d.ts（生成物入库，di
 npm run dev         # http://localhost:5173（/api、/upload 已代理到 127.0.0.1:8080）
 npm run typecheck   # vue-tsc -b —— 类型硬门禁
 npm run test        # vitest —— 适配器 fallback + 请求层 + 播放进度规则
-npm run build       # dist/{index,search,video,space}.html
+npm run build       # dist/{index,search,video,space,favorites,history}.html
 npm run stage       # 把 dist 同步到 ../src/main/resources/static（Spring 直接服务它）
 npm run preview     # 验打包产物（同一套 history fallback + 代理）
 ```
@@ -26,7 +26,7 @@ cd ..
 ./mvnw.cmd spring-boot:run         # http://localhost:8080/
 ```
 
-- `/`、`/search`、`/video/:id`、`/space/:id`、`/placeholder/**` 由
+- `/`、`/search`、`/video/:id`、`/space/:id`、`/favorites`、`/history`、`/placeholder/**` 由
   `WebMvcConfig#addViewControllers` **forward** 到对应入口 HTML（地址栏 URL 不变）；
   与 dev 侧 `vite.config.ts` 的 `htmlHistoryFallback` 是**同一张映射表**，两处要同步改。
 - `/assets/**` 是构建产物；它在限流跳过清单里（HTML 外壳同理）——页面里的 `/api/v1/**` 照常过闸。
@@ -38,12 +38,13 @@ cd ..
 ## 结构
 
 ```
-index.html / search.html / video.html / space.html   ← 四个入口（MPA 外壳，跨应用整页跳转）
+index.html / search.html / video.html / space.html / favorites.html / history.html
+                              ← 六个入口（MPA 外壳，跨应用整页跳转）
 src/entries/*.main.ts         ← 每个入口一个 app + 一个 vue-router
 src/types/api.d.ts            ← 生成，只读
 src/types/ui.ts               ← 手写：页面期望形状（计数一律原始数字）
 src/api/adapters/*            ← 纯函数 api → ui（缺口在这里显式 fallback）
-src/api/*.ts                  ← 端点封装（返回生成类型）
+src/api/*.ts                  ← 端点封装（返回生成类型；favorites / history 是「我的」两个页面）
 src/api/http.ts               ← 四动词 + 信封 + Bearer + Retry-After
 src/auth/                     ← token（唯一落点）/ 模块级登录态 / 动作级登录闸门
 src/composables/              ← useVideoInteractions（互动态）、usePlaybackProgress（进度接线）

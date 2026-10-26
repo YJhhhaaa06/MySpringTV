@@ -66,6 +66,7 @@ openapi.yaml ──gen──▶ frontend/src/types/api.d.ts     生成，只读�
 | GAP-16 | M1 字段缺 | 空间页 / 收藏条目卡 | 条目要带 `authorId` / `type` / `durationSeconds` / 发布时间 | `FavoriteItemVO` 只有 contentId/title/coverUrl/authorName/favoriteTime/invalid | 前端适配 | 作者渲染成**纯文本**（不做死链）、不显示时长与日期、`invalid` 打「已失效」灰角标 | 无 | 长期 |
 | GAP-17 | M1 字段缺 | 空间页 / 收藏夹卡 | 收藏夹封面（B 站是四宫格缩略图） | `PublicFavoriteFolderVO` 只有 id/name/itemCount | 前端适配 | 纯文字卡片（名字 + 条目数） | 无 | 长期 |
 | GAP-18 | M4 语义异 | 播放页 / 播放进度 | 匿名观看也计播放量（B 站口径） | `/play`、`/progress`、`/flush` **全部 `@RequiresLogin`** | 前端适配 | 未登录**整段不接**进度上报（不打一串 401） | 若要做需匿名计数端点 | 长期 |
+| GAP-19 | M3 端点缺 | 历史页 / HistoryRow | 删除单条历史 / 清空历史（B 站历史页有） | `HistoryController` 只有 list / position / flush / report / play **五条**（`F-27` ①：删除/清空本期刻意不做） | 前端不做 | **不渲染删除与清空按钮**（有按钮但点不动 = 撒谎） | 若要做：`DELETE /api/v1/history?contentIds=` + `DELETE /api/v1/history`（清空） | 待补（等后端） |
 
 > 实测补充（2026-10-25 起后端 curl，非文档推断）：
 > ① `GET /api/v1/contents?page=1&pageSize=3` → **400 `PARAM_INVALID / 输入不能为空`** —— 该端点只服务关键词搜索，不是通用列表；
@@ -109,6 +110,7 @@ openapi.yaml ──gen──▶ frontend/src/types/api.d.ts     生成，只读�
 | 分区列表 | 前端常量 | 18 项硬编码（无 `GET /categories`） |
 | 评论排序（热度/时间） | 不做 | **不渲染排序条**（后端无排序参数，GAP-13） |
 | 空间「动态 / 合集和系列 / 最近点赞」 | 不做 | **不渲染 tab**（无端点，GAP-15） |
+| 历史「删除单条 / 清空」 | 不做 | **不渲染删除与清空按钮**（无端点，GAP-19） |
 
 - ★ 本仓**目前一个 fixture 都没有**：占位组件只靠文案 + 图标，不需要假数据。
   若将来真需要，只许放 `frontend/src/mock/*.fixture.ts`，且仅占位组件可 import（用 ESLint `no-restricted-imports` 拦死）。
@@ -116,14 +118,15 @@ openapi.yaml ──gen──▶ frontend/src/types/api.d.ts     生成，只读�
 
 ---
 
-## 六、门禁（四条命令，都是 `frontend/` 下的 npm script）
+## 六、门禁（四条命令 + 一条部署命令，都是 `frontend/` 下的 npm script）
 
 ```bash
 cd frontend
 npm run gen:api && git diff --exit-code src/types/api.d.ts   # 类型落后于后端 ⇒ 红
 npm run typecheck                                            # vue-tsc -b（类型硬门禁）
 npm run test                                                 # vitest：适配器 fallback + 请求层 + 进度上报规则
-npm run build                                                # 多入口产物：dist/{index,search,video,space}.html
+npm run build                                                # 多入口产物：dist/{index,search,video,space,favorites,history}.html
+npm run stage                                                # dist → ../src/main/resources/static（Spring 直接服务）
 ```
 
 `npm run test` 跑 `src/**/*.test.ts`（node 环境，**无 DOM 依赖**），断言落在**业务口径**上，
@@ -133,15 +136,20 @@ npm run build                                                # 多入口产物�
 |---|---|
 | `api/adapters/format.test.ts` | 万/亿、`mm:ss`、相对时间 |
 | `api/adapters/{videoCard,hero,search,videoDetail,user,interaction,comment,space}.test.ts` | 各页 VM 的缺口 fallback（列表无计数 ⇒ `null`、三态 `null ≠ false`、评论无时间 ⇒ 空串…） |
+| `api/adapters/{favorites,history}.test.ts` | 我的夹 / 稍后再看卡片（`addedTime` **不冒充**发布时间）、历史进度（无总时长只给已看时长、0 进度不写「看到 00:00」）、按本地日历日分组 |
 | `api/http.test.ts` | 信封 / 204 / `Retry-After` / 幂等键 / 数组 query |
 | `player/progressReporter.test.ts` | 播放进度契约：45s 节奏、503 退避与**恢复**、停报条件、续播 `max`、本地补偿 TTL |
 
-★ **能变红**是判据：本窗口三次 mutation 实测 —— ①把列表 `playCountText` 编成 `'0'` ⇒ 卡片那条红；
+★ **能变红**是判据：2026-10-25 三次 mutation 实测 —— ①把列表 `playCountText` 编成 `'0'` ⇒ 卡片那条红；
 ②把三态 `followed` 归一成 `false` ⇒ 三态那条红；③删掉进度上报的"收到 200 回到 45s"分支
-⇒ 退避恢复那条红。还原后 107/107 绿。
+⇒ 退避恢复那条红。
+**2026-10-26 再来两次**：④把历史 `progressPercent` 改成恒 `100` ⇒ 2 条红；⑤把稍后再看的
+`dateText` 设成 `addedTime`（时间冒充发布日期）⇒ 1 条红。还原后 **121/121** 绿。
 
-**真浏览器 E2E**（一次性脚本，放 `.tmp/`，**不入库**）：登录 / 互动 / 评论 / 进度 / 空间各一支，
-必须真接口真写（`node .tmp/<name>-e2e.mjs`，需 Chrome `--remote-debugging-port=9222` + `npm run dev`）。
+**真浏览器 E2E**（一次性脚本，放 `.tmp/`，**不入库**）：登录 / 互动 / 评论 / 进度 / 空间 /
+**收藏 / 历史**各一支，必须真接口真写（`node .tmp/<name>-e2e.mjs`，需 Chrome `--remote-debugging-port=9222`）。
+★ 2026-10-26 起也可以直接对 **8080**（dist 上 Spring）跑，不必起 Vite —— 顺带验证转发与静态产物。
+收藏页那支还覆盖写路径：点「取消收藏」→ 卡片 2→1、侧栏计数 −1、toast、**刷新后仍 1**、API 恢复后回 2。
 ⚠️ 脚本里的"撞上限流 ⇒ 等 8s 重试"是**真实现**，不是脚本噪声：2026-10-25 实测时限流确实咬到了正常操作
 （当时登录桶 `20 / 2`，缓存 miss `×3`；**2026-10-26 用户已提到 `200 / 10`**，数值以 `application.yaml` 为准）。
 脚本仍保留重试分支 —— 它同时验证了前端的 429 文案（`操作太频繁了，N 秒后再试`，吃 `Retry-After`）。
@@ -165,12 +173,16 @@ npm run build                                                # 多入口产物�
 
 ## 八、开工顺序（重制窗口照此走）
 
-> **进度（2026-10-25 第二窗口交付）**：
+> **进度（2026-10-26 第三窗口交付）**：
 > ① 脚手架 ✅ ② `VideoCard` + `VideoGrid` + **首页闭环** ✅ ③ 搜索页 ✅（真 Page 分页）
 > ④ 播放页 ✅（**只读 → 完整**：点赞/投币/收藏/关注 + 评论区 + 播放进度）
 > ⑤ 占位路由 + 登录真接口 ✅ ⑥ **UP 空间页** ✅（`space.html`：资料 / 投稿分页 / 公开收藏夹）
-> **下一窗口**：**生产静态转发 + 删老 SPA**（§十三，唯一还没做的"上线"前置）
-> → 收藏页 / 历史页 / 投稿页 →（可选）后台页 → 契约批次（GAP-01 / 07 / 10）。
+> ⑦ ★ **生产静态转发 + dist 上 Spring + 删老 SPA** ✅（§十三 收口；`mvnw clean` 后
+>    `/`、`/search`、`/video/:id`、`/space/:id`、`/favorites`、`/history`、`/assets/**` 全 200，旧 `/static/**` 404）
+> ⑧ ★ **收藏页** ✅（`favorites.html`：我的收藏夹 + 稍后再看 + 单条取消/移出）
+> ⑨ ★ **历史页** ✅（`history.html`：按天分组 + 进度 + 失效占位；删除/清空等后端，GAP-19）
+> **下一窗口**：投稿页（multipart —— `postJson` 不覆盖，要另写 `postForm`）→（可选）后台页
+> → 契约批次（GAP-01 / 07 / 10）。
 > **设计沉淀**：前端应用口径在 [architecture/frontend/前端.md](../architecture/frontend/前端.md)；
 > 播放进度客户端行为**不在本篇**，以 [history-客户端契约](../architecture/domain/history/history-客户端契约.md) 为准。
 
@@ -240,6 +252,12 @@ New-Item -ItemType Directory -Force -Path $prof | Out-Null
 `placeholder-1600` · `home-logged-in-1600`。
 ⚠️ 推荐流顺序**每次请求都不同**（后端随机），所以两次截图的卡片集合不同是正常的、不是 bug。
 
+**2026-10-26 新增**（`.screenshots/frontend-2026-10-26/`）：
+`favorites-1600`（我的收藏夹 + 卡片网格）· `favorites-later-1600`（稍后再看）· `favorites-anon-1600`（登录后查看）·
+`history-1600`（按天分组 + 「看到 mm:ss」）· `history-anon-1600`。
+B 站对照：`.screenshots/bilibili-2026-10-26/history-anon-1600.png`（匿名 = 「历史记录」标题 + 居中登录空态，
+本仓照抄这个页面级身份态）；`favlist-1600.png` 匿名访问会被 B 站落到空间主页（收藏页本身要登录，**拿不到匿名对照**）。
+
 > 6. ★ **拍我们自己的页面时，`--screenshot` + `--virtual-time-budget` 会在懒加载图片解码前收工** ⇒
 >    卡片封面截成**灰块**（不是 404，用 CDP 查 `img.complete/naturalWidth` 全是 true）。
 >    可信的产物图要走 CDP：等 `img.complete` 全真再 `Page.captureScreenshot`（本窗口脚本 `.tmp/shots.mjs`，
@@ -305,9 +323,11 @@ New-Item -ItemType Directory -Force -Path $prof | Out-Null
 | `video.html` | `/video/:id`（分 P 用 `?p=`） | `GET /contents/{id}` + 互动 + 评论 + 进度 + `GET /users/{id}` |
 | `search.html` | `/search?keyword=java`（tab / 排序用 query） | `GET /contents?keyword=` |
 | `space.html` | `/space/:id`（tab / 翻页 / 夹用 query） | `GET /users/{id}` + `GET /users/{id}/favorite-folders` + `GET /favorite-folders/{id}/items` |
+| `favorites.html` | `/favorites`（`?folder=` / `?tab=later` / `?page=`） | `GET /favorite-folders` + `GET /favorites?folderId=` + `GET /watch-later` + `DELETE /favorites`、`DELETE /watch-later` |
+| `history.html` | `/history?page=` | `GET /history`（**只读**：无删除/清空端点，GAP-19） |
 | `upload.html` | `/upload` | `POST /contents/videos`、`/contents/posts` |
 
-> 2026-10-25 已落地 **`index` / `search` / `video` / `space`** 四个入口。
+> 2026-10-26 已落地 **六个入口**：`index` / `search` / `video` / `space` / `favorites` / `history`。
 > `video` 已从"只读"补成完整页（互动 / 评论 / 进度）；`upload` 尚未建入口（灰态导航走 `/placeholder/*`）。
 
 - **跨应用**一律 `<a href="/video/77" target="_blank" rel="noopener">` —— 新标签、可中键、可复制链接，与 B 站一致。
@@ -323,15 +343,17 @@ New-Item -ItemType Directory -Force -Path $prof | Out-Null
   转发路由必须标 `@Public`（默认拒绝）、静态/HTML 入口是否进限流跳过清单要明确决定，
   且 dist 的资源目录从 `/static/` 变成 `/assets/` ⇒ 白名单要一起改（见 §十三）。
   ★ **状态（2026-10-26）：① 已落地**。`WebMvcConfig#addViewControllers` 用 **forward**（不是 redirect）
-  把 `/`、`/search`、`/video/{id}`、`/space/{id}`、`/placeholder/{feature}` 转到入口 HTML；
+  把 `/`、`/search`、`/video/{id}`、`/space/{id}`、`/favorites`、`/history`、`/placeholder/{feature}`
+  转到入口 HTML；
   **不用 `@Controller`**（那会进端点登记簿 / spec，还要为默认拒绝开 `@Public` —— 它只是页面导航）；
   dist 由 `npm run stage` 落到 `src/main/resources/static/`（产物不入库）；`/assets/` 与 HTML 外壳进限流跳过清单。
-  `mvnw clean` 后实测：四入口 200、`/assets/*.js` 200、`/api/v1/**` 200、旧 `/static/**` 404。
+  `mvnw clean` 后实测：六入口 200、`/assets/*.js` 200、`/api/v1/**` 200、旧 `/static/**` 404。
 - ✅ **dev 侧 fallback 已落地**：`vite.config.ts` 的 `htmlHistoryFallback()` 把 `/search` → `search.html`、
-  `/video/<digits>` → `video.html`、`/space/<digits>` → `space.html`、`/placeholder/*` → `index.html`，
+  `/video/<digits>` → `video.html`、`/space/<digits>` → `space.html`、`/favorites` → `favorites.html`、
+  `/history` → `history.html`、`/placeholder/*` → `index.html`，
   并挂在 `configureServer` **与** `configurePreviewServer` 上 ⇒ `npm run preview` 也能验打包产物。
   它只接管 `Accept: text/html` 的导航请求（`/api`、`/upload`、带扩展名的资源全部放行）。
-  ★ **生产转发要补的正是这份映射表**（4 个入口，见 §十三 第 1 条）。
+  ★ **生产转发要补的正是这份映射表**（六个入口，已落在 `WebMvcConfig#addViewControllers`，两处必须同步改）。
 - ⚠️ **dev 代理要转发两段**：`/api` **和** `/upload` —— 封面是后端静态路径（`/upload/cover/…`），只代理 `/api` 会让所有图片 404。
 - **明确接受的代价**：跨应用整页刷新、公共请求（`/users/me`）每次进应用重复一次；**换来**与参考实现同构。
 
@@ -386,6 +408,7 @@ New-Item -ItemType Directory -Force -Path $prof | Out-Null
 | **写动词** | `api/http.ts` 的 `getJson/postJson/putJson/deleteJson`，返回类型由 spec 推导；`204` 是成功 | 每个页面自己 `fetch` / 自己判信封 |
 | **幂等键** | 只有 4 条 `KEYED` 端点需要；键在"用户按下按钮"时取，**同一草稿的重试复用**，草稿一改就作废 | 每次请求新生成（重试 = 两条评论）；或让请求层自动加（掩盖"这个端点要不要幂等"） |
 | **登录闸门** | **动作级**：`await requireLogin()`，弹浮层并阻塞到用户给出结果；登录成功后**这一次点击的意图继续执行** | 页面级跳登录页；浮层关掉就丢了这次操作 |
+| **页面级身份态**（2026-10-26 新增，收藏 / 历史） | **整页内容都属于"我"**时（匿名请求必然 401、没有"匿名可见的一部分"）：先 `await restoreSession()`，匿名渲染「登录后查看」+ 一个登录按钮，按钮本身走 `requireLogin()`；登录成功后 watcher 自动装载 | 进页面**自动弹**登录框 / 把 401 画成"空数据"（用户以为自己的收藏没了） |
 | **写后对齐** | 乐观更新 → 失败回滚 → 成功后用**服务端权威值**再对齐一次（详情 / 资料重读） | 只做乐观、不回滚；或回滚后不回读（并行请求会把状态写回旧值） |
 | **三态** | `null` = **本面不查**（≠ `false`）：`interaction` 整体为 null 是匿名；字段为 null 是这一维没查 | `?? false` 归一（关注按钮永远显示"关注"） |
 | **429** | 吃 `Retry-After` 说人话（"N 秒后再试"），别只说"请求过于频繁" | 静默重试 / 立即重试 |
