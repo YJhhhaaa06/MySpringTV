@@ -66,7 +66,9 @@ openapi.yaml ──gen──▶ frontend/src/types/api.d.ts     生成，只读�
 | GAP-16 | M1 字段缺 | 空间页 / 收藏条目卡 | 条目要带 `authorId` / `type` / `durationSeconds` / 发布时间 | `FavoriteItemVO` 只有 contentId/title/coverUrl/authorName/favoriteTime/invalid | 前端适配 | 作者渲染成**纯文本**（不做死链）、不显示时长与日期、`invalid` 打「已失效」灰角标 | 无 | 长期 |
 | GAP-17 | M1 字段缺 | 空间页 / 收藏夹卡 | 收藏夹封面（B 站是四宫格缩略图） | `PublicFavoriteFolderVO` 只有 id/name/itemCount | 前端适配 | 纯文字卡片（名字 + 条目数） | 无 | 长期 |
 | GAP-18 | M4 语义异 | 播放页 / 播放进度 | 匿名观看也计播放量（B 站口径） | `/play`、`/progress`、`/flush` **全部 `@RequiresLogin`** | 前端适配 | 未登录**整段不接**进度上报（不打一串 401） | 若要做需匿名计数端点 | 长期 |
-| GAP-19 | M3 端点缺 | 历史页 / HistoryRow | 删除单条历史 / 清空历史（B 站历史页有） | `HistoryController` 只有 list / position / flush / report / play **五条**（`F-27` ①：删除/清空本期刻意不做） | 前端不做 | **不渲染删除与清空按钮**（有按钮但点不动 = 撒谎） | 若要做：`DELETE /api/v1/history?contentIds=` + `DELETE /api/v1/history`（清空） | 待补（等后端） |
+| GAP-19 | M3 端点缺 | 历史页 / 卡片 | 删除单条历史 / 清空历史（B 站历史页有） | `HistoryController` 只有 list / position / flush / report / play **五条**（`F-27` ①：删除/清空本期刻意不做） | 前端不做 | **不渲染删除与清空按钮**（有按钮但点不动 = 撒谎） | 若要做：`DELETE /api/v1/history?contentIds=` + `DELETE /api/v1/history`（清空） | 待补（等后端） |
+| GAP-20 | M3 参数缺 | 历史页 / 工具栏 | B 站历史页的 tabs（综合 / 视频 / 直播 / 专栏）+「搜索标题/up 主」+ 更多筛选 | `GET /history` 只有 `page/pageSize`；`HistoryItemVO` **连 `type` 都没有**（前端筛选也做不了） | 后端补（P3） | **不渲染 tabs / 搜索框 / 更多筛选**（只按最后观看倒序） | `/history` 加 `type`（视频/图文）与 `keyword`；⚠️ 直播 / 专栏**无对应域，永远不做** | 待补（等后端） |
+| GAP-21 | M3 端点缺 | 历史页 / 记录开关 | 「记录浏览历史」开关（B 站可暂停记录） | 无用户设置域（无 `user_settings` 表 / 端点） | 前端不做 | **不渲染开关**（历史始终记录；不假装能关） | 若要支持：用户级开关端点 + 写路径跳过记录 | 长期 |
 
 > 实测补充（2026-10-25 起后端 curl，非文档推断）：
 > ① `GET /api/v1/contents?page=1&pageSize=3` → **400 `PARAM_INVALID / 输入不能为空`** —— 该端点只服务关键词搜索，不是通用列表；
@@ -111,6 +113,7 @@ openapi.yaml ──gen──▶ frontend/src/types/api.d.ts     生成，只读�
 | 评论排序（热度/时间） | 不做 | **不渲染排序条**（后端无排序参数，GAP-13） |
 | 空间「动态 / 合集和系列 / 最近点赞」 | 不做 | **不渲染 tab**（无端点，GAP-15） |
 | 历史「删除单条 / 清空」 | 不做 | **不渲染删除与清空按钮**（无端点，GAP-19） |
+| 历史「筛选 / 搜索 / 记录开关」 | 不做 | **不渲染** tabs / 搜索框 / 「记录浏览历史」开关（GAP-20 / GAP-21，摆了也点不动） |
 
 - ★ 本仓**目前一个 fixture 都没有**：占位组件只靠文案 + 图标，不需要假数据。
   若将来真需要，只许放 `frontend/src/mock/*.fixture.ts`，且仅占位组件可 import（用 ESLint `no-restricted-imports` 拦死）。
@@ -136,15 +139,16 @@ npm run stage                                                # dist → ../src/m
 |---|---|
 | `api/adapters/format.test.ts` | 万/亿、`mm:ss`、相对时间 |
 | `api/adapters/{videoCard,hero,search,videoDetail,user,interaction,comment,space}.test.ts` | 各页 VM 的缺口 fallback（列表无计数 ⇒ `null`、三态 `null ≠ false`、评论无时间 ⇒ 空串…） |
-| `api/adapters/{favorites,history}.test.ts` | 我的夹 / 稍后再看卡片（`addedTime` **不冒充**发布时间）、历史进度（无总时长只给已看时长、0 进度不写「看到 00:00」）、按本地日历日分组 |
+| `api/adapters/{favorites,history}.test.ts` | 我的夹 / 稍后再看卡片（`addedTime` **不冒充**发布时间）；历史角标三态（`已看/总长` / `已看完` / 无总长只给「看到」）、按本地日历日分组 |
 | `api/http.test.ts` | 信封 / 204 / `Retry-After` / 幂等键 / 数组 query |
 | `player/progressReporter.test.ts` | 播放进度契约：45s 节奏、503 退避与**恢复**、停报条件、续播 `max`、本地补偿 TTL |
 
 ★ **能变红**是判据：2026-10-25 三次 mutation 实测 —— ①把列表 `playCountText` 编成 `'0'` ⇒ 卡片那条红；
 ②把三态 `followed` 归一成 `false` ⇒ 三态那条红；③删掉进度上报的"收到 200 回到 45s"分支
 ⇒ 退避恢复那条红。
-**2026-10-26 再来两次**：④把历史 `progressPercent` 改成恒 `100` ⇒ 2 条红；⑤把稍后再看的
-`dateText` 设成 `addedTime`（时间冒充发布日期）⇒ 1 条红。还原后 **121/121** 绿。
+**2026-10-26 再来三次**：④把历史 `progressPercent` 改成恒 `100` ⇒ 2 条红；⑤把稍后再看的
+`dateText` 设成 `addedTime`（时间冒充发布日期）⇒ 1 条红；⑥把历史角标从「已看/总长」改成只显示总时长
+⇒ 3 条红。还原后 **122/122** 绿。
 
 **真浏览器 E2E**（一次性脚本，放 `.tmp/`，**不入库**）：登录 / 互动 / 评论 / 进度 / 空间 /
 **收藏 / 历史**各一支，必须真接口真写（`node .tmp/<name>-e2e.mjs`，需 Chrome `--remote-debugging-port=9222`）。
@@ -180,7 +184,9 @@ npm run stage                                                # dist → ../src/m
 > ⑦ ★ **生产静态转发 + dist 上 Spring + 删老 SPA** ✅（§十三 收口；`mvnw clean` 后
 >    `/`、`/search`、`/video/:id`、`/space/:id`、`/favorites`、`/history`、`/assets/**` 全 200，旧 `/static/**` 404）
 > ⑧ ★ **收藏页** ✅（`favorites.html`：我的收藏夹 + 稍后再看 + 单条取消/移出）
-> ⑨ ★ **历史页** ✅（`history.html`：按天分组 + 进度 + 失效占位；删除/清空等后端，GAP-19）
+> ⑨ ★ **历史页** ✅（`history.html`：**左侧时间轴 + 4 列卡片网格** + 封面「已看/总长」角标；
+>    B 站 2026-10 版式，2026-10-26 按用户提供的登录态截图重做）
+> ⑩ 历史页的 tabs / 搜索 / 清空 / 批量 / 记录开关 **故意不渲染**（GAP-19 / 20 / 21，等后端或无域）
 > **下一窗口**：投稿页（multipart —— `postJson` 不覆盖，要另写 `postForm`）→（可选）后台页
 > → 契约批次（GAP-01 / 07 / 10）。
 > **设计沉淀**：前端应用口径在 [architecture/frontend/前端.md](../architecture/frontend/前端.md)；
@@ -254,9 +260,13 @@ New-Item -ItemType Directory -Force -Path $prof | Out-Null
 
 **2026-10-26 新增**（`.screenshots/frontend-2026-10-26/`）：
 `favorites-1600`（我的收藏夹 + 卡片网格）· `favorites-later-1600`（稍后再看）· `favorites-anon-1600`（登录后查看）·
-`history-1600`（按天分组 + 「看到 mm:ss」）· `history-anon-1600`。
-B 站对照：`.screenshots/bilibili-2026-10-26/history-anon-1600.png`（匿名 = 「历史记录」标题 + 居中登录空态，
-本仓照抄这个页面级身份态）；`favlist-1600.png` 匿名访问会被 B 站落到空间主页（收藏页本身要登录，**拿不到匿名对照**）。
+`history-1600`（**左侧时间轴 + 4 列网格 + 封面「已看/总长」角标**）· `history-anon-1600`。
+B 站对照：
+- `.screenshots/bilibili-2026-10-26/history-logged-in-user-1600.png` —— **登录态历史页**（用户提供；
+  左时间轴「今天/昨天」+ 4 列网格 + 封面 `18:09/49:45` 角标 + meta「今天 12:57」+ tabs/搜索/清空/批量/记录开关）。
+  本仓照抄**版式**，但**不渲染**那排控件（GAP-19/20/21）。
+- `history-anon-1600.png` —— 匿名 = 「历史记录」标题 + 居中登录空态（本仓照抄这个**页面级身份态**）。
+- `favlist-1600.png` —— 匿名访问会被 B 站落到空间主页（收藏页本身要登录，**拿不到匿名对照**）。
 
 > 6. ★ **拍我们自己的页面时，`--screenshot` + `--virtual-time-budget` 会在懒加载图片解码前收工** ⇒
 >    卡片封面截成**灰块**（不是 404，用 CDP 查 `img.complete/naturalWidth` 全是 true）。
