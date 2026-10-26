@@ -15,7 +15,7 @@ import { reactive } from 'vue'
  * <h2>★ URL 就是作用域（不写 localStorage / sessionStorage）</h2>
  * 记录的是"加入时的 `pathname + search`"。URL 一变，`isWatchLaterMarked` 自然返回 false；
  * 刷新（新文档）Map 也清空。这样既复刻了 B 站的"换页即忘"，又不用监听路由。
- * 存储口径见 `CURRENT_FRONTEND.md` §十四：本地存储只有 `myspringtv.token` 与
+ * 存储口径见 `architecture/frontend/前端.md` §六：本地存储只有 `myspringtv.token` 与
  * `history:pending:{id}` 两把钥匙 —— 这里**不新增第三把**。
  *
  * <p>为什么用 `reactive(Map)`：卡片里的 `computed` 读 {@link isWatchLaterMarked}，

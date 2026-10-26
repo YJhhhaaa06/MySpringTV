@@ -9,7 +9,7 @@ npm install
 npm run gen:api     # openapi.yaml → src/types/api.d.ts（生成物入库，diff = 契约变更记录）
 npm run dev         # http://localhost:5173（/api、/upload 已代理到 127.0.0.1:8080）
 npm run typecheck   # vue-tsc -b —— 类型硬门禁
-npm run test        # vitest —— 适配器 fallback + 请求层 + 播放进度规则
+npm run test        # vitest —— 适配器 fallback + 请求层 + 播放进度规则 + 稍后再看页面内记忆
 npm run build       # dist/{index,search,video,space,favorites,history}.html
 npm run stage       # 把 dist 同步到 ../src/main/resources/static（Spring 直接服务它）
 npm run preview     # 验打包产物（同一套 history fallback + 代理）
@@ -26,9 +26,9 @@ cd ..
 ./mvnw.cmd spring-boot:run         # http://localhost:8080/
 ```
 
-- `/`、`/search`、`/video/:id`、`/space/:id`、`/favorites`、`/history`、`/placeholder/**` 由
-  `WebMvcConfig#addViewControllers` **forward** 到对应入口 HTML（地址栏 URL 不变）；
-  与 dev 侧 `vite.config.ts` 的 `htmlHistoryFallback` 是**同一张映射表**，两处要同步改。
+- `/`、`/search`、`/video/:id`、`/space/:id`、`/favorites`、`/watchlater`（同一 `favorites.html` 入口）、
+  `/history`、`/placeholder/**` 由 `WebMvcConfig#addViewControllers` **forward** 到对应入口 HTML
+  （地址栏 URL 不变）；与 dev 侧 `vite.config.ts` 的 `htmlHistoryFallback` 是**同一张映射表**，两处要同步改。
 - `/assets/**` 是构建产物；它在限流跳过清单里（HTML 外壳同理）——页面里的 `/api/v1/**` 照常过闸。
 - `src/main/resources/static/` **不入库**：它是 `npm run stage` 的产物。⇒ 新克隆的仓库在
   stage 之前，8080 的页面入口是 **404**（不是旧页面）；要开发就用 `npm run dev`。
@@ -47,7 +47,9 @@ src/api/adapters/*            ← 纯函数 api → ui（缺口在这里显式 f
 src/api/*.ts                  ← 端点封装（返回生成类型；favorites / history 是「我的」两个页面）
 src/api/http.ts               ← 四动词 + 信封 + Bearer + Retry-After
 src/auth/                     ← token（唯一落点）/ 模块级登录态 / 动作级登录闸门
-src/composables/              ← useVideoInteractions（互动态）、usePlaybackProgress（进度接线）
+src/composables/              ← useVideoInteractions（互动态）、usePlaybackProgress（进度接线）、
+                                 useWatchLaterAction（稍后再看动作）
+src/common/watchLaterSession.ts ← 稍后再看「本次页面内」记忆（URL 作用域，不落存储）
 src/player/progressReporter.ts ← 播放进度纯逻辑（节奏 / 退避 / 续播 / 崩溃补偿，可单测）
 src/components/...            ← 组件只吃 ui.ts
 ```
