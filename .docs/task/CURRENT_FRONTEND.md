@@ -69,6 +69,7 @@ openapi.yaml ──gen──▶ frontend/src/types/api.d.ts     生成，只读�
 | GAP-19 | M3 端点缺 | 历史页 / 卡片 | 删除单条历史 / 清空历史（B 站历史页有） | `HistoryController` 只有 list / position / flush / report / play **五条**（`F-27` ①：删除/清空本期刻意不做） | 前端不做 | **不渲染删除与清空按钮**（有按钮但点不动 = 撒谎） | 若要做：`DELETE /api/v1/history?contentIds=` + `DELETE /api/v1/history`（清空） | 待补（等后端） |
 | GAP-20 | M3 参数缺 | 历史页 / 工具栏 | B 站历史页的 tabs（综合 / 视频 / 直播 / 专栏）+「搜索标题/up 主」+ 更多筛选 | `GET /history` 只有 `page/pageSize`；`HistoryItemVO` **连 `type` 都没有**（前端筛选也做不了） | 后端补（P3） | **不渲染 tabs / 搜索框 / 更多筛选**（只按最后观看倒序） | `/history` 加 `type`（视频/图文）与 `keyword`；⚠️ 直播 / 专栏**无对应域，永远不做** | 待补（等后端） |
 | GAP-21 | M3 端点缺 | 历史页 / 记录开关 | 「记录浏览历史」开关（B 站可暂停记录） | 无用户设置域（无 `user_settings` 表 / 端点） | 前端不做 | **不渲染开关**（历史始终记录；不假装能关） | 若要支持：用户级开关端点 + 写路径跳过记录 | 长期 |
+| GAP-22 | M3 端点缺 | 创作中心 / 图文编辑 | 「把原图文取回、改完**原位覆盖**」（尤其增删多张图） | 现有：`PUT /contents/{id}` 改标题/简介 ✅；`PUT /contents/{id}/media?type=2&sort=` **替换已有某张** ✅；`DELETE /contents/{id}/media?type=2&url=` 删一张 ✅。**没有追加图片 / 整份图片列表覆盖**，也没有草稿态；且删图会 `compactImageSort` 前移 ⇒ 不能靠 `sort` 稳定追加 | 后端补（创作中心暂不做） | **不渲染创作中心**；只记设计意图：原内容预填 + 原位覆盖（**不**新建内容 —— 新建会换 id、丢评论/点赞） | `PUT /contents/{id}/images`（整份列表）或 `POST /contents/{id}/images`（追加）；草稿态可选 | 待补（等后端，未排期） |
 
 > 实测补充（2026-10-25 起后端 curl，非文档推断）：
 > ① `GET /api/v1/contents?page=1&pageSize=3` → **400 `PARAM_INVALID / 输入不能为空`** —— 该端点只服务关键词搜索，不是通用列表；
@@ -114,6 +115,7 @@ openapi.yaml ──gen──▶ frontend/src/types/api.d.ts     生成，只读�
 | 空间「动态 / 合集和系列 / 最近点赞」 | 不做 | **不渲染 tab**（无端点，GAP-15） |
 | 历史「删除单条 / 清空」 | 不做 | **不渲染删除与清空按钮**（无端点，GAP-19） |
 | 历史「筛选 / 搜索 / 记录开关」 | 不做 | **不渲染** tabs / 搜索框 / 「记录浏览历史」开关（GAP-20 / GAP-21，摆了也点不动） |
+| 创作中心 / 投稿 / 图文编辑 | **暂缓**（2026-10-26 用户拍板"复杂，暂不跟进"） | 顶栏「投稿」仍走 `/placeholder/upload`；「编辑图文 = 取回原稿原位覆盖」等后端补"追加图片"（GAP-22） |
 
 - ★ 本仓**目前一个 fixture 都没有**：占位组件只靠文案 + 图标，不需要假数据。
   若将来真需要，只许放 `frontend/src/mock/*.fixture.ts`，且仅占位组件可 import（用 ESLint `no-restricted-imports` 拦死）。
@@ -187,8 +189,16 @@ npm run stage                                                # dist → ../src/m
 > ⑨ ★ **历史页** ✅（`history.html`：**左侧时间轴 + 4 列卡片网格** + 封面「已看/总长」角标；
 >    B 站 2026-10 版式，2026-10-26 按用户提供的登录态截图重做）
 > ⑩ 历史页的 tabs / 搜索 / 清空 / 批量 / 记录开关 **故意不渲染**（GAP-19 / 20 / 21，等后端或无域）
-> **下一窗口**：投稿页（multipart —— `postJson` 不覆盖，要另写 `postForm`）→（可选）后台页
-> → 契约批次（GAP-01 / 07 / 10）。
+> **下一窗口（2026-10-26 晚按用户补充的 2560 截图重排）**：
+> ① **卡片 hover「稍后再看」+ 播放页入口**（**可立即做**：后端 `PUT /watch-later/{id}` 已有；
+>    ★ 但没有状态查询端点（favorite.md §六 红线）⇒ 只能"加入 + toast"，不能显示「已在池中」、也不能在卡片上取消）→
+> ② **2560 视觉校准**（容器宽 / 栅格列数 / 卡片尺寸；**需要用户先补首页与搜索的 2560 参考图**，
+>    见 [视觉基准](../architecture/frontend/视觉基准.md) §2.2）→
+> ③ **动态页**（只读 `GET /feed`；发布框 / 热搜 / 直播 / 按作者筛选都不具备）**或** **空间「关注/粉丝」页**
+>    （`GET /users/{id}/following|followers` 已有，但 `FollowUserVO` 只有 userId/username/两个布尔）→
+> ④ **契约批次 GAP-01 / 07 / 10**。
+> **明确延后**：创作中心 / 投稿页（用户 2026-10-26 拍板"复杂，暂不跟进"）；
+> 「编辑图文 = 取回原稿 → 原位覆盖」只记设计意图 + **GAP-22**（缺"追加图片"端点），不做页面。
 > **设计沉淀**：前端应用口径在 [architecture/frontend/前端.md](../architecture/frontend/前端.md)；
 > 播放进度客户端行为**不在本篇**，以 [history-客户端契约](../architecture/domain/history/history-客户端契约.md) 为准。
 
@@ -208,70 +218,12 @@ npm run stage                                                # dist → ../src/m
 
 ---
 
-## 十、视觉基准（2026-10-25 实拍；**图不入库，命令可复算**）
+## 十、视觉基准（**已独立成篇**，2026-10-26）
 
-产物在 `.screenshots/bilibili-2026-10-25/`（已在 `.gitignore` 中忽略，约 5.3 MB）：
-
-| 文件 | 页面 | 对照什么 |
-|---|---|---|
-| `home-1440.png` / `home-1600.png` | 首页 | 顶栏高度、频道墙、大轮播、卡片网格 |
-| `search-1600.png` | 搜索（`keyword=java`） | 搜索框、结果 tab、排序条、结果卡片 |
-| `video-1600.png` | 播放页 | 播放器、弹幕输入、右侧操作栏、选集 / 推荐 |
-| `space-1600.png` | UP 空间 | banner、tab、代表作、视频网格、公告 / 资料卡 |
-| `popular-1600.png` | 热门 | 列表型布局（备用） |
-
-复算命令（⚠️ **必须在 `danger-full-access` 下跑**，Chrome 在沙箱里起不来）：
-
-```powershell
-$out = ".screenshots\bilibili-<日期>"
-$chrome = "C:\Program Files\Google\Chrome\Application\chrome.exe"
-& $chrome --headless=new --disable-gpu --hide-scrollbars --no-first-run `
-  --user-data-dir="$out\_profile" --window-size=1600,1000 --virtual-time-budget=10000 `
-  --screenshot="$out\home-1600.png" "https://www.bilibili.com/"
-```
-
-三个实测坑：
-1. **别把 Chrome 调用封成 PowerShell 函数 + `*>` 静默重定向** —— 会**静默失败**（无产物、退出码仍为 0）；用直接 `& $chrome …`，并检查 PNG 大小（真页面 ≥ 500 KB，404/验证码页只有几十 KB）。
-2. **BV / UID 从搜索结果页 `--dump-dom` 里取**（`/video/(BV[0-9A-Za-z]{10})`、`space\.bilibili\.com/(\d+)`）；从首页正则取会捞到广告壳的假号 ⇒ 拍出 404。
-3. 登录浮层是**未登录态常态**，对照时看浮层底下的真实布局。
-
-> **本窗口（2026-10-25）拍我们自己的页面时新增两条**：
-> 4. ★ `--screenshot` 必须给**绝对路径**。相对路径会报 `Failed to write file …: 0x3`，**退出码仍是 0** ——
->    看起来"跑过了"，其实没产物。
-> 5. ★ `--user-data-dir` 不能复用旧 profile（复用会 `exit 21` 且**无任何输出**）。每次在 `%TEMP%` 下建新目录；
->    必要时补 `--no-sandbox --disable-dev-shm-usage`。命令模板：
-
-```powershell
-$chrome = "C:\Program Files\Google\Chrome\Application\chrome.exe"
-$out = (Resolve-Path ".screenshots\frontend-<日期>").Path
-$prof = Join-Path $env:TEMP ("chrome-shot-" + [guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Force -Path $prof | Out-Null
-& $chrome --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --hide-scrollbars `
-  --user-data-dir="$prof" --window-size=1600,1000 --virtual-time-budget=15000 `
-  --screenshot="$out\home-1600.png" "http://localhost:5173/"
-```
-
-**重制产物对照图**（同样图不入库）在 `.screenshots/frontend-2026-10-25/`：
-`home-1600` · `home-full`（整页）· `search-1600` · `video-1600` · `video-comments-full`（整页：播放器 + 操作栏 + 主楼 + 楼中楼）·
-`video-interactions-anon-1600` / `-logged-in-1600` / `-final-1600` / `-full` · `video-coin-dialog-1600` ·
-`video-favorite-dialog-1600` · `video-progress-resume-1600`（续播提示）· `space-anon-1600` · `space-folders-1600` ·
-`placeholder-1600` · `home-logged-in-1600`。
-⚠️ 推荐流顺序**每次请求都不同**（后端随机），所以两次截图的卡片集合不同是正常的、不是 bug。
-
-**2026-10-26 新增**（`.screenshots/frontend-2026-10-26/`）：
-`favorites-1600`（我的收藏夹 + 卡片网格）· `favorites-later-1600`（稍后再看）· `favorites-anon-1600`（登录后查看）·
-`history-1600`（**左侧时间轴 + 4 列网格 + 封面「已看/总长」角标**）· `history-anon-1600`。
-B 站对照：
-- `.screenshots/bilibili-2026-10-26/history-logged-in-user-1600.png` —— **登录态历史页**（用户提供；
-  左时间轴「今天/昨天」+ 4 列网格 + 封面 `18:09/49:45` 角标 + meta「今天 12:57」+ tabs/搜索/清空/批量/记录开关）。
-  本仓照抄**版式**，但**不渲染**那排控件（GAP-19/20/21）。
-- `history-anon-1600.png` —— 匿名 = 「历史记录」标题 + 居中登录空态（本仓照抄这个**页面级身份态**）。
-- `favlist-1600.png` —— 匿名访问会被 B 站落到空间主页（收藏页本身要登录，**拿不到匿名对照**）。
-
-> 6. ★ **拍我们自己的页面时，`--screenshot` + `--virtual-time-budget` 会在懒加载图片解码前收工** ⇒
->    卡片封面截成**灰块**（不是 404，用 CDP 查 `img.complete/naturalWidth` 全是 true）。
->    可信的产物图要走 CDP：等 `img.complete` 全真再 `Page.captureScreenshot`（本窗口脚本 `.tmp/shots.mjs`，
->    temp）；或临时把 `loading="lazy"` 去掉再拍。
+> 见 **[architecture/frontend/视觉基准.md](../architecture/frontend/视觉基准.md)**：
+> B 站 2026-10-25 匿名实拍 + 2026-10-26 登录态 2560 参考图矩阵（含分辨率说明、实测容器宽度差异、
+> **下一窗口「2560 视觉校准」的依据**）、我们的产物对照图、复算命令与 7 条截图坑。
+> 图不入库（`.screenshots/` 在 `.gitignore`）；本文件只留指针，避免登记台撞 40 KB 线。
 
 ---
 

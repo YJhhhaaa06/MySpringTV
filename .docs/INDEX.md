@@ -51,6 +51,7 @@ Flyway + Testcontainers。由 `old-project/TVhomework1`（Servlet + 手写连接
 │   │                        `resilience/` · `mq/` · `events/` · `transaction/` · `module-boundary/` · `data-evolution/` · `api/`
 │   ├── frontend/         ← ★ **前端应用层**：`前端.md`（入口 / 路由 / 类型三层 / 页面×端点矩阵 / 降级约定 / 请求层约定）
 │   │                        + `客户端静默机制.md`（用户看不见的：进度上报 / 自动重试 / 退出信号 / 幂等键 / 乐观更新 / 登录态时序）
+│   │                        + `视觉基准.md`（B 站参考图矩阵（匿名 + 登录态 2560）/ 本仓产物对照 / 复算命令 / 截图坑 / 2560 校准依据）
 │   └── 已知代价-模板.md   ← 代价台账**通用模板**（新建域 / 横切面复制即用；登记纪律与标签定义内嵌）
 ├── task/                 ← **执行登记台**（随期滚动）：**`CURRENT_FRONTEND.md`（前端重制期唯一入口）** + `CURRENT_{TASKS,NEEDS,ISSUES}.md`（后端期，已冻结）+ `FURTHER_ISSUES.md` + 两份模板
 │                            ⚠️ 完成即清出（归宿 = git commit），文件**复用不改名**；**编号（T# / R-## / I-## / F-## / G#）不回收**
@@ -66,7 +67,7 @@ Flyway + Testcontainers。由 `old-project/TVhomework1`（Servlet + 手写连接
 | 我要… | 读这个 | 何时更新 |
 |------|--------|---------|
 | ★ **写新代码 / 了解架构** | **`architecture/ARCHITECTURE.md`**（模块地图 + "写代码前读哪篇" + 写作规范）→ 横切机制进 `architecture/tech/` 各篇、业务域进 `architecture/domain/`、**前端进 `architecture/frontend/`** | 架构变更时 |
-| ★ **写前端页面 / 了解前端** | **`architecture/frontend/前端.md`**（应用形态 + 页面 × 端点矩阵 + 降级约定 + 请求层约定）；跑起来 / 门禁 → `frontend/README.md`；本阶段任务与缺口 → `task/CURRENT_FRONTEND.md` | 入口 / 路由 / 消费口径变更 |
+| ★ **写前端页面 / 了解前端** | **`architecture/frontend/前端.md`**（应用形态 + 页面 × 端点矩阵 + 降级约定 + 请求层约定）；**视觉对照 / 截图复算 / 2560 校准依据 → `architecture/frontend/视觉基准.md`**；跑起来 / 门禁 → `frontend/README.md`；本阶段任务与缺口 → `task/CURRENT_FRONTEND.md` | 入口 / 路由 / 消费口径 / 视觉基准变更 |
 | ★ **改"用户看不见但要一直跑"的行为**（进度上报、自动重试与退避、退出信号、崩溃补偿、幂等键、乐观更新与对齐、登录态时序、限流感知） | **`architecture/frontend/客户端静默机制.md`**（四要素：触发 / 做了什么 / 代价 / 怎么验 + **"没覆盖"清单**）；数值契约 → `domain/history/history-客户端契约.md` | 这类行为一旦改动（改了就要同时更新"验证矩阵"） |
 | ★ **执行中登记（任务 / 需求 / 问题）** | ★ **前端重制期 → `task/CURRENT_FRONTEND.md`（唯一入口）**；后端期（已冻结）→ `CURRENT_{NEEDS,TASKS,ISSUES}.md`；结转池 → `FURTHER_ISSUES.md` | 每窗开 / 收时 |
 | ★ **查某个编号是什么**（`T#` / `R-##` / `I-##` / `G#` / `F-##`） | **活速查**（每号**只许一行结论**）：`favorite.md` / `coin.md` / **`history.md`** / `tech/idempotency/写接口幂等.md` 各篇 **附录「编号速查」**；限流的在 `architecture/tech/rate-limit/限流.md` 附录。★ **按专项找**，别在一个附录里找别的域的号 | 每期收尾把已终结的编号收编进速查 |
