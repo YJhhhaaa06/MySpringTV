@@ -96,6 +96,26 @@ class IdempotencyFilterFallbackUnitTests {
         assertThat(count("degraded")).isEqualTo(1.0);
     }
 
+    @Test
+    @DisplayName("安全方法（GET）直通：页面导航取不到路由模式也**不记 degraded**（那个信号只属于写请求）")
+    void 安全方法直通不记降级() throws Exception {
+        // 真实形态：/video/92 由 ViewController 处理（不是 HandlerMethod）⇒ 没有
+        // BEST_MATCHING_PATTERN_ATTRIBUTE。若在这里记 degraded，每一次页面导航都会污染
+        // "幂等降级"指标，并把"链序被改坏"的 WARN 淹掉。
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.getMethod()).thenReturn("GET");
+        when(request.getRequestURI()).thenReturn("/video/92");
+        when(request.getContextPath()).thenReturn("");
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        FilterChain chain = mock(FilterChain.class);
+
+        filter.doFilter(request, response, chain);
+
+        verify(chain).doFilter(request, response);
+        verifyNoInteractions(store);
+        assertThat(count("degraded")).as("安全方法不查幂等表 ⇒ 不得记降级").isZero();
+    }
+
     // ==================== 工具 ====================
 
     private static IdempotencyProperties properties() {

@@ -27,6 +27,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -132,6 +133,18 @@ public class IdempotencyFilter extends OncePerRequestFilter {
     /** {@code missing_key} / 回退查表 的按端点日志节流窗口（写接口幂等.md §七：按端点 5 min）。 */
     private static final long LOG_THROTTLE_INTERVAL_MILLIS = 5 * 60 * 1000L;
 
+    /**
+     * 安全方法（RFC 9110 §9.2.1）—— 「不改变服务端状态」的方法，{@code Idempotency-Key} 对它们无意义，
+     * 注册表（{@link IdempotencyScope}）里也没有安全方法条目 ⇒ 直接直通，不查表、不算指纹。
+     *
+     * <p>★ 这条早退同时修掉一个**观测污染**（2026-10-26 随前端静态转发暴露）：页面导航
+     * （{@code /video/92}、{@code /search}）、静态资源（{@code /assets/**}）与未映射路径都没有
+     * {@code RequestMapping} 处理器 ⇒ 取不到 {@code BEST_MATCHING_PATTERN_ATTRIBUTE} ⇒ 以前
+     * **每个这样的 GET 都会记一次 {@code degraded} 并打一条"链序可能被改坏"的 WARN**。
+     * 那个信号本来是给"真写请求取不到路由"用的，被静态流量淹没后就不再指向缺陷。
+     */
+    private static final Set<String> SAFE_METHODS = Set.of("GET", "HEAD", "OPTIONS", "TRACE");
+
     /** 409 的 {@code Retry-After}：短轮询已等过 {@code poll.attempts × interval-millis}，再给 1 s。 */
     private static final long IN_PROGRESS_RETRY_AFTER_SECONDS = 1;
 
@@ -176,6 +189,11 @@ public class IdempotencyFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {
+        // ★ 安全方法直通：见 {@link #SAFE_METHODS}（页面导航 / 静态资源 / 探活都不该进幂等判定）。
+        if (SAFE_METHODS.contains(request.getMethod())) {
+            chain.doFilter(request, response);
+            return;
+        }
         String pattern = patternOf(request);
         String routeKey = request.getMethod() + " " + pattern;
         IdempotencyScope.Entry entry = IdempotencyScope.find(request.getMethod(), pattern);
