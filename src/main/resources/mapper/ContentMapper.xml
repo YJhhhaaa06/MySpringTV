@@ -116,6 +116,28 @@
         from content where id = #{contentId}
     </select>
 
+    <!-- GAP-01 列表批量计数回源：一条 IN 取齐多行的五列（ContentCountRow 是 record ⇒ <constructor>；
+         多带 id 用于按 id 归位。同样不加 is_deleted 过滤，理由同 findCountColumns）。 -->
+    <resultMap id="contentCountRowMap"
+               type="io.github.yjhhhaaa06.videoweb.content.model.ContentCountRow">
+        <constructor>
+            <arg column="id" javaType="java.lang.Long"/>
+            <arg column="like_count" javaType="java.lang.Long"/>
+            <arg column="comment_count" javaType="java.lang.Long"/>
+            <arg column="favorite_count" javaType="java.lang.Long"/>
+            <arg column="coin_count" javaType="java.lang.Long"/>
+            <arg column="play_count" javaType="java.lang.Long"/>
+        </constructor>
+    </resultMap>
+
+    <select id="findCountColumnsByIds" resultMap="contentCountRowMap">
+        select id, like_count, comment_count, favorite_count, coin_count, play_count
+        from content where id in
+        <foreach item="id" collection="ids" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
     <!-- T39 批量回填：一趟 IN 取多条（ContentCoinCount 是 record ⇒ 必须 <constructor>；
          javaType 必须是包装类型 Long / Integer，构造器按 Class 匹配）。
          同样不带走 is_deleted 过滤（理由同 findCoinCount）。 -->

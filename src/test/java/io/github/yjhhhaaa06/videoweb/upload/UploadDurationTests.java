@@ -101,7 +101,7 @@ class UploadDurationTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("列表响应同样带 durationSeconds（慢变字段，不是计数 ⇒ 不受 T43'列表零计数'约束）")
+    @DisplayName("列表响应同样带 durationSeconds（慢变字段；GAP-01 起列表另有三维可空计数）")
     void 列表也带时长() {
         String token = registerAndGetToken("13800000203", "dur-list", PASSWORD);
         long contentId = uploadVideo(token, TITLE_KEYWORD + " 列表时长", mp4Seconds(7), "list.mp4", "video/mp4");

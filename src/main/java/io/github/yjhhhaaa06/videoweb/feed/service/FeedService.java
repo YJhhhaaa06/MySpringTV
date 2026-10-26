@@ -1,7 +1,9 @@
 package io.github.yjhhhaaa06.videoweb.feed.service;
 
 import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
+import io.github.yjhhhaaa06.videoweb.content.model.ContentCountField;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentVO;
+import io.github.yjhhhaaa06.videoweb.content.service.ContentCountFiller;
 import io.github.yjhhhaaa06.videoweb.content.service.ContentService;
 import io.github.yjhhhaaa06.videoweb.follow.service.FollowService;
 import io.github.yjhhhaaa06.videoweb.interaction.model.InteractionDimension;
@@ -54,19 +56,31 @@ public class FeedService {
      */
     private static final Set<InteractionDimension> FEED_DIMENSIONS = Set.of(InteractionDimension.LIKE);
 
+    /**
+     * ★ 动态卡片的三处计数（GAP-01）：嵌入视频块的播放量 + 底部操作栏的评论数 / 点赞数。
+     *
+     * <p>分享数本仓不统计（无法判定"复制链接"是否算分享）⇒ 后端不查、前端占位或不渲染。
+     * 网格卡片（首页 / 搜索 / 相关推荐 / 空间投稿）只查 {@code PLAY}，见各自调用点。
+     */
+    private static final Set<ContentCountField> FEED_COUNT_FIELDS =
+            Set.of(ContentCountField.LIKE, ContentCountField.COMMENT, ContentCountField.PLAY);
+
     private final FollowService followService;
     private final ContentService contentService;
+    private final ContentCountFiller contentCountFiller;
     private final InteractionService interactionService;
     private final FeedReadService feedReadService;
     private final FeedPullReader pullReader;
 
     public FeedService(FollowService followService,
                        ContentService contentService,
+                       ContentCountFiller contentCountFiller,
                        InteractionService interactionService,
                        FeedReadService feedReadService,
                        FeedPullReader pullReader) {
         this.followService = followService;
         this.contentService = contentService;
+        this.contentCountFiller = contentCountFiller;
         this.interactionService = interactionService;
         this.feedReadService = feedReadService;
         this.pullReader = pullReader;
@@ -160,7 +174,8 @@ public class FeedService {
             for (ContentVO vo : contentList) {
                 vo.setInteraction(statuses.get(vo.getId()));
             }
-            // T43：列表不再返回任何公共计数（计数只在详情平铺）⇒ coinCount 的一趟批量已删除。
+            // GAP-01：动态卡片显示播放量 + 评论数 + 点赞数（公共值，与登录态无关）。
+            contentCountFiller.fillCountsBatch(contentList, FEED_COUNT_FIELDS);
         }
         return new PageResult<>(contentList, total, page, pageSize);
     }

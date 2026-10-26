@@ -380,6 +380,71 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
         }
     }
 
+    @Test
+    @DisplayName("★ GAP-07：已登记的可空字段是 3.1 的 null 类型；未登记的承诺非空字段不受影响")
+    void 可空字段确实标了null() {
+        OpenAPI spec = parse(generate());
+
+        // 互动态三态：null = 本面不查 / 匿名 —— 这是 R-13 的核心表达力
+        assertNullable(spec, "InteractionStatusVO", "isLiked");
+        assertNullable(spec, "InteractionStatusVO", "isFavorited");
+        assertNullable(spec, "InteractionStatusVO", "isFollowed");
+        assertNullable(spec, "InteractionStatusVO", "coin");
+        // 列表：按面裁剪的计数 + 图文无封面 / 时长未知 + 匿名无 interaction
+        assertNullable(spec, "ContentVO", "playCount");
+        assertNullable(spec, "ContentVO", "likeCount");
+        assertNullable(spec, "ContentVO", "commentCount");
+        assertNullable(spec, "ContentVO", "coverUrl");
+        assertNullable(spec, "ContentVO", "durationSeconds");
+        assertNullable(spec, "ContentVO", "interaction");
+        // 详情
+        assertNullable(spec, "ContentDetailVO", "videoUrl");
+        assertNullable(spec, "ContentDetailVO", "imageUrls");
+        assertNullable(spec, "ContentDetailVO", "interaction");
+        assertNullable(spec, "ProfileVO", "isFollowed");
+
+        // 对照：承诺非空的字段不能被一并标 null（否则生成类型退化成"什么都要判空"）
+        assertNotNullType(property(spec, "ContentVO", "title"), "title 契约上承诺非空");
+        assertNotNullType(property(spec, "ContentVO", "id"), "原生 long 不可能为 null");
+    }
+
+    /** 断言属性不是可空表达（兼容 3.1 下 `type` 与 `types` 两种承载方式）。 */
+    private static void assertNotNullType(Schema<?> property, String reason) {
+        if (property.getTypes() != null) {
+            assertThat(property.getTypes()).as(reason + " ⇒ 不应含 null").doesNotContain("null");
+        }
+        assertThat(property.getType()).as(reason + " ⇒ type 不应是 null").isNotEqualTo("null");
+    }
+
+    /**
+     * 断言一个属性是 3.1 的可空表达：普通 schema 的 {@code type} 含 {@code "null"}；
+     * {@code $ref} 用 {@code anyOf: [$ref, {type: 'null'}]}（{@code nullable: true} 是 3.0 写法）。
+     */
+    private static void assertNullable(OpenAPI spec, String schemaName, String field) {
+        Schema<?> property = property(spec, schemaName, field);
+        if (property.get$ref() != null || property.getAnyOf() != null) {
+            assertThat(property.getAnyOf())
+                    .as("%s.%s 必须用 anyOf 包一层 null", schemaName, field)
+                    .isNotNull()
+                    // swagger-core 读回 `type: "null"` 时会留一个 null 元素（模型表达不了这种 schema），
+                    // 故用 anyMatch 容忍 null 项；若将来解析器能表达，仍认 type=="null"。
+                    .anyMatch(s -> s == null || "null".equals(s.getType()));
+            return;
+        }
+        assertThat(property.getTypes())
+                .as("%s.%s 必须含 null 类型", schemaName, field)
+                .isNotNull()
+                .contains("null");
+    }
+
+    private static Schema<?> property(OpenAPI spec, String schemaName, String field) {
+        Schema<?> schema = spec.getComponents().getSchemas().get(schemaName);
+        assertThat(schema).as("spec 缺 schema %s", schemaName).isNotNull();
+        Schema<?> property = (Schema<?>) schema.getProperties().get(field);
+        assertThat(property).as("spec 缺属性 %s.%s", schemaName, field).isNotNull();
+        return property;
+    }
+
     // ==================== 生成 ====================
 
     /**

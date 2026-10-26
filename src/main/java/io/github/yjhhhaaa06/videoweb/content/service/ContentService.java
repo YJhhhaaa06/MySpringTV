@@ -17,6 +17,7 @@ import io.github.yjhhhaaa06.videoweb.content.event.ContentPublishedEvent;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentType;
 import io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentCountColumns;
+import io.github.yjhhhaaa06.videoweb.content.model.ContentCountField;
 import io.github.yjhhhaaa06.videoweb.content.model.entity.Content;
 import io.github.yjhhhaaa06.videoweb.content.model.entity.ContentMedia;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.AdminContentVO;
@@ -87,6 +88,7 @@ public class ContentService {
     private final ContentCountAggregate countAggregate;
     private final InteractionService interactionService;
     private final ContentStatusFiller contentStatusFiller;
+    private final ContentCountFiller contentCountFiller;
     private final ApplicationEventPublisher events;
 
     /**
@@ -107,6 +109,9 @@ public class ContentService {
      */
     private static final Set<InteractionDimension> KEYWORD_SEARCH_DIMENSIONS = Set.of();
 
+    /** 搜索结果是**网格卡片**：只显示播放量（GAP-01）。 */
+    private static final Set<ContentCountField> KEYWORD_SEARCH_COUNT_FIELDS = Set.of(ContentCountField.PLAY);
+
     public ContentService(ContentDao contentDao,
                           ContentMediaDao contentMediaDao,
                           CommentDao commentDao,
@@ -115,6 +120,7 @@ public class ContentService {
                           ContentCountAggregate countAggregate,
                           InteractionService interactionService,
                           ContentStatusFiller contentStatusFiller,
+                          ContentCountFiller contentCountFiller,
                           ApplicationEventPublisher events,
                           MediaProperties mediaProps) {
         this.contentDao = contentDao;
@@ -125,6 +131,7 @@ public class ContentService {
         this.countAggregate = countAggregate;
         this.interactionService = interactionService;
         this.contentStatusFiller = contentStatusFiller;
+        this.contentCountFiller = contentCountFiller;
         this.events = events;
         this.mediaProps = mediaProps;
     }
@@ -171,7 +178,8 @@ public class ContentService {
         if (userId != null && !result.isEmpty()) {
             contentStatusFiller.fillInteractionBatch(result, userId, KEYWORD_SEARCH_DIMENSIONS);
         }
-        // T43：列表不再返回任何公共计数（只在详情平铺）⇒ 这里不再有 coinCount 批量。
+        // GAP-01：网格卡片只显示播放量；公共计数不看登录态（匿名同样填）。
+        contentCountFiller.fillCountsBatch(result, KEYWORD_SEARCH_COUNT_FIELDS);
         return new PageResult<>(result, total, page, pageSize);
     }
 

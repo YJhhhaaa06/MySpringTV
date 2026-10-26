@@ -44,11 +44,12 @@ import java.util.Set;
  * <p>匿名（{@code userId == null}）短路：互动域返回 {@code null}，VO 的 {@code interaction}
  * 保持 {@code null}（= "没有登录态"，不是四个 {@code false}）。
  *
- * <h2>★ T43：本类只剩"互动态"一件事</h2>
- * 原有的 {@code fillCoinCountBatch}（列表公共计数）随"列表面不返回任何计数"一起删除
- * （用户 2026-10-19 拍板）—— 计数只在详情平铺返回，见 {@code ContentDetailVO}。
- * 于是这里**不再有**"公共计数不看登录态"的第二条填充规则，也就不会再出现
- * "把它误放进匿名短路里"这类错误。
+ * <h2>★ T43 → GAP-01：本类只做"互动态"，计数另有其类</h2>
+ * 原有的 {@code fillCoinCountBatch}（列表公共计数）在 T43 被删除（用户 2026-10-19 拍板
+ * "列表零计数"）；GAP-01（2026-10-26）按面把播放量 / 点赞数 / 评论数加回列表时，
+ * **没有**恢复本方法，而是新建 {@link ContentCountFiller}。
+ * 理由：互动态是"我的状态"（看登录态、维度按面裁剪），公共计数是"请求无关的数字"
+ * （不看登录态、由缓存批量聚合读提供）；混在一个类里正是过去"把它误放进匿名短路"那类缺陷的温床。
  */
 @Component
 public class ContentStatusFiller {
@@ -92,16 +93,10 @@ public class ContentStatusFiller {
     }
 
     /**
-     * 列表页批量回填**公共计数** —— ⛔ <b>T43 已删除</b>。
+     * 列表页批量回填**公共计数** —— ⛔ <b>T43 已删除；GAP-01 由 {@link ContentCountFiller} 接管</b>。
      *
-     * <p>原实现（T40）为首页 / 搜索 / 主页三个列表面一趟
-     * {@code MGET} 填 {@code coinCount}。T43 起列表面**不返回任何计数**
-     * （用户 2026-10-19 拍板），四个数只在详情平铺（{@code ContentDetailVO}）——
-     * 于是列表页省掉这趟批量，也省掉"漏填某个组装点"这一整类缺陷。
-     *
-     * <p>若将来又要给列表加计数：**不要**恢复本方法，先读
-     * {@code architecture/tech/cache/缓存与数据一致性.md} §五 的口径
-     * （列表带计数 = 每个面都多一趟批量，收益只有展示）。
+     * <p>若将来要改列表计数：改 {@code ContentCountFiller} 与调用点的维度常量，
+     * **不要**把计数读取塞回本类（理由见类注释）。
      */
 
     /** 页内 VO → 互动域目标（content 侧知识：id 与作者来自 VO，类型原样传入）。 */

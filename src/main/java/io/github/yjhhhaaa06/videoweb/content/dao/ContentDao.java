@@ -4,6 +4,7 @@ import io.github.yjhhhaaa06.videoweb.content.model.AuthorContentId;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentAuthorAndType;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentCoinCount;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentCountColumns;
+import io.github.yjhhhaaa06.videoweb.content.model.ContentCountRow;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentFavoriteCount;
 import io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO;
 import io.github.yjhhhaaa06.videoweb.content.model.entity.Content;
@@ -200,6 +201,26 @@ public interface ContentDao {
      * @return 五计数列；内容行不存在 ⇒ {@code null}（防御分支，正常调用时序下不可达）
      */
     ContentCountColumns findCountColumns(@Param("contentId") long contentId);
+
+    /**
+     * **一趟 IN 读齐多条内容的五个公共计数列**（GAP-01 列表批量计数回源）。
+     *
+     * <p>SQL: {@code select id, like_count, comment_count, favorite_count, coin_count, play_count
+     * from content where id in (...)}。
+     *
+     * <p>★ 为什么是 IN 而不是逐 id 调 {@link #findCountColumns}：一页最多 100 条，
+     * 逐条调就是 100 条 SQL；也不该为每张卡片调详情端点（那会把载荷装载与媒体装配再跑一遍）。
+     *
+     * <p>★ <b>刻意不加 {@code is_deleted = 0}</b>：同 {@link #findCoinCount}——读的是**列值**，
+     * 可见性由列表装载（{@code ContentCache} 的三态读）判定；能进入本查询的 id 都是装载成功的条目。
+     *
+     * <p>⚠️ 返回 record ⇒ 必须用 {@code <constructor>} 映射（{@code ContentMapper.xml}），
+     * javaType 用包装类型。
+     *
+     * @param ids 该页内容的 id（调用方保证非空；空集合不要调本方法，SQL 会变成非法 IN ()）
+     * @return 命中的行；缺失的 id 不出现（列表正常时序不会有缺失行）
+     */
+    List<ContentCountRow> findCountColumnsByIds(@Param("ids") Collection<Long> ids);
 
     /**
      * 读某内容的**点赞总数**（**单列窄查询**，T44-1 计数缓存 miss 的回源切换点）。

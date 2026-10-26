@@ -235,21 +235,31 @@ class FeedReadTests extends AbstractFeedIntegrationTest {
     }
 
     @Test
-    @DisplayName("★T43：条目不带公共计数（coinCount 键不存在）；interaction.coin 恒 null")
-    void 条目不带公共计数且coin恒null() {
+    @DisplayName("★GAP-01：动态卡片带 play/like/comment（= DB 列），coinCount 键不存在；interaction.coin 恒 null")
+    void 条目带动态卡片计数且coin不存在() {
         long viewerId = registerViewer();
         long authorId = registerAuthor();
-        long c1 = insertVideoContent(authorId, "feed coinCount 内容");
+        long c1 = insertVideoContent(authorId, "feed 列表计数内容");
         insertFollowRow(viewerId, authorId);
         insertFeedInboxRow(viewerId, c1);
         markSynced(viewerId);
-        // 前置：把公共计数钉到非零 —— 否则"没有键"与"值是 0"分不清
-        jdbcTemplate.update("UPDATE content SET coin_count = 2 WHERE id = ?", c1);
+        // 前置：把三列钉到非零且互不相同 —— 否则"本面不查（null）"与"值就是 0"分不清
+        jdbcTemplate.update("UPDATE content SET like_count = 3, comment_count = 5, play_count = 7, "
+                + "coin_count = 2 WHERE id = ?", c1);
 
         JsonNode item = itemOf(Envelope.data(getFeed(tokenOf(PHONE_VIEWER))).path("list"), c1);
 
+        // 独立 oracle：直接读 DB 列（不信接口回显）
+        assertThat(item.path("playCount").asLong())
+                .as("动态卡片嵌入块显示播放量；oracle = DB 列").isEqualTo(7L);
+        assertThat(item.path("likeCount").asLong())
+                .as("动态卡片操作栏显示点赞数；oracle = DB 列").isEqualTo(3L);
+        assertThat(item.path("commentCount").asLong())
+                .as("动态卡片操作栏显示评论总数；oracle = DB 列").isEqualTo(5L);
         assertThat(item.has("coinCount"))
-                .as("★ T43：列表面不返回任何计数（T40 曾有一趟批量，已删除）").isFalse();
+                .as("★ 投币数没有动态卡片展示位 ⇒ 连字段都不加").isFalse();
+        assertThat(item.has("favoriteCount"))
+                .as("★ 收藏数没有动态卡片展示位 ⇒ 连字段都不加").isFalse();
         assertThat(item.path("interaction").path("coin").isNull())
                 .as("★ 列表不查投币维 ⇒ coin 恒 null（契约，不是漏填）").isTrue();
     }
