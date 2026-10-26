@@ -48,13 +48,13 @@ openapi.yaml ──gen──▶ frontend/src/types/api.d.ts     生成，只读�
 
 | ID | 类型 | 页面·组件 | 期望 | 现状 | 谁适配 | 临时表现 | 后端改动点 | 状态 |
 |---|---|---|---|---|---|---|---|---|
-| GAP-01 | M1 字段缺 | 首页 / VideoCard | 列表带 `playCount` | `ContentVO` 无任何计数（T43） | 后端补（P1） | **隐藏播放量角标** | 列表 VO 加 5 个计数 + 批量 MGET + spec 重生成 | 待补 |
+| GAP-01 | M1 字段缺 | 首页 / VideoCard | 列表带 `playCount`（动态卡片另带 `likeCount` / `commentCount`） | `ContentVO` 已按面平铺三个可空计数（GAP-01） | 后端已补 / 前端待接入 | **仍隐藏播放量角标**（前端未接） | ✅ 已落地：`ContentVO` 三维可空 + `ContentCountBatchAggregate`（一趟 pipeline + 一条 IN + 有选择回填）+ spec 重生成；矩阵见 [缓存与数据一致性 §5.3](../architecture/tech/cache/缓存与数据一致性.md) | **后端已补（2026-10-26），前端待接入** |
 | GAP-02 | M3 端点缺 | 首页 / ChannelWall | 分区列表 | 无 `GET /categories` | 前端适配 | **常量表 18 项** | 无（不补） | 长期 |
 | GAP-03 | M4 语义异 | 播放页 / DanmakuLayer | 弹幕流 | 无弹幕域（无表/无端点） | 前端适配 | **不做 + 占位角标** | 无 | 不做 |
 | GAP-04 | M1 字段缺 | 首页 / VideoCard | 弹幕数角标 | 同 GAP-03 | 前端不做 | **不显示该数字** | 无 | 不做 |
 | GAP-05 | M4 语义异 | 首页·播放页 / NumberText | 图文 `play_count` 语义 | 列叫 play，图文实为「浏览」 | 前端适配 | 按 `type` 切文案 | 无 | 长期 |
 | GAP-06 | M3 端点缺 | 首页 / VideoGrid | 推荐流分页（无限加载） | `GET /contents/recommended` **固定 12 条、无 page 参数**；`GET /contents` 是**搜索专用**（`keyword` 必填，空白即 400 `输入不能为空`） | 后端补（**已拍板：等后端**） | 只渲染 12 条；**不做无限滚动** | 给 recommended 加分页参数，或新增推荐分页端点 | 待补（等后端） |
-| GAP-07 | M2 形状异 | 全部页面 / `api/adapters/*` | 生成类型与运行时一致 | spec 里 `coverUrl` / `durationSeconds` / `interaction` 等只标「可缺省」，**实际匿名响应返回显式 `null`** ⇒ `api.d.ts` 是 `string \| undefined`，与运行时不符 | 后端补（spec 生成侧标 nullable） | adapter 一律按 `null` 兜底（`?.trim()` / `?? null`）；测试夹具 `as` 掉类型谎言 | `OpenApiConfig` 给可空字段标 nullable → 重生成 spec | 待补 |
+| GAP-07 | M2 形状异 | 全部页面 / `api/adapters/*` | 生成类型与运行时一致 | spec 已用 3.1 的 `anyOf: [原类型, {type: "null"}]` 标出已登记的可空字段（`coverUrl` / `durationSeconds` / `interaction` / 三态 / 失效占位等） | 后端已补 / 前端待重生成 | adapter 仍按 `null` 兜底（`?.trim()` / `?? null`） | ✅ 已落地：`OpenApiConfig#nullableVoFieldsCustomizer` + `NULLABLE_VO_FIELDS` 注册表（只登记**确有 null 分支**的字段）；spec 快照已重生成 | **后端已补（2026-10-26），前端待 `gen:api`** |
 | GAP-08 | M1 字段缺 | 顶栏 / 播放页侧栏 / 头像 | 头像 URL | `UserInfoVO` / `ProfileVO` 都**没有头像字段**，也没有头像上传域 | 前端适配（不做头像域） | **昵称首字圆形头像**（渐变底，B 站观感近似） | 无（不补） | 长期 |
 | GAP-09 | M3 端点缺 | 首页 / HeroBanner | 运营 banner 位（B 站首页大轮播是广告/活动位） | 无任何 banner/运营端点 | 前端适配 | 用 `recommended` 前 3 条**有封面的**做「推荐橱窗」轮播（真封面真标题，非假图）；无内容时不渲染轮播 | 无（不补） | 长期 |
 | GAP-10 | M3 端点缺（参数） | 搜索页 / tabs·排序条 | `type` 筛选（视频/专栏）+ 排序（播放/最新） | `GET /contents` 只有 `keyword/page/pageSize` | 后端补（P3） | 只留「综合」tab；视频/专栏**灰态禁用**；**不渲染排序条**（不假装有） | `/contents` 加 `type`、`order` 参数 | 待补 |
@@ -207,7 +207,8 @@ npm run stage                                                # dist → ../src/m
 > ⑫ ★ **2560 校准（首页 / 搜索 / 播放页）** ✅（先钉 **150% 缩放 = 1707 CSS**；首页 1408 / 5×265.6、
 >    搜索 1500 / 6×236.7、播放页 1565 / 播放器 1183；历史页**锁 1320**，单独校准）
 > **下一窗口**：
-> ① **契约批次 GAP-01 / 07 / 10**（后端；本窗口已留 `.docs/temp/gap01-backend-note.md` 设计交接）→
+> ① **契约批次 GAP-01 / 07** ✅（**后端已交付 2026-10-26**：列表三维可空计数 + spec nullable；
+>    前端待接入）；**GAP-10**（搜索 `type/order`）仍待补 →
 > ② **动态页**（只读 `GET /feed`；发布框 / 热搜 / 直播 / 按作者筛选都不具备）**或** **空间「关注/粉丝」页**
 >    （`GET /users/{id}/following|followers` 已有，但 `FollowUserVO` 只有 userId/username/两个布尔）→
 > ③ 播放页 1707 侧栏宽度微校准（B 站约 455 vs 本仓 350；总宽已对齐）→
