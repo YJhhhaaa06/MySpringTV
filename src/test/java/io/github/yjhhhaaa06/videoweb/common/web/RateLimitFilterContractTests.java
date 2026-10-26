@@ -297,6 +297,7 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
             //   它们不碰 DB / Redis，跳过的只是外壳；页面随后发的 /api/v1/** 才是成本。
             hitSkippedAndAssertUntouched("/search");
             hitSkippedAndAssertUntouched("/favorites");
+            hitSkippedAndAssertUntouched("/watchlater");
             hitSkippedAndAssertUntouched("/history");
             hitSkippedAndAssertUntouched("/video/999999");
             hitSkippedAndAssertUntouched("/space/999999");
