@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
+    "stage": "node scripts/stage-spring.mjs",
     "preview": "vite preview",
     "gen:api": "openapi-typescript ../src/test/resources/api/openapi.yaml -o src/types/api.d.ts",
     "typecheck": "vue-tsc -b",

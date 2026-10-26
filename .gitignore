@@ -100,3 +100,11 @@ __pycache__/
 # Chrome 无头截图的临时 profile（可重建，勿入库）
 /.screenshots/**/_profile/
 /.tmp
+
+### ==================== 前端产物落到 Spring 静态根（2026-10-26） ====================
+# `npm run stage` 把 `frontend/dist` 同步到这里，由 Spring 直接服务（`/`、`/search`、
+# `/video/:id`、`/assets/**`）—— 这就是"dist 上 Spring"的落点。
+# ★ 产物**不入库**：文件名带 hash、每次构建全变；提交它只会让 diff 变成噪声，
+#   且会掩盖"忘了重新构建"这件事。
+# 代价（已知）：新克隆的仓库在 `npm run stage` 之前，8080 的页面入口是 404 —— 见 `frontend/README.md`。
+/src/main/resources/static/
