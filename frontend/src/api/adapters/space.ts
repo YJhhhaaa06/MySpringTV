@@ -73,6 +73,8 @@ export function toPublicFolder(folder: components['schemas']['PublicFavoriteFold
  * <p>★ 这个 VO 比 `ContentVO` **少一大半信息**：没有 `type`、没有 `durationSeconds`、
  * **没有 `authorId`** ⇒ 作者链接只能留空（卡片渲染成纯文本），时长角标不显示，
  * 发布日期也没有（只有 `favoriteTime`，那是"收藏时间"，拿它当发布日期就是编）。
+ * <p>★ 没有 `type` ⇒ 链接只能先落 `/video/{id}`；播放页取到详情发现是图文后会
+ * 重定向到 `/opus/{id}`（GAP-16 的前端兜底，见 `architecture/frontend/前端.md` §六）。
  * <p>`invalid === true` = 内容已删 / 不可见，卡片打"已失效"角标而不是藏起来
  * （B 站也是留着灰卡 —— 用户才知道自己收藏过什么）。
  */
@@ -82,6 +84,8 @@ export function toFavoriteItemCard(item: components['schemas']['FavoriteItemVO']
     title: item.title?.trim() || '已失效内容',
     href: videoHref(item.contentId),
     coverUrl: item.coverUrl?.trim() || null,
+    // 没有 description / type ⇒ 不渲染文字卡面（也分不出图文）
+    previewText: null,
     durationText: null,
     authorName: item.authorName?.trim() || '未知UP主',
     authorHref: null,

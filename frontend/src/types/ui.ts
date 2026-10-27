@@ -21,9 +21,15 @@ export type Count = number | null
 export interface VideoCardVM {
   id: number
   title: string
-  /** 跨应用链接：`/video/{id}`（新标签打开，见 §十二） */
+  /** 跨应用链接：视频 `/video/{id}`、图文 `/opus/{id}`（`contentHref` 按 type 决定，新标签打开） */
   href: string
   coverUrl: string | null
+  /**
+   * 纯文字图文的卡面文案（**只用真实 `description`**）：
+   * - 图文且无封面 ⇒ 简介（空串 = 没写简介，渲染成中性的「图文动态」，不编内容）；
+   * - 视频 / 收藏夹等没有简介的面 ⇒ `null`（不渲染文字卡面）。
+   */
+  previewText: string | null
   /** 时长角标（`mm:ss` / `h:mm:ss`）；null = 不显示（图文 / 文件缺失 / 解析失败） */
   durationText: string | null
   authorName: string

@@ -66,6 +66,31 @@ export function formatDateTime(iso: string | null | undefined): string {
 }
 
 /**
+ * 绝对日期（B 站图文详情的口径）：`2026年10月22日 06:02`。非法 ⇒ ``。
+ *
+ * <p>播放页沿用 {@link formatDateTime}（`2026-05-09 19:43`），两处**刻意不统一**：
+ * B 站图文详情就是中文年月日，而视频页的既有口径已经按 ISO 风格校准过。
+ */
+export function formatDateTimeCn(iso: string | null | undefined): string {
+  const date = parseDate(iso)
+  if (!date) return ''
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日 ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+/**
+ * 简介展示值：把后端的**空简介占位 `-`** 视为空串。
+ *
+ * <p>`UploadController.normalizeDescription` 对空简介写 {@code "-"}（TV 原样）；
+ * 展示层如果把 {@code "-"} 原样画出来，用户会以为作者真的只写了「-」。
+ * 图文卡 / 详情 / 动态卡用它；视频页因此也从「-」变成「这个内容还没有简介」。
+ */
+export function cleanDescription(value: string | null | undefined): string {
+  const text = value?.trim() ?? ''
+  return text === '-' ? '' : text
+}
+
+/**
  * 头像占位：昵称首字（大写）。
  *
  * <p>后端没有头像字段（GAP 台账）⇒ 全站用「昵称首字 + 渐变底」代替，

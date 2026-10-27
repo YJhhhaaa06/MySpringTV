@@ -78,6 +78,11 @@ const showLikeCount = computed(
           decoding="async"
           @error="coverBroken = true"
         />
+        <!-- 纯文字图文：封面位换成文字纸片（正文在右侧，避免重复）；视频缺封面仍用 TV 占位 -->
+        <span v-else-if="item.isPost" class="dyn-cover__text" aria-hidden="true">
+          <span class="dyn-cover__quote">“</span>
+          <AppIcon name="article" :size="28" />
+        </span>
         <span v-else class="dyn-cover__fallback" aria-hidden="true"><AppIcon name="tv" :size="30" /></span>
         <span v-if="item.isPost" class="dyn-cover__type">图文</span>
         <span v-if="item.durationText" class="dyn-cover__duration">{{ item.durationText }}</span>
@@ -224,6 +229,31 @@ const showLikeCount = computed(
   justify-content: center;
   color: var(--text-4);
   background: linear-gradient(135deg, #f1f2f3 0%, #e3e5e7 100%);
+}
+
+/* 纯文字图文的封面位：与网格卡同一套「文字纸片」语言（正文在右侧，这里只放引号 + 文档图标） */
+.dyn-cover__text {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  color: var(--brand-blue);
+  background:
+    radial-gradient(circle at 88% 8%, rgba(0, 174, 236, 0.1), transparent 45%),
+    linear-gradient(135deg, #fbfcfd 0%, #eef4f9 100%);
+}
+
+.dyn-cover__quote {
+  position: absolute;
+  top: 2px;
+  right: 12px;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 54px;
+  line-height: 1;
+  color: var(--brand-blue);
+  opacity: 0.16;
 }
 
 .dyn-cover__type {

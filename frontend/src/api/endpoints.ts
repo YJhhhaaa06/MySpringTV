@@ -3,12 +3,13 @@
  * 本层只返回**生成类型**，映射成页面形状一律在 `adapters/`（缺口 fallback 的落点）。
  */
 import type { AuthorCardVM, HeroSlideVM, SearchResultVM, VideoCardVM, VideoDetailVM } from '../types/ui'
+import { CONTENT_TYPE_VIDEO } from './contentTypes'
 import { splitHero } from './adapters/hero'
 import { toSearchResult } from './adapters/search'
 import type { SearchFilters } from './adapters/searchFilters'
 import { toAuthorCard } from './adapters/user'
 import { toVideoCard } from './adapters/videoCard'
-import { toVideoDetail } from './adapters/videoDetail'
+import { toOpusDetail, toVideoDetail } from './adapters/videoDetail'
 import { getJson } from './http'
 
 export interface HomeData {
@@ -66,16 +67,27 @@ export async function loadAuthorCard(userId: number): Promise<AuthorCardVM | nul
   }
 }
 
-/** 播放页：详情 →（并行）作者资料 + 相关推荐 */
+/**
+ * 播放页：详情 →（并行）作者资料 + 相关推荐。
+ *
+ * <p>★ 图文**不在播放页版式里渲染**：收藏夹等没有 `type` 的入口会先落 `/video/{id}`，
+ * 这里取到详情发现 `isPost` 就提前返回（不再白花作者 / 相关两次请求），由调用方
+ * `VideoPage` 重定向到 `/opus/{id}`（GAP-16 的前端兜底）。
+ * <p>★ 相关推荐**只放视频**（B 站视频页也是视频推荐）：本仓 `/contents/recommended`
+ * 含图文 ⇒ 过滤掉图文，同时保证「相关推荐同标签 SPA 路由」只会 push `/video/{id}`。
+ */
 export async function loadVideoPage(id: number, now: Date = new Date()): Promise<VideoPageData> {
   const detail = toVideoDetail(await getJson('/api/v1/contents/{id}', { path: { id } }))
+  if (detail.isPost) {
+    return { detail, author: null, related: [] }
+  }
 
   const authorPromise: Promise<AuthorCardVM | null> = loadAuthorCard(detail.authorId)
 
   const relatedPromise: Promise<VideoCardVM[]> = getJson('/api/v1/contents/recommended')
     .then((items) =>
       items
-        .filter((item) => item.id !== id)
+        .filter((item) => item.id !== id && item.type === CONTENT_TYPE_VIDEO)
         .slice(0, 6)
         .map((item) => toVideoCard(item, now)),
     )
@@ -83,4 +95,14 @@ export async function loadVideoPage(id: number, now: Date = new Date()): Promise
 
   const [author, related] = await Promise.all([authorPromise, relatedPromise])
   return { detail, author, related }
+}
+
+/**
+ * 图文详情（`/opus/{id}`）：只取详情。
+ *
+ * <p>不需要 `GET /users/{id}`：图文详情的作者行只有首字头像 + 名字 + 时间（没有粉丝数 /
+ * 关注按钮）；也不要 `recommended`（B 站图文详情没有相关推荐侧栏）。
+ */
+export async function loadOpusPage(id: number): Promise<VideoDetailVM> {
+  return toOpusDetail(await getJson('/api/v1/contents/{id}', { path: { id } }))
 }

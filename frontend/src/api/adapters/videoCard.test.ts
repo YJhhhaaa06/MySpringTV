@@ -91,6 +91,20 @@ describe('toVideoCard', () => {
     expect(toVideoCard(content(), now).danmakuText).toBeNull()
   })
 
+  it('★ 落点按 type 分流：视频 /video/{id}，图文 /opus/{id}', () => {
+    expect(toVideoCard(content(), now).href).toBe('/video/92')
+    expect(toVideoCard(content({ type: 2 }), now).href).toBe('/opus/92')
+  })
+
+  it('★ 纯文字图文：previewText 用真简介；视频 null；没简介给空串（组件渲染中性占位）', () => {
+    const post = toVideoCard(content({ type: 2, coverUrl: null, description: '  正文第一行  ' }), now)
+    expect(post.previewText).toBe('正文第一行')
+    expect(toVideoCard(content({ type: 2, description: null }), now).previewText).toBe('')
+    // 后端空简介占位是 "-"（不是空串）⇒ 卡面必须回落到中性占位，不画一个孤零零的 "-"
+    expect(toVideoCard(content({ type: 2, description: '-' }), now).previewText).toBe('')
+    expect(toVideoCard(content(), now).previewText).toBeNull()
+  })
+
   it('★ 互动态三态：匿名 ⇒ null，"点过赞"才是 true', () => {
     // 列表面（/users/{id}）只回"赞"这一维；null 表示本面不查，不等于"没点过"
     expect(toVideoCard(content(), now).liked).toBeNull()

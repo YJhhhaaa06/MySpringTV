@@ -54,4 +54,10 @@ describe('splitHero', () => {
     const { slides } = splitHero([content(7, '/a.png')], 1)
     expect(slides[0]).toMatchObject({ id: 7, title: '标题7', href: '/video/7', coverUrl: '/a.png', authorName: 'UP' })
   })
+
+  it('★ 有封面的图文进轮播时落 /opus/{id}（与网格同一套 type 分流）', () => {
+    const post = { ...content(7, '/a.png'), type: 2 } as ContentVO
+    const { slides } = splitHero([post], 1)
+    expect(slides[0]?.href).toBe('/opus/7')
+  })
 })

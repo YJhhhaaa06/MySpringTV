@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import type { AuthorCardVM, VideoCardVM, VideoDetailVM } from '../types/ui'
 import { loadAuthorCard, loadVideoPage } from '../api/endpoints'
 import { ApiError, describeError } from '../api/http'
 import { formatCount } from '../api/adapters/format'
+import { opusHref } from '../api/adapters/links'
 import { sessionState } from '../auth/session'
-import { showToast } from '../common/toast'
+import { shareCurrentPage } from '../common/share'
 import { useVideoInteractions } from '../composables/useVideoInteractions'
 import { usePlaybackProgress } from '../composables/usePlaybackProgress'
 import { useWatchLaterAction } from '../composables/useWatchLaterAction'
@@ -37,6 +38,7 @@ import FavoriteDialog from '../components/video/FavoriteDialog.vue'
  * 本页只负责布局与数据装载。
  */
 const route = useRoute()
+const router = useRouter()
 
 const id = computed(() => {
   const raw = Number(route.params.id)
@@ -98,6 +100,16 @@ async function load(): Promise<void> {
   error.value = ''
   try {
     const data = await loadVideoPage(id.value)
+    /*
+     * 图文兜底（收藏夹 / 公开夹等没有 type 的入口仍落 /video/{id}）：
+     * 取到详情发现是图文 ⇒ 换到 /opus/{id}，别在播放页版式里渲染。
+     * `replace` 不把这条兜底 URL 留在历史里（返回时不会又跳一次）。
+     * 等 FavoriteItemVO 补 type 后，这条分支可以删。
+     */
+    if (data.detail.isPost) {
+      window.location.replace(opusHref(id.value))
+      return
+    }
     detail.value = data.detail
     author.value = data.author
     related.value = data.related
@@ -117,6 +129,14 @@ async function load(): Promise<void> {
 }
 
 watch(id, load, { immediate: true })
+
+/**
+ * 相关推荐：B 站只在视频播放页**同标签**换视频（不新开标签）⇒
+ * `VideoCard` 传 `new-tab=false` 并在这里走 SPA 路由；`watch(id)` 会重新装载详情。
+ */
+function goRelated(href: string): void {
+  void router.push(href)
+}
 
 /**
  * 登录 / 退出后要重新读「我」的那些维度：
@@ -141,17 +161,6 @@ async function loadAuthor(): Promise<void> {
   if (!authorId) return
   const card = await loadAuthorCard(authorId)
   if (card) author.value = card
-}
-
-/** 分享 = 复制当前链接（B 站也是复制，本仓没有"转发数"接口 ⇒ 不显示数字） */
-async function share(): Promise<void> {
-  const url = window.location.href
-  try {
-    await navigator.clipboard.writeText(url)
-    showToast('链接已复制，发给朋友吧')
-  } catch {
-    showToast('复制失败，请手动复制地址栏', 'error')
-  }
 }
 
 /** 自己不能给自己投币 / 关注（后端也会拒，但按钮不该摆出来） */
@@ -228,7 +237,7 @@ function onCommentCount(count: number): void {
           @like="toggleLike"
           @coin="openCoin"
           @favorite="openFavorite"
-          @share="share"
+          @share="shareCurrentPage"
           @watch-later="toggleWatchLater"
         />
 
@@ -283,7 +292,14 @@ function onCommentCount(count: number): void {
         <section v-if="related.length" class="related">
           <h2 class="related__title">相关推荐</h2>
           <div class="related__list">
-            <VideoCard v-for="item in related" :key="item.id" :item="item" layout="row" />
+            <VideoCard
+              v-for="item in related"
+              :key="item.id"
+              :item="item"
+              layout="row"
+              :new-tab="false"
+              @navigate="goRelated"
+            />
           </div>
         </section>
       </aside>

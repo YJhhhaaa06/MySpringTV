@@ -1,6 +1,7 @@
 import type { components } from '../../types/api'
 import type { HeroSlideVM } from '../../types/ui'
-import { videoHref } from './links'
+import { CONTENT_TYPE_POST } from '../contentTypes'
+import { contentHref } from './links'
 
 export interface HeroSplit {
   /** 大轮播位用的（有封面的）前 N 条 */
@@ -27,7 +28,8 @@ export function splitHero(
       slides.push({
         id: item.id,
         title: item.title?.trim() || '无标题',
-        href: videoHref(item.id),
+        // 轮播位也可能收到有封面的图文（本仓推荐流含图文）⇒ 与网格同一套落点规则
+        href: contentHref(item.id, item.type === CONTENT_TYPE_POST),
         coverUrl,
         authorName: item.authorName?.trim() || '未知UP主',
       })

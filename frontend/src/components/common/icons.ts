@@ -29,6 +29,11 @@ export const ICONS = {
     '<path d="M19.6 12a7.6 7.6 0 1 1-2.2-5.4"/><path d="M19.7 3.6v5h-5"/><path d="M10.4 8.8v6.4l5.2-3.2z" fill="currentColor" stroke="none"/>',
   /* 操作栏右端的「更多」⋮（B 站把「用手机看 / 稍后再看」收在这里） */
   more: '<circle cx="12" cy="5" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.6" fill="currentColor" stroke="none"/>',
+  /* 图文（纯文字卡面 / 详情页）：文档轮廓 + 三行字 */
+  article: '<path d="M6 3.5h8.5L18 7v13.5H6z"/><path d="M14.5 3.5V7H18"/><path d="M9 11.5h6M9 15h6M9 18h4"/>',
+  /* 图文放大态：向左 / 向右旋转（与 refresh 区分方向） */
+  'rotate-left': '<path d="M4.5 12a7.5 7.5 0 1 0 2.3-5.4"/><path d="M4.3 4.4v4.8h4.8"/>',
+  'rotate-right': '<path d="M19.5 12a7.5 7.5 0 1 1-2.3-5.4"/><path d="M19.7 4.4v4.8h-4.8"/>',
 } as const
 
 export type IconName = keyof typeof ICONS

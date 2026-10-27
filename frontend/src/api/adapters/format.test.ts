@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { formatCount, formatDateTime, formatDuration, formatRelativeDate, initialOf } from './format'
+import {
+  cleanDescription,
+  formatCount,
+  formatDateTime,
+  formatDateTimeCn,
+  formatDuration,
+  formatRelativeDate,
+  initialOf,
+} from './format'
 
 describe('formatDuration', () => {
   it('不足一小时按 mm:ss', () => {
@@ -88,6 +96,28 @@ describe('formatDateTime', () => {
   it('空 / 非法 ⇒ 空串', () => {
     expect(formatDateTime(undefined)).toBe('')
     expect(formatDateTime('x')).toBe('')
+  })
+})
+
+describe('formatDateTimeCn', () => {
+  it('ISO ⇒ B 站图文详情口径 `YYYY年M月D日 HH:mm`', () => {
+    expect(formatDateTimeCn('2026-10-22T06:02:00')).toBe('2026年10月22日 06:02')
+    // 月 / 日不补零（B 站是 10月1日，不是 10月01日）
+    expect(formatDateTimeCn('2026-01-01T00:00:00')).toBe('2026年1月1日 00:00')
+  })
+
+  it('空 / 非法 ⇒ 空串', () => {
+    expect(formatDateTimeCn(null)).toBe('')
+    expect(formatDateTimeCn('x')).toBe('')
+  })
+})
+
+describe('cleanDescription', () => {
+  it('★ 后端空简介占位 `-` ⇒ 空串（不把占位符画给用户）', () => {
+    expect(cleanDescription('-')).toBe('')
+    expect(cleanDescription('  -  ')).toBe('')
+    expect(cleanDescription('正文')).toBe('正文')
+    expect(cleanDescription(null)).toBe('')
   })
 })
 

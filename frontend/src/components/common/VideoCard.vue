@@ -5,13 +5,25 @@ import AppIcon from './AppIcon.vue'
 import WatchLaterButton from './WatchLaterButton.vue'
 
 const props = withDefaults(
-  defineProps<{ item: VideoCardVM; layout?: 'grid' | 'row'; watchLater?: boolean }>(),
+  defineProps<{
+    item: VideoCardVM
+    layout?: 'grid' | 'row'
+    watchLater?: boolean
+    /**
+     * 跨应用卡片默认**新标签**（B 站网页版口径）。
+     * 只有播放页的「相关推荐」传 `false`：同一应用内换视频用 SPA 路由，不新开标签。
+     */
+    newTab?: boolean
+  }>(),
   {
     layout: 'grid',
     /** 默认给卡片挂「稍后再看」hover；稍后再看页自己关掉（页面级「移出」已经承担该动作） */
     watchLater: true,
+    newTab: true,
   },
 )
+
+const emit = defineEmits<{ (event: 'navigate', href: string): void }>()
 
 /** 封面 404 / 解码失败也走占位块 —— 否则破图比没有封面更难看（dev 数据里会撞到） */
 const coverBroken = ref(false)
@@ -28,15 +40,25 @@ const showCover = computed(() => Boolean(props.item.coverUrl) && !coverBroken.va
 const showStats = computed(() => Boolean(props.item.playCountText || props.item.durationText))
 
 /**
- * 失效条目（收藏夹 / 稍后再看里内容已被删或下架）**不跳转**：那个链接必然 404，
- * 点进去只会看到错误页。B 站也是灰卡不可点。
+ * 链接点击：
+ * - 失效条目（收藏夹 / 稍后再看里内容已被删或下架）**不跳转**：那个链接必然 404，
+ *   B 站也是灰卡不可点；
+ * - `newTab=false`（仅播放页相关推荐）时拦下普通左键，交给页面 `router.push`；中键 / 修饰键
+ *   保留浏览器原行为（用户仍可自己开新标签）。
  *
  * <p>为什么用 `preventDefault` 而不是把 `<a>` 换成 `<div>`：卡片在索引 / 搜索 / 空间 /
  * 播放页侧栏 / 两个「我的」页里共用，换标签会牵动全部布局与样式；这里只关掉"跳转"这一件事，
  * 链接仍然可聚焦（键盘用户能看到它），视觉由 `.is-invalid` 承担。
  */
-function guardInvalid(event: MouseEvent): void {
-  if (props.item.invalid) event.preventDefault()
+function onCardClick(event: MouseEvent): void {
+  if (props.item.invalid) {
+    event.preventDefault()
+    return
+  }
+  if (props.newTab) return
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+  event.preventDefault()
+  emit('navigate', props.item.href)
 }
 </script>
 
@@ -46,11 +68,11 @@ function guardInvalid(event: MouseEvent): void {
       <a
         class="video-card__cover"
         :href="item.href"
-        target="_blank"
+        :target="newTab ? '_blank' : undefined"
         rel="noopener"
         :aria-label="item.title"
         :aria-disabled="item.invalid || undefined"
-        @click="guardInvalid"
+        @click="onCardClick"
       >
         <img
           v-if="showCover"
@@ -61,6 +83,15 @@ function guardInvalid(event: MouseEvent): void {
           decoding="async"
           @error="coverBroken = true"
         />
+        <!-- 纯文字图文：封面位换成真的简介；没写简介就写中性的「图文动态」（不编内容） -->
+        <span v-else-if="item.isPost" class="video-card__text-cover">
+          <span class="video-card__text-quote" aria-hidden="true">“</span>
+          <span v-if="item.previewText" class="video-card__text-body">{{ item.previewText }}</span>
+          <span v-else class="video-card__text-empty">
+            <AppIcon name="article" :size="22" />
+            <span>图文动态</span>
+          </span>
+        </span>
         <span v-else class="video-card__cover-fallback" aria-hidden="true">
           <AppIcon name="tv" :size="30" />
         </span>
@@ -99,10 +130,10 @@ function guardInvalid(event: MouseEvent): void {
       <a
         class="video-card__title"
         :href="item.href"
-        target="_blank"
+        :target="newTab ? '_blank' : undefined"
         rel="noopener"
         :aria-disabled="item.invalid || undefined"
-        @click="guardInvalid"
+        @click="onCardClick"
       >{{ item.title }}</a>
       <p class="video-card__meta">
         <AppIcon name="user" :size="13" />
@@ -173,7 +204,8 @@ function guardInvalid(event: MouseEvent): void {
 }
 
 .video-card.is-invalid .video-card__img,
-.video-card.is-invalid .video-card__cover-fallback {
+.video-card.is-invalid .video-card__cover-fallback,
+.video-card.is-invalid .video-card__text-cover {
   filter: grayscale(1);
   opacity: 0.82;
 }
@@ -190,6 +222,62 @@ function guardInvalid(event: MouseEvent): void {
   justify-content: center;
   color: var(--text-4);
   background: linear-gradient(135deg, #f1f2f3 0%, #e3e5e7 100%);
+}
+
+/*
+ * 纯文字图文卡面（无封面）：16:9 的封面位换成一张「文字纸片」——
+ * 真简介（最多 3 行）+ 淡引号，标题仍在卡下方（避免与简介重复）。
+ * 没有简介时只写中性的「图文动态」，不编内容。
+ */
+.video-card__text-cover {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  flex-direction: column;
+  justify-content: center;
+  padding: 28px 18px 16px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 88% 8%, rgba(0, 174, 236, 0.1), transparent 45%),
+    linear-gradient(135deg, #fbfcfd 0%, #eef4f9 100%);
+}
+
+.video-card__text-quote {
+  position: absolute;
+  top: 0;
+  right: 14px;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 62px;
+  line-height: 1;
+  color: var(--brand-blue);
+  opacity: 0.16;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.video-card:hover .video-card__text-quote {
+  opacity: 0.24;
+}
+
+.video-card__text-body {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--text-2);
+  white-space: pre-line;
+  word-break: break-word;
+}
+
+.video-card__text-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--text-3);
 }
 
 /*

@@ -1,9 +1,9 @@
 import type { components } from '../../types/api'
 import type { Count, DynamicCardVM, DynamicPageVM } from '../../types/ui'
 import { CONTENT_TYPE_POST } from '../contentTypes'
-import { formatCount, formatDuration, formatRelativeDate, initialOf } from './format'
+import { cleanDescription, formatCount, formatDuration, formatRelativeDate, initialOf } from './format'
 import { likedOf } from './interaction'
-import { spaceHref, videoHref } from './links'
+import { contentHref, spaceHref } from './links'
 
 /**
  * `ContentVO` → 动态卡（`GET /feed`）。
@@ -28,7 +28,8 @@ export function toDynamicCard(
   return {
     id: item.id ?? 0,
     title: item.title?.trim() || '无标题',
-    href: videoHref(item.id),
+    // 图文 → /opus/{id}，视频 → /video/{id}（与首页 / 搜索同一套落点规则）
+    href: contentHref(item.id, isPost),
     coverUrl: item.coverUrl?.trim() || null,
     // 图文没有时长概念：即使后端误回填也不显示
     durationText: isPost ? null : formatDuration(item.durationSeconds),
@@ -39,7 +40,7 @@ export function toDynamicCard(
     timeText: formatRelativeDate(item.createTime, now),
     // 由 type 推导的**动作**文案（不是后端字段，所以不叫「动态类型」）
     actionText: isPost ? '发布了图文' : '投稿了视频',
-    description: item.description?.trim() ?? '',
+    description: cleanDescription(item.description),
     isPost,
     playCountText:
       isPost ? null : typeof item.playCount === 'number' && Number.isFinite(item.playCount)

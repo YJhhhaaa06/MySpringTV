@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { components } from '../../types/api'
-import { toVideoDetail } from './videoDetail'
+import { toOpusDetail, toVideoDetail } from './videoDetail'
 
 type ContentDetailVO = components['schemas']['ContentDetailVO']
 
@@ -90,5 +90,20 @@ describe('toVideoDetail', () => {
   it('commentEnabled 只有显式 false 才算关（缺省按开）', () => {
     expect(toVideoDetail(detail()).commentEnabled).toBe(true)
     expect(toVideoDetail(detail({ commentEnabled: false })).commentEnabled).toBe(false)
+  })
+
+  it('后端空简介占位 `-` ⇒ 空串（页面显示「还没有简介」而不是孤零零的 `-`）', () => {
+    expect(toVideoDetail(detail({ description: '-' })).description).toBe('')
+  })
+})
+
+describe('toOpusDetail', () => {
+  it('★ 只改发布时间口径：B 站图文详情是 `YYYY年M月D日 HH:mm`，其余字段与视频详情同源', () => {
+    const vm = toOpusDetail(detail({ type: 2, createTime: '2026-10-22T06:02:00' }))
+    expect(vm.dateText).toBe('2026年10月22日 06:02')
+    // 其余字段不是另起一套映射：isPost / 三个计数 / 图片列表都照旧
+    expect(vm.isPost).toBe(true)
+    expect(vm.stats.like).toBe(12_345)
+    expect(vm.images).toEqual([])
   })
 })

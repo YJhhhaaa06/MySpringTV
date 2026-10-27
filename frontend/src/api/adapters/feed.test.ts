@@ -74,12 +74,16 @@ describe('toDynamicCard', () => {
     expect(card.authorInitial).toBe('未')
     expect(card.title).toBe('无标题')
     expect(card.description).toBe('')
+    // 后端空简介占位 "-" 也当空（不把占位符画在动态卡描述里）
+    expect(toDynamicCard(content({ description: '-' }), now).description).toBe('')
   })
 
-  it('跳转链接：内容 → /video/{id}，作者 → /space/{id}（跨应用整页）', () => {
-    const card = toDynamicCard(content({ id: 93, authorId: 1 }), now)
-    expect(card.href).toBe('/video/93')
-    expect(card.authorHref).toBe('/space/1')
+  it('跳转链接：视频 /video/{id}、图文 /opus/{id}，作者 /space/{id}（跨应用整页）', () => {
+    const video = toDynamicCard(content({ id: 93, authorId: 1 }), now)
+    expect(video.href).toBe('/video/93')
+    expect(video.authorHref).toBe('/space/1')
+    // 图文与首页 / 搜索同一套落点规则（不能因为卡片长在动态流里就换目标）
+    expect(toDynamicCard(content({ id: 91, type: 2 }), now).href).toBe('/opus/91')
   })
 
   it('评论开关透传（关闭时组件不把「评论」画成可写）', () => {

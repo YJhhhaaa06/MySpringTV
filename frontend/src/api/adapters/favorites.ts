@@ -38,6 +38,8 @@ export function toWatchLaterCard(item: components['schemas']['WatchLaterItemVO']
     title: item.title?.trim() || '已失效内容',
     href: videoHref(item.contentId),
     coverUrl: item.coverUrl?.trim() || null,
+    // 稍后再看只收视频（后端「只能添加视频」）⇒ 不可能出现图文文字卡面
+    previewText: null,
     durationText: null,
     authorName: item.authorName?.trim() || (item.invalid === true ? '' : '未知UP主'),
     authorHref: null,
