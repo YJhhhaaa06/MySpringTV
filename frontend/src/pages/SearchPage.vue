@@ -28,7 +28,7 @@ const page = computed(() => {
   return Number.isInteger(raw) && raw > 0 ? raw : 1
 })
 /** URL → 筛选；非法值在这里被静默丢弃（后端对非法枚举是 400，手改 URL 不该让整页挂掉）。 */
-const filters = computed(() => parseSearchFilters(route.query as Record<string, unknown>))
+const filters = computed(() => parseSearchFilters(route.query))
 /** 只随**取值**变化触发重新请求（computed 每次重算都是新对象，直接 watch 会导致翻页请求两次）。 */
 const filterKey = computed(() => `${filters.value.type ?? ''}:${filters.value.order ?? ''}`)
 
@@ -56,7 +56,16 @@ const result = ref<SearchResultVM | null>(null)
 const loading = ref(false)
 const error = ref('')
 
+/**
+ * 请求序号：连点 tab / 排序时**后发者胜**。
+ *
+ * <p>没有它的话，"视频 → 图文"两次请求谁先回谁写 state ⇒ 图文 tab 下可能渲染出视频条目，
+ * 旧请求的 catch 还会把错误盖在已成功的新结果上。新增 tab 让这条路径从"手速问题"变成日常操作。
+ */
+let requestSeq = 0
+
 async function load(): Promise<void> {
+  const seq = ++requestSeq
   if (!keyword.value) {
     result.value = null
     error.value = ''
@@ -65,12 +74,15 @@ async function load(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    result.value = await searchContents(keyword.value, page.value, filters.value)
+    const data = await searchContents(keyword.value, page.value, filters.value)
+    if (seq !== requestSeq) return
+    result.value = data
   } catch (exception) {
+    if (seq !== requestSeq) return
     result.value = null
     error.value = exception instanceof ApiError ? exception.message : '搜索失败，请稍后重试'
   } finally {
-    loading.value = false
+    if (seq === requestSeq) loading.value = false
   }
 }
 

@@ -12,8 +12,16 @@ describe('parseSearchFilters（URL → 筛选）', () => {
     // 小写 / 数字 / 未知词 都不是后端认的字面量
     expect(parseSearchFilters({ type: 'video' }).type).toBeUndefined()
     expect(parseSearchFilters({ type: '1' }).type).toBeUndefined()
+    expect(parseSearchFilters({ type: 1 }).type).toBeUndefined() // 真数字，不是字符串 '1'
     expect(parseSearchFilters({ order: 'hot' }).order).toBeUndefined()
     expect(parseSearchFilters({ order: 'latest' }).order).toBeUndefined()
+  })
+
+  it('★ 显式 LATEST 归一成"不传"（否则排序条两个按钮都不高亮 —— 2026-10-27 审查实测）', () => {
+    expect(parseSearchFilters({ order: 'LATEST' }).order).toBeUndefined()
+    expect(parseSearchFilters({ type: 'VIDEO', order: 'LATEST' }).order).toBeUndefined()
+    // 对照：PLAY 不能被一起吃掉
+    expect(parseSearchFilters({ type: 'VIDEO', order: 'PLAY' }).order).toBe('PLAY')
   })
 
   it('★ 图文永远不发 PLAY（图文 play_count 结构性恒 0，最多播放在那里没有意义）', () => {
@@ -54,5 +62,18 @@ describe('toSearchQuery（筛选 → URL）', () => {
 
   it('normalizeSearchFilters 是两处入口共用的唯一判定', () => {
     expect(normalizeSearchFilters({ type: 'POST', order: 'PLAY' })).toEqual({ type: 'POST', order: undefined })
+  })
+
+  it('★ 往返自愈：归一结果写回 URL 再解析，仍等于该结果（parse 与 toSearchQuery 不分叉）', () => {
+    const raws = [
+      { type: 'POST', order: 'PLAY' }, // 图文丢 PLAY
+      { type: 'VIDEO', order: 'LATEST' }, // 显式最新 → 不写键
+      { type: 'video', order: 'hot' }, // 非法 → 不筛
+      { type: 'POST' },
+    ]
+    for (const raw of raws) {
+      const once = parseSearchFilters(raw)
+      expect(parseSearchFilters(toSearchQuery(once))).toEqual(once)
+    }
   })
 })
