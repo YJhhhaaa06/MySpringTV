@@ -45,19 +45,18 @@ openapi.yaml ──gen──▶ frontend/src/types/api.d.ts     生成，只读�
 `临时表现` **必填**（隐藏？占位？假数据？）—— 缺这格，日后没人分得清「没做」还是「假装做了」。
 定位用 `文件#函数`（如 `frontend/src/api/adapters/videoCard.ts#toVideoCard`），**GAP 编号不进代码注释**
 （不新开无人管辖的编号空间）。
-> ★ **2026-10-27 更正**：上面这句与既成事实冲突 —— `GAP-01/05/07` 已进入 `src/main` 约 30 处（作交叉引用，
-> 定位仍以 `文件#函数` 为准），`GAP-10` 沿用同一惯例。**照此执行**：编号可进注释作"为什么有这段代码"的锚点，
-> 但**不得**据此新开编号空间（新编号只能加在本表）。
+> ★ **2026-10-27 更正**：`GAP-01/05/07` 已进入 `src/main` 约 30 处（作交叉引用），`GAP-10` 沿用 ——
+> 编号可作"为什么有这段代码"的锚点，但**不得**据此新开编号空间（新编号只能加在本表）。
 
 | ID | 类型 | 页面·组件 | 期望 | 现状 | 谁适配 | 临时表现 | 后端改动点 | 状态 |
 |---|---|---|---|---|---|---|---|---|
-| GAP-01 | M1 字段缺 | 首页 / VideoCard | 列表带 `playCount`（动态卡片另带 `likeCount` / `commentCount`） | `ContentVO` 已按面平铺三个可空计数（GAP-01） | 后端已补 / 前端待接入 | **仍隐藏播放量角标**（前端未接） | ✅ 已落地：`ContentVO` 三维可空 + `ContentCountBatchAggregate`（一趟 pipeline + 一条 IN + 有选择回填）+ spec 重生成；矩阵见 [缓存与数据一致性 §5.3](../architecture/tech/cache/缓存与数据一致性.md) | **后端已补（2026-10-26），前端待接入** |
+| GAP-01 | M1 字段缺 | 首页 / VideoCard | 列表带 `playCount`（动态卡片另带 `likeCount` / `commentCount`） | `ContentVO` 已按面平铺三个可空计数 | ✅ 前后端均已接 | ✅ 封面左下播放量角标（图文不显示，见 GAP-05）；like/comment 随动态页接入 | ✅ 后端 2026-10-26 已交付（矩阵见 [缓存与数据一致性 §5.3](../architecture/tech/cache/缓存与数据一致性.md)）；前端 2026-10-27 接入 | **已销账** |
 | GAP-02 | M3 端点缺 | 首页 / ChannelWall | 分区列表 | 无 `GET /categories` | 前端适配 | **常量表 18 项** | 无（不补） | 长期 |
 | GAP-03 | M4 语义异 | 播放页 / DanmakuLayer | 弹幕流 | 无弹幕域（无表/无端点） | 前端适配 | **不做 + 占位角标** | 无 | 不做 |
 | GAP-04 | M1 字段缺 | 首页 / VideoCard | 弹幕数角标 | 同 GAP-03 | 前端不做 | **不显示该数字** | 无 | 不做 |
-| GAP-05 | M4 语义异 | 首页·播放页 / NumberText | 图文 `play_count` 语义 | 列叫 play，图文实为「浏览」 | 前端适配 | 按 `type` 切文案 | 无 | 长期 |
+| GAP-05 | M4 语义异 | 首页·播放页 / NumberText | 图文 `play_count` 语义 | 列叫 play，图文实为「浏览」，且对图文**结构性恒 0**（GAP-10） | 前端适配 | **图文不渲染计数**（画「浏览 0」＝把"没接管道"说成"没人看"）；视频按「播放」 | 无 | 长期 |
 | GAP-06 | M3 端点缺 | 首页 / VideoGrid | 推荐流分页（无限加载） | `GET /contents/recommended` **固定 12 条、无 page 参数**；`GET /contents` 是**搜索专用**（`keyword` 必填，空白即 400 `输入不能为空`） | 后端补（**已拍板：等后端**） | 只渲染 12 条；**不做无限滚动** | 给 recommended 加分页参数，或新增推荐分页端点 | 待补（等后端） |
-| GAP-07 | M2 形状异 | 全部页面 / `api/adapters/*` | 生成类型与运行时一致 | spec 已用 3.1 的 `anyOf: [原类型, {type: "null"}]` 标出已登记的可空字段（`coverUrl` / `durationSeconds` / `interaction` / 三态 / 失效占位等） | 后端已补 / 前端待重生成 | adapter 仍按 `null` 兜底（`?.trim()` / `?? null`） | ✅ 已落地：`OpenApiConfig#nullableVoFieldsCustomizer` + `NULLABLE_VO_FIELDS` 注册表（只登记**确有 null 分支**的字段）；spec 快照已重生成 | **后端已补（2026-10-26），前端待 `gen:api`** |
+| GAP-07 | M2 形状异 | 全部页面 / `api/adapters/*` | 生成类型与运行时一致 | spec 已用 3.1 的 `anyOf: [原类型, {type: "null"}]` 标出已登记的可空字段（`coverUrl` / `durationSeconds` / `interaction` / 三态 / 失效占位等） | ✅ 前后端均已接 | adapter 仍按 `null` 兜底（运行时真会显式 null） | ✅ 已落地：`OpenApiConfig#nullableVoFieldsCustomizer` + `NULLABLE_VO_FIELDS` 注册表（只登记**确有 null 分支**的字段）；spec 快照已重生成 | **已销账（2026-10-27）** |
 | GAP-08 | M1 字段缺 | 顶栏 / 播放页侧栏 / 头像 | 头像 URL | `UserInfoVO` / `ProfileVO` 都**没有头像字段**，也没有头像上传域 | 前端适配（不做头像域） | **昵称首字圆形头像**（渐变底，B 站观感近似） | 无（不补） | 长期 |
 | GAP-09 | M3 端点缺 | 首页 / HeroBanner | 运营 banner 位（B 站首页大轮播是广告/活动位） | 无任何 banner/运营端点 | 前端适配 | 用 `recommended` 前 3 条**有封面的**做「推荐橱窗」轮播（真封面真标题，非假图）；无内容时不渲染轮播 | 无（不补） | 长期 |
 | GAP-10 | M3 端点缺（参数） | 搜索页 / tabs·排序条 | `type` 筛选（视频/图文）+ 排序（播放/最新） | 原只有 `keyword/page/pageSize` | **前后端均已补** | —（已可筛可排） | ✅ 已落地（2026-10-27）：`?type=VIDEO\|POST&order=LATEST\|PLAY`，两个**可选枚举**（大小写敏感，非法值 400 + `errors[field]`）；类型过滤与 `count` **共用 mapper 片段**（total 同源）；`PLAY` = `play_count DESC, id DESC`。⚠️ 图文 `play_count` 结构性恒 0 ⇒ 前端**图文 tab 不渲染**「最多播放」，后端**不设特例**（照收不报错）。⚠️ 与 `recommended?type=1\|2` 的**数字**口径刻意不一致（§2.5 要求语义字符串；那套是 TV 遗留、前端未消费） | **已销账（2026-10-27）** |
@@ -148,7 +147,7 @@ npm run stage                                                # dist → ../src/m
 | 文件 | 钉住的口径 |
 |---|---|
 | `api/adapters/format.test.ts` | 万/亿、`mm:ss`、相对时间 |
-| `api/adapters/{videoCard,hero,search,videoDetail,user,interaction,comment,space}.test.ts` | 各页 VM 的缺口 fallback（列表无计数 ⇒ `null`、三态 `null ≠ false`、评论无时间 ⇒ 空串…） |
+| `api/adapters/{videoCard,hero,search,videoDetail,user,interaction,comment,space}.test.ts` | 各页 VM 的缺口 fallback（`playCount` 缺失 ⇒ `null`、图文不显示计数、三态 `null ≠ false`、评论无时间 ⇒ 空串…） |
 | `api/adapters/{favorites,history}.test.ts` | 我的夹 / 稍后再看卡片（`addedTime` **不冒充**发布时间）；历史角标三态（`已看/总长` / `已看完` / 无总长只给「看到」）、按本地日历日分组 |
 | `api/http.test.ts` | 信封 / 204 / `Retry-After` / 幂等键 / 数组 query |
 | `common/watchLaterSession.test.ts` | 稍后再看页面内记忆：**同一 URL 记得、换 URL 不记得**、取消即忘、不同内容互不影响 |
@@ -162,6 +161,8 @@ npm run stage                                                # dist → ../src/m
 ⇒ 3 条红。还原后 122/122 绿。
 **2026-10-26 晚再来一次**：⑦把 `isWatchLaterMarked` 改成只看 `marked.has(id)`（无视 URL 作用域）
 ⇒ **2 条红**（同 URL/换 URL 两条），还原后 **127/127** 绿。
+**2026-10-27 再来一次**：⑧把 `playCountText` 改回恒 `null` ⇒ `videoCard.test.ts` **红 1 条**
+（只跑该类：12 选中 1 红）；还原后全量 **141/141** 绿。
 
 **真浏览器 E2E**（一次性脚本，放 `.tmp/`，**不入库**）：登录 / 互动 / 评论 / 进度 / 空间 /
 **收藏 / 历史 / 稍后再看**各一支，必须真接口真写（`node .tmp/<name>-e2e.mjs`，需 Chrome `--remote-debugging-port=9222`）。
@@ -205,28 +206,29 @@ npm run stage                                                # dist → ../src/m
 > ① 脚手架 ✅ ② `VideoCard` + `VideoGrid` + **首页闭环** ✅ ③ 搜索页 ✅（真 Page 分页）
 > ④ 播放页 ✅（**只读 → 完整**：点赞/投币/收藏/关注 + 评论区 + 播放进度）
 > ⑤ 占位路由 + 登录真接口 ✅ ⑥ **UP 空间页** ✅（`space.html`：资料 / 投稿分页 / 公开收藏夹）
-> ⑦ ★ **生产静态转发 + dist 上 Spring + 删老 SPA** ✅（§十三 收口；`mvnw clean` 后
->    `/`、`/search`、`/video/:id`、`/space/:id`、`/favorites`、`/history`、`/assets/**` 全 200，旧 `/static/**` 404）
+> ⑦ ★ **生产静态转发 + dist 上 Spring + 删老 SPA** ✅（§十三 收口；六入口 + `/assets/**` 全 200，
+>    旧 `/static/**` 404）
 > ⑧ ★ **收藏页** ✅（`favorites.html`：我的收藏夹 + 稍后再看 + 单条取消/移出）
 > ⑨ ★ **历史页** ✅（`history.html`：**左侧时间轴 + 4 列卡片网格** + 封面「已看/总长」角标；
->    B 站 2026-10 版式，2026-10-26 按用户提供的登录态截图重做）
+>    B 站 2026-10 版式，按用户登录态截图重做）
 > ⑩ 历史页的 tabs / 搜索 / 清空 / 批量 / 记录开关 **故意不渲染**（GAP-19 / 20 / 21，等后端或无域）
 > **2026-10-26 晚（第四窗口）交付**：
 > ⑪ ★ **稍后再看垂直闭环** ✅（卡片 hover + 播放页动作栏 ⋮ + 独立 `/watchlater` 页；
->    ★ 没有状态查询端点（红线）⇒ 用 **URL 作用域的内存记忆**：同一页可取消、刷新/换页即忘，
->    正好复刻用户实测的 B 站行为；E2E 过，测试池恢复原状）
-> ⑫ ★ **2560 校准（首页 / 搜索 / 播放页）** ✅（先钉 **150% 缩放 = 1707 CSS**；首页 1408 / 5×265.6、
->    搜索 1500 / 6×236.7、播放页 1565 / 播放器 1183；历史页**锁 1320**，单独校准）
+>    ★ 没有状态查询端点（红线）⇒ 用 **URL 作用域的内存记忆**：同页可取消、刷新/换页即忘，
+>    复刻用户实测的 B 站行为；E2E 过，测试池恢复原状）
+> ⑫ ★ **2560 校准（首页 / 搜索 / 播放页）** ✅（先钉 **150% 缩放 = 1707 CSS**；
+>    首页 1408 / 搜索 1500 / 播放页 1565；历史页**锁 1320**，单独校准）
 > **2026-10-27（第五窗口）交付**：
 > ⑬ ★ **契约批次 GAP-10** ✅（搜索 `type=VIDEO|POST&order=LATEST|PLAY`，两个可选枚举；
 >    `count` 与列表共用 mapper 片段；图文 tab 不渲染「最多播放」）。同批把 **GAP-07 的 `gen:api` 欠账** 清掉
 >    （`api.d.ts` 重生成，`coverUrl` / `interaction` / `playCount` 等带上 `| null`）。
+> ⑭ ★ **GAP-01 接入 + 存量时长回填** ✅（卡片封面左下播放量 / 右下总时长；图文不显示计数；
+>    42/45 存量视频补时长，3 个文件缺失保持 `null`；测试 139→141；E2E 按 **DB oracle** 逐卡对账）
 > **下一窗口**：
-> ① **GAP-01 前端接入**（后端 2026-10-26 已交付列表三维可空计数，卡片目前仍隐藏播放量角标）→
-> ② **动态页**（只读 `GET /feed`；发布框 / 热搜 / 直播 / 按作者筛选都不具备）**或** **空间「关注/粉丝」页**
+> ① **动态页**（只读 `GET /feed`；发布框 / 热搜 / 直播 / 按作者筛选都不具备）**或** **空间「关注/粉丝」页**
 >    （`GET /users/{id}/following|followers` 已有，但 `FollowUserVO` 只有 userId/username/两个布尔）→
-> ③ 播放页 1707 侧栏宽度微校准（B 站约 455 vs 本仓 350；总宽已对齐）→
-> ④ 历史页单独校准（B 站历史比首页窄，别一刀切）。
+> ② 播放页 1707 侧栏宽度微校准（B 站约 455 vs 本仓 350；总宽已对齐）→
+> ③ 历史页单独校准（B 站历史比首页窄，别一刀切）。
 > **明确延后**：创作中心 / 投稿页（用户 2026-10-26 拍板"复杂，暂不跟进"）；
 > 「编辑图文 = 取回原稿 → 原位覆盖」只记设计意图 + **GAP-22**（缺"追加图片"端点），不做页面。
 > **设计沉淀**：前端应用口径在 [architecture/frontend/前端.md](../architecture/frontend/前端.md)；
@@ -274,9 +276,8 @@ npm run stage                                                # dist → ../src/m
 **修法（已实测）**：把 TS 钉到 5.9 —— `npm i -D typescript@~5.9.0`，再装 `openapi-typescript` 即 0 错误，
 `vue-tsc` 仍绿。
 
-★ **vue-router 钉 4.x 不升 5**：npm 上 `vue-router@5.4.0` 已是最新，但它是**未勘察的新 major**
-（peer 里还挂了 pinia）。脚手架阶段拿未验证主版本当底座，等于把"跑不起来"混进"写页面"里。
-要升单独开一个窗口做，别在功能窗口里顺手升。
+★ **vue-router 钉 4.x 不升 5**：`5.4.0` 是**未勘察的新 major**（peer 还挂 pinia）——
+拿未验证主版本当底座，等于把"跑不起来"混进"写页面"里；要升另开窗口。
 
 实际的 `package.json` 脚本（路径**相对 `frontend/`**，不是仓库根）：
 
