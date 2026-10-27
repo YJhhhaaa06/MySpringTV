@@ -86,6 +86,13 @@ __pycache__/
 #    子项就无法再 `!` 回来。
 !/src/test/resources/api/
 
+# ★ 例外（Testcontainers Windows npipe 策略）：ServiceLoader 登记文件必须位于测试类路径的
+# META-INF/services 下。不入库 ⇒ 新克隆上 Windows 集成测试会退回 Testcontainers 2.0.5
+# 的 npipe 预检（File.exists 对命名管道恒 false），整批测试变红。原因见策略类注释。
+!/src/test/resources/META-INF/
+!/src/test/resources/META-INF/services/
+!/src/test/resources/META-INF/services/org.testcontainers.dockerclient.DockerClientProviderStrategy
+
 ### ==================== 前端重制（Vue 3 + TS + Vite） ====================
 # 依赖 / 构建产物不入库
 /frontend/node_modules/
