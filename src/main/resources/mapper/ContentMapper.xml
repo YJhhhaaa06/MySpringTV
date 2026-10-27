@@ -310,36 +310,69 @@
       tie-breaker，T15 修复；缺它同秒内容分页会重复/漏项）。
       判据 = trim 后关键词长度（Service 已 trim）。
       TV 的 `pstmt.setString(1, "%" + kw + "%")` 等价写作 `CONCAT('%', #{keyword}, '%')`。
+
+      ★ GAP-10（2026-10-27）：筛选/排序抽成下面两个片段，**两条分支 + count 四处共用一个定义**
+      —— 复制四份就会漏一处，而漏 count 或漏一条分支的表现都是"total 与 list 口径不一致"
+      （页码多出来 / 某类内容出现在不该出现的 tab）。
     -->
+
+    <!-- GAP-10：类型筛选。typeNumber = content.type 列值（1 视频 / 2 图文），null ⇒ 不过滤。
+         ⚠️ count 也要 include（见下方），否则筛选后 total 不变。 -->
+    <sql id="searchTypeFilter">
+        <if test="typeNumber != null">
+            AND c.type = #{typeNumber}
+        </if>
+    </sql>
+
+    <!-- GAP-10：排序。orderKey 只可能是 Service 给的 SearchOrder.name()（白名单）⇒ 这里是**比较**
+         而不是拼接（没有 ${}，无注入面）。两处 ORDER BY 都必须带 `, c.id DESC`：
+         缺它同秒（LATEST）/ 同播放量（PLAY）的内容会跨页重复或漏项 —— T15 的教训对 play_count 同样成立。
+         ⚠️ 新增枚举值要在这里加 <when>，否则静默落进 <otherwise>（= 最新）。 -->
+    <sql id="searchOrderBy">
+        <choose>
+            <when test="orderKey == 'PLAY'">
+                ORDER BY c.play_count DESC, c.id DESC
+            </when>
+            <otherwise>
+                ORDER BY c.create_time DESC, c.id DESC
+            </otherwise>
+        </choose>
+    </sql>
+
     <select id="keywordSearchInBrief" resultType="java.lang.Long">
         <choose>
             <when test="keyword != null and keyword.length() == 1">
                 SELECT c.id FROM content c
                 WHERE c.title LIKE CONCAT('%', #{keyword}, '%') AND c.is_deleted = 0
-                ORDER BY c.create_time DESC, c.id DESC
+                <include refid="searchTypeFilter"/>
+                <include refid="searchOrderBy"/>
                 LIMIT #{offset}, #{limit}
             </when>
             <otherwise>
                 SELECT c.id FROM content c
                 WHERE MATCH(c.title, c.description) AGAINST (#{keyword} IN NATURAL LANGUAGE MODE)
                   AND c.is_deleted = 0
-                ORDER BY c.create_time DESC, c.id DESC
+                <include refid="searchTypeFilter"/>
+                <include refid="searchOrderBy"/>
                 LIMIT #{offset}, #{limit}
             </otherwise>
         </choose>
     </select>
 
-    <!-- TV: countKeywordSearch —— 分支判据与 list 查询**同源**（否则 total 与 list 口径漂移）。 -->
+    <!-- TV: countKeywordSearch —— 分支判据与 list 查询**同源**（否则 total 与 list 口径漂移）。
+         ★ GAP-10：类型过滤必须**同时**出现在这里，否则筛选后 total 仍按全类型算。 -->
     <select id="countKeywordSearch" resultType="int">
         <choose>
             <when test="keyword != null and keyword.length() == 1">
                 SELECT COUNT(*) FROM content c
                 WHERE c.title LIKE CONCAT('%', #{keyword}, '%') AND c.is_deleted = 0
+                <include refid="searchTypeFilter"/>
             </when>
             <otherwise>
                 SELECT COUNT(*) FROM content c
                 WHERE MATCH(c.title, c.description) AGAINST (#{keyword} IN NATURAL LANGUAGE MODE)
                   AND c.is_deleted = 0
+                <include refid="searchTypeFilter"/>
             </otherwise>
         </choose>
     </select>

@@ -471,6 +471,22 @@ paths:
         schema:
           type: string
       - in: query
+        name: type
+        required: false
+        schema:
+          type: string
+          enum:
+          - VIDEO
+          - POST
+      - in: query
+        name: order
+        required: false
+        schema:
+          type: string
+          enum:
+          - LATEST
+          - PLAY
+      - in: query
         name: page
         required: false
         schema:

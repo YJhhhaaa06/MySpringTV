@@ -8,6 +8,8 @@ import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.Public;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import io.github.yjhhhaaa06.videoweb.common.web.PageParams;
+import io.github.yjhhhaaa06.videoweb.content.model.ContentType;
+import io.github.yjhhhaaa06.videoweb.content.model.SearchOrder;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentDetailVO;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentVO;
 import io.github.yjhhhaaa06.videoweb.content.service.ContentService;
@@ -90,11 +92,45 @@ public class SearchController {
      * <p>关键词空白 → 400（TV 文案 {@code "输入不能为空"}）。
      * 分页：缺省 == 显式 {@code page=1&pageSize=100}；{@code pageSize=999 → 100}；
      * {@code pageSize=51} 原样回显；非法值回落缺省（**不是 500**，T19 顺带修掉的旧坑）。
+     *
+     * <h2>★ `GAP-10`（2026-10-27）：两个**可选**筛选 / 排序参数</h2>
+     * <ul>
+     *   <li>{@code type=VIDEO|POST} —— 内容类型筛选；缺省 / 空串 = **不筛**（"综合"）。</li>
+     *   <li>{@code order=LATEST|PLAY} —— 排序；缺省 {@code LATEST}
+     *       = {@code create_time DESC, id DESC}，**与加参数前逐字一致**。</li>
+     * </ul>
+     * 两个参数都**只影响 SQL 的 WHERE / ORDER BY**：命中总数与当页 id 来自同一组条件
+     * （{@code countKeywordSearch} 与 {@code keywordSearchInBrief} 共用 mapper 片段），
+     * 否则 {@code total} 会按全类型算、列表按筛选后算 ⇒ 页码多出来、最后一页可能空。
+     *
+     * <h2>为什么声明成枚举，而不是 {@code String} 再自己判</h2>
+     * 非法值由 Spring 抛 {@code MethodArgumentTypeMismatchException} → 全局出口的
+     * {@code 400 + errors[{field:"type"}]}（契约 §2.5.1 类目④），**不写一行校验代码**。
+     * 收 {@code String} 再手判会落进 `I-26`（手写校验不产 {@code errors}），且要写两段。
+     *
+     * <p>★ <b>大小写敏感</b>：Spring 的枚举转换就是 {@code Enum.valueOf} 精确匹配 ⇒
+     * {@code type=video} 是 400，不是"宽容当 VIDEO"。故意不加大小写归一：Body 侧枚举
+     * （Jackson）同样精确匹配，两套口径不一致比"严格"更坏。
+     *
+     * <p>★ <b>为什么不静默回落</b>（像 {@code page}/{@code pageSize} 那样）：分页错只是少几条，
+     * 而筛选错会**让用户以为"没有这类内容"** —— 必须响亮地 400。
+     *
+     * <p>⚠️ 已知的词汇不统一：{@code GET /contents/recommended?type=1|2} 用**数字**（TV 遗留：
+     * 空 / 0 / 非数字 ⇒ 不过滤），本端点按契约 §2.5「枚举用语义字符串」定成 {@code VIDEO|POST}。
+     * 两者故意不统一；recommended 那套是死口径（前端未消费），删改它属另一个决定。
+     *
+     * <p>⚠️ <b>{@code type=POST&order=PLAY} 不设特例</b>（2026-10-27 用户拍板）：图文的
+     * {@code content.play_count} **结构性恒 0**（{@code /play} 只收视频，见
+     * {@code HistoryService#requireVideoContent}）⇒ 该组合的次序退化为 {@code id DESC}（= 最新）。
+     * 后端**照收不报错**（少一条只在一种组合下成立的校验），由前端**不为图文渲染「最多播放」**。
+     * 这是登记过的已知代价，不是缺陷。
      */
     @Public
     @GetMapping("/api/v1/contents")
     public ApiResponse<PageResult<ContentVO>> keywordSearch(@CurrentUserId(required = false) Long userId,
                                                             @RequestParam(required = false) String keyword,
+                                                            @RequestParam(required = false) ContentType type,
+                                                            @RequestParam(required = false) SearchOrder order,
                                                             @RequestParam(required = false) String page,
                                                             @RequestParam(required = false) String pageSize) {
         if (keyword == null || keyword.isBlank()) {
@@ -104,6 +140,8 @@ public class SearchController {
                 keyword.trim(),
                 userId,
                 PageParams.normalizePage(page),
-                PageParams.normalizePageSize(pageSize, SEARCH_PAGE_SIZE_MAX, SEARCH_PAGE_SIZE_DEFAULT)));
+                PageParams.normalizePageSize(pageSize, SEARCH_PAGE_SIZE_MAX, SEARCH_PAGE_SIZE_DEFAULT),
+                type,
+                order));
     }
 }

@@ -454,15 +454,36 @@ public interface ContentDao {
      *
      * <p>入参 {@code keyword} 必须是**已 trim** 的（调用方负责）；单/多字符分支的判据就是它的长度。
      *
+     * <h2>★ `GAP-10`（2026-10-27）：类型筛选 + 排序</h2>
+     * <ul>
+     *   <li>{@code typeNumber}：{@code content.type} 的列值（1 视频 / 2 图文），
+     *       {@code null} = 不过滤。两条分支都要带上它（mapper 里是同一个
+     *       {@code searchTypeFilter} 片段，**count 也 include 它**——否则 total 与 list 口径漂移）。</li>
+     *   <li>{@code orderKey}：**白名单字符串**，取值只能是 {@code SearchOrder} 的
+     *       {@code name()}（{@code LATEST} / {@code PLAY}），由 Service 翻译后传入。
+     *       ⚠️ 它**不是**用户输入：mapper 只用它做 {@code <choose test="orderKey == 'PLAY'">} 比较，
+     *       没有 {@code ${}} 拼接（不存在注入面）。新增取值必须同改 mapper 与用例，否则静默落进
+     *       {@code <otherwise>}（= 最新）。</li>
+     * </ul>
+     * ⚠️ {@code PLAY} 排序在图文上**退化**为 {@code id DESC}：图文 {@code play_count} 结构性恒 0
+     * （{@code /play} 只收视频）—— 口径见 {@code SearchController#keywordSearch}。
+     *
      * @param offset 起始偏移（{@code (page-1)*pageSize}，由 Service 计算并保证 ≥0）
      * @param limit  页大小
      */
     List<Long> keywordSearchInBrief(@Param("keyword") String keyword,
+                                    @Param("typeNumber") Integer typeNumber,
+                                    @Param("orderKey") String orderKey,
                                     @Param("offset") int offset,
                                     @Param("limit") int limit);
 
-    /** 关键词搜索命中总数。分支判据与 {@link #keywordSearchInBrief} **必须同源**（否则 total 与 list 口径漂移）。 */
-    int countKeywordSearch(@Param("keyword") String keyword);
+    /**
+     * 关键词搜索命中总数。分支判据与 {@link #keywordSearchInBrief} **必须同源**（否则 total 与 list 口径漂移）。
+     *
+     * <p>★ `GAP-10`：{@code typeNumber} 的过滤条件与列表版**共用同一个 mapper 片段**
+     * ——"筛选后 total 变了、但列表没变"（或反之）会直接表现为页码错乱。
+     */
+    int countKeywordSearch(@Param("keyword") String keyword, @Param("typeNumber") Integer typeNumber);
 
     /** 某作者的内容总数（主页 GET /api/v1/users/{id} 信封的 total）。TV: {@code SELECT COUNT(*) FROM content WHERE user_id = ? AND is_deleted = 0} */
     int countContentByUser(@Param("userId") long userId);

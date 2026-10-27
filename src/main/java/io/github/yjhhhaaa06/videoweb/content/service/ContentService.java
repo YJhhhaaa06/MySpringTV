@@ -18,6 +18,7 @@ import io.github.yjhhhaaa06.videoweb.content.model.ContentType;
 import io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentCountColumns;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentCountField;
+import io.github.yjhhhaaa06.videoweb.content.model.SearchOrder;
 import io.github.yjhhhaaa06.videoweb.content.model.entity.Content;
 import io.github.yjhhhaaa06.videoweb.content.model.entity.ContentMedia;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.AdminContentVO;
@@ -151,18 +152,32 @@ public class ContentService {
      * <p><b>顺序契约</b>（T15 tie-breaker，见 {@code ContentDao.keywordSearchInBrief}）：
      * 结果顺序 = {@code create_time DESC, id DESC}，来自 DAO 的 SQL；**字段值来自缓存**。
      * 故即使有人改了缓存加载顺序，页间顺序也不会漂移。
+     * ★ `GAP-10` 起顺序**可被 {@code order=PLAY} 改成** {@code play_count DESC, id DESC}
+     * —— 变的只是 DAO 里那一个 {@code ORDER BY} 片段，"顺序由 SQL 定、字段值由缓存给"这条不变量不变。
      *
      * <p><b>跳过 null</b>：某 id 在缓存/DB 都取不到（已删 / 媒体损坏）时**跳过该条**，不从列表里补位
      * ——于是返回条数可能少于 pageSize，而 {@code total} 仍是 SQL 的命中总数。TV 原样，
      * 且旧 pytest 对"total == 单页条数"只在**测试数据集可控**的用例里断言。
      *
+     * <p>★ `GAP-10`：{@code type} / {@code order} 为 {@code null} 时**与加参数前逐字等价**
+     * （不筛 + 最新）。这里只做"枚举 → SQL 入参"的翻译：
+     * 类型给 {@code getTypeNumber()}（DB 列值），排序给 {@link SearchOrder#name()}
+     * （白名单字符串，mapper 只拿它做 {@code <choose>} 比较，绝不拼接）。
+     * 合法性校验**不在本层**：非法枚举在 Controller 的参数绑定阶段就 400 了。
+     *
      * @param keyword 关键词（**已 trim** 由调用方保证；DAO 的分支判据就是它的长度）
      * @param userId  当前用户 id，{@code null} = 匿名（不填个性化字段）
+     * @param type    内容类型筛选；{@code null} = 不过滤
+     * @param order   排序；{@code null} = 最新发布
      */
-    public PageResult<ContentVO> search(String keyword, Long userId, int page, int pageSize) {
+    public PageResult<ContentVO> search(String keyword, Long userId, int page, int pageSize,
+                                        ContentType type, SearchOrder order) {
         int offset = (page - 1) * pageSize;
-        int total = contentDao.countKeywordSearch(keyword);
-        List<Long> contentIds = contentDao.keywordSearchInBrief(keyword, offset, pageSize);
+        // ⚠️ 这两行是"枚举 → SQL"的唯一翻译点：type 变成列值，order 变成白名单字面量。
+        Integer typeNumber = type == null ? null : type.getTypeNumber();
+        String orderKey = (order == null ? SearchOrder.LATEST : order).name();
+        int total = contentDao.countKeywordSearch(keyword, typeNumber);
+        List<Long> contentIds = contentDao.keywordSearchInBrief(keyword, typeNumber, orderKey, offset, pageSize);
 
         // 事务外：该页批量读（一趟 pipeline 拉多条三态，miss 走批量装载），按原序跳过 null
         List<ContentVO> result = new ArrayList<>();
