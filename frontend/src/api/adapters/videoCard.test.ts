@@ -19,6 +19,7 @@ function content(overrides: Partial<Record<keyof ContentVO, unknown>> = {}): Con
     description: '简介',
     durationSeconds: null,
     interaction: null,
+    playCount: 0,
     type: 1,
     ...overrides,
   } as ContentVO
@@ -43,7 +44,7 @@ describe('toVideoCard', () => {
     expect(toVideoCard(content({ createTime: '2026-10-25T09:00:00' }), now).dateText).toBe('3小时前')
   })
 
-  it('durationSeconds 为 null ⇒ 不渲染时长角标（dev 数据当前全是 null）', () => {
+  it('durationSeconds 为 null ⇒ 不渲染时长角标（文件缺失 / 解析失败都是未知）', () => {
     expect(toVideoCard(content(), now).durationText).toBeNull()
   })
 
@@ -66,8 +67,24 @@ describe('toVideoCard', () => {
     expect(toVideoCard(content({ authorName: undefined }), now).authorName).toBe('未知UP主')
   })
 
-  it('★ 列表 VO 没有计数 ⇒ 播放量恒 null（不许编 0 / 不许回源详情）', () => {
-    expect(toVideoCard(content(), now).playCountText).toBeNull()
+  it('★ GAP-01：列表带 playCount ⇒ 万 / 亿文本（能变红：改回恒 null 必红）', () => {
+    // 期望值出自 B 站展示口径（formatCount 的既有规则），不是抄实现：
+    //   12345 → 1.2万（保留一位小数、去掉 .0）/ 100000000 → 1亿
+    expect(toVideoCard(content({ playCount: 12345 }), now).playCountText).toBe('1.2万')
+    expect(toVideoCard(content({ playCount: 100_000_000 }), now).playCountText).toBe('1亿')
+    // 0 是真实值（≠ 本面没给 null）⇒ 显示 "0"，不藏起来
+    expect(toVideoCard(content({ playCount: 0 }), now).playCountText).toBe('0')
+  })
+
+  it('★ playCount 缺省 / 显式 null ⇒ null（不假装 0）', () => {
+    expect(toVideoCard(content({ playCount: undefined }), now).playCountText).toBeNull()
+    expect(toVideoCard(content({ playCount: null }), now).playCountText).toBeNull()
+  })
+
+  it('★ 图文不显示播放量（后端 play_count 对图文结构性恒 0，见 GAP-05 / GAP-10）', () => {
+    expect(toVideoCard(content({ type: 2, playCount: 0 }), now).playCountText).toBeNull()
+    // 即使将来误回填非 0，也不把「播放」语义套到图文上
+    expect(toVideoCard(content({ type: 2, playCount: 123 }), now).playCountText).toBeNull()
   })
 
   it('★ 没有弹幕域 ⇒ 弹幕数恒 null，永远不显示', () => {

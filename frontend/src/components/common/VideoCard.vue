@@ -24,6 +24,9 @@ watch(
 
 const showCover = computed(() => Boolean(props.item.coverUrl) && !coverBroken.value)
 
+/** 网格卡底部渐变条：有播放量或时长才渲染（都没有就不摆一条空黑条） */
+const showStats = computed(() => Boolean(props.item.playCountText || props.item.durationText))
+
 /**
  * 失效条目（收藏夹 / 稍后再看里内容已被删或下架）**不跳转**：那个链接必然 404，
  * 点进去只会看到错误页。B 站也是灰卡不可点。
@@ -63,9 +66,27 @@ function guardInvalid(event: MouseEvent): void {
         </span>
         <span v-if="item.isPost" class="video-card__type">图文</span>
         <span v-if="item.invalid" class="video-card__invalid">已失效</span>
-        <span v-if="item.durationText" class="video-card__duration">{{ item.durationText }}</span>
-        <!-- 列表 VO 没有任何计数 ⇒ 播放量角标**不渲染**（不编数字）；
-             本仓没有弹幕域 ⇒ 弹幕数**永不渲染** -->
+
+        <!-- 网格卡：B 站封面底部渐变条（播放量在左、总时长在右）。
+             弹幕数**永不渲染**（本仓没有弹幕域）；图文不显示计数（GAP-05，adapter 已置 null）。 -->
+        <span v-if="showStats && layout === 'grid'" class="video-card__stats">
+          <span class="video-card__stats-left">
+            <span
+              v-if="item.playCountText"
+              class="video-card__stat"
+              :title="`播放量 ${item.playCountText}`"
+            >
+              <AppIcon name="play" :size="18" />
+              <span class="video-card__stat-text">{{ item.playCountText }}</span>
+            </span>
+          </span>
+          <span v-if="item.durationText" class="video-card__duration">{{ item.durationText }}</span>
+        </span>
+        <!-- 侧栏小卡（相关推荐，封面仅 104px）：B 站只把时长压在封面右下角，
+             播放量放到下方文字区（见 meta），否则渐变条会盖掉大半张封面。 -->
+        <span v-else-if="item.durationText" class="video-card__duration-badge">
+          {{ item.durationText }}
+        </span>
       </a>
       <!-- 图文 / 失效内容不显示：后端「稍后再看」只收视频，摆一个必然 400 的按钮 = 撒谎 -->
       <WatchLaterButton
@@ -99,8 +120,16 @@ function guardInvalid(event: MouseEvent): void {
           <span class="video-card__dot">·</span>
           <span>{{ item.dateText }}</span>
         </template>
-        <span v-if="item.playCountText" class="video-card__count">{{ item.playCountText }}</span>
-        <span v-if="item.danmakuText" class="video-card__count">{{ item.danmakuText }}</span>
+        <!-- 侧栏小卡：播放量跟在作者 / 日期后面（B 站行内位置），不用封面渐变条 -->
+        <span
+          v-if="layout === 'row' && item.playCountText"
+          class="video-card__meta-count"
+          :title="`播放量 ${item.playCountText}`"
+        >
+          <AppIcon name="play" :size="12" />
+          {{ item.playCountText }}
+        </span>
+        <!-- 弹幕数永不渲染（无弹幕域，danmakuText 恒 null） -->
       </p>
     </div>
   </article>
@@ -163,7 +192,58 @@ function guardInvalid(event: MouseEvent): void {
   background: linear-gradient(135deg, #f1f2f3 0%, #e3e5e7 100%);
 }
 
-.video-card__duration {
+/*
+ * 封面底部渐变条：B 站 2026-10-27 实测（1600 CSS）
+ *   padding 16/8/6、背景 linear-gradient(transparent, rgba(0,0,0,.8))、
+ *   字号 13 / 行高 18、图标 18×18、播放量与时长同为白色。
+ * 只读展示：不占卡片布局高度（absolute），hover 缩放封面时跟着走。
+ */
+.video-card__stats {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  padding: 16px 8px 6px;
+  border-radius: 0 0 var(--radius) var(--radius);
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--text-inverse);
+  background: linear-gradient(rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.8));
+}
+
+.video-card__stats-left {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+}
+
+.video-card__stat {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  margin-right: 12px;
+}
+
+.video-card__stat-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.video-card__stat :deep(.app-icon) {
+  margin-right: 2px;
+}
+
+.video-card__stats .video-card__duration {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 侧栏小卡的时长角标：B 站用「压暗背景 + 小字」，不是整条渐变 */
+.video-card__duration-badge {
   position: absolute;
   right: 6px;
   bottom: 6px;
@@ -249,11 +329,17 @@ function guardInvalid(event: MouseEvent): void {
   color: var(--text-4);
 }
 
-.video-card__count {
+.video-card__meta-count {
+  display: inline-flex;
+  align-items: center;
   margin-left: auto;
   padding-left: 8px;
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
+}
+
+.video-card__meta-count :deep(.app-icon) {
+  margin-right: 2px;
 }
 
 /* 侧栏紧凑行（相关推荐）：封面在左、标题在右 */

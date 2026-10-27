@@ -13,7 +13,8 @@ export const ICONS = {
   star: '<path d="m12 3.6 2.6 5.4 5.9.8-4.3 4.1 1.1 5.9-5.3-2.9-5.3 2.9 1.1-5.9L3.5 9.8l5.9-.8z"/>',
   clock: '<circle cx="12" cy="12" r="8.4"/><path d="M12 7v5.4l3.6 2.1"/>',
   dashboard: '<rect x="3" y="3" width="7.2" height="7.2" rx="1.6"/><rect x="13.8" y="3" width="7.2" height="7.2" rx="1.6"/><rect x="3" y="13.8" width="7.2" height="7.2" rx="1.6"/><rect x="13.8" y="13.8" width="7.2" height="7.2" rx="1.6"/>',
-  play: '<path d="M8 5.2v13.6l11-6.8z" fill="currentColor" stroke="none"/>',
+  /* 播放量（B 站卡片 / 详情页的统计位）：描边方框 + 实心三角，近似官方 18px 图标 */
+  play: '<rect x="2.5" y="4.5" width="19" height="15" rx="4"/><path d="M10 8.6v6.8l5.6-3.4z" fill="currentColor" stroke="none"/>',
   danmaku: '<rect x="3" y="5" width="18" height="14" rx="3.2"/><path d="M7 10h5M7 14h10M15.5 10h2"/>',
   refresh: '<path d="M20 12a8 8 0 1 1-2.5-5.8"/><path d="M20.2 4.2v4.6h-4.6"/>',
   'chevron-left': '<path d="m14.6 5-7 7 7 7"/>',
