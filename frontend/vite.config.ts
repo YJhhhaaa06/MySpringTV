@@ -17,6 +17,7 @@ const backend = process.env.BACKEND_ORIGIN ?? 'http://127.0.0.1:8080'
 const pageEntries: ReadonlyArray<readonly [RegExp, string]> = [
   [/^\/search\/?$/, '/search.html'],
   [/^\/video\/\d+\/?$/, '/video.html'],
+  [/^\/opus\/\d+\/?$/, '/opus.html'],
   [/^\/space\/\d+\/?$/, '/space.html'],
   [/^\/favorites\/?$/, '/favorites.html'],
   [/^\/watchlater\/?$/, '/favorites.html'],
@@ -81,6 +82,7 @@ export default defineConfig({
         index: fileURLToPath(new URL('./index.html', import.meta.url)),
         search: fileURLToPath(new URL('./search.html', import.meta.url)),
         video: fileURLToPath(new URL('./video.html', import.meta.url)),
+        opus: fileURLToPath(new URL('./opus.html', import.meta.url)),
         space: fileURLToPath(new URL('./space.html', import.meta.url)),
         favorites: fileURLToPath(new URL('./favorites.html', import.meta.url)),
         history: fileURLToPath(new URL('./history.html', import.meta.url)),

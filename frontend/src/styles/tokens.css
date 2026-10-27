@@ -55,6 +55,11 @@
   --content-w-search: min(1500px, 92vw);
   --content-w-video: min(1565px, 95vw);
   --content-w-dynamic: max(1248px, 78vw);
+  /*
+   * 图文详情（opus）：B 站线上 `.opus-detail` **外框 708px**，
+   * 内边距 56 ⇒ 正文 596px；右侧 `.side-toolbar` 58px。1707 CSS 实拍同值。
+   */
+  --content-w-opus: 708px;
   --grid-gap: 20px;
   --grid-cols: 5;
   --card-title-size: 15px;
