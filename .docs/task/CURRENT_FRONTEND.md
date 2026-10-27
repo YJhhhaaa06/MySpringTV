@@ -45,6 +45,9 @@ openapi.yaml ──gen──▶ frontend/src/types/api.d.ts     生成，只读�
 `临时表现` **必填**（隐藏？占位？假数据？）—— 缺这格，日后没人分得清「没做」还是「假装做了」。
 定位用 `文件#函数`（如 `frontend/src/api/adapters/videoCard.ts#toVideoCard`），**GAP 编号不进代码注释**
 （不新开无人管辖的编号空间）。
+> ★ **2026-10-27 更正**：上面这句与既成事实冲突 —— `GAP-01/05/07` 已进入 `src/main` 约 30 处（作交叉引用，
+> 定位仍以 `文件#函数` 为准），`GAP-10` 沿用同一惯例。**照此执行**：编号可进注释作"为什么有这段代码"的锚点，
+> 但**不得**据此新开编号空间（新编号只能加在本表）。
 
 | ID | 类型 | 页面·组件 | 期望 | 现状 | 谁适配 | 临时表现 | 后端改动点 | 状态 |
 |---|---|---|---|---|---|---|---|---|
@@ -57,7 +60,7 @@ openapi.yaml ──gen──▶ frontend/src/types/api.d.ts     生成，只读�
 | GAP-07 | M2 形状异 | 全部页面 / `api/adapters/*` | 生成类型与运行时一致 | spec 已用 3.1 的 `anyOf: [原类型, {type: "null"}]` 标出已登记的可空字段（`coverUrl` / `durationSeconds` / `interaction` / 三态 / 失效占位等） | 后端已补 / 前端待重生成 | adapter 仍按 `null` 兜底（`?.trim()` / `?? null`） | ✅ 已落地：`OpenApiConfig#nullableVoFieldsCustomizer` + `NULLABLE_VO_FIELDS` 注册表（只登记**确有 null 分支**的字段）；spec 快照已重生成 | **后端已补（2026-10-26），前端待 `gen:api`** |
 | GAP-08 | M1 字段缺 | 顶栏 / 播放页侧栏 / 头像 | 头像 URL | `UserInfoVO` / `ProfileVO` 都**没有头像字段**，也没有头像上传域 | 前端适配（不做头像域） | **昵称首字圆形头像**（渐变底，B 站观感近似） | 无（不补） | 长期 |
 | GAP-09 | M3 端点缺 | 首页 / HeroBanner | 运营 banner 位（B 站首页大轮播是广告/活动位） | 无任何 banner/运营端点 | 前端适配 | 用 `recommended` 前 3 条**有封面的**做「推荐橱窗」轮播（真封面真标题，非假图）；无内容时不渲染轮播 | 无（不补） | 长期 |
-| GAP-10 | M3 端点缺（参数） | 搜索页 / tabs·排序条 | `type` 筛选（视频/专栏）+ 排序（播放/最新） | `GET /contents` 只有 `keyword/page/pageSize` | 后端补（P3） | 只留「综合」tab；视频/专栏**灰态禁用**；**不渲染排序条**（不假装有） | `/contents` 加 `type`、`order` 参数 | 待补 |
+| GAP-10 | M3 端点缺（参数） | 搜索页 / tabs·排序条 | `type` 筛选（视频/图文）+ 排序（播放/最新） | 原只有 `keyword/page/pageSize` | **前后端均已补** | —（已可筛可排） | ✅ 已落地（2026-10-27）：`?type=VIDEO\|POST&order=LATEST\|PLAY`，两个**可选枚举**（大小写敏感，非法值 400 + `errors[field]`）；类型过滤与 `count` **共用 mapper 片段**（total 同源）；`PLAY` = `play_count DESC, id DESC`。⚠️ 图文 `play_count` 结构性恒 0 ⇒ 前端**图文 tab 不渲染**「最多播放」，后端**不设特例**（照收不报错）。⚠️ 与 `recommended?type=1\|2` 的**数字**口径刻意不一致（§2.5 要求语义字符串；那套是 TV 遗留、前端未消费） | **已销账（2026-10-27）** |
 | GAP-11 | M3 端点缺 | 首页 / ChannelWall「热门」 | 热门榜 | 没有排行榜端点（`recommended` 是推荐流，不是排行） | 前端不做 | 灰态占位 → `/placeholder/popular` | 无 | 不做 |
 | GAP-12 | M1 字段缺 | 播放页 / 评论区 | 评论发布时间 | `CommentVO` 没有 `createTime`（只有 `commentId` 可推先后） | 后端补（P3） | **不显示时间**（不写"刚刚"顶上） | 评论 VO 加 `createTime` | 待补 |
 | GAP-13 | M3 参数缺 | 播放页 / 评论排序 | 热度 / 时间排序 | `GET /contents/{id}/comments` 只有 `page/pageSize`，固定按 `comment_id` 升序 | 前端适配 | **不渲染排序条**；发布后跳到末页并高亮 | 加 `order` 参数 | 长期 |
@@ -206,9 +209,12 @@ npm run stage                                                # dist → ../src/m
 >    正好复刻用户实测的 B 站行为；E2E 过，测试池恢复原状）
 > ⑫ ★ **2560 校准（首页 / 搜索 / 播放页）** ✅（先钉 **150% 缩放 = 1707 CSS**；首页 1408 / 5×265.6、
 >    搜索 1500 / 6×236.7、播放页 1565 / 播放器 1183；历史页**锁 1320**，单独校准）
+> **2026-10-27（第五窗口）交付**：
+> ⑬ ★ **契约批次 GAP-10** ✅（搜索 `type=VIDEO|POST&order=LATEST|PLAY`，两个可选枚举；
+>    `count` 与列表共用 mapper 片段；图文 tab 不渲染「最多播放」）。同批把 **GAP-07 的 `gen:api` 欠账** 清掉
+>    （`api.d.ts` 重生成，`coverUrl` / `interaction` / `playCount` 等带上 `| null`）。
 > **下一窗口**：
-> ① **契约批次 GAP-01 / 07** ✅（**后端已交付 2026-10-26**：列表三维可空计数 + spec nullable；
->    前端待接入）；**GAP-10**（搜索 `type/order`）仍待补 →
+> ① **GAP-01 前端接入**（后端 2026-10-26 已交付列表三维可空计数，卡片目前仍隐藏播放量角标）→
 > ② **动态页**（只读 `GET /feed`；发布框 / 热搜 / 直播 / 按作者筛选都不具备）**或** **空间「关注/粉丝」页**
 >    （`GET /users/{id}/following|followers` 已有，但 `FollowUserVO` 只有 userId/username/两个布尔）→
 > ③ 播放页 1707 侧栏宽度微校准（B 站约 455 vs 本仓 350；总宽已对齐）→
