@@ -51,6 +51,8 @@ class StaticForwardingContractTests extends AbstractIntegrationTest {
         assertForward("/favorites", "/favorites.html");
         assertForward("/watchlater", "/favorites.html");
         assertForward("/history", "/history.html");
+        // 动态（2026-10-27）：/feed 的页面入口
+        assertForward("/dynamic", "/dynamic.html");
         assertForward("/placeholder/live", "/index.html");
     }
 

@@ -119,6 +119,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
             "/favorites", "/favorites.html",
             "/watchlater",
             "/history", "/history.html",
+            "/dynamic", "/dynamic.html",
             "/video.html", "/space.html");
 
     /**
