@@ -10,7 +10,7 @@ npm run gen:api     # openapi.yaml → src/types/api.d.ts（生成物入库，di
 npm run dev         # http://localhost:5173（/api、/upload 已代理到 127.0.0.1:8080）
 npm run typecheck   # vue-tsc -b —— 类型硬门禁
 npm run test        # vitest —— 适配器 fallback + 请求层 + 播放进度规则 + 稍后再看页面内记忆
-npm run build       # dist/{index,search,video,space,favorites,history}.html
+npm run build       # dist/{index,search,video,space,favorites,history,dynamic}.html
 npm run stage       # 把 dist 同步到 ../src/main/resources/static（Spring 直接服务它）
 npm run preview     # 验打包产物（同一套 history fallback + 代理）
 ```
@@ -27,7 +27,7 @@ cd ..
 ```
 
 - `/`、`/search`、`/video/:id`、`/space/:id`、`/favorites`、`/watchlater`（同一 `favorites.html` 入口）、
-  `/history`、`/placeholder/**` 由 `WebMvcConfig#addViewControllers` **forward** 到对应入口 HTML
+  `/history`、`/dynamic`、`/placeholder/**` 由 `WebMvcConfig#addViewControllers` **forward** 到对应入口 HTML
   （地址栏 URL 不变）；与 dev 侧 `vite.config.ts` 的 `htmlHistoryFallback` 是**同一张映射表**，两处要同步改。
 - `/assets/**` 是构建产物；它在限流跳过清单里（HTML 外壳同理）——页面里的 `/api/v1/**` 照常过闸。
 - `src/main/resources/static/` **不入库**：它是 `npm run stage` 的产物。⇒ 新克隆的仓库在
@@ -38,8 +38,8 @@ cd ..
 ## 结构
 
 ```
-index.html / search.html / video.html / space.html / favorites.html / history.html
-                              ← 六个入口（MPA 外壳，跨应用整页跳转）
+index.html / search.html / video.html / space.html / favorites.html / history.html / dynamic.html
+                              ← 七个入口（MPA 外壳，跨应用整页跳转）
 src/entries/*.main.ts         ← 每个入口一个 app + 一个 vue-router
 src/types/api.d.ts            ← 生成，只读
 src/types/ui.ts               ← 手写：页面期望形状（计数一律原始数字）
@@ -51,7 +51,7 @@ src/composables/              ← useVideoInteractions（互动态）、usePlayb
                                  useWatchLaterAction（稍后再看动作）
 src/common/watchLaterSession.ts ← 稍后再看「本次页面内」记忆（URL 作用域，不落存储）
 src/player/progressReporter.ts ← 播放进度纯逻辑（节奏 / 退避 / 续播 / 崩溃补偿，可单测）
-src/components/...            ← 组件只吃 ui.ts
+src/components/...            ← 组件只吃 ui.ts（feed/ = 动态卡；space/ = 关注粉丝面板）
 ```
 
 ## 后端

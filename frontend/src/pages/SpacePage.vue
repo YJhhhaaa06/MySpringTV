@@ -14,12 +14,15 @@ import EmptyState from '../components/common/EmptyState.vue'
 import Pagination from '../components/common/Pagination.vue'
 import VideoCard from '../components/common/VideoCard.vue'
 import VideoGrid from '../components/home/VideoGrid.vue'
+import RelationPanel from '../components/space/RelationPanel.vue'
 
 /**
- * UP 主空间（`GET /users/{id}` + 公开收藏夹）。
+ * UP 主空间（`GET /users/{id}` + 公开收藏夹 + 关注/粉丝列表）。
  *
  * <h2>版式按 B 站 2026 空间页</h2>
  * banner（渐变底）→ 头像 + 昵称 + 关注按钮 → tab（主页 / 收藏）→ 内容 + 右侧资料卡。
+ * 点头部的「粉丝 / 关注」数字进入**关注 / 粉丝列表**（B 站是 `/{uid}/relation/following`，
+ * 2026-10-27 新增；本仓用同一文档里的 query：`?tab=following|followers`）。
  *
  * <h2>★ 三处降级（都进了 GAP 台账，界面上不假装有）</h2>
  * - **没有 banner 图 / 签名 / 生日 / 地区**：banner 用渐变底，资料卡只放真实计数；
@@ -28,20 +31,42 @@ import VideoGrid from '../components/home/VideoGrid.vue'
  * - **动态 / 合集和系列 / 最近点赞**没有端点（`GET /feed` 是"我关注的动态"，不是某人的）
  *   ⇒ 这两类 tab **不渲染**，而不是摆一个点不动的。
  *
+ * <h2>★ 关注 / 粉丝列表的降级（GAP-25）</h2>
+ * `FollowUserVO` 只有 `userId / username / isFollowed / isSelf` —— **没有头像、没有签名**
+ * ⇒ 首字头像 + 名字 + 关注按钮；B 站的「分组 / 最近关注 / 最常访问 / 搜索关键词 / 批量操作」
+ * 一个都不渲染（没有对应端点）。两个端点都要登录（B 站同样 `-101`），
+ * 匿名进这两个 tab 是「登录后查看」而不是空列表。
+ *
  * <p>tab 与翻页都落在 query（`?tab=folders&folder=3&itemPage=2`）：刷新 / 分享能停在原处，
  * 与 B 站同构。两种分页一起用到了：作品页是 **Page**，收藏条目也是 Page，
  * 但**来源不同**（`/users/{id}` 内嵌 vs `/favorite-folders/{id}/items`）。
+ * 关注 / 粉丝用 `relPage`（不与作品的 `page` / 夹的 `itemPage` 抢名字）。
  */
 const route = useRoute()
 const router = useRouter()
 
 const PAGE_SIZE = 12
 
+/**
+ * 四个 tab：主页（投稿）/ 收藏 / 关注 / 粉丝。
+ *
+ * <p>★ 后两个不是 B 站**tab 条**上的东西（B 站是点头部「关注 / 粉丝」数字进
+ * `/{uid}/relation/following`，tab 条上没有任何一个高亮 —— 见
+ * `.screenshots/bilibili-2026-10-26/space-following`）。本仓把入口放在**头部计数**
+ * 上（同 B 站），tab 条保持 主页 / 收藏；进入关注/粉丝后两个 tab 都不高亮。
+ */
+type SpaceTab = 'works' | 'folders' | 'following' | 'followers'
+
 const userId = computed(() => {
   const raw = Number(route.params.id)
   return Number.isInteger(raw) && raw > 0 ? raw : 0
 })
-const tab = computed<'works' | 'folders'>(() => (route.query.tab === 'folders' ? 'folders' : 'works'))
+const tab = computed<SpaceTab>(() => {
+  const raw = route.query.tab
+  if (raw === 'folders' || raw === 'following' || raw === 'followers') return raw
+  return 'works'
+})
+const isRelationTab = computed(() => tab.value === 'following' || tab.value === 'followers')
 const worksPage = computed(() => positive(route.query.page))
 /**
  * 收藏夹 id：缺省/非法 ⇒ **0**（"没选中任何夹"）。
@@ -204,11 +229,24 @@ watch(
 
 const activeFolder = computed(() => folders.value.find((folder) => folder.id === activeFolderId.value) ?? null)
 
-function setTab(next: 'works' | 'folders'): void {
+// ── 关注 / 粉丝 ────────────────────────────────────────────────────────
+/** 面板只关心"看谁 / 看哪个列表 / 第几页"；装载、竞态与关注动作都在 `RelationPanel` 里 */
+const relationPage = computed(() => positive(route.query.relPage))
+const relationKind = computed<'following' | 'followers'>(() => (tab.value === 'followers' ? 'followers' : 'following'))
+
+function goRelationPage(page: number): void {
   void router.push({
     name: 'space',
     params: { id: userId.value },
-    query: next === 'folders' ? { tab: 'folders' } : {},
+    query: { tab: tab.value, ...(page > 1 ? { relPage: String(page) } : {}) },
+  })
+}
+
+function setTab(next: SpaceTab): void {
+  void router.push({
+    name: 'space',
+    params: { id: userId.value },
+    query: next === 'works' ? {} : { tab: next },
   })
 }
 
@@ -253,8 +291,22 @@ function goItemPage(page: number): void {
           <div class="space-ident">
             <h1 class="space-name">{{ header?.name ?? '加载中…' }}</h1>
             <p class="space-meta">
-              粉丝 {{ formatCount(header?.followerCount) }} · 关注 {{ formatCount(header?.followingCount) }} · 投稿
-              {{ formatCount(header?.worksCount) }}
+              <!-- B 站：头部的「粉丝 / 关注」数字是进入关系列表的入口（tab 条上没有这两项） -->
+              <button
+                class="space-meta__link"
+                type="button"
+                title="粉丝列表（需登录）"
+                @click="setTab('followers')"
+              >粉丝 {{ formatCount(header?.followerCount) }}</button>
+              <span class="space-meta__dot">·</span>
+              <button
+                class="space-meta__link"
+                type="button"
+                title="关注列表（需登录）"
+                @click="setTab('following')"
+              >关注 {{ formatCount(header?.followingCount) }}</button>
+              <span class="space-meta__dot">·</span>
+              <span>投稿 {{ formatCount(header?.worksCount) }}</span>
             </p>
           </div>
           <button
@@ -280,7 +332,7 @@ function goItemPage(page: number): void {
           </button>
         </nav>
 
-        <div class="space-layout">
+        <div v-if="!isRelationTab" class="space-layout">
           <section class="space-main">
             <!-- 主页：最新 3 条大卡 + 其余网格 + Page 分页 -->
             <template v-if="tab === 'works'">
@@ -359,6 +411,21 @@ function goItemPage(page: number): void {
             </section>
           </aside>
         </div>
+
+        <!-- 关注 / 粉丝：B 站是 /{uid}/relation/following 一页；本仓用 query 切两个列表。
+             装载 / 竞态 / 关注按钮都在面板里（它自己看登录态，深链也能正确装载）。 -->
+        <RelationPanel
+          v-else
+          :user-id="userId"
+          :kind="relationKind"
+          :page="relationPage"
+          :is-self="header?.isSelf === true"
+          :following-count="header?.followingCount ?? null"
+          :follower-count="header?.followerCount ?? null"
+          @update:kind="setTab"
+          @update:page="goRelationPage"
+          @follow-changed="loadWorks"
+        />
       </template>
     </div>
   </main>
@@ -612,6 +679,22 @@ function goItemPage(page: number): void {
 
 .space-skeleton__card {
   aspect-ratio: 16 / 12;
+}
+
+/* 头部「粉丝 / 关注」计数：按钮而不是链接（它切的是本应用的 tab） */
+.space-meta__link {
+  padding: 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.space-meta__link:hover {
+  color: var(--brand-blue);
+}
+
+.space-meta__dot {
+  margin: 0 5px;
+  color: var(--text-4);
 }
 
 @media (max-width: 1100px) {

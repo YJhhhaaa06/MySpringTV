@@ -6,16 +6,13 @@ import type {
   SpaceWorksVM,
   VideoCardVM,
 } from '../../types/ui'
+import { initialOf } from './format'
 import { videoHref } from './links'
 import { toVideoCard } from './videoCard'
 
 /** 计数：非数字 ⇒ null（渲染成 `-`） */
 function count(value: number | null | undefined): Count {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
-}
-
-function firstChar(name: string): string {
-  return (Array.from(name)[0] ?? 'U').toUpperCase()
 }
 
 /**
@@ -37,7 +34,7 @@ export function toSpaceHeader(
   return {
     id,
     name,
-    initial: firstChar(name),
+    initial: initialOf(name),
     followerCount: count(profile.followerCount),
     followingCount: count(profile.followCount),
     worksCount: count(profile.contentPage?.total),

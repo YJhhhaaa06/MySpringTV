@@ -174,10 +174,12 @@ function goPage(nextPage: number): void {
 .history-page {
   min-height: 100vh;
   /*
-   * 先锁 1600 基准的 1320：B 站历史页在 1707 CSS 下比首页窄（卡片区 4×258 CSS，
-   * 容器约 1160–1320），不能跟着首页的 82.5vw 一起放大 —— 单独一个校准单元。
+   * B 站历史页单独一档宽度（2026-10-27 复核）：
+   * - 线上 `history-record` 的 `.history-wrap` 在 `min-width:1415px` 下就是 **1160px**；
+   * - 登录态 2560 截图（1707 CSS）实测：时间轴 76 + 4 列 ×258 + 3×17 ≈ 1188。
+   * 旧口径「锁 1320」比 B 站宽 11%（卡片 293 vs 258）⇒ 本窗口改成 1160。
    */
-  --content-w: 1320px;
+  --content-w: 1160px;
 }
 
 .history-head {
@@ -296,7 +298,7 @@ function goPage(nextPage: number): void {
   margin-top: 8px;
 }
 
-@media (max-width: 1372px) {
+@media (max-width: 1200px) {
   .history-grid,
   .history-skeleton {
     grid-template-columns: repeat(3, minmax(0, 1fr));

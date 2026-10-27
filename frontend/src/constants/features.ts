@@ -116,12 +116,8 @@ Object.assign(registry, {
   //   `/placeholder/space` 因此落到「页面不存在」，真链接在 `adapters/links.ts#spaceHref`。
   // ★ `favorites` / `history` 已于 2026-10-26 交付（`favorites.html` / `history.html`）⇒ 同样移除；
   //   真链接是 `/favorites` / `/history`（顶栏 `HEADER_ACTIONS`）。
-  feed: {
-    key: 'feed',
-    label: '动态',
-    kind: 'pending',
-    note: '后端已有 GET /feed（互动态维度 {赞}）。页面在后续窗口交付。',
-  },
+  // ★ `feed`（动态页）已于 2026-10-27 交付（`dynamic.html` + `/dynamic`）⇒ 同样移除；
+  //   真链接是 `/dynamic`（顶栏 `HEADER_ACTIONS`），不再走占位页。
   upload: {
     key: 'upload',
     label: '投稿 / 创作中心',
@@ -158,8 +154,8 @@ export const HEADER_NAV: ReadonlyArray<{ label: string; href: string; placeholde
 ]
 
 /**
- * 顶栏右侧图标簇：`收藏` / `历史` 已是真页面（2026-10-26）；
- * 消息 / 动态 / 创作中心仍是**后续窗口**（`pending`，点进占位页）。
+ * 顶栏右侧图标簇：`收藏` / `历史`（2026-10-26）、`动态`（2026-10-27）已是真页面；
+ * 消息 / 创作中心仍是**后续窗口**（`pending`，点进占位页）。
  */
 export const HEADER_ACTIONS: ReadonlyArray<{
   label: string
@@ -169,7 +165,7 @@ export const HEADER_ACTIONS: ReadonlyArray<{
   placeholder?: boolean
 }> = [
   { label: '消息', icon: 'message', href: featureUrl('message'), placeholder: true },
-  { label: '动态', icon: 'dynamic', href: featureUrl('feed'), placeholder: true },
+  { label: '动态', icon: 'dynamic', href: '/dynamic' },
   { label: '收藏', icon: 'star', href: '/favorites' },
   { label: '历史', icon: 'clock', href: '/history' },
   { label: '创作中心', icon: 'dashboard', href: featureUrl('upload'), placeholder: true },

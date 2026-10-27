@@ -31,6 +31,16 @@ export function unlikeContent(contentId: number): Promise<undefined> {
 }
 
 /**
+ * `GET /contents/{id}/like-count`：点赞数的**服务端权威值**（`data` 是裸数字）。
+ *
+ * <p>列表面（`/feed`）的点赞是好设计：卡片上直接加减只是乐观展示，成功后再读一次这个端点
+ * 才算"写后对齐"。比重新拉整页便宜（一个数字 vs 12 张卡 + 三个计数 + 互动态）。
+ */
+export function fetchLikeCount(contentId: number): Promise<number | undefined> {
+  return getJson('/api/v1/contents/{id}/like-count', { path: { id: contentId } })
+}
+
+/**
  * `POST /contents/{id}/coins`：投币（1 或 2 枚）。
  *
  * <p>返回投币后的**余额**（不是总币数）—— 界面据它刷新顶栏硬币数。

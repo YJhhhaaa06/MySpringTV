@@ -66,7 +66,7 @@ onUnmounted(() => {
           <a
             class="user-chip__link"
             :href="sessionState.user.spaceHref"
-            :title="`${sessionState.user.name} 的空间（占位页）`"
+            :title="`${sessionState.user.name} 的空间`"
           >
             <span class="avatar">{{ sessionState.user.initial }}</span>
           </a>

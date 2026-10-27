@@ -249,6 +249,7 @@ function onCommentCount(count: number): void {
         </section>
 
         <CommentSection
+          id="comments"
           :content-id="detail.id"
           :comment-enabled="detail.commentEnabled"
           :initial-count="detail.stats.comment"
@@ -316,7 +317,12 @@ function onCommentCount(count: number): void {
 
 <style scoped>
 .video-page {
-  /* B 站 1600 播放器区 = 1520（播放器 1138 + gap 32 + 侧栏 350），1707 = 1565 */
+  /*
+   * B 站播放页（2026-10-27 复核线上 CSS `video.0.*.css`）：
+   *   侧栏 `.right-container` 默认 **350px + margin-left 30**；
+   *   `@media (min-width:1681px)` 时 **411px**（不是上一窗口目测的 455）。
+   * 1600 播放器区 = 1520（播放器 1138 + gap 32 + 侧栏 350），1707 = 1565。
+   */
   --content-w: var(--content-w-video);
 }
 
@@ -325,6 +331,12 @@ function onCommentCount(count: number): void {
   grid-template-columns: minmax(0, 1fr) 350px;
   gap: 32px;
   align-items: start;
+}
+
+@media (min-width: 1681px) {
+  .video-layout {
+    grid-template-columns: minmax(0, 1fr) 411px;
+  }
 }
 
 .video-title {

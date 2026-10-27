@@ -21,6 +21,7 @@ const pageEntries: ReadonlyArray<readonly [RegExp, string]> = [
   [/^\/favorites\/?$/, '/favorites.html'],
   [/^\/watchlater\/?$/, '/favorites.html'],
   [/^\/history\/?$/, '/history.html'],
+  [/^\/dynamic\/?$/, '/dynamic.html'],
   [/^\/placeholder(\/.*)?$/, '/index.html'],
 ]
 
@@ -83,6 +84,7 @@ export default defineConfig({
         space: fileURLToPath(new URL('./space.html', import.meta.url)),
         favorites: fileURLToPath(new URL('./favorites.html', import.meta.url)),
         history: fileURLToPath(new URL('./history.html', import.meta.url)),
+        dynamic: fileURLToPath(new URL('./dynamic.html', import.meta.url)),
       },
     },
   },

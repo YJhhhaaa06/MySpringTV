@@ -64,3 +64,15 @@ export function formatDateTime(iso: string | null | undefined): string {
   const pad = (value: number) => String(value).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
+
+/**
+ * 头像占位：昵称首字（大写）。
+ *
+ * <p>后端没有头像字段（GAP 台账）⇒ 全站用「昵称首字 + 渐变底」代替，
+ * 与 B 站默认头像的**位置/尺寸**一致，但不引用不存在的 URL。
+ * 空昵称回 `U`（不画一个空圆）。
+ */
+export function initialOf(name: string | null | undefined): string {
+  const chars = Array.from((name ?? '').trim())
+  return (chars[0] ?? 'U').toUpperCase()
+}

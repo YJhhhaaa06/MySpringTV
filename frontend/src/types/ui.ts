@@ -279,3 +279,73 @@ export interface HistoryGroupVM {
   label: string
   items: HistoryItemVM[]
 }
+
+/**
+ * 动态页的一张卡（`GET /feed` 的 `ContentVO`）。
+ *
+ * <p>与 `VideoCardVM` **刻意分开**：动态卡的展示位是 B 站的「UP 主 + 时间 + 投稿了视频」
+ * 然后一张**大横卡**（封面 + 标题 + 简介），底部还有一条点赞/评论操作栏；
+ * 网格卡那套（封面统计条 / 两行标题 / author·date meta）在这里全不对。
+ *
+ * <p>★ 三个计数都是**真接口**：`playCount`（图文没有，GAP-05）、`likeCount`、`commentCount`
+ * —— 后两维自 GAP-01 起后端就带在 `/feed` 上，直到本页才有消费方。
+ */
+export interface DynamicCardVM {
+  id: number
+  title: string
+  /** 跨应用链接：`/video/{id}`（动态没有独立详情页，B 站的动态详情是另一套文档） */
+  href: string
+  coverUrl: string | null
+  /** 时长角标；图文恒 null */
+  durationText: string | null
+  authorId: number
+  authorName: string
+  authorHref: string
+  /** 头像占位：昵称首字（后端没有头像字段，GAP 台账） */
+  authorInitial: string
+  /** 相对时间（`刚刚` / `4分钟前` / `05-09`） */
+  timeText: string
+  /** 动态动作文案：`投稿了视频` / `发布了图文`（由 `type` 推导，不是后端字段） */
+  actionText: string
+  description: string
+  isPost: boolean
+  /** 播放量文本；图文恒 null（`play_count` 对图文结构性恒 0） */
+  playCountText: string | null
+  /** 会随点赞加减 ⇒ 原始数字（`null` = 本面没给，不装成 0） */
+  likeCount: Count
+  commentCount: Count
+  commentEnabled: boolean
+  /** 当前用户是否点过赞（`/feed` 只回「赞」一维；`null` = 本面不查） */
+  liked: boolean | null
+}
+
+/** 动态流一页（Page 分页；B 站是无限滚动，本仓按 §二 的列表口径用 Page） */
+export interface DynamicPageVM {
+  items: DynamicCardVM[]
+  page: number
+  total: number
+  totalPages: number
+}
+
+/**
+ * 关注 / 粉丝列表里的一个人（`FollowUserVO`）。
+ *
+ * <p>★ 这个 VO 只有 `userId / username / isFollowed / isSelf` —— **没有头像、没有签名**
+ * （GAP 台账）⇒ 卡片只渲染首字头像、名字与关注按钮，不编签名。
+ */
+export interface RelationUserVM {
+  id: number
+  name: string
+  initial: string
+  /** 当前登录用户是否关注了 TA（端点要求登录 ⇒ 这个布尔一定是真值，不是三态） */
+  followed: boolean
+  isSelf: boolean
+}
+
+/** 关注 / 粉丝一页（`PageResult<FollowUserVO>`） */
+export interface RelationPageVM {
+  items: RelationUserVM[]
+  page: number
+  total: number
+  totalPages: number
+}

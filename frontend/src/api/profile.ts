@@ -9,7 +9,7 @@
  * `{id, name, itemCount}`（私密夹后端不返回，这块不用前端过滤）。
  */
 import type { components } from '../types/api'
-import type { PublicFolderVM, SpaceWorksVM, VideoCardVM } from '../types/ui'
+import type { PublicFolderVM, SpaceHeaderVM, SpaceWorksVM, VideoCardVM } from '../types/ui'
 import { currentUserId } from '../auth/session'
 import { toFavoriteItemCard, toPublicFolder, toSpaceHeader, toSpaceWorks } from './adapters/space'
 import { getJson } from './http'
@@ -33,6 +33,21 @@ export async function loadSpace(userId: number, page = 1, pageSize = 10): Promis
     works,
     featured: works.page === 1 ? works.items.slice(0, 3) : [],
   }
+}
+
+/**
+ * `GET /users/{id}?pageSize=1`：**只要头部计数**（动态页左卡用）。
+ *
+ * <p>为什么不用 `GET /users/me`：`UserInfoVO` 没有粉丝/关注/投稿三个计数
+ * （只有 id / username / coin / admin / signedToday）。这三个数在 `ProfileVO` 上，
+ * 所以按 id 再读一次公开资料，`pageSize=1` 把作品页压到最小。
+ */
+export async function loadProfileHeader(userId: number): Promise<SpaceHeaderVM> {
+  const profile: components['schemas']['ProfileVO'] = await getJson('/api/v1/users/{id}', {
+    path: { id: userId },
+    query: { pageSize: 1 },
+  })
+  return toSpaceHeader(profile, currentUserId())
 }
 
 /** `GET /users/{id}/favorite-folders`：该用户**公开**的收藏夹 */

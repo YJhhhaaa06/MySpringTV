@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatCount, formatDateTime, formatDuration, formatRelativeDate } from './format'
+import { formatCount, formatDateTime, formatDuration, formatRelativeDate, initialOf } from './format'
 
 describe('formatDuration', () => {
   it('不足一小时按 mm:ss', () => {
@@ -88,5 +88,21 @@ describe('formatDateTime', () => {
   it('空 / 非法 ⇒ 空串', () => {
     expect(formatDateTime(undefined)).toBe('')
     expect(formatDateTime('x')).toBe('')
+  })
+})
+
+describe('initialOf', () => {
+  it('取昵称首字并大写（头像占位；后端没有头像字段）', () => {
+    expect(initialOf('frontend_demo')).toBe('F')
+    expect(initialOf('一号员工')).toBe('一')
+    // 表情符号按 code point 取，不切出半个代理对
+    expect(initialOf('🐧企鹅')).toBe('🐧')
+  })
+
+  it('空 / 空白 ⇒ U（不画一个空圆）', () => {
+    expect(initialOf('')).toBe('U')
+    expect(initialOf('   ')).toBe('U')
+    expect(initialOf(null)).toBe('U')
+    expect(initialOf(undefined)).toBe('U')
   })
 })
