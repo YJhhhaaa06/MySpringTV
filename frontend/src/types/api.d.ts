@@ -1075,7 +1075,7 @@ export interface components {
             balance?: number;
         };
         CommentCacheDTO: {
-            children?: components["schemas"]["CommentCacheDTO"][];
+            children?: components["schemas"]["CommentCacheDTO"][] | null;
             /** Format: int64 */
             commentId?: number;
             content?: string;
@@ -1083,13 +1083,11 @@ export interface components {
             contentId?: number;
             /** Format: int32 */
             likeCount?: number;
-            /** Format: int64 */
-            parentId?: number;
+            parentId?: number | null;
             /** Format: int32 */
             replyCount?: number;
-            /** Format: int64 */
-            replyToUserId?: number;
-            replyToUsername?: string;
+            replyToUserId?: number | null;
+            replyToUsername?: string | null;
             /** Format: int64 */
             userId?: number;
             username?: string;
@@ -1102,7 +1100,7 @@ export interface components {
             enabled: boolean;
         };
         CommentVO: {
-            children?: components["schemas"]["CommentCacheDTO"][];
+            children?: components["schemas"]["CommentCacheDTO"][] | null;
             /** Format: int64 */
             commentId?: number;
             content?: string;
@@ -1111,13 +1109,11 @@ export interface components {
             isLiked?: boolean;
             /** Format: int32 */
             likeCount?: number;
-            /** Format: int64 */
-            parentId?: number;
+            parentId?: number | null;
             /** Format: int32 */
             replyCount?: number;
-            /** Format: int64 */
-            replyToUserId?: number;
-            replyToUsername?: string;
+            replyToUserId?: number | null;
+            replyToUsername?: string | null;
             /** Format: int64 */
             userId?: number;
             username?: string;
@@ -1137,18 +1133,17 @@ export interface components {
             /** Format: int64 */
             commentCount?: number;
             commentEnabled?: boolean;
-            coverUrl?: string;
+            coverUrl?: string | null;
             /** Format: date-time */
             createTime?: string;
             description?: string;
-            /** Format: int32 */
-            durationSeconds?: number;
+            durationSeconds?: number | null;
             /** Format: int64 */
             favoriteCount?: number;
             /** Format: int64 */
             id?: number;
-            imageUrls?: string[];
-            interaction?: components["schemas"]["InteractionStatusVO"];
+            imageUrls?: string[] | null;
+            interaction?: components["schemas"]["InteractionStatusVO"] | null;
             /** Format: int64 */
             likeCount?: number;
             /** Format: int64 */
@@ -1156,7 +1151,7 @@ export interface components {
             title?: string;
             /** Format: int32 */
             type?: number;
-            videoUrl?: string;
+            videoUrl?: string | null;
         };
         ContentVO: {
             /** Format: int64 */
@@ -1164,16 +1159,18 @@ export interface components {
             authorName?: string;
             /** Format: int32 */
             categoryId?: number;
+            commentCount?: number | null;
             commentEnabled?: boolean;
-            coverUrl?: string;
+            coverUrl?: string | null;
             /** Format: date-time */
             createTime?: string;
             description?: string;
-            /** Format: int32 */
-            durationSeconds?: number;
+            durationSeconds?: number | null;
             /** Format: int64 */
             id?: number;
-            interaction?: components["schemas"]["InteractionStatusVO"];
+            interaction?: components["schemas"]["InteractionStatusVO"] | null;
+            likeCount?: number | null;
+            playCount?: number | null;
             title?: string;
             /** Format: int32 */
             type?: number;
@@ -1238,10 +1235,10 @@ export interface components {
             name?: string;
         };
         FavoriteItemVO: {
-            authorName?: string;
+            authorName?: string | null;
             /** Format: int64 */
             contentId?: number;
-            coverUrl?: string;
+            coverUrl?: string | null;
             /** Format: date-time */
             favoriteTime?: string;
             /** Format: int64 */
@@ -1261,12 +1258,11 @@ export interface components {
             username?: string;
         };
         HistoryItemVO: {
-            authorName?: string;
+            authorName?: string | null;
             /** Format: int64 */
             contentId?: number;
-            coverUrl?: string;
-            /** Format: int32 */
-            durationSeconds?: number;
+            coverUrl?: string | null;
+            durationSeconds?: number | null;
             invalid?: boolean;
             /** Format: int32 */
             progress?: number;
@@ -1279,11 +1275,10 @@ export interface components {
             progress?: number;
         };
         InteractionStatusVO: {
-            /** Format: int32 */
-            coin?: number;
-            isFavorited?: boolean;
-            isFollowed?: boolean;
-            isLiked?: boolean;
+            coin?: number | null;
+            isFavorited?: boolean | null;
+            isFollowed?: boolean | null;
+            isLiked?: boolean | null;
         };
         LoginRequest: {
             password: string;
@@ -1412,7 +1407,7 @@ export interface components {
             followCount?: number;
             /** Format: int32 */
             followerCount?: number;
-            isFollowed?: boolean;
+            isFollowed?: boolean | null;
             /** Format: int64 */
             userId?: number;
             username?: string;
@@ -1466,10 +1461,10 @@ export interface components {
         WatchLaterItemVO: {
             /** Format: date-time */
             addedTime?: string;
-            authorName?: string;
+            authorName?: string | null;
             /** Format: int64 */
             contentId?: number;
-            coverUrl?: string;
+            coverUrl?: string | null;
             invalid?: boolean;
             title?: string;
         };
@@ -1989,6 +1984,8 @@ export interface operations {
         parameters: {
             query?: {
                 keyword?: string;
+                type?: "VIDEO" | "POST";
+                order?: "LATEST" | "PLAY";
                 page?: string;
                 pageSize?: string;
             };
