@@ -145,11 +145,13 @@ class ContentSearchFilterTests extends AbstractContentIntegrationTest {
     void 排序_单字符分支() {
         long idA = insertVideoContent(authorId, KW_MULTI + " 视频A");
         long idB = insertVideoContent(authorId, KW_MULTI + " 视频B");
-        setPlayCount(idA, 10);
-        setPlayCount(idB, 99);
+        // ★ 播放序 [A, B] 必须与 id 序 [B, A] **相反** —— 否则"排序没生效"这条用例照样绿
+        //   （2026-10-27 反向验证实测：初版设成 A=10 / B=99，注入"PLAY 改回 create_time"仍是绿的）。
+        setPlayCount(idA, 99);
+        setPlayCount(idB, 10);
 
         assertThat(ids("/api/v1/contents?keyword=" + KW_SINGLE + "&order=PLAY"))
-                .containsExactly(idB, idA);
+                .containsExactly(idA, idB);
     }
 
     // ========================================================================
