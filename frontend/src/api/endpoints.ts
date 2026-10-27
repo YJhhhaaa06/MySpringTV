@@ -5,6 +5,7 @@
 import type { AuthorCardVM, HeroSlideVM, SearchResultVM, VideoCardVM, VideoDetailVM } from '../types/ui'
 import { splitHero } from './adapters/hero'
 import { toSearchResult } from './adapters/search'
+import type { SearchFilters } from './adapters/searchFilters'
 import { toAuthorCard } from './adapters/user'
 import { toVideoCard } from './adapters/videoCard'
 import { toVideoDetail } from './adapters/videoDetail'
@@ -24,14 +25,22 @@ export async function loadHome(now: Date = new Date()): Promise<HomeData> {
   return { slides, cards: rest.map((item) => toVideoCard(item, now)) }
 }
 
-/** `GET /contents?keyword=&page=&pageSize=`（**搜索专用**，keyword 必填；空白会 400） */
+/**
+ * `GET /contents?keyword=&type=&order=&page=&pageSize=`（**搜索专用**，keyword 必填；空白会 400）。
+ *
+ * <p>GAP-10（2026-10-27）：`type`（VIDEO/POST）与 `order`（LATEST/PLAY）都是可选枚举、
+ * 大小写敏感、非法值 400 ⇒ 由 `adapters/searchFilters` 归一后才允许进 URL。
+ */
 export async function searchContents(
   keyword: string,
   page: number,
+  filters: SearchFilters = {},
   pageSize = 20,
   now: Date = new Date(),
 ): Promise<SearchResultVM> {
-  const result = await getJson('/api/v1/contents', { query: { keyword, page, pageSize } })
+  const result = await getJson('/api/v1/contents', {
+    query: { keyword, page, pageSize, ...filters },
+  })
   return toSearchResult(result, keyword, now)
 }
 
