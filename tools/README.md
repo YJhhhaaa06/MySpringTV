@@ -33,19 +33,20 @@ tools/
 │   ├── doc_stats.py      ←   体量度量（防膨胀）
 │   ├── doc_links.py      ←   `.docs` 交叉引用门禁
 │   └── doc_refs.py       ←   `src/` 注释引用门禁
-└── devclean/             ← ★ 开发期数据清理（**默认 dry-run**）
+└── devclean/             ← ★ 开发期数据清理 + 派生数据修复（**默认 dry-run**）
     ├── README.md         ←   **本族手册**：红线 / 顺序依赖 / 刻意不做
     ├── common.py         ←   连接参数（复用 backup.py）+ mysql 客户端定位
     ├── db_clean.py       ←   顺悬挂引用清 DB
     ├── media_clean.py    ←   孤儿媒体移到 trash（只移动不删除）
     ├── recount.py        ←   7 个计数列重算
+    ├── backfill_duration.py ← 存量视频时长回填（一次性；只填 NULL）
     └── devclean.py       ←   一键编排（备份 → DB → 媒体 → 重算）
 ```
 
 | 子目录 | 干什么 | 手册 | 默认行为 |
 |--------|--------|------|----------|
 | `docs/` | 让"文档引用指得到 / 体量不膨胀"变成**会失败的命令** | [docs/README.md](docs/README.md) | ✅ **只读**（三个脚本都不写文件） |
-| `devclean/` | 清掉开发 / 测试期造的数据，**不碰游玩数据** | [devclean/README.md](devclean/README.md) | ⚠️ **dry-run**（`--apply` 才落库 / 落盘） |
+| `devclean/` | 清掉开发 / 测试期造的数据 + **派生数据修复**（计数重算 / 时长回填），**不删游玩数据** | [devclean/README.md](devclean/README.md) | ⚠️ **dry-run**（`--apply` 才落库 / 落盘） |
 
 > ★ **`tools/devclean/` 与 `tools/docs/` 是两种不同的东西，别混**：前者会改数据（所以默认只预演、红线最多）；
 > 后者只是门禁（所以只读、可以随便跑）。**"默认只预演"是写操作脚本的纪律，不是所有脚本的纪律**。
@@ -150,6 +151,10 @@ python tools/docs/doc_stats.py
 
 # 开发期数据清理 → 见 tools/devclean/README.md（默认全链 dry-run）
 python tools/devclean/devclean.py
+
+# 存量视频时长回填（一次性；只填 NULL，先备份再 --apply）
+python tools/devclean/backfill_duration.py
+python tools/devclean/backfill_duration.py --apply
 ```
 
 > 注：本项目**没有** `tv.py` 那样的统一入口——脚本少，直接调即可。

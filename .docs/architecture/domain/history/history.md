@@ -64,7 +64,7 @@
 | 退出 flush（`POST /api/v1/history/flush`）+ 空闲轮询兜底（[上报缓冲](./history-上报缓冲.md)） | 客户端节流（服务端不做；**已由新前端实现**，见 [客户端契约](./history-客户端契约.md) §三） |
 | mp4 时长解析（发布 / 换源） | 「已看完」标记（由前端按 `progress / duration` 推导） |
 | 详情播放量（第 5 个公共计数） | 历史容量上限 / 旧行清理 |
-| 失效内容占位（抄收藏域形态） | 存量内容时长回填 |
+| 失效内容占位（抄收藏域形态） | ~~存量内容时长回填~~（2026-10-27 已一次性完成，见 §六.2） |
 
 ---
 
@@ -289,7 +289,9 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
 | `PUT /api/v1/contents/{id}/media`（换源，`type=1`） | 换源时重解析并**同一事务**更新该媒体行的时长；`type=2/3` 传 null，**不能清空视频行的时长** |
 
 - 解析失败 ⇒ `null`，**不阻断发布**（内容仍可播，只是没有百分比）。
-- **存量不回填**：时长 null = 未知；进度按秒展示。
+- **存量已回填**（2026-10-27，一次性工具 `tools/devclean/backfill_duration.py`）：只填
+  `duration_seconds IS NULL` 的行；盘上文件缺失 / 解析失败**保持 NULL**（不写 0）。本机 dev 库
+  42/45 回填，3 个文件缺失（`file_exists=0`）。回填不刷缓存 ⇒ `content:{id}` 在 TTL 内仍可能读到 null。
 - 归属：解析器在 **upload 域**（它持有"上传文件的形状"与 `FileUploadService#resolveAbsolutePath`）；
   content 只收 `durationSeconds` 参数，**不反向依赖 upload**。
 
@@ -396,7 +398,7 @@ filesort；新索引前三列即排序键（前向索引扫描）：
 | 3 | **`/play` 与 `/report` 解耦**：只发 play 不报进度 ⇒ 行停在 0 秒；只报进度不发 play ⇒ 不计播放量 | 前端必须两个都发；无前端期由测试与文档保证。推翻 = 合并端点为单入口 |
 | 4 | 换源后 `duration_seconds` 变化 ⇒ 旧进度可能大于新时长，比例失真 | 写入时 clamp；**读时不 clamp**（不改存储值）。下次上报即修正。推翻 = 出现大量换源 |
 | 5 | 老缓存条目在 TTL 内 `durationSeconds=null` | 部署后最长一个 `contentTtl`（15m）自愈；不刷缓存 |
-| 6 | 存量内容时长**永不回填**（null） | 进度按秒展示、无百分比；推翻 = 写一次性回填工具（读 media 文件） |
+| 6 | 存量内容时长**曾**永不回填（null） | **2026-10-27 已推翻**：一次性工具回填 42/45，3 个文件缺失保持 NULL；进度按秒展示只剩这 3 条与解析失败。工具 = `tools/devclean/backfill_duration.py`（只填 NULL、默认 dry-run、文件缺失不写 0） |
 | 7 | 历史**不可删** ⇒ 行无界增长 | 一人一内容一行，增长上限 = 用户 × 看过的内容；无清理任务。推翻 = 需要删除时先重定播放量口径（B站 删历史不减播放量） |
 | 8 | 失效占位保留 `progress`（页面仍显示"看到 X 秒"） | 历史数据是真实的；前端可选择不渲染。推翻 = 产品要求占位一律置空 |
 | 9 | 首播的理论 1213 死锁窗口（`INSERT IGNORE` → 条件 `UPDATE`） | 与 coin 同族，未复现；真实并发出现 ⇒ 改 ODKU 或重试 |
@@ -415,6 +417,7 @@ filesort；新索引前三列即排序键（前向索引扫描）：
 | 缓冲与落库 | 上报不进库 / `/flush` 进库 / 轮询兜底 / 503 一次 DAO 都不调 / 落库失败留缓冲 / 毒批逐条降级 / 并发上报新值优先 | `HistoryFlushTests` · `HistoryReportBusyTests` · `HistoryReportBufferTests` · `HistoryBufferPropertiesTests` |
 | 读面 | 列表顺序与 `total`（**独立 oracle**）/ 占位三字段 + `progress` 保留 + 页内条数不缩水 / 续播"无记录 0 / 已删仍答" / 缓冲不参与续播 | `HistoryListTests` · `HistoryPositionTests` |
 | 时长 | 手搓 mp4（moov 前/后、v0/v1、`size==1`、`timescale=0`、截断、非 mp4）/ 落库 + 详情回显 / 换源刷新 / 换成坏文件回 null | `Mp4DurationReaderTests` · `UploadDurationTests` |
+| 存量回填 | 只填 `NULL` / 媒体根下 44 个真实 mp4 的 Python 与 Java 解析逐一相等 / 3 个文件缺失保持 NULL | `tools/devclean/backfill_duration.py`（一次性） |
 | 结构 | 唯一键**真插两行**看拦不拦 / 索引全集 / 版本行 | `HistorySchemaTests` · `WatchLaterSchemaTests` |
 | 鉴权 | **五条路由**（`/report` `/flush` `/play` `/list` `/position`）落到 `@Controller` 处理器上 | `SecurityContractTests#history写端点需登录` |
 
@@ -472,7 +475,7 @@ filesort；新索引前三列即排序键（前向索引扫描）：
 | R-19 | `/report` 改**写 Redis 缓冲**、`/flush` 同步落库、空闲轮询只兜"停止上报"的会话；503 + `Retry-After`（**不是降频手段**，挡的是 DB 写） | [上报缓冲](./history-上报缓冲.md) |
 | R-20 | `/position` **只点查 DB**（推翻 `R-19` 契约④"读缓冲优先"）：正常路径读缓冲必然 miss；崩溃续播改由客户端本地 pending 承担 | 本篇 §7.2 · [客户端契约](./history-客户端契约.md) §6.2 |
 | T45 | V6/V7 迁移 + 结构契约：`duration_seconds` / `play_count` / `watch_history`（唯一键 + 索引）；删遗留 `video`·`videoinfo` | §二 · `HistorySchemaTests` |
-| T46 | mp4 时长：只读 box 头解析 `mvhd`；发布与换源两处调用；经 `ContentCacheDTO` + `copyCommon` 投影到所有内容响应；失败不阻断、存量不回填 | §六 · `UploadDurationTests` |
+| T46 | mp4 时长：只读 box 头解析 `mvhd`；发布与换源两处调用；经 `ContentCacheDTO` + `copyCommon` 投影到所有内容响应；失败不阻断；存量当时不回填，2026-10-27 由一次性工具补做 | §六 · `UploadDurationTests` |
 | T47 | 写路径：`/report`（ODKU、无事务、LWW、clamp、**不写 play_count**）+ `/play`（`INSERT IGNORE` → 条件 UPDATE 判首播 → `+1` → 发事件，单事务）；`history` 进 `DOMAINS` | §四 · `HistoryWriteTests` |
 | T48 | 播放量读面：`content:playCount`（content 自持）+ 详情计数聚合**四→五键** + `AFTER_COMMIT` 条件 `INCRBY`（冷 key 不建）+ `removeContent` 一并失效；详情精确键集 **19** | §五 · §7.3 · `ContentPlayCountTests` |
 | T49 | 读面：`/list`（失效占位、`total` 含失效行、整页失效整页返回；**不缓存**）+ `/position`；四个路由进鉴权契约 | §三 · §7.1/§7.2 · `HistoryListTests` / `HistoryPositionTests` |
@@ -499,5 +502,5 @@ filesort；新索引前三列即排序键（前向索引扫描）：
 | 端点权重表（新增非 GET 端点必须登记） | [限流](../../tech/rate-limit/限流.md) |
 | 跨域边与 ArchUnit 规则 | [模块边界与依赖](../../tech/module-boundary/模块边界与依赖.md) |
 | schema 演进纪律（V1 冻结 / 迁移文件逐字节冻结） | [数据与Schema演进](../../tech/data-evolution/数据与Schema演进.md) |
-| 未处置的候选（前端接入 / 时长回填 / 容量上限） | `task/FURTHER_ISSUES.md` |
+| 未处置的候选（容量上限 / 旧行清理） | `task/FURTHER_ISSUES.md` |
 | 本期做哪些、任务怎么拆 | `task/CURRENT_NEEDS.md` · `task/CURRENT_TASKS.md` |
