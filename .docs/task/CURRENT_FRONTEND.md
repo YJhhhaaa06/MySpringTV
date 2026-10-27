@@ -50,7 +50,7 @@ openapi.yaml ──gen──▶ frontend/src/types/api.d.ts     生成，只读�
 
 | ID | 类型 | 页面·组件 | 期望 | 现状 | 谁适配 | 临时表现 | 后端改动点 | 状态 |
 |---|---|---|---|---|---|---|---|---|
-| GAP-01 | M1 字段缺 | 首页 / VideoCard | 列表带 `playCount`（动态卡片另带 `likeCount` / `commentCount`） | `ContentVO` 已按面平铺三个可空计数 | ✅ 前后端均已接 | ✅ 封面左下播放量角标（图文不显示，见 GAP-05）；like/comment 随动态页接入 | ✅ 后端 2026-10-26 已交付（矩阵见 [缓存与数据一致性 §5.3](../architecture/tech/cache/缓存与数据一致性.md)）；前端 2026-10-27 接入 | **已销账** |
+| GAP-01 | M1 字段缺 | 首页 / VideoCard | 列表带 `playCount`（动态卡片另带 `likeCount` / `commentCount`） | `ContentVO` 已按面平铺三个可空计数 | ✅ 前后端均已接 | ✅ 封面左下播放量角标（图文不显示，见 GAP-05）；like/comment 由**动态页**（`/feed`）消费（2026-10-27） | ✅ 后端 2026-10-26 已交付（矩阵见 [缓存与数据一致性 §5.3](../architecture/tech/cache/缓存与数据一致性.md)）；前端 2026-10-27 全部接完 | **已销账** |
 | GAP-02 | M3 端点缺 | 首页 / ChannelWall | 分区列表 | 无 `GET /categories` | 前端适配 | **常量表 18 项** | 无（不补） | 长期 |
 | GAP-03 | M4 语义异 | 播放页 / DanmakuLayer | 弹幕流 | 无弹幕域（无表/无端点） | 前端适配 | **不做 + 占位角标** | 无 | 不做 |
 | GAP-04 | M1 字段缺 | 首页 / VideoCard | 弹幕数角标 | 同 GAP-03 | 前端不做 | **不显示该数字** | 无 | 不做 |
@@ -72,6 +72,9 @@ openapi.yaml ──gen──▶ frontend/src/types/api.d.ts     生成，只读�
 | GAP-20 | M3 参数缺 | 历史页 / 工具栏 | B 站历史页的 tabs（综合 / 视频 / 直播 / 专栏）+「搜索标题/up 主」+ 更多筛选 | `GET /history` 只有 `page/pageSize`；`HistoryItemVO` **连 `type` 都没有**（前端筛选也做不了） | 后端补（P3） | **不渲染 tabs / 搜索框 / 更多筛选**（只按最后观看倒序） | `/history` 加 `type`（视频/图文）与 `keyword`；⚠️ 直播 / 专栏**无对应域，永远不做** | 待补（等后端） |
 | GAP-21 | M3 端点缺 | 历史页 / 记录开关 | 「记录浏览历史」开关（B 站可暂停记录） | 无用户设置域（无 `user_settings` 表 / 端点） | 前端不做 | **不渲染开关**（历史始终记录；不假装能关） | 若要支持：用户级开关端点 + 写路径跳过记录 | 长期 |
 | GAP-22 | M3 端点缺 | 创作中心 / 图文编辑 | 「把原图文取回、改完**原位覆盖**」（尤其增删多张图） | 现有：`PUT /contents/{id}` 改标题/简介 ✅；`PUT /contents/{id}/media?type=2&sort=` **替换已有某张** ✅；`DELETE /contents/{id}/media?type=2&url=` 删一张 ✅。**没有追加图片 / 整份图片列表覆盖**，也没有草稿态；且删图会 `compactImageSort` 前移 ⇒ 不能靠 `sort` 稳定追加 | 后端补（创作中心暂不做） | **不渲染创作中心**；只记设计意图：原内容预填 + 原位覆盖（**不**新建内容 —— 新建会换 id、丢评论/点赞） | `PUT /contents/{id}/images`（整份列表）或 `POST /contents/{id}/images`（追加）；草稿态可选 | 待补（等后端，未排期） |
+| GAP-23 | M3 参数缺 | 动态页 / tabs | 动态流按内容类型筛选（B 站：全部 / 视频投稿 / 追番追剧 / 专栏） | `GET /feed` 只有 `page/pageSize`；`ContentVO.type` 有，但端点不收 `type` | 后端补（P3） | **不渲染 tabs**（只按时间倒序；不拿"只筛当前页"冒充筛选） | `/feed?type=VIDEO\|POST`（与搜索的 GAP-10 同口径；追番/专栏无域，永远不做） | 待补（等后端） |
+| GAP-24 | M3 端点缺 | 动态页 / 右栏 | 「bilibili 热搜」榜 + 社区中心运营位 | 没有热搜 / 运营端点（与 GAP-09 的 banner 同类） | 前端不做 | 右栏换成**我关注的人**（真接口 `/users/{me}/following`），顺带接上新交付的关注列表页 | 无（热搜属运营域，本仓不做） | 不做 |
+| GAP-25 | M1 字段缺 | 空间·关注/粉丝 | 用户卡的**头像 / 签名 / 等级 / 分组** | `FollowUserVO` 只有 `userId / username / isFollowed / isSelf` | 前端适配（不做资料/头像域） | 首字头像 + 名字 + 关注按钮；**不渲染**签名 / 分组 / 搜索 / 排序 / 批量操作（B 站那句「这个人很神秘」是 B 站自己的默认签名，写上去就是编） | 无（头像域见 GAP-08） | 长期 |
 
 > ★ **稍后再看没有"是否已在池中"的查询端点**（[favorite.md §六](../architecture/domain/favorite/favorite.md) 红线）：
 > 本仓**不登记 GAP**、也不逐卡回源 —— 前端用 URL 作用域的内存记忆复刻 B 站实测行为（§十四）。
@@ -121,6 +124,7 @@ openapi.yaml ──gen──▶ frontend/src/types/api.d.ts     生成，只读�
 | 空间「动态 / 合集和系列 / 最近点赞」 | 不做 | **不渲染 tab**（无端点，GAP-15） |
 | 历史「删除单条 / 清空」 | 不做 | **不渲染删除与清空按钮**（无端点，GAP-19） |
 | 历史「筛选 / 搜索 / 记录开关」 | 不做 | **不渲染** tabs / 搜索框 / 「记录浏览历史」开关（GAP-20 / GAP-21，摆了也点不动） |
+| 动态页「发布框 / 转发 / 热搜 / 分区 tabs」 | 不做 | 发布框（投稿页暂缓）、转发（无转发域）、热搜与社区中心（GAP-24）、类型筛选 tabs（GAP-23）**都不渲染**；右栏用「我关注的人」真数据填位 |
 | 稍后再看批量管理（多选 / 清空 / 移入收藏夹） | 不做 | 只做单条移出；端点有（`DELETE /watch-later`、`PUT /watch-later/{id}/folder`）但 UI 本窗口未认领（**不是 GAP**） |
 | 创作中心 / 投稿 / 图文编辑 | **暂缓**（2026-10-26 用户拍板"复杂，暂不跟进"） | 顶栏「投稿」仍走 `/placeholder/upload`；「编辑图文 = 取回原稿原位覆盖」等后端补"追加图片"（GAP-22） |
 
@@ -137,7 +141,7 @@ cd frontend
 npm run gen:api && git diff --exit-code src/types/api.d.ts   # 类型落后于后端 ⇒ 红
 npm run typecheck                                            # vue-tsc -b（类型硬门禁）
 npm run test                                                 # vitest：适配器 fallback + 请求层 + 进度上报规则
-npm run build                                                # 多入口产物：dist/{index,search,video,space,favorites,history}.html
+npm run build                                                # 多入口产物：dist/{index,search,video,space,favorites,history,dynamic}.html
 npm run stage                                                # dist → ../src/main/resources/static（Spring 直接服务）
 ```
 
@@ -149,6 +153,7 @@ npm run stage                                                # dist → ../src/m
 | `api/adapters/format.test.ts` | 万/亿、`mm:ss`、相对时间 |
 | `api/adapters/{videoCard,hero,search,videoDetail,user,interaction,comment,space}.test.ts` | 各页 VM 的缺口 fallback（`playCount` 缺失 ⇒ `null`、图文不显示计数、三态 `null ≠ false`、评论无时间 ⇒ 空串…） |
 | `api/adapters/{favorites,history}.test.ts` | 我的夹 / 稍后再看卡片（`addedTime` **不冒充**发布时间）；历史角标三态（`已看/总长` / `已看完` / 无总长只给「看到」）、按本地日历日分组 |
+| `api/adapters/{feed,relation}.test.ts` | 动态卡：`likeCount`/`commentCount` 缺失 ⇒ `null`、0 是真值、图文不显示播放量、`liked` 三态；关注/粉丝卡：`isFollowed=false` **不是**"没查"、空名字 ⇒ 未知用户 |
 | `api/http.test.ts` | 信封 / 204 / `Retry-After` / 幂等键 / 数组 query |
 | `common/watchLaterSession.test.ts` | 稍后再看页面内记忆：**同一 URL 记得、换 URL 不记得**、取消即忘、不同内容互不影响 |
 | `player/progressReporter.test.ts` | 播放进度契约：45s 节奏、503 退避与**恢复**、停报条件、续播 `max`、本地补偿 TTL |
@@ -163,9 +168,12 @@ npm run stage                                                # dist → ../src/m
 ⇒ **2 条红**（同 URL/换 URL 两条），还原后 **127/127** 绿。
 **2026-10-27 再来一次**：⑧把 `playCountText` 改回恒 `null` ⇒ `videoCard.test.ts` **红 1 条**
 （只跑该类：12 选中 1 红）；还原后全量 **141/141** 绿。
+**2026-10-27 晚（动态 / 关注粉丝）**：⑨把动态卡的 `likeCount` 改成 `item.likeCount ?? 0`（`null` 被伪装成 0）
+⇒ `feed.test.ts` **红 1 条**；⑩把关注列表的 `total` 改成 `list.length`（本页条数冒充总数）
+⇒ `relation.test.ts` **红 1 条**；还原后全量 **158/158** 绿。
 
 **真浏览器 E2E**（一次性脚本，放 `.tmp/`，**不入库**）：登录 / 互动 / 评论 / 进度 / 空间 /
-**收藏 / 历史 / 稍后再看**各一支，必须真接口真写（`node .tmp/<name>-e2e.mjs`，需 Chrome `--remote-debugging-port=9222`）。
+**收藏 / 历史 / 稍后再看 / 动态·关注粉丝**各一支，必须真接口真写（`node .tmp/<name>-e2e.mjs`，需 Chrome `--remote-debugging-port=9222`）。
 ★ 2026-10-26 起也可以直接对 **8080**（dist 上 Spring）跑，不必起 Vite —— 顺带验证转发与静态产物。
 收藏页那支还覆盖写路径：点「取消收藏」→ 卡片 2→1、侧栏计数 −1、toast、**刷新后仍 1**、API 恢复后回 2。
 稍后再看那支（`watchlater-e2e.mjs`）覆盖：匿名点卡片 → 登录浮层 → **登录后同一次点击续做** → 加入/取消 →
@@ -183,6 +191,12 @@ npm run stage                                                # dist → ../src/m
 其余 26 条不受影响；还原后 28/28 绿。⚠️ 首版有 3 条请求断言是**真空转**（`every()` 在空数组上恒真）⇒ 已加
 "抓到请求数 > 0"的守门。
 
+★ **2026-10-27 晚新增一支：动态页 + 空间关注/粉丝** `dynamic-relation-e2e.mjs`（登录态；Vite 或 8080 都能跑）。
+钉的同样是"用户能看见的东西 + 浏览器实际发出的请求"：feed 请求只有 `page/pageSize`、12 张卡 / 第 2 页 8 张、
+点赞后 `PUT /contents/93/like` + `GET …/like-count` 回读、关注按钮 `PUT /follows/3`、粉丝列表 11 人、
+关注 tab 1 人、两处匿名态是「登录后查看」而不是 401 / 空列表；**跑完把点赞与关注都还原**（dev 库复查
+`like_count=0`、233 只关注 1）。⚠️ `waitImages()` 必须加超时，否则一张图不 load 就让整支脚本静默挂住。
+
 ★ **静默机制**（进度上报 / 自动重试与退避 / 退出信号 / 崩溃补偿 / 幂等键 / 乐观更新 / 登录态时序）
 的**实现口径、代价与覆盖矩阵**见 [客户端静默机制](../architecture/frontend/客户端静默机制.md) §五 ——
 那里有一份**"明写没覆盖"清单**（幂等键复用、`restoreSession` 单飞、卸载收尾上报…），别当成已经验过。
@@ -195,49 +209,32 @@ npm run stage                                                # dist → ../src/m
 - ★ 沙箱下**子进程建不了 TLS、Chrome 起不来** ⇒ `npm install` 与页面截图**各需一次 `danger-full-access` 授权**（建议合并在一条命令里）。
 - 老前端：`src/main/resources/static/` 的 18 个文件已于 **2026-10-26 删除**（随 dist 上线同批，§十三）。
   该目录现在是**构建产物落点**（`npm run stage` 把 `frontend/dist` 拷进去，产物不入库），
-  由 Spring 直接服务 `/`、`/search`、`/video/:id`、`/space/:id`、`/assets/**`。
+  由 Spring 直接服务 `/`、`/search`、`/video/:id`、`/space/:id`、`/favorites`、`/watchlater`、`/history`、
+  `/dynamic`、`/assets/**`。
   旧 SPA 已冻结过（2026-10-25），删除不影响任何活代码。
 
 ---
 
 ## 八、开工顺序（重制窗口照此走）
 
-> **进度（2026-10-26 第三窗口交付）**：
-> ① 脚手架 ✅ ② `VideoCard` + `VideoGrid` + **首页闭环** ✅ ③ 搜索页 ✅（真 Page 分页）
-> ④ 播放页 ✅（**只读 → 完整**：点赞/投币/收藏/关注 + 评论区 + 播放进度）
-> ⑤ 占位路由 + 登录真接口 ✅ ⑥ **UP 空间页** ✅（`space.html`：资料 / 投稿分页 / 公开收藏夹）
-> ⑦ ★ **生产静态转发 + dist 上 Spring + 删老 SPA** ✅（§十三 收口；六入口 + `/assets/**` 全 200，
->    旧 `/static/**` 404）
-> ⑧ ★ **收藏页** ✅（`favorites.html`：我的收藏夹 + 稍后再看 + 单条取消/移出）
-> ⑨ ★ **历史页** ✅（`history.html`：**左侧时间轴 + 4 列卡片网格** + 封面「已看/总长」角标；
->    B 站 2026-10 版式，按用户登录态截图重做）
-> ⑩ 历史页的 tabs / 搜索 / 清空 / 批量 / 记录开关 **故意不渲染**（GAP-19 / 20 / 21，等后端或无域）
-> **2026-10-26 晚（第四窗口）交付**：
-> ⑪ ★ **稍后再看垂直闭环** ✅（卡片 hover + 播放页动作栏 ⋮ + 独立 `/watchlater` 页；
->    ★ 没有状态查询端点（红线）⇒ 用 **URL 作用域的内存记忆**：同页可取消、刷新/换页即忘，
->    复刻用户实测的 B 站行为；E2E 过，测试池恢复原状）
-> ⑫ ★ **2560 校准（首页 / 搜索 / 播放页）** ✅（先钉 **150% 缩放 = 1707 CSS**；
->    首页 1408 / 搜索 1500 / 播放页 1565；历史页**锁 1320**，单独校准）
-> **2026-10-27（第五窗口）交付**：
-> ⑬ ★ **契约批次 GAP-10** ✅（搜索 `type=VIDEO|POST&order=LATEST|PLAY`，两个可选枚举；
->    `count` 与列表共用 mapper 片段；图文 tab 不渲染「最多播放」）。同批把 **GAP-07 的 `gen:api` 欠账** 清掉
->    （`api.d.ts` 重生成，`coverUrl` / `interaction` / `playCount` 等带上 `| null`）。
-> ⑭ ★ **GAP-01 接入 + 存量时长回填** ✅（卡片封面左下播放量 / 右下总时长；图文不显示计数；
->    42/45 存量视频补时长，3 个文件缺失保持 `null`；测试 139→141；E2E 按 **DB oracle** 逐卡对账）
-> **下一窗口**：
-> ① **动态页**（只读 `GET /feed`；发布框 / 热搜 / 直播 / 按作者筛选都不具备）**或** **空间「关注/粉丝」页**
->    （`GET /users/{id}/following|followers` 已有，但 `FollowUserVO` 只有 userId/username/两个布尔）→
-> ② 播放页 1707 侧栏宽度微校准（B 站约 455 vs 本仓 350；总宽已对齐）→
-> ③ 历史页单独校准（B 站历史比首页窄，别一刀切）。
+> **进度（详见 git log 与各窗口交接）**：
+> ①–⑦ 脚手架 / 首页 / 搜索 / 播放页 / 占位与登录 / UP 空间 / 生产静态转发（2026-10-25 ~ 26）✅
+> ⑧–⑫ 收藏 / 稍后再看 / 历史 / 2560 校准（首页·搜索·播放页）（2026-10-26）✅
+> ⑬–⑭ GAP-10 搜索筛选 + GAP-01 播放量 / 时长回填（2026-10-27 第五窗口）✅
+> **⑮–⑰（2026-10-27 第六窗口）**：动态页 `/dynamic`（`GET /feed`，消费 `likeCount/commentCount`）✅ ·
+> 空间「关注/粉丝」面板（`?tab=following|followers`）✅ · 播放页侧栏 411 + 历史页 1160 校准 ✅
+> **下一窗口候选**：① 动态详情页（B 站有独立文档；本仓无端点，需先开 GAP）·
+> ② 空间「合集和系列 / 最近点赞」（无端点，GAP-15）· ③ 首页 / 空间页在 1707 的残余像素差（低优先）。
 > **明确延后**：创作中心 / 投稿页（用户 2026-10-26 拍板"复杂，暂不跟进"）；
 > 「编辑图文 = 取回原稿 → 原位覆盖」只记设计意图 + **GAP-22**（缺"追加图片"端点），不做页面。
 > **设计沉淀**：前端应用口径在 [architecture/frontend/前端.md](../architecture/frontend/前端.md)；
+> 视觉校准依据在 [视觉基准](../architecture/frontend/视觉基准.md)；
 > 播放进度客户端行为**不在本篇**，以 [history-客户端契约](../architecture/domain/history/history-客户端契约.md) 为准。
 
 1. `frontend/` 脚手架（Vue + TS + Vite + vue-router）→ 配 **多入口**（`vite.config.ts` 的 `build.rollupOptions.input`）+ 每个入口一个 router → `npm run gen:api` 出类型
 2. 先做 `VideoCard` + `VideoGrid`（会立刻暴露 GAP-01）
 3. 首页闭环 → 截一张 B 站首页对照 → 攒第一批契约批次
-4. 播放页 → 搜索 → 用户空间 → 收藏 / 历史 →（可选）后台
+4. 播放页 → 搜索 → 用户空间 → 收藏 / 历史 → 动态 / 关注粉丝 →（可选）后台
 
 ---
 
@@ -254,49 +251,21 @@ npm run stage                                                # dist → ../src/m
 
 > 见 **[architecture/frontend/视觉基准.md](../architecture/frontend/视觉基准.md)**：
 > B 站 2026-10-25 匿名实拍 + 2026-10-26 登录态 2560 参考图矩阵（**150% 缩放 = 1707 CSS 视口**）、
-> 2026-10-26 晚**逐页实测与校准规则**（首页 1408 / 搜索 1500 六列 / 播放页 1565；历史锁 1320）、
-> 我们的产物对照图、复算命令与 10 条截图坑。
+> 2026-10-26 晚**逐页实测与校准规则**（首页 1408 / 搜索 1500 六列 / 播放页 1565）、
+> **2026-10-27 晚补**（播放页侧栏 350→411 来自 B 站线上 CSS、历史页 1160、动态页 1336 = 78vw）、
+> 我们的产物对照图、复算命令与 11 条截图坑。
 > 图不入库（`.screenshots/` 在 `.gitignore`）；本文件只留指针，避免登记台撞 40 KB 线。
 
 ---
 
-## 十一、工具链实测（2026-10-25；**本窗口已落地为 `frontend/`**）
+## 十一、工具链（**已落地为 `frontend/`**；版本与脚本以 `frontend/package.json` + README 为准）
 
-| 项 | 结果 |
-|---|---|
-| `npm create vite@latest … -- --template vue-ts` | ✅ create-vite **v9.3.1** |
-| 模板自带版本 | `vue 3.5.44` · `vite 8.3.5` · `@vitejs/plugin-vue 6.0.10` · `vue-tsc 3.3.13` · **`typescript ~6.0.3`** |
-| `npm run typecheck`（`vue-tsc -b`） | ✅ exit 0（钉 TS 5.9.3 后仍绿） |
-| `openapi-typescript` 读本仓 spec | ✅ 3529 行 / ~116 ms → `src/types/api.d.ts` 入库 |
-| 装完的实际版本 | `typescript 5.9.3` · `vue-router 4.6.4` · `vitest 5.0.5` · `openapi-typescript 7.13.0` |
-| `npm install` | ✅ 100 包 / ~5 s（npmmirror） |
-
-★ **唯一的坑（必踩）**：`openapi-typescript@7.13` 的 peer 是 `typescript@^5.x`，模板默认 TS 6.0.3
-⇒ `npm i -D openapi-typescript` **ERESOLVE 报错**（`npx` 兜底能跑通，但**掩盖了问题**，将来 CI 会红）。
-**修法（已实测）**：把 TS 钉到 5.9 —— `npm i -D typescript@~5.9.0`，再装 `openapi-typescript` 即 0 错误，
-`vue-tsc` 仍绿。
-
-★ **vue-router 钉 4.x 不升 5**：`5.4.0` 是**未勘察的新 major**（peer 还挂 pinia）——
-拿未验证主版本当底座，等于把"跑不起来"混进"写页面"里；要升另开窗口。
-
-实际的 `package.json` 脚本（路径**相对 `frontend/`**，不是仓库根）：
-
-```json
-{
-  "scripts": {
-    "dev": "vite",
-    "build": "vue-tsc -b && vite build",
-    "preview": "vite preview",
-    "gen:api": "openapi-typescript ../src/test/resources/api/openapi.yaml -o src/types/api.d.ts",
-    "typecheck": "vue-tsc -b",
-    "test": "vitest run"
-  }
-}
-```
-
-**中间件现状**（2026-10-25 20:45 实测）：
-- `3306` **在监听** —— 本地 MySQL（**不是**容器；容器 `springbook-mysql` 是 Exited，别再起它抢端口）；
-- `6379` / `5672` 曾未监听，容器 `redis` / `rabbitmq` 已 `docker start` 拉起（起后端前先确认这三个端口都在）。
+- Vue 3.5.44 · Vite 8.3.5 · vue-router **4.x（不升 5：未勘察的新 major，peer 还挂 pinia）** ·
+  typescript **5.9.3（必须钉 5.x）** · vitest 5.0.5 · openapi-typescript 7.13.0。
+- ★ **唯一的坑（必踩）**：`openapi-typescript@7.13` 的 peer 是 `typescript@^5.x`，create-vite 模板默认 TS 6.0.3
+  ⇒ `npm i -D openapi-typescript` **ERESOLVE**（`npx` 能跑通但掩盖问题）。修法：先 `npm i -D typescript@~5.9.0`。
+- **中间件**：`3306` 是本机 MySQL（**不是**容器 `springbook-mysql`，别去抢端口）；`6379` / `5672` 是
+  `docker start redis` / `rabbitmq` 拉起的容器 —— 起后端前确认三个端口都在。
 
 ---
 
@@ -316,39 +285,37 @@ npm run stage                                                # dist → ../src/m
 | `index.html` | `/`、`/placeholder/:feature` | `GET /contents/recommended` |
 | `video.html` | `/video/:id`（分 P 用 `?p=`） | `GET /contents/{id}` + 互动 + 评论 + 进度 + `GET /users/{id}` |
 | `search.html` | `/search?keyword=java`（tab / 排序用 query） | `GET /contents?keyword=` |
-| `space.html` | `/space/:id`（tab / 翻页 / 夹用 query） | `GET /users/{id}` + `GET /users/{id}/favorite-folders` + `GET /favorite-folders/{id}/items` |
+| `space.html` | `/space/:id`（tab / 翻页 / 夹 / 关注粉丝用 query） | `GET /users/{id}` + `GET /users/{id}/favorite-folders` + `GET /favorite-folders/{id}/items` + `GET /users/{id}/following|followers` |
 | `favorites.html` | `/favorites`（`?folder=` / `?page=`）+ **`/watchlater`**（独立路由；旧 `?tab=later` 兼容） | `GET /favorite-folders` + `GET /favorites?folderId=` + `GET /watch-later` + `PUT /watch-later/{id}` + `DELETE /favorites`、`DELETE /watch-later` |
 | `history.html` | `/history?page=` | `GET /history`（**只读**：无删除/清空端点，GAP-19） |
+| `dynamic.html` | `/dynamic?page=` | `GET /feed`（**需登录**）+ `GET /users/{id}?pageSize=1` + `GET /users/{id}/following?pageSize=8` |
 | `upload.html` | `/upload` | `POST /contents/videos`、`/contents/posts` |
 
-> 2026-10-26 已落地 **六个入口**：`index` / `search` / `video` / `space` / `favorites` / `history`。
+> 2026-10-26 已落地 **六个入口**；**2026-10-27 第七个 `dynamic`** —— 现在共 **七个**：
+> `index` / `search` / `video` / `space` / `favorites` / `history` / `dynamic`。
 > `video` 已从"只读"补成完整页（互动 / 评论 / 进度）；`upload` 尚未建入口（灰态导航走 `/placeholder/*`）。
-> `/watchlater` 是 `favorites.html` 内的**独立路由**（转发到同一入口），**不是第 7 个入口**。
+> `/watchlater` 是 `favorites.html` 内的**独立路由**（转发到同一入口），**不是**独立入口。
 
 - **跨应用**一律 `<a href="/video/77" target="_blank" rel="noopener">` —— 新标签、可中键、可复制链接，与 B 站一致。
 - **应用内**用 vue-router（每个入口一个实例，`createWebHistory`），切 tab 只改 URL、不重载。
 - 页面之间**不共享内存状态**；`AppHeader` 等组件在每页各自 import（Vite 抽公共 chunk）。登录态从 `localStorage`
   读 `token`（后端是 `Authorization: Bearer`，不是 Cookie），每页自己请求 `GET /users/me` 渲染头像。
 - ⚠️ **history 模式要服务端 fallback**：`/video/77` 必须落到 `video.html`。两条路 ——
-  ① **加静态转发**（Spring 视图映射 / 资源 resolver fallback）⇒ URL 与 B 站同构；**待验**：默认拒绝过滤器对
-  「非 `@RequestMapping` 的转发路径」是否放行（大概率放行，开工时 `curl /video/1` 一条验）；
-  ② 退一步：入口保留 `?id=`（`/video.html?id=77`），router 只管应用内 tab ⇒ 零后端改动，但 URL 不像 B 站。
-  **决策：先走 ①**，被拦再退 ②。
-  ★ **补充（2026-10-25 复查）**：它**不触发端点登记簿 / spec**，但**不是纯配置改动** ——
-  转发路由必须标 `@Public`（默认拒绝）、静态/HTML 入口是否进限流跳过清单要明确决定，
-  且 dist 的资源目录从 `/static/` 变成 `/assets/` ⇒ 白名单要一起改（见 §十三）。
-  ★ **状态（2026-10-26）：① 已落地**。`WebMvcConfig#addViewControllers` 用 **forward**（不是 redirect）
-  把 `/`、`/search`、`/video/{id}`、`/space/{id}`、`/favorites`、**`/watchlater`**、`/history`、
+  ① 加静态转发（URL 与 B 站同构）；② 退一步保留 `?id=`（零后端改动、URL 不像 B 站）。
+  **决策：先走 ①**，被拦再退 ②。★ 它不是纯配置改动：转发走 `ViewController`（不进登记簿 / spec），
+  dist 资源目录 `/static/` → `/assets/` 要同步进限流与静态白名单（见 §十三）。
+  ★ **状态（2026-10-26）：① 已落地**（`WebMvcConfig#addViewControllers`，forward 不是 redirect）。`WebMvcConfig#addViewControllers` 用 **forward**（不是 redirect）
+  把 `/`、`/search`、`/video/{id}`、`/space/{id}`、`/favorites`、**`/watchlater`**、`/history`、**`/dynamic`**、
   `/placeholder/{feature}` 转到入口 HTML；
   **不用 `@Controller`**（那会进端点登记簿 / spec，还要为默认拒绝开 `@Public` —— 它只是页面导航）；
   dist 由 `npm run stage` 落到 `src/main/resources/static/`（产物不入库）；`/assets/` 与 HTML 外壳进限流跳过清单。
-  `mvnw clean` 后实测：六入口 200、`/assets/*.js` 200、`/api/v1/**` 200、旧 `/static/**` 404。
+  `mvnw clean` 后实测：七个入口 200、`/assets/*.js` 200、`/api/v1/**` 200、旧 `/static/**` 404。
 - ✅ **dev 侧 fallback 已落地**：`vite.config.ts` 的 `htmlHistoryFallback()` 把 `/search` → `search.html`、
   `/video/<digits>` → `video.html`、`/space/<digits>` → `space.html`、`/favorites` → `favorites.html`、
-  **`/watchlater` → `favorites.html`**、`/history` → `history.html`、`/placeholder/*` → `index.html`，
-  并挂在 `configureServer` **与** `configurePreviewServer` 上 ⇒ `npm run preview` 也能验打包产物。
+  **`/watchlater` → `favorites.html`**、`/history` → `history.html`、**`/dynamic` → `dynamic.html`**、
+  `/placeholder/*` → `index.html`，并挂在 `configureServer` **与** `configurePreviewServer` 上 ⇒ `npm run preview` 也能验打包产物。
   它只接管 `Accept: text/html` 的导航请求（`/api`、`/upload`、带扩展名的资源全部放行）。
-  ★ **生产转发要补的正是这份映射表**（六入口 + `/watchlater`，已落在 `WebMvcConfig#addViewControllers`，两处必须同步改）。
+  ★ **生产转发要补的正是这份映射表**（七入口 + `/watchlater`，已落在 `WebMvcConfig#addViewControllers`，两处必须同步改）。
 - ⚠️ **dev 代理要转发两段**：`/api` **和** `/upload` —— 封面是后端静态路径（`/upload/cover/…`），只代理 `/api` 会让所有图片 404。
 - **明确接受的代价**：跨应用整页刷新、公共请求（`/users/me`）每次进应用重复一次；**换来**与参考实现同构。
 
@@ -357,37 +324,18 @@ npm run stage                                                # dist → ../src/m
 
 ---
 
-## 十三、迁移收尾：旧 SPA 删除（**已冻结 2026-10-25；删除随 dist 上线同批**）
+## 十三、迁移收尾：旧 SPA 删除（**已收口 2026-10-26**）
 
-**决策**：旧 SPA **不再同步、不再修**（`T61` 已关闭，见 §九）。
-**删除时点 = 「dist 上 Spring + 静态转发」那一个提交**（与部署、静态白名单、引用清扫同批）——
-不提前（`/` 会 404 到替代品上线），也不等重制完（活文档会继续把它当"实现位置"，规则会继续逼你为死代码同步）。
-**兜底**：若静态转发被拖过一个窗口，按下面同一清单**立即删**、接受 `:8080/` 404 —— 坏页面比 404 更坏。
+三个提交：`b79dfe1`（静态转发 + 白名单）· `a916959`（幂等过滤器安全方法直通）· `09ae36a`（dist 上 Spring + 删 18 文件）。
+当前有效结论（细节以代码 + 契约测试为准，不再复述当时的前置清单）：
 
-**前置条件（缺一不可）**
-
-> ✅ **执行记录（2026-10-26，本项已收口）**：`b79dfe1`（静态转发 + 白名单）· `a916959`（幂等过滤器安全方法直通）·
-> `09ae36a`（dist 上 Spring + 删 18 文件）。下面五条是**当时的前置清单**，保留作判据；逐条结果：
->
-> | # | 结果 |
-> |---|---|
-> | 1 替代品可验证 | `npm run build && npm run stage` 后 `mvnw clean spring-boot:run`：`/`、`/search`、`/video/65`、`/space/233`、`/assets/*.js` 全 200（`/api/v1/contents/recommended` 仍 200） |
-> | 2 白名单 | `SKIP_PREFIXES`：`/static/` → `/assets/`，**并补 HTML 外壳与 `/video/ /space/ /placeholder/`**（外壳是静态文件，页面里的 `/api/v1/**` 照常过闸）；`STATIC_PREFIXES` 同步；★ **转发用 ViewController，不需要 `@Public`**（没有 `@Controller` 端点，见 §十二） |
-> | 3 测试同步 | `RateLimitFilterContractTests` 探针改 `/assets/` 并补四个 HTML 外壳「零扣费」；`FrameworkErrorContractTests` 探针改 `/assets/`；**新增 `StaticForwardingContractTests`**（MockMvc 断言 `forwardedUrl`，不依赖产物是否存在；也钉住不是 redirect） |
-> | 4 引用清扫 | 活文档改指新前端（`INDEX` / `前端.md` / 限流 / 安全与鉴权 / 接口契约 / 幂等 / favorite / history）；历史裁决**只加状态行不改写** |
-> | 5 验收 | `git ls-files src/main/resources/static` 为空 + 四条路径 200 + `mvnw -B clean verify` 绿 + 三条文档门禁 0 |
-
-1. **替代品可验证**：dist 已上 Spring，`/`、`/search`、`/video/:id`、`/assets/*` 全 200。
-2. **静态白名单一起改**（否则新站首屏资源逐枚吃匿名令牌 ⇒ **429 掉 CSS**）：
-   `RateLimitFilter.SKIP_PREFIXES` 的 `/static/` → `/assets/`，并明确 `/search`、`/video/*` 这些 HTML 入口是否跳过；
-   `GlobalExceptionHandler.STATIC_PREFIXES` 同步；转发路由标 `@Public`（默认拒绝）。
-3. **测试同步**：`RateLimitFilterContractTests` 的 `/static/css/common.css` 用例与"前端 18 文件"措辞；
-   补一条 `/assets/*` 零扣费断言（**要能变红**：去掉白名单应红）。
-4. **引用清扫**（活文档改指新前端；**历史裁决保留 + 只加状态行，不改写**）：
-   `INDEX.md` §一① · 本文件 §七/§九/§十二 · `favorite.md` 的 `T7`/`T19`/`I-08` 锚点 ·
-   `history-术语表.md` 的"页面 ↔ 端点矩阵" · `history.md` / `history-需求.md` 的"`static/` 不动" ·
-   `接口契约.md` 的 `R-23`/`T61` · `FURTHER_ISSUES.md` 的 `F-27`。
-5. **验收**：`static/static/js` 零残留 + 第 1 条的四条路径全 200 + `mvnw -B clean verify` 绿 + 三条文档门禁 0。
+- dist 落 `src/main/resources/static`（产物不入库）；`/`、`/search`、`/video/:id`、`/space/:id`、
+  `/favorites`、`/watchlater`、`/history`、**`/dynamic`（2026-10-27）**、`/assets/**` 全 200，旧 `/static/**` 404；
+- 转发用 **`ViewController` + forward**（不进端点登记簿 / 不进 spec / 不需要 `@Public` / 地址栏 URL 不变）；
+  dev 侧 `vite.config.ts` 是**同一张映射表**，两处必须同步改；
+- `/assets/`、HTML 外壳在 `RateLimitFilter.SKIP_EXACT` / `SKIP_PREFIXES` 里（否则 **429 掉 CSS**）；
+- `StaticForwardingContractTests`（断言 `forwardedUrl`，而非"最终 200"）+ `RateLimitFilterContractTests`
+  的零扣费探针钉住上面两条；新增入口时**两处都要加**（2026-10-27 加 `/dynamic` 即如此）。
 
 **删除时不做的事**：不动 `src/main/resources/db/migration/**`（逐字节冻结）、不动 `old-project/`（行为判据）。
 
