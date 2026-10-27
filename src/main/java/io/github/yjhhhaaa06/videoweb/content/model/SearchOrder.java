@@ -28,6 +28,12 @@ public enum SearchOrder {
     /** 最新发布：{@code create_time DESC, id DESC}（缺省，与加参数前一致）。 */
     LATEST,
 
-    /** 最多播放：{@code play_count DESC, id DESC}。⚠️ 图文的 {@code play_count} 结构性恒 0。 */
+    /**
+     * 最多播放：{@code play_count DESC, id DESC}。
+     *
+     * <p>⚠️ 图文的 {@code play_count} **结构性恒 0**（{@code /play} 只收视频）⇒ 该排序在图文上退化为按 id 倒序。
+     * <p>⚠️ {@code content.play_count} **无索引**（V6 只加了列）⇒ 命中集内 filesort；命中集先由全文索引 / LIKE 缩小，
+     * 本仓数据量下可接受。**刻意不为它加迁移**：没有真实流量时加索引只是把成本记在将来（同 `T43` 的口径）。
+     */
     PLAY
 }

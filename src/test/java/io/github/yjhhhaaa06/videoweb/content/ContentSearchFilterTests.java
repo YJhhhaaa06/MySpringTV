@@ -82,6 +82,13 @@ class ContentSearchFilterTests extends AbstractContentIntegrationTest {
         assertThat(total("/api/v1/contents?keyword=" + KW_MULTI + "&type=POST")).isEqualTo(1);
         assertThat(ids("/api/v1/contents?keyword=" + KW_MULTI + "&type=POST"))
                 .containsExactly(postId);
+
+        // 页码不多出来：筛选后只剩 1 条 ⇒ 第 2 页必须是空页，而 total 仍是 1（漏 count 过滤时 total=2 ⇒ 会多一页）
+        assertThat(ids("/api/v1/contents?keyword=" + KW_MULTI + "&type=VIDEO&pageSize=1&page=2"))
+                .as("筛选后的第 2 页必须为空")
+                .isEmpty();
+        assertThat(total("/api/v1/contents?keyword=" + KW_MULTI + "&type=VIDEO&pageSize=1&page=2"))
+                .isEqualTo(1);
     }
 
     @Test
@@ -133,10 +140,11 @@ class ContentSearchFilterTests extends AbstractContentIntegrationTest {
         assertThat(ids("/api/v1/contents?keyword=" + KW_MULTI + "&type=VIDEO&order=PLAY&pageSize=1"))
                 .containsExactly(idA);
 
-        // 排序依据与展示值同源：PLAY 排序用的就是 playCount 那一列
+        // 排序键与回显同源：本用例 Redis 已清 ⇒ 回显的 playCount 就是 content.play_count 列值，
+        // 与 ORDER BY 读的是同一列（缓存命中时回显可能与"此刻的列值"差一个 TTL，那是计数缓存的既有口径）
         assertThat(Envelope.data(get("/api/v1/contents?keyword=" + KW_MULTI + "&order=PLAY", null))
                 .path("list").get(0).path("playCount").asLong())
-                .as("排序键与列表回显的 playCount 必须同源")
+                .as("排序用的列与列表回显的 playCount 必须是同一列")
                 .isEqualTo(100L);
     }
 

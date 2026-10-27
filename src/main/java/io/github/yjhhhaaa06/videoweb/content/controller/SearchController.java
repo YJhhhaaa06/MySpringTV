@@ -95,7 +95,9 @@ public class SearchController {
      *
      * <h2>★ `GAP-10`（2026-10-27）：两个**可选**筛选 / 排序参数</h2>
      * <ul>
-     *   <li>{@code type=VIDEO|POST} —— 内容类型筛选；缺省 / 空串 = **不筛**（"综合"）。</li>
+     *   <li>{@code type=VIDEO|POST} —— 内容类型筛选；缺省 / **空串** = **不筛**（"综合"）。
+     *       ⚠️ 只有**空串**（{@code type=}）被 Spring 的 {@code StringToEnum} 当 null；
+     *       **纯空白**（{@code type=%20}）会走 {@code valueOf("")} ⇒ 400，与"不筛"不是一回事。</li>
      *   <li>{@code order=LATEST|PLAY} —— 排序；缺省 {@code LATEST}
      *       = {@code create_time DESC, id DESC}，**与加参数前逐字一致**。</li>
      * </ul>
