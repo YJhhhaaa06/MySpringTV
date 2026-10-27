@@ -61,8 +61,8 @@ public class GlobalExceptionHandler {
 
     /** 根路径上的静态文件 / 前端入口 HTML（精确匹配）：缺文件时只回 404 状态、不产信封。 */
     private static final Set<String> STATIC_EXACT = Set.of(
-            "/", "/index.html", "/search.html", "/video.html", "/space.html",
-            "/favorites.html", "/history.html", "/favicon.ico", "/favicon.svg");
+            "/", "/index.html", "/search.html", "/video.html", "/opus.html", "/space.html",
+            "/favorites.html", "/history.html", "/dynamic.html", "/favicon.ico", "/favicon.svg");
 
     /**
      * 静态媒体 / 前端构建产物前缀：缺文件时同样不产信封。

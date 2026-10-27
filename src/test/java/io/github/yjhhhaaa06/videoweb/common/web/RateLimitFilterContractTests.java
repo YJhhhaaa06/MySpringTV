@@ -301,6 +301,7 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
             hitSkippedAndAssertUntouched("/history");
             hitSkippedAndAssertUntouched("/dynamic");
             hitSkippedAndAssertUntouched("/video/999999");
+            hitSkippedAndAssertUntouched("/opus/999999");
             hitSkippedAndAssertUntouched("/space/999999");
             hitSkippedAndAssertUntouched("/placeholder/live");
         } catch (IOException e) {

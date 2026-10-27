@@ -120,20 +120,21 @@ public class RateLimitFilter extends OncePerRequestFilter {
             "/watchlater",
             "/history", "/history.html",
             "/dynamic", "/dynamic.html",
-            "/video.html", "/space.html");
+            "/video.html", "/opus.html", "/space.html");
 
     /**
      * 跳过清单的**前缀**匹配（带尾 {@code /}，避免 {@code /staticfoo} 这类假想业务路径被误跳）。
      * {@code /actuator/} 用带斜杠前缀：{@code /actuator} 本身（端点链接页，200）不在清单内、
      * 会过闸——一次请求一枚令牌，可忽略。⚠️ 比原始清单的 {@code /actuator/**} 略窄
      * （多放行裸 {@code /actuator} 一个路径），已留痕 {@code architecture/tech/rate-limit/限流.md} §三。
-     * <p>{@code /video/}、{@code /space/}、{@code /placeholder/} 是**应用内路由的转发入口**
-     * （如 {@code /video/92} → {@code video.html}），请求只到 ViewController + 静态文件、
-     * 不碰 DB / Redis；它们的成本全在页面随后发出的 {@code /api/v1/**} 上。
+     * <p>{@code /video/}、{@code /opus/}、{@code /space/}、{@code /placeholder/} 是**应用内路由的转发入口**
+     * （如 {@code /video/92} → {@code video.html}、{@code /opus/91} → {@code opus.html}），
+     * 请求只到 ViewController + 静态文件、不碰 DB / Redis；它们的成本全在页面随后发出的
+     * {@code /api/v1/**} 上。
      */
     private static final List<String> SKIP_PREFIXES = List.of(
             "/assets/", "/actuator/", "/upload/",
-            "/video/", "/space/", "/placeholder/");
+            "/video/", "/opus/", "/space/", "/placeholder/");
 
     private final RateLimitProperties properties;
     private final RateLimitRedisOps ops;
