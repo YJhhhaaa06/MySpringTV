@@ -3720,8 +3720,13 @@ components:
     UpdateContentRequest:
       type: object
       properties:
+        categoryId:
+          type: integer
+          format: int32
         description:
           type: string
+        media:
+          $ref: "#/components/schemas/MediaManifest"
         title:
           type: string
     UpdateFavoriteFolderRequest:

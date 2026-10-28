@@ -16,26 +16,32 @@ import org.springframework.stereotype.Service;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.OptionalInt;
 import java.util.Set;
 
 /**
- * 媒体引用清单的校验（创建 / 编辑共享的唯一归一化入口）。
+ * 媒体引用清单的校验与落库（创建 / 编辑共享的唯一媒体写入原语）。
  *
- * <h2>职责</h2>
- * {@link #normalize} 把请求里的 {@link MediaManifest} 校验并归一化成
- * {@link NormalizedMedia}：类型约束（视频必须有视频 + 封面、图文不能带视频）、
- * URL 形状、文件真实存在、跨作品占用、清单内重复、视频时长。
+ * <h2>两层职责</h2>
+ * <ol>
+ *   <li>{@link #normalize}：把请求里的 {@link MediaManifest} 校验并归一化成
+ *       {@link NormalizedMedia}（类型约束 / URL 形状 / 文件存在 / 跨作品占用 / 视频时长）；</li>
+ *   <li>{@link #reconcile}：把"当前 {@code content_media} 行"与"目标清单"做差集，
+ *       删缺席、插新增、按数组顺序重写 {@code sort}，并返回**需要清理物理文件**的 URL。</li>
+ * </ol>
  *
  * <h2>★ 事务边界</h2>
- * 本类**自身不开事务**：调用方（创建 / 编辑的事务）负责事务边界，
- * 让"内容行 + 媒体行"同进同退.
+ * 本类**自身不开事务**：{@code reconcile} 必须在调用方（创建 / 编辑的事务）里执行，
+ * 让"内容行 + 媒体行"同进同退；返回的待删 URL 由 Controller 在**提交后**删除，
+ * 避免"DB 回滚了、文件却没了"。
  *
  * <h2>★ 为什么 URL 是身份</h2>
  * upload-only 端点产出的文件名是 UUID，上传后不再复用 ⇒ URL 是不可变标识；
- * 编辑侧的差集必须按 URL 才能区分"换了一张图"与"重排顺序"，而 {@code sort} 是可变量，
+ * 清单按 URL 做差集才能区分"换了一张图"与"重排顺序"，而 {@code sort} 是可变量，
  * 拿它当身份会让重试 / 并发改到别的行（{@code T63} 的同一结论）。
  *
  * <h2>已知边界（刻意不做）</h2>
@@ -161,9 +167,86 @@ public class ContentMediaManifestService {
         return new NormalizedMedia(video, cover, List.copyOf(images), duration);
     }
 
+    /**
+     * 按整份清单重写某内容的媒体行。
+     *
+     * <p>差集口径：按 {@code (type, url)} 保留命中行、删除缺席行（含"同 key 的重复历史行"）、
+     * 对保留但位置变了的行写目标 {@code sort}、对缺失的目标行插入。
+     * 返回的是**旧 URL 中不再被本清单引用**的部分（去重）——调用方提交事务后再删物理文件；
+     * 被"换个角色继续使用"的 URL 不会出现在返回值里。
+     *
+     * @return 需要清理的物理文件 URL（可能为空；顺序稳定但不承诺业务含义）
+     */
+    public List<String> reconcile(long contentId, ContentType type, MediaManifest manifest) {
+        List<ContentMedia> current = contentMediaDao.findMediaByContentId(contentId);
+        NormalizedMedia desired = normalize(type, manifest, urlsOf(current), contentId);
+        List<DesiredRow> desiredRows = desiredRows(type, desired);
+        Set<RowKey> desiredKeys = desiredKeys(desiredRows);
+        Set<String> desiredUrls = new LinkedHashSet<>();
+        for (DesiredRow row : desiredRows) {
+            desiredUrls.add(row.url());
+        }
+
+        Map<RowKey, ContentMedia> kept = new LinkedHashMap<>();
+        LinkedHashSet<String> removedUrls = new LinkedHashSet<>();
+        Set<RowKey> seen = new HashSet<>();
+
+        for (ContentMedia row : current) {
+            RowKey key = new RowKey(row.getType(), row.getUrl());
+            if (!desiredKeys.contains(key) || !seen.add(key)) {
+                // 缺席 ⇒ 删；同 (type,url) 的重复历史行 ⇒ 只留第一行、其余删掉。
+                contentMediaDao.deleteMediaById(row.getMediaId());
+                if (!desiredUrls.contains(row.getUrl())) {
+                    removedUrls.add(row.getUrl());
+                }
+            } else {
+                kept.put(key, row);
+            }
+        }
+
+        for (DesiredRow desiredRow : desiredRows) {
+            ContentMedia existing = kept.get(new RowKey(desiredRow.type(), desiredRow.url()));
+            if (existing == null) {
+                contentMediaDao.addMedia(contentId, desiredRow.url(), desiredRow.type(), desiredRow.sort(),
+                        desiredRow.type() == UploadType.VIDEO.getMediaType()
+                                ? desired.videoDurationSeconds() : null);
+            } else if (!Integer.valueOf(desiredRow.sort()).equals(existing.getSort())) {
+                contentMediaDao.updateMediaSort(existing.getMediaId(), desiredRow.sort());
+            }
+        }
+
+        return List.copyOf(removedUrls);
+    }
+
     // ========================================================================
     // 内部
     // ========================================================================
+
+    /** 内容类型 → 目标行（视频/封面恒 sort=1；图片按清单顺序 1..n）。 */
+    private static List<DesiredRow> desiredRows(ContentType type, NormalizedMedia media) {
+        List<DesiredRow> rows = new ArrayList<>();
+        if (type == ContentType.VIDEO) {
+            rows.add(new DesiredRow(UploadType.VIDEO.getMediaType(), media.videoUrl(), 1));
+            rows.add(new DesiredRow(UploadType.COVER.getMediaType(), media.coverUrl(), 1));
+            return rows;
+        }
+        if (media.coverUrl() != null) {
+            rows.add(new DesiredRow(UploadType.COVER.getMediaType(), media.coverUrl(), 1));
+        }
+        int sort = 1;
+        for (String image : media.imageUrls()) {
+            rows.add(new DesiredRow(UploadType.IMAGE.getMediaType(), image, sort++));
+        }
+        return rows;
+    }
+
+    private static Set<RowKey> desiredKeys(List<DesiredRow> rows) {
+        Set<RowKey> keys = new HashSet<>();
+        for (DesiredRow row : rows) {
+            keys.add(new RowKey(row.type(), row.url()));
+        }
+        return keys;
+    }
 
     private static void addUnique(Set<String> urls, String url) {
         if (url != null && !urls.add(url)) {
@@ -218,4 +301,9 @@ public class ContentMediaManifestService {
         }
     }
 
+    private record DesiredRow(int type, String url, int sort) {
+    }
+
+    private record RowKey(int type, String url) {
+    }
 }

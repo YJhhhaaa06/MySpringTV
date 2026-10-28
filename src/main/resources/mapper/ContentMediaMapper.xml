@@ -89,6 +89,11 @@
         select count(*) from content_media where url=#{url} and content_id &lt;&gt; #{excludedContentId}
     </select>
 
+    <!-- 清单 reconcile：保留行但位置变了时，按目标值写 sort（不是增量前移）。 -->
+    <update id="updateMediaSort">
+        update content_media set sort=#{sort} where id=#{mediaId}
+    </update>
+
     <!-- TV: updateMediaUrl —— `update content_media set url=?, file_exists=?, last_verify_time=? where id=?`
          （换源：更新 url + 立即标记"文件存在" + 记录校验时间；boolean → tinyint 隐式转换）。 -->
     <update id="updateMediaUrl">

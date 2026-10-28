@@ -59,7 +59,7 @@ import java.util.Set;
  *   <tr><td>{@code GET /api/v1/contents/{id}}（详情，`T58` 前为 /search/IdSearch）</td><td>{@link #getContentDetailVO}</td><td>无（纯读）</td></tr>
  *   <tr><td>{@code GET /comment/show}</td><td>{@link #getCommentsForContent} ×2 重载</td><td>无（纯读）</td></tr>
  *   <tr><td>{@code POST /content/commentEnabled}</td><td>{@link #setCommentEnabled}</td><td>{@code @Transactional}</td></tr>
- *   <tr><td>{@code POST /content/update}</td><td>{@link #updateContentInfo}</td><td>{@code @Transactional}</td></tr>
+ *   <tr><td>{@code PUT /api/v1/contents/{id}}</td><td>{@link #updateContent}</td><td>{@code @Transactional}</td></tr>
  *   <tr><td>{@code POST /content/delete} / {@code /mediaDelete}</td><td>{@link #deleteContent} / {@link #deleteMedia}</td>
  *       <td>{@code @Transactional}</td></tr>
  *   <tr><td>{@code POST /api/v1/contents}（JSON 清单）</td><td>{@link #createVideo} / {@link #createPost}</td><td>{@code @Transactional}</td></tr>
@@ -351,18 +351,31 @@ public class ContentService {
     // ========================================================================
 
     /**
-     * 作者本人编辑作品标题与简介（A3）。
+     * 作者本人编辑作品：标题 / 简介 / 分区，以及**可选的整份媒体清单**。
      *
-     * <p>三条**参数校验在事务外**（TV 亦在事务外）：标题非空、标题 ≤50（对齐前端 maxlength）、
-     * 简介 ≤5000。校验先于归属校验——顺序保留决定"非作者 + 标题为空"时报 400 还是 403（TV 报 400）。
+     * <h2>校验顺序与 GAP-31</h2>
+     * 标题非空且 ≤50 在归属校验**之前**（保留 TV 的"非作者 + 空标题 ⇒ 400"口径）；
+     * 简介先做全站硬上限 10000 的前置检查，再在拿到内容类型后按类型收紧
+     * （视频 1000 / 图文 10000）——后者必须知道类型，故放在归属校验之后。
+     * ★ 由此产生一处**有意的顺序变化**：非作者 + 5001 字的图文简介现在报 403 而不是 400
+     * （旧实现是"一律 5000 前置"）；标题与分区仍然先于归属校验。
      *
-     * <p>全文索引（ngram）由 MySQL 自动维护，无额外语句（TV 原注释）。
+     * <h2>{@code media} 的语义</h2>
+     * {@code null} = 不动媒体（只改文案，兼容旧调用方）；非 {@code null} = 按
+     * {@code ContentMediaManifestService#reconcile} **整份覆盖**：
+     * 删缺席行、插新增行、按数组顺序重写 {@code sort}。媒体写入与内容行更新同一事务，
+     * 任一失败整体回滚。
      *
-     * <p>提交后**重载**内容 key（{@code Op.REFRESH}）并刷新索引——文案变了，光失效会让首次读者
-     * 回源（可接受）但索引里只有 id 不含文案，故这里用 REFRESH 更贴近 TV 的 {@code refreshContent}。
+     * <h2>提交后副作用</h2>
+     * {@code ContentCacheChangedEvent.refresh}（AFTER_COMMIT）；返回的"被移除 URL"由
+     * Controller 在**事务提交后**删物理文件（本方法返回时事务已提交）。
+     *
+     * @param media 整份媒体清单；{@code null} = 不改媒体
+     * @return 需要清理的物理文件 URL（不再被本作品引用；可能为空）
      */
     @Transactional
-    public void updateContentInfo(long contentId, long userId, String title, String description) {
+    public List<String> updateContent(long contentId, long userId, String title, String description,
+                                      Integer categoryId, MediaManifest media) {
         String t = title == null ? "" : title.trim();
         String d = description == null ? "" : description.trim();
         if (t.isEmpty()) {
@@ -371,12 +384,33 @@ public class ContentService {
         if (t.length() > 50) {
             throw new ParamException(ErrorCode.PARAM_INVALID, "标题不超过50字");
         }
-        if (d.length() > 5000) {
-            throw new ParamException(ErrorCode.PARAM_INVALID, "简介不超过5000字");
+        if (d.length() > 10_000) {
+            throw new ParamException(ErrorCode.PARAM_INVALID, "简介不超过10000字");
         }
-        findOwnedContent(contentId, userId);
+        if (categoryId != null && (categoryId < 0 || categoryId > 9)) {
+            throw new ParamException(ErrorCode.PARAM_INVALID, "暂时没有这个分区");
+        }
+
+        ContentCacheDTO dto = findOwnedContent(contentId, userId);
+        ContentType type = ContentType.fromTypeNumber(dto.getType());
+        if (type == null) {
+            // 装载契约已拒绝未知类型；走到这里是数据绕过了媒体装配，按不可用处理。
+            throw new IllegalStateException("未知内容类型: contentId=" + contentId + ", type=" + dto.getType());
+        }
+        int limit = type == ContentType.VIDEO ? 1000 : 10_000;
+        if (d.length() > limit) {
+            throw new ParamException(ErrorCode.PARAM_INVALID, "简介不超过" + limit + "字");
+        }
+
         contentDao.updateContentInfo(contentId, t, d);
+        if (categoryId != null) {
+            contentDao.updateCategoryId(contentId, categoryId);
+        }
+        List<String> removedUrls = media == null
+                ? List.of()
+                : contentMediaManifestService.reconcile(contentId, type, media);
         events.publishEvent(ContentCacheChangedEvent.refresh(contentId));
+        return removedUrls;
     }
 
     /**

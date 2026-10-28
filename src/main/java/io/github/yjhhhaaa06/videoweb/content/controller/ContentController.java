@@ -93,18 +93,32 @@ public class ContentController {
     }
 
     /**
-     * 作者编辑标题/简介（{@code PUT /api/v1/contents/{id}}）。
+     * 作者编辑作品（{@code PUT /api/v1/contents/{id}}）：元数据 + 可选的整份媒体清单。
      *
-     * <p>`T59` 载荷面：入参改为 JSON body {@code {"title": "…", "description": "…"}}
-     * （依据《接口契约.md》§2.5）；标题空 → 400「标题不能为空」；标题 >50 → 400；
-     * 简介 >5000 → 400；非作者 → 403；内容不存在 → 404。
+     * <h2>★ {@code media} 的出现即整份覆盖</h2>
+     * <ul>
+     *   <li>{@code media} 缺省 / {@code null} ⇒ 只改文案，媒体行原样保留（兼容旧调用方）；</li>
+     *   <li>{@code media} 出现 ⇒ 按清单重写媒体：缺席的旧图片/封面删除、新增的插入、
+     *       图片 {@code sort} 按数组顺序 1..n。清单外的旧文件在**事务提交后**由本方法删除
+     *       （{@code deleteFileByUrl} 尽力而为，失败只记 WARNING）。</li>
+     * </ul>
+     * 编辑中的媒体对观众不可见的实现前提是：新资源先走 upload-only 端点，只有本次提交
+     * 才会被绑定；提交前它们不参与任何内容装配。
+     *
+     * <h2>校验与 GAP-31</h2>
+     * 标题空/超 50、分区越界 → 400；简介按内容类型取上限（视频 1000 / 图文 10000）；
+     * 非作者 → 403；内容不存在 → 404；未登录 → 401。
      */
     @PutMapping("/api/v1/contents/{id}")
     @RequiresLogin
     public ApiResponse<Void> update(@CurrentUserId long userId,
                                     @PathVariable("id") long contentId,
                                     @RequestBody UpdateContentRequest request) {
-        contentService.updateContentInfo(contentId, userId, request.title(), request.description());
+        List<String> removedUrls = contentService.updateContent(contentId, userId,
+                request.title(), request.description(), request.categoryId(), request.media());
+        for (String url : removedUrls) {
+            fileUploadService.deleteFileByUrl(url);
+        }
         return ApiResponse.success();
     }
 

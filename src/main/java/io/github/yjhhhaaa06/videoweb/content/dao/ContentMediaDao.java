@@ -136,6 +136,14 @@ public interface ContentMediaDao {
                                    @Param("excludedContentId") long excludedContentId);
 
     /**
+     * 重排单条媒体的 {@code sort}（清单提交按数组下标重写图片顺序）。
+     *
+     * <p>与 {@link #compactImageSort} 的区别：后者是"删一张后整体前移"的旧端点专用；
+     * 本方法按**目标值**写一行，供清单 reconcile 对"保留下来但位置变了"的行逐条更新。
+     */
+    int updateMediaSort(@Param("mediaId") long mediaId, @Param("sort") int sort);
+
+    /**
      * 换源：更新单条媒体的 url，并立即标记"文件存在" + 记录校验时间。
      *
      * <p>TV: {@code update content_media set url=?, file_exists=?, last_verify_time=? where id=?}

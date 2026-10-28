@@ -532,6 +532,15 @@ public interface ContentDao {
                           @Param("title") String title,
                           @Param("description") String description);
 
+    /**
+     * 作者编辑分区（{@code PUT /api/v1/contents/{id}} 的可选字段）。
+     *
+     * <p>与 {@link #updateContentInfo} 拆成两条语句而不是合并成一条：旧签名被
+     * {@code ContentCacheTests} 的"事务回滚"用桩点依赖，改签名会让那条**机制证明**跟着改；
+     * 两条语句在同一事务里，语义与"一条 SET 三列"等价。
+     */
+    int updateCategoryId(@Param("contentId") long contentId, @Param("categoryId") int categoryId);
+
     /** 作者删除作品：软删。TV: {@code UPDATE content SET is_deleted = 1 WHERE id = ?} */
     int softDeleteContent(@Param("contentId") long contentId);
 

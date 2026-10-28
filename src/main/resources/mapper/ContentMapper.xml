@@ -409,6 +409,11 @@
         UPDATE content SET title = #{title}, description = #{description} WHERE id = #{contentId}
     </update>
 
+    <!-- 编辑分区（清单批次追加）：与 updateContentInfo 同事务执行；0~9 的取值由 Service 校验。 -->
+    <update id="updateCategoryId">
+        UPDATE content SET category_id = #{categoryId} WHERE id = #{contentId}
+    </update>
+
     <!-- TV: softDeleteContent（A1，复用 is_deleted 字段，无 DDL）。 -->
     <update id="softDeleteContent">
         UPDATE content SET is_deleted = 1 WHERE id = #{contentId}
