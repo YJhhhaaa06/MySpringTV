@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, deleteJson, getJson, postJson, putJson } from './http'
+import { ApiError, UPLOAD_TIMEOUT_MS, deleteJson, getJson, postForm, postJson, putJson } from './http'
 import { IDEMPOTENCY_HEADER, newIdempotencyKey } from './idempotency'
 
 /**
@@ -172,5 +172,124 @@ describe('查询串', () => {
 
     await deleteJson('/api/v1/favorites', { query: { folderId: 14, contentIds: [65, 66] } })
     expect(calls[1]!.url).toBe('/api/v1/favorites?folderId=14&contentIds=65&contentIds=66')
+  })
+})
+
+/**
+ * `postForm`（multipart）的替身：XHR 在 node 环境不存在，但它的**契约面**必须被测——
+ * 上传进度、幂等键、信封解包、超时错误，任何一条写错都会让投稿页"看起来在传，实际失败"。
+ */
+class FakeXhr {
+  static last: FakeXhr | null = null
+
+  upload: { onprogress: ((event: ProgressEvent) => void) | null } = { onprogress: null }
+  status = 0
+  responseText = ''
+  timeout = 0
+  retryAfter: string | null = null
+  method = ''
+  url = ''
+  headers = new Map<string, string>()
+  body: FormData | null = null
+  onload: (() => void) | null = null
+  onerror: (() => void) | null = null
+  ontimeout: (() => void) | null = null
+  onabort: (() => void) | null = null
+
+  constructor() {
+    FakeXhr.last = this
+  }
+
+  open(method: string, url: string): void {
+    this.method = method
+    this.url = url
+  }
+
+  setRequestHeader(name: string, value: string): void {
+    this.headers.set(name, value)
+  }
+
+  getResponseHeader(name: string): string | null {
+    return name === 'Retry-After' ? this.retryAfter : null
+  }
+
+  send(body: FormData): void {
+    this.body = body
+  }
+
+  respond(status: number, text: string): void {
+    this.status = status
+    this.responseText = text
+    this.onload?.()
+  }
+}
+
+function stubXhr(): void {
+  vi.stubGlobal('XMLHttpRequest', FakeXhr)
+}
+
+describe('multipart 上传（postForm）', () => {
+  it('POST + FormData；不手设 Content-Type（boundary 由 XHR 生成）；幂等键与 Bearer 都在', async () => {
+    stubXhr()
+    localStorage.setItem('myspringtv.token', 'tok-upload')
+    const form = new FormData()
+    form.append('title', '标题')
+
+    const pending = postForm('/api/v1/contents/videos', form, {
+      headers: { [IDEMPOTENCY_HEADER]: 'key-1' },
+    })
+    const xhr = FakeXhr.last!
+    expect(xhr.method).toBe('POST')
+    expect(xhr.url).toBe('/api/v1/contents/videos')
+    expect(xhr.body).toBe(form)
+    expect(xhr.headers.get(IDEMPOTENCY_HEADER)).toBe('key-1')
+    expect(xhr.headers.get('Authorization')).toBe('Bearer tok-upload')
+    expect(xhr.headers.has('Content-Type')).toBe(false)
+    expect(xhr.timeout).toBe(UPLOAD_TIMEOUT_MS)
+
+    xhr.respond(200, JSON.stringify({ code: 'OK', msg: 'success', data: { contentId: 9 } }))
+    await expect(pending).resolves.toEqual({ contentId: 9 })
+  })
+
+  it('上传进度只在 lengthComputable 时回调（loaded/total 原样交给页面）', async () => {
+    stubXhr()
+    const progress: Array<[number, number]> = []
+    const pending = postForm('/api/v1/contents/posts', new FormData(), {
+      onProgress: (loaded, total) => progress.push([loaded, total]),
+    })
+    const xhr = FakeXhr.last!
+
+    xhr.upload.onprogress!({ lengthComputable: false, loaded: 10, total: 0 } as ProgressEvent)
+    expect(progress).toEqual([])
+    xhr.upload.onprogress!({ lengthComputable: true, loaded: 50, total: 100 } as ProgressEvent)
+    expect(progress).toEqual([[50, 100]])
+
+    xhr.respond(200, JSON.stringify({ code: 'OK', data: { contentId: 11 } }))
+    await expect(pending).resolves.toEqual({ contentId: 11 })
+  })
+
+  it('失败体与 Retry-After 走同一套信封规则（429 能拿到秒数）', async () => {
+    stubXhr()
+    const pending = postForm('/api/v1/contents/videos', new FormData()).catch((error) => error)
+    const xhr = FakeXhr.last!
+    xhr.retryAfter = '7'
+    xhr.respond(429, JSON.stringify({ code: 'RATE_LIMITED', msg: '请求过于频繁' }))
+
+    const error = await pending
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error.status).toBe(429)
+    expect(error.code).toBe('RATE_LIMITED')
+    expect(error.retryAfterSeconds).toBe(7)
+  })
+
+  it('超时 / 网络失败是 status 0 的不同业务码（页面据此说不同的人话）', async () => {
+    stubXhr()
+    const timeout = postForm('/api/v1/contents/videos', new FormData()).catch((error) => error)
+    FakeXhr.last!.ontimeout?.()
+    expect(await timeout).toMatchObject({ status: 0, code: 'UPLOAD_TIMEOUT' })
+
+    const offline = postForm('/api/v1/contents/videos', new FormData()).catch((error) => error)
+    FakeXhr.last!.onerror?.()
+    expect(await offline).toMatchObject({ status: 0, code: 'NETWORK_ERROR' })
   })
 })
