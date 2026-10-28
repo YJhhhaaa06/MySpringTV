@@ -206,13 +206,15 @@ lightbox 打开聚焦 + Tab 陷阱 + 关闭还焦点；缩略图切换 `scrollIn
 > 纯文字图文网格卡（真简介；无简介 → 中性「图文动态」）✅ · 相关推荐同标签 SPA ✅
 > **⑲（2026-10-28 第八窗口）**：创作中心投稿页 `/creator`（第 9 个入口；视频/图文真提交 + 上传进度 +
 > 幂等键；4 个无域 tab 与无域字段一律不渲染；E2E 68/68）✅
-> **下一窗口（已定，2026-10-28 用户拍板）**：先做**后端契约批次**（① `PUT /contents/{id}` 补 `categoryId`；
-> ② 图文加图 / 整份图片列表；③ 无封面补封面；④ 对齐"发布图文 10000 vs 编辑 5000"的简介上限），
-> 再交付 **我的稿件列表 + 编辑页**（取回 → 覆盖）。
+> **后端契约批次 ✅（2026-10-29）**：① `POST /api/v1/uploads/{type}` 单文件上传（只落盘、不写库）；
+> ② `POST /api/v1/contents` JSON 媒体清单创建；③ `PUT /contents/{id}` 的 `media` 整份覆盖
+> （加图 / 删图 / 重排 / 补封面 / 清空；缺省 = 不动媒体）；④ 简介上限按类型（视频 1000 / 图文 10000，GAP-31）。
+> 旧 multipart 发布端点保留为**兼容面**，业务逻辑与清单校验只有一套。
+> **下一窗口**：投稿页迁移到 upload + JSON 清单 · **我的稿件列表 + 编辑页**（取回 → 覆盖）。
 > **明确不做**：动态详情页（本仓没有动态实体/转发域；图文详情已由 `/opus` 承接，视频动态仍进播放页）·
 > 标签 / 创作声明 / 活动 / 定时发布 / 合集 / 商业推广 / 草稿与审核态（本仓无域或无语义）。
 > **其他候选**：空间「合集和系列 / 最近点赞」（无端点，GAP-15）· 首页 / 空间页 1707 残余像素差（低优先）·
-> GAP-28 首图回填（随契约批次）。
+> GAP-28 首图回填（**2026-10-29 拍板本窗不做**；保持文字卡面，不采用"上传时复制首图为封面"的写侧降级）。
 > **设计沉淀**：前端应用口径在 [architecture/frontend/前端.md](../architecture/frontend/前端.md)；
 > 视觉校准依据在 [视觉基准](../architecture/frontend/视觉基准.md)；
 > 播放进度客户端行为**不在本篇**，以 [history-客户端契约](../architecture/domain/history/history-客户端契约.md) 为准。
@@ -276,7 +278,7 @@ lightbox 打开聚焦 + Tab 陷阱 + 关闭还焦点；缩略图切换 `scrollIn
 | `favorites.html` | `/favorites`（`?folder=` / `?page=`）+ **`/watchlater`**（独立路由；旧 `?tab=later` 兼容） | `GET /favorite-folders` + `GET /favorites?folderId=` + `GET /watch-later` + `PUT /watch-later/{id}` + `DELETE /favorites`、`DELETE /watch-later` |
 | `history.html` | `/history?page=` | `GET /history`（**只读**：无删除/清空端点，GAP-19） |
 | `dynamic.html` | `/dynamic?page=` | `GET /feed`（**需登录**）+ `GET /users/{id}?pageSize=1` + `GET /users/{id}/following?pageSize=8` |
-| `creator.html` | `/creator` | `POST /contents/videos`、`/contents/posts`（**投稿页**；内容管理 / 编辑下一窗口） |
+| `creator.html` | `/creator` | `POST /contents/videos`、`/contents/posts`（**投稿页当前仍走 multipart 兼容面**；后端规范路径 `POST /uploads/{type}` + `POST /contents`，下窗迁移；内容管理 / 编辑下一窗口） |
 
 > 2026-10-26 已落地 **六个入口**；**2026-10-27 第七个 `dynamic`、第八个 `opus`**；
 > **2026-10-28 第九个 `creator`** —— 现在共 **九个**：
