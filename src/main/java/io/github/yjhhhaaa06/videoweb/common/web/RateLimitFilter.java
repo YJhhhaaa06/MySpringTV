@@ -120,6 +120,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
             "/watchlater",
             "/history", "/history.html",
             "/dynamic", "/dynamic.html",
+            // 创作中心（2026-10-28）：HTML 外壳同样是静态文件；页面随后发的 /api/v1/** 才过闸
+            "/creator", "/creator.html",
             "/video.html", "/opus.html", "/space.html");
 
     /**

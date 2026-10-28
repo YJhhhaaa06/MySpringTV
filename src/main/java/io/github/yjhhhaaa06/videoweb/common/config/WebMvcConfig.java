@@ -43,9 +43,9 @@ public class WebMvcConfig implements WebMvcConfigurer {
      * <h2>为什么必须补</h2>
      * 前端是「MPA 外壳 + 应用内 SPA」（口径见 {@code architecture/frontend/前端.md} §一）：
      * 每个入口一个 HTML、应用内用 {@code createWebHistory}。打包产物里只有
-     * {@code index.html / search.html / video.html / opus.html / space.html / favorites.html / history.html / dynamic.html}
+     * {@code index.html / search.html / video.html / opus.html / space.html / favorites.html / history.html / dynamic.html / creator.html}
      * 这几个**文件名**，而用户地址栏里是 {@code /search}、{@code /video/92}、{@code /opus/91}、
-     * {@code /watchlater}、{@code /dynamic}
+     * {@code /watchlater}、{@code /dynamic}、{@code /creator}
      * —— 没有这层转发，刷新深链就是 404。
      * dev / preview 侧由 {@code vite.config.ts} 的 {@code htmlHistoryFallback}
      * 承担**同一张映射表**；两处必须同步改（TS 与 Java 之间没法互相校验，靠这条注释 + review）。
@@ -89,6 +89,10 @@ public class WebMvcConfig implements WebMvcConfigurer {
         registry.addViewController("/history").setViewName("forward:/history.html");
         // 动态（2026-10-27）：`/dynamic` → dynamic.html（`GET /feed` 的页面）
         registry.addViewController("/dynamic").setViewName("forward:/dynamic.html");
+        // 创作中心（2026-10-28）：`/creator` → creator.html。
+        // ⚠️ 页面路由**刻意不用 `/upload`**：`/upload/**` 是媒体静态路径（见 addResourceHandlers），
+        //    两者撞在同一前缀上会互相吃掉（dev 侧 Vite 代理同理）。
+        registry.addViewController("/creator").setViewName("forward:/creator.html");
         registry.addViewController("/placeholder/{feature}").setViewName("forward:/index.html");
     }
 

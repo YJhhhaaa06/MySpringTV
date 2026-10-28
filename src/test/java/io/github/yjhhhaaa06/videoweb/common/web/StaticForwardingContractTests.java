@@ -56,6 +56,8 @@ class StaticForwardingContractTests extends AbstractIntegrationTest {
         assertForward("/history", "/history.html");
         // 动态（2026-10-27）：/feed 的页面入口
         assertForward("/dynamic", "/dynamic.html");
+        // 创作中心（2026-10-28）：投稿页入口
+        assertForward("/creator", "/creator.html");
         assertForward("/placeholder/live", "/index.html");
     }
 
@@ -67,6 +69,7 @@ class StaticForwardingContractTests extends AbstractIntegrationTest {
         assertForward("/search", "/search.html");
         assertForward("/video/1", "/video.html");
         assertForward("/space/1", "/space.html");
+        assertForward("/creator", "/creator.html");
     }
 
     @Test
