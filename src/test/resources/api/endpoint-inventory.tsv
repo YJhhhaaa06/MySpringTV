@@ -23,6 +23,7 @@ PUT	/api/v1/comments/{id}/like	LOGIN	ApiResponse<Void>
 GET	/api/v1/comments/{id}/like-count	LOGIN	ApiResponse<Long>
 GET	/api/v1/comments/{id}/replies	PUBLIC	ApiResponse<CursorResult<CommentVO>>
 GET	/api/v1/contents	PUBLIC	ApiResponse<PageResult<ContentVO>>
+POST	/api/v1/contents	LOGIN	ApiResponse<ContentCreatedVO>
 POST	/api/v1/contents/posts	LOGIN	ApiResponse<ContentCreatedVO>
 GET	/api/v1/contents/recommended	PUBLIC	ApiResponse<List<ContentVO>>
 POST	/api/v1/contents/videos	LOGIN	ApiResponse<ContentCreatedVO>

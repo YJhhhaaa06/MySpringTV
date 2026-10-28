@@ -457,6 +457,7 @@ video:
         "[POST /api/v1/sessions]": 5
         "[POST /api/v1/users]": 5
         # —— 上传与媒体重活（10：流式写文件 + 批量回写；scan 为媒体全盘扫描，restore 同为媒体重操作）——
+        "[POST /api/v1/contents]": 10
         "[POST /api/v1/contents/videos]": 10
         "[POST /api/v1/contents/posts]": 10
         "[POST /api/v1/uploads/{type}]": 10

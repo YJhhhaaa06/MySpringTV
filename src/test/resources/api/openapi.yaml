@@ -513,6 +513,39 @@ paths:
           $ref: "#/components/responses/InternalError"
       tags:
       - search-controller
+    post:
+      operationId: create
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateContentRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseContentCreatedVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - upload-controller
   /api/v1/contents/posts:
     post:
       operationId: uploadPost
@@ -3153,6 +3186,32 @@ components:
           format: int32
         title:
           type: string
+    CreateContentRequest:
+      type: object
+      properties:
+        categoryId:
+          type: integer
+          format: int32
+          maximum: 9
+          minimum: 0
+        description:
+          type: string
+        media:
+          $ref: "#/components/schemas/MediaManifest"
+        title:
+          type: string
+          maxLength: 50
+          minLength: 0
+        type:
+          type: string
+          enum:
+          - VIDEO
+          - POST
+      required:
+      - categoryId
+      - media
+      - title
+      - type
     CreateFavoriteFolderRequest:
       type: object
       properties:
@@ -3430,6 +3489,17 @@ components:
         total:
           type: integer
           format: int32
+    MediaManifest:
+      type: object
+      properties:
+        coverUrl:
+          type: string
+        imageUrls:
+          type: array
+          items:
+            type: string
+        videoUrl:
+          type: string
     MediaReplacedVO:
       type: object
       properties:

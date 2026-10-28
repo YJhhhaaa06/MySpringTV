@@ -75,7 +75,7 @@ public final class IdempotencyScope {
     }
 
     /**
-     * 全部非 GET 端点（当前 40 条：POST 14 / PUT 15 / DELETE 11）。
+     * 全部非 GET 端点（当前 41 条：POST 15 / PUT 15 / DELETE 11）。
      *
      * <p>⚠️ 增删端点必须同步改这里，否则 {@code IdempotencyScopeTableTests} 红。
      * {@code Map.of} 只到 10 对 ⇒ 用 {@link Map#ofEntries}。
@@ -85,6 +85,8 @@ public final class IdempotencyScope {
             // KEYED：效果层非幂等、客户端又必须知道"成没成 / 成的是哪一条"（写接口幂等.md §三）
             // ========================================================================
             entry("POST /api/v1/comments", keyed("comment", 30)),
+            // JSON 清单创建：同一意图重试只建一条内容；载荷指纹（JSON body 级）保证换内容 ⇒ 422。
+            entry("POST /api/v1/contents", keyed("content", 120)),
             entry("POST /api/v1/contents/videos", keyed("video", 120)),
             entry("POST /api/v1/contents/posts", keyed("post", 120)),
             entry("POST /api/v1/contents/{id}/coins", keyed("coin", 30)),

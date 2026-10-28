@@ -19,6 +19,7 @@ import io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentCountColumns;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentCountField;
 import io.github.yjhhhaaa06.videoweb.content.model.SearchOrder;
+import io.github.yjhhhaaa06.videoweb.content.model.dto.MediaManifest;
 import io.github.yjhhhaaa06.videoweb.content.model.entity.Content;
 import io.github.yjhhhaaa06.videoweb.content.model.entity.ContentMedia;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.AdminContentVO;
@@ -61,8 +62,9 @@ import java.util.Set;
  *   <tr><td>{@code POST /content/update}</td><td>{@link #updateContentInfo}</td><td>{@code @Transactional}</td></tr>
  *   <tr><td>{@code POST /content/delete} / {@code /mediaDelete}</td><td>{@link #deleteContent} / {@link #deleteMedia}</td>
  *       <td>{@code @Transactional}</td></tr>
- *   <tr><td>{@code POST /api/upload/video}</td><td>{@link #addVideo}</td><td>{@code @Transactional}（S7）</td></tr>
- *   <tr><td>{@code POST /api/upload/post}</td><td>{@link #addPost}</td><td>{@code @Transactional}（S7）</td></tr>
+ *   <tr><td>{@code POST /api/v1/contents}（JSON 清单）</td><td>{@link #createVideo} / {@link #createPost}</td><td>{@code @Transactional}</td></tr>
+ *   <tr><td>{@code POST /api/v1/contents/videos|posts}（multipart 兼容面）</td>
+ *       <td>同上（Controller 落盘后转清单）</td><td>{@code @Transactional}</td></tr>
  *   <tr><td>{@code POST /api/upload/replace}</td><td>{@link #replaceMedia}</td><td>{@code @Transactional}（S7）</td></tr>
  *   <tr><td>{@code GET /api/v1/admin/contents}</td><td>{@link #listContentForAdmin}</td>
  *       <td>无（纯读，S8 去事务）</td></tr>
@@ -90,6 +92,7 @@ public class ContentService {
     private final InteractionService interactionService;
     private final ContentStatusFiller contentStatusFiller;
     private final ContentCountFiller contentCountFiller;
+    private final ContentMediaManifestService contentMediaManifestService;
     private final ApplicationEventPublisher events;
 
     /**
@@ -122,6 +125,7 @@ public class ContentService {
                           InteractionService interactionService,
                           ContentStatusFiller contentStatusFiller,
                           ContentCountFiller contentCountFiller,
+                          ContentMediaManifestService contentMediaManifestService,
                           ApplicationEventPublisher events,
                           MediaProperties mediaProps) {
         this.contentDao = contentDao;
@@ -133,6 +137,7 @@ public class ContentService {
         this.interactionService = interactionService;
         this.contentStatusFiller = contentStatusFiller;
         this.contentCountFiller = contentCountFiller;
+        this.contentMediaManifestService = contentMediaManifestService;
         this.events = events;
         this.mediaProps = mediaProps;
     }
@@ -455,11 +460,7 @@ public class ContentService {
      * 前缀为空（默认）时原样返回。
      */
     private String stripMediaBaseUrl(String url) {
-        String base = mediaProps.baseUrl();
-        if (url == null || base == null || base.isEmpty() || !url.startsWith(base)) {
-            return url;
-        }
-        return url.substring(base.length());
+        return mediaProps.stripBaseUrl(url);
     }
 
     // ========================================================================
@@ -538,7 +539,7 @@ public class ContentService {
     // ========================================================================
 
     /**
-     * 发布视频（{@code POST /api/upload/video}）：建内容行 + 插视频/封面两条媒体行。
+     * 创建视频（{@code POST /api/v1/contents} 的 {@code type=VIDEO}；multipart 兼容面同样落到这里）。
      *
      * <h2>★ 决策表 §四·S7：✅ 保持单事务</h2>
      * 「建内容 + 插媒体」必须同进同退——否则会留下"有内容行但无媒体行"的记录，
@@ -546,36 +547,35 @@ public class ContentService {
      * TV 用 {@code transactionTemplate.execute} 把 {@code doAddContent + addMedia×2} 包在一个事务里，
      * 新实现照此用 {@code @Transactional}。
      *
-     * <h2>提交后副作用（模式 A）</h2>
-     * 旧实现在事务后调 {@code contentCache.addContent(videoId)}。本实现改为发
-     * {@code ContentCacheChangedEvent.refresh(videoId)}（AFTER_COMMIT）。
-     * **语义已核对等价**：新 {@code ContentCache.refreshContent} = 装载 → 写 key → 进索引，
-     * 与旧 {@code addContent} 逐字相同（两者在新实现里其实是同一段代码）。
+     * <h2>媒体校验在事务内、写库之前</h2>
+     * {@link ContentMediaManifestService#normalize} 负责：类型约束（视频必须有视频 + 封面、不能带图）、
+     * URL 形状、文件真实存在、未被别的作品占用、重复 URL。任一条不通过 ⇒ 400 且零写入。
+     * 视频时长由它在**新视频**上解析；解析失败按未知（{@code null}）落库，不阻断发布
+     * （见 {@code architecture/domain/history/history.md} §六.2 —— 时长只影响进度百分比）。
      *
-     * <h2>提交后副作用（S9 起共两个事件）</h2>
+     * <h2>提交后副作用</h2>
      * <ol>
-     *   <li><b>feed 投递</b>：TV 在此处直调 {@code feedPushNotifier.publishContentPublished(videoId, userId)}
-     *       （提交后、失败只降级）。**S9 已兑现**（原 {@code TODO(feed 切片)} / 台账 A3 闭合）：
-     *       本类只发 {@code ContentPublishedEvent}，由 {@code feed.event.ContentPublishedFeedListener}
-     *       订阅后投 MQ —— 于是 **content 不依赖 feed**（消掉 TV 的 {@code content ⇄ feed} 环）。</li>
-     *   <li><b>内容缓存刷新</b>：发 {@code ContentCacheChangedEvent.refresh(contentId)}（AFTER_COMMIT）。</li>
+     *   <li>{@code ContentPublishedEvent}：feed 域订阅后投递写扩散消息（content 不依赖 feed）；</li>
+     *   <li>{@code ContentCacheChangedEvent.refresh}：装载 → 写 key → 进索引（AFTER_COMMIT）；</li>
+     *   <li>{@code ContentMilestoneEvent}：里程碑日志（AFTER_COMMIT）。</li>
      * </ol>
      *
-     * <h2>⚠️ 一处有意留后</h2>
-     * <b>文件落盘与 DB 无法原子</b>：由 Controller 在失败时删除已落盘文件补偿（见 {@code UploadController}）。
+     * <h2>⚠️ 文件与 DB 仍不原子</h2>
+     * multipart 兼容面由 Controller 在失败时删除本次已落盘文件；JSON 清单面引用的是**此前已上传**
+     * 的资源，失败时它们退化为未被引用的孤儿（由离线清理脚本回收）。
      *
-     * @param videoUrl 已落盘视频的**应用内相对 URL**
-     * @param coverUrl 已落盘封面的应用内相对 URL
-     * @param durationSeconds 视频时长（秒）；{@code null} = 解析失败 / 未知（**不阻断发布**，
-     *                        见 {@code history.md} §六.2 —— 只影响"进度百分比"，不影响可播性）
+     * @param manifest 整份媒体引用清单（视频 + 封面；镜像上传端点返回的 URL）
      * @return 新内容 id
      */
     @Transactional
-    public long addVideo(long userId, String title, String description, int categoryId,
-                         String videoUrl, String coverUrl, Integer durationSeconds) {
+    public long createVideo(long userId, String title, String description, int categoryId,
+                            MediaManifest manifest) {
+        ContentMediaManifestService.NormalizedMedia media =
+                contentMediaManifestService.normalize(ContentType.VIDEO, manifest, null);
         long contentId = doAddContent(userId, ContentType.VIDEO, title, description, categoryId);
-        contentMediaDao.addMedia(contentId, videoUrl, UploadType.VIDEO.getMediaType(), 1, durationSeconds);
-        contentMediaDao.addMedia(contentId, coverUrl, UploadType.COVER.getMediaType(), 1, null);
+        contentMediaDao.addMedia(contentId, media.videoUrl(), UploadType.VIDEO.getMediaType(), 1,
+                media.videoDurationSeconds());
+        contentMediaDao.addMedia(contentId, media.coverUrl(), UploadType.COVER.getMediaType(), 1, null);
         // S9 补回（原 TODO(feed 切片)）：声明"内容已发布"，由 feed 域订阅后投递写扩散消息。
         // ★ 与 TV 的差异：TV 直调 feedPushNotifier（content→feed 编译期依赖），此处改发事件
         //   （content 只声明自己发生了什么）——消掉 content⇄feed 环（《决策留痕表》C-9）。
@@ -588,30 +588,30 @@ public class ContentService {
     }
 
     /**
-     * 发布图文（{@code POST /api/upload/post}）：建内容行 + 可选封面 + 0~n 张图片。
+     * 创建图文（{@code POST /api/v1/contents} 的 {@code type=POST}；multipart 兼容面同样落到这里）。
      *
-     * <p>决策与副作用口径同 {@link #addVideo}（✅ 保持单事务 / REFRESH 事件 / feed TODO）。
-     * 与视频的唯一结构差异：封面**可选**（{@code coverUrl == null} 不插行），
-     * 图片的 {@code sort} 从 1 递增（TV 原样）。
+     * <p>决策与副作用口径同 {@link #createVideo}。与视频的唯一结构差异：封面**可选**
+     * （清单里 {@code coverUrl} 为空则不插行），图片按清单顺序写 {@code sort} 1..n。
      *
-     * @param coverUrl  封面相对 URL；{@code null} 表示无封面
-     * @param imageUrls 正文图片相对 URL 列表（可为空；顺序即 {@code sort} 1..n）
+     * @param manifest 整份媒体引用清单（封面可选 + 0~n 张图片）
      */
     @Transactional
-    public long addPost(long userId, String title, String description, int categoryId,
-                        String coverUrl, List<String> imageUrls) {
+    public long createPost(long userId, String title, String description, int categoryId,
+                           MediaManifest manifest) {
+        ContentMediaManifestService.NormalizedMedia media =
+                contentMediaManifestService.normalize(ContentType.POST, manifest, null);
         long contentId = doAddContent(userId, ContentType.POST, title, description, categoryId);
-        if (coverUrl != null) {
-            contentMediaDao.addMedia(contentId, coverUrl, UploadType.COVER.getMediaType(), 1, null);
+        if (media.coverUrl() != null) {
+            contentMediaDao.addMedia(contentId, media.coverUrl(), UploadType.COVER.getMediaType(), 1, null);
         }
         int sort = 1;
-        for (String imageUrl : imageUrls) {
+        for (String imageUrl : media.imageUrls()) {
             contentMediaDao.addMedia(contentId, imageUrl, UploadType.IMAGE.getMediaType(), sort++, null);
         }
-        // S9 补回（原 TODO(feed 切片)）：口径同 addVideo（《遗留台账》A3 → 已闭合）。
+        // S9 补回（原 TODO(feed 切片)）：口径同 createVideo（《遗留台账》A3 → 已闭合）。
         events.publishEvent(new ContentPublishedEvent(contentId, userId));
         events.publishEvent(ContentCacheChangedEvent.refresh(contentId));
-        // T2 里程碑（B12）：口径同 addVideo（AFTER_COMMIT 才落 "添加动态成功"）。
+        // T2 里程碑（B12）：口径同 createVideo（AFTER_COMMIT 才落 "添加动态成功"）。
         events.publishEvent(new ContentMilestoneEvent(contentId, ContentMilestoneEvent.Action.POST_ADDED));
         return contentId;
     }

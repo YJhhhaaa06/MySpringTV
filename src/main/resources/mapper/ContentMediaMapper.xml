@@ -82,6 +82,13 @@
         VALUES (#{contentId}, #{url}, #{type}, #{sort}, #{durationSeconds})
     </insert>
 
+    <!-- 清单提交：除指定内容外，还有谁引用这个 URL。
+         创建路径传 -1 ⇒ 等价于全表计数（没有 content_id = -1 的行）。
+         注意：content_media 没有 url 唯一索引，本查询是按 url 的普通计数。 -->
+    <select id="countByUrlExcludingContent" resultType="int">
+        select count(*) from content_media where url=#{url} and content_id &lt;&gt; #{excludedContentId}
+    </select>
+
     <!-- TV: updateMediaUrl —— `update content_media set url=?, file_exists=?, last_verify_time=? where id=?`
          （换源：更新 url + 立即标记"文件存在" + 记录校验时间；boolean → tinyint 隐式转换）。 -->
     <update id="updateMediaUrl">
