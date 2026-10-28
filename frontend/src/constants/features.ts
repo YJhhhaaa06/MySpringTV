@@ -118,12 +118,8 @@ Object.assign(registry, {
   //   真链接是 `/favorites` / `/history`（顶栏 `HEADER_ACTIONS`）。
   // ★ `feed`（动态页）已于 2026-10-27 交付（`dynamic.html` + `/dynamic`）⇒ 同样移除；
   //   真链接是 `/dynamic`（顶栏 `HEADER_ACTIONS`），不再走占位页。
-  upload: {
-    key: 'upload',
-    label: '投稿 / 创作中心',
-    kind: 'pending',
-    note: '后端已有 POST /contents/videos 与 /contents/posts（multipart）与删除/换源。页面在后续窗口交付。',
-  },
+  // ★ `upload`（创作中心）已于 2026-10-28 交付（`creator.html` + `/creator`）⇒ 同样移除；
+  //   真链接是 `CREATOR_HREF`，不再走占位页。
   admin: {
     key: 'admin',
     label: '后台',
@@ -143,6 +139,9 @@ export function featureUrl(key: string): string {
   return `/placeholder/${key}`
 }
 
+/** 创作中心（投稿页）的真实落点；跨应用整页跳转，不走占位路由。 */
+export const CREATOR_HREF = '/creator'
+
 /** 顶栏导航：首页 + 灰态占位项 */
 export const HEADER_NAV: ReadonlyArray<{ label: string; href: string; placeholder: boolean }> = [
   { label: '首页', href: '/', placeholder: false },
@@ -154,8 +153,8 @@ export const HEADER_NAV: ReadonlyArray<{ label: string; href: string; placeholde
 ]
 
 /**
- * 顶栏右侧图标簇：`收藏` / `历史`（2026-10-26）、`动态`（2026-10-27）已是真页面；
- * 消息 / 创作中心仍是**后续窗口**（`pending`，点进占位页）。
+ * 顶栏右侧图标簇：`收藏` / `历史`（2026-10-26）、`动态`（2026-10-27）、
+ * `创作中心`（2026-10-28）已是真页面；消息仍是**后续窗口**（`pending`，点进占位页）。
  */
 export const HEADER_ACTIONS: ReadonlyArray<{
   label: string
@@ -168,5 +167,5 @@ export const HEADER_ACTIONS: ReadonlyArray<{
   { label: '动态', icon: 'dynamic', href: '/dynamic' },
   { label: '收藏', icon: 'star', href: '/favorites' },
   { label: '历史', icon: 'clock', href: '/history' },
-  { label: '创作中心', icon: 'dashboard', href: featureUrl('upload'), placeholder: true },
+  { label: '创作中心', icon: 'dashboard', href: CREATOR_HREF },
 ]

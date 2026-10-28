@@ -23,6 +23,9 @@ const pageEntries: ReadonlyArray<readonly [RegExp, string]> = [
   [/^\/watchlater\/?$/, '/favorites.html'],
   [/^\/history\/?$/, '/history.html'],
   [/^\/dynamic\/?$/, '/dynamic.html'],
+  // 创作中心（2026-10-28）：**刻意不用 `/upload`** —— `/upload/**` 是后端媒体静态路径
+  // （dev 侧 `/upload` 代理到后端、生产侧由 ResourceHandler 服务），页面路由撞上去会互相吃掉。
+  [/^\/creator\/?$/, '/creator.html'],
   [/^\/placeholder(\/.*)?$/, '/index.html'],
 ]
 
@@ -87,6 +90,7 @@ export default defineConfig({
         favorites: fileURLToPath(new URL('./favorites.html', import.meta.url)),
         history: fileURLToPath(new URL('./history.html', import.meta.url)),
         dynamic: fileURLToPath(new URL('./dynamic.html', import.meta.url)),
+        creator: fileURLToPath(new URL('./creator.html', import.meta.url)),
       },
     },
   },

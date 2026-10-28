@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { sessionState, signOut } from '../../auth/session'
-import { HEADER_ACTIONS, HEADER_NAV, featureUrl } from '../../constants/features'
+import { CREATOR_HREF, HEADER_ACTIONS, HEADER_NAV } from '../../constants/features'
 import LoginModal from '../auth/LoginModal.vue'
 import AppIcon from '../common/AppIcon.vue'
 import SearchBox from './SearchBox.vue'
@@ -98,7 +98,7 @@ onUnmounted(() => {
           <AppIcon :name="action.icon" :size="20" />
         </a>
 
-        <a class="upload-btn" :href="featureUrl('upload')" title="投稿（占位页）">
+        <a class="upload-btn" :href="CREATOR_HREF" title="投稿">
           <AppIcon name="upload" :size="16" />
           <span>投稿</span>
         </a>

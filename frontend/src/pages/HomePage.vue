@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { loadHome } from '../api/endpoints'
 import { ApiError } from '../api/http'
+import { CREATOR_HREF } from '../constants/features'
 import type { HeroSlideVM, VideoCardVM } from '../types/ui'
 import EmptyState from '../components/common/EmptyState.vue'
 import AppIcon from '../components/common/AppIcon.vue'
@@ -87,9 +88,9 @@ onMounted(load)
           v-else-if="!loading && !cards.length && !slides.length"
           icon="tv"
           title="还没有内容"
-          description="后端返回的推荐流是空的。可以先去投稿页发布第一条内容（投稿页在后续窗口交付）。"
+          description="后端返回的推荐流是空的。可以先去创作中心发布第一条内容。"
         >
-          <a class="btn btn-primary" href="/placeholder/upload">去投稿</a>
+          <a class="btn btn-primary" :href="CREATOR_HREF">去投稿</a>
         </EmptyState>
       </div>
     </div>
