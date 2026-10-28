@@ -22,7 +22,7 @@ import java.util.concurrent.Future;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.atMost;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
@@ -40,9 +40,9 @@ import static org.mockito.Mockito.verify;
  *       ★ 反向验证：把聚合层的回填目标从"miss 集"换成"全键集"（即恢复"回填全部"的朴素形态）
  *       ⇒ {@link #只回填miss的键_命中键不被覆盖()} 的"favorite 键仍 555"红（会被列快照 7 覆盖）；
  *       那正是讨论中否决的形态——快照覆盖未失效的键会重开"旧值复活"窗口；</li>
- *   <li><b>单飞合一</b>：同内容的并发冷读把回源收敛到至多 3 次（20 线程；无单飞 = 20 次）
- *       （eq(contentId) 收窄 + 另一内容做对照哨兵；不钉 times(1) 的理由见用例内注释——
- *       线程调度无法保证全部线程时间上重叠，atMost 对"去单飞"形态判别等价且稳定）；</li>
+ *   <li><b>单飞合一</b>：同内容的并发冷读把回源收敛到**恰好 1 次**（20 线程；无单飞 = 20 次）
+ *       （loader 打桩为"固定阻塞 300ms + 定值列快照"⇒ 全部线程的入口抖动都落在同一在飞窗口内，
+ *       {@code times(1)} 才稳定且有判别力；eq(contentId) 收窄 + 另一内容做对照哨兵，不串结果）；</li>
  *   <li><b>脏值自愈</b>：非数字缓存值按 miss 处理并被回填覆盖；</li>
  *   <li><b>404 短路在聚合之前</b>：内容删除（五键中四键已被 REMOVE 监听器失效；playCount 由 removeContent 失效）后的详情请求
  *       不得把计数键回填出来——预热在前保证"键不存在"有判别力（假绿形态①的规避）。</li>
@@ -59,6 +59,19 @@ class ContentDetailCountAggregateTests extends AbstractContentIntegrationTest {
     private static final String AUTHOR = "agg-author";
     private static final String VIEWER_PHONE = "13900011002";
     private static final String VIEWER = "agg-viewer";
+
+    /**
+     * 单飞用例的 loader 阻塞时长：必须远大于"线程唤醒 + Mockito spy 拦截"的入口抖动。
+     * 实测 20 线程下 spy 拦截可把入口拉开 0.3~15ms，而真实点查只有 ~1ms——不拉宽窗口时
+     * 晚到线程会合法地另起一波（实测 4~11 次）。与 {@code SingleFlightCacheTests#slowReturn} 同口径。
+     */
+    private static final long LOAD_MILLIS = 300;
+
+    /** loader 定值快照（target / sentinel 各一组）：证明 follower 共享同一结果、不同 key 不串结果。 */
+    private static final ContentCountColumns TARGET_COLUMNS =
+            new ContentCountColumns(11L, 22L, 33L, 44L, 55L);
+    private static final ContentCountColumns SENTINEL_COLUMNS =
+            new ContentCountColumns(1L, 2L, 3L, 4L, 5L);
 
     @MockitoSpyBean
     private io.github.yjhhhaaa06.videoweb.content.cache.ContentCountAggregate aggregate;
@@ -139,7 +152,7 @@ class ContentDetailCountAggregateTests extends AbstractContentIntegrationTest {
     }
 
     @Test
-    @DisplayName("★单飞合一：聚合层入口真并发冷读把回源收敛到至多 3 次（20 线程；去单飞 = 20 次）")
+    @DisplayName("★单飞合一：聚合层入口真并发冷读把回源收敛到恰好 1 次（20 线程；去单飞 = 20 次）")
     void 并发冷读只回源一次() throws Exception {
         registerAndGetToken(AUTHOR_PHONE, AUTHOR);
         long authorId = userIdOf(AUTHOR_PHONE);
@@ -150,17 +163,33 @@ class ContentDetailCountAggregateTests extends AbstractContentIntegrationTest {
         // 会让线程错峰到达，先行者的单飞条目已清理，后来者合法地重新回源（两次），那不是缺陷。
         // 聚合层入口的同一瞬间并发才是 SingleFlight 要治的"惊群"。
         // ⚠️ 还必须 stub 掉 pipeline（恒返回全 miss）：否则 20 线程在 Redis 连接池上排队，
-        // 错峰进入单飞——那同样是环境时序，不是单飞语义。stub 后所有线程零延迟到达 flight，
-        // "合一"才被纯净观测。★ 反向验证：去掉 SingleFlight（loader 直接执行）⇒ times(1) 红。
+        // 错峰进入单飞——那同样是环境时序，不是单飞语义。
+        // ★ 关键：loader（findCountColumns）也必须打桩成"固定阻塞 LOAD_MILLIS + 定值快照"。
+        //   只 stub pipeline 不足以让 times(1) 稳定：@MockitoSpyBean 的调用拦截在 20 线程下
+        //   本身会引入毫秒级入口抖动（本机实测 0.3~15ms），而真实点查只有 ~1ms ⇒ 晚到线程
+        //   会合法地另起一波（实测 4~11 次，atMost(3) 必红）。固定阻塞把窗口拉到远大于抖动，
+        //   所有线程才真正叠在同一次在飞任务上（与 SingleFlightCacheTests 的 slowReturn 同口径）。
+        //   定值快照（target / sentinel 各一组）同时证明 follower 共享 leader 结果、不同 key 不串结果。
+        // ★ 反向验证：去掉 SingleFlight（loader 直接执行）⇒ times(1) 红（20 次）。
         doReturn(java.util.Arrays.asList(null, null, null, null, null)).when(aggregate).pipeline(any());
+        doAnswer(inv -> {
+            Thread.sleep(LOAD_MILLIS);
+            return TARGET_COLUMNS;
+        }).when(contentDao).findCountColumns(target);
+        doAnswer(inv -> {
+            Thread.sleep(LOAD_MILLIS);
+            return SENTINEL_COLUMNS;
+        }).when(contentDao).findCountColumns(sentinel);
 
         int threads = 20;
         ExecutorService pool = Executors.newFixedThreadPool(threads + 3);
+        CountDownLatch ready = new CountDownLatch(threads + 3);
+        CountDownLatch start = new CountDownLatch(1);
         try {
-            CountDownLatch start = new CountDownLatch(1);
             List<Future<ContentCountColumns>> futures = new ArrayList<>();
             for (int i = 0; i < threads; i++) {
                 futures.add(pool.submit((Callable<ContentCountColumns>) () -> {
+                    ready.countDown();
                     start.await();
                     return aggregate.readCounts(target);
                 }));
@@ -168,25 +197,31 @@ class ContentDetailCountAggregateTests extends AbstractContentIntegrationTest {
             // 哨兵：另一内容同样冷读 3 次——断言按主体收窄（eq）才不会把哨兵的回源数进来
             for (int i = 0; i < 3; i++) {
                 futures.add(pool.submit((Callable<ContentCountColumns>) () -> {
+                    ready.countDown();
                     start.await();
                     return aggregate.readCounts(sentinel);
                 }));
             }
+            // 全线程就位后再放行：消掉线程创建/启动带来的到达先后差（单靠它不够，仍需上面的宽窗口）
+            ready.await();
             start.countDown();
-            for (Future<ContentCountColumns> f : futures) {
-                assertThat(f.get().likeCount()).as("并发冷读全部给出列真值（0 赞）").isZero();
+
+            for (int i = 0; i < futures.size(); i++) {
+                ContentCountColumns got = futures.get(i).get();
+                if (i < threads) {
+                    assertThat(got).as("★ 并发读者共享 leader 的同一份装载结果").isEqualTo(TARGET_COLUMNS);
+                } else {
+                    assertThat(got).as("★ 哨兵读者共享自己的装载结果（不同 key 不串结果）")
+                            .isEqualTo(SENTINEL_COLUMNS);
+                }
             }
 
-            // ★ 断言形态说明：为什么是 atMost(3) 而不是 times(1)——
-            //   单飞的保证是"时间上重叠的 miss 只回源一次"，线程调度无法保证 20 线程零抖动地
-            //   全部重叠（实测有 1~2 个线程晚于 leader 全程到达，那是合法的错峰 miss）。
-            //   要抓的错误形态 = "去掉 SingleFlight，每线程各回源" ⇒ 20 次；atMost(3) 对该形态
-            //   与 times(1) 等价（20 ≫ 3），但对调度抖动稳定（times(1) 会假红）。
-            verify(contentDao, atMost(3)).findCountColumns(eq(target));
-            verify(contentDao, atMost(3)).findCountColumns(eq(sentinel));
+            verify(contentDao, times(1)).findCountColumns(eq(target));
+            verify(contentDao, times(1)).findCountColumns(eq(sentinel));
         } finally {
             pool.shutdownNow();
-            Mockito.reset(aggregate);   // stub 泄漏防护：pipeline 的恒 miss stub 不得带出本用例
+            // stub 泄漏防护：pipeline 恒 miss + DAO 定值快照都不得带出本用例
+            Mockito.reset(aggregate, contentDao);
         }
     }
 
