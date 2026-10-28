@@ -74,7 +74,7 @@ openapi.yaml ──gen──▶ frontend/src/types/api.d.ts     生成，只读�
 | 历史「筛选 / 搜索 / 记录开关」 | 不做 | **不渲染** tabs / 搜索框 / 「记录浏览历史」开关（GAP-20 / GAP-21，摆了也点不动） |
 | 动态页「发布框 / 转发 / 热搜 / 分区 tabs」 | 不做 | 发布框（投稿页暂缓）、转发（无转发域）、热搜与社区中心（GAP-24）、类型筛选 tabs（GAP-23）**都不渲染**；右栏用「我关注的人」真数据填位 |
 | 稍后再看批量管理（多选 / 清空 / 移入收藏夹） | 不做 | 只做单条移出；端点有（`DELETE /watch-later`、`PUT /watch-later/{id}/folder`）但 UI 本窗口未认领（**不是 GAP**） |
-| 创作中心 / 投稿 / 图文编辑 | **暂缓**（2026-10-26 用户拍板"复杂，暂不跟进"） | 顶栏「投稿」仍走 `/placeholder/upload`；「编辑图文 = 取回原稿原位覆盖」等后端补"追加图片"（GAP-22） |
+| 创作中心 / 投稿 / 图文编辑 | **投稿页已交付（2026-10-28）**；编辑 / 换源**下一窗口** | 只渲染「视频投稿 / 图文投稿」两个 tab；4 个无域 tab 与标签 / 创作声明 / 活动 / 定时发布 / 合集 / 商业推广 / 草稿一律不渲染；编辑等后端补"分区 / 加图 / 补封面"（GAP-22、GAP-30/31） |
 
 - ★ 本仓**目前一个 fixture 都没有**：占位组件只靠文案 + 图标，不需要假数据。
   若将来真需要，只许放 `frontend/src/mock/*.fixture.ts`，且仅占位组件可 import（用 ESLint `no-restricted-imports` 拦死）。
@@ -88,8 +88,8 @@ openapi.yaml ──gen──▶ frontend/src/types/api.d.ts     生成，只读�
 cd frontend
 npm run gen:api && git diff --exit-code src/types/api.d.ts   # 类型落后于后端 ⇒ 红
 npm run typecheck                                            # vue-tsc -b（类型硬门禁）
-npm run test                                                 # vitest：适配器 fallback + 请求层 + 进度上报规则 + 图文图片两态
-npm run build                                                # 多入口产物：dist/{index,search,video,opus,space,favorites,history,dynamic}.html
+npm run test                                                 # vitest：适配器 fallback + 请求层 + 进度上报规则 + 图文图片两态 + 投稿草稿规则
+npm run build                                                # 多入口产物：dist/{index,search,video,opus,space,favorites,history,dynamic,creator}.html
 npm run stage                                                # dist → ../src/main/resources/static（Spring 直接服务）
 ```
 
@@ -103,7 +103,8 @@ npm run stage                                                # dist → ../src/m
 | `api/opusImages.test.ts` | 图文详情图片区纯规则：**1/2/3+ 张的列数、>9 张的 +N 截断、循环切图、旋转只保留 0/90/180/270、输入控件不接快捷键** |
 | `api/adapters/{favorites,history}.test.ts` | 我的夹 / 稍后再看卡片（`addedTime` **不冒充**发布时间）；历史角标三态（`已看/总长` / `已看完` / 无总长只给「看到」）、按本地日历日分组 |
 | `api/adapters/{feed,relation}.test.ts` | 动态卡：`likeCount`/`commentCount` 缺失 ⇒ `null`、0 是真值、图文不显示播放量、`liked` 三态；关注/粉丝卡：`isFollowed=false` **不是**"没查"、空名字 ⇒ 未知用户 |
-| `api/http.test.ts` | 信封 / 204 / `Retry-After` / 幂等键 / 数组 query |
+| `api/http.test.ts` | 信封 / 204 / `Retry-After` / 幂等键 / 数组 query；**multipart：`postForm` 的进度回调、不手设 `Content-Type`、XHR 超时 / 网络错误的不同业务码** |
+| `api/uploadDraft.test.ts` | 投稿校验（标题 ≤50、视频简介 ≤1000、图文 ≤10000、分区 0~9、视频 .mp4 / 封面 .jpg·.png / 图片 .jpg·.png·.jpeg、单文件 50MB、合计 99MB）；FormData 形状（文本在 body、多图重复 `image` part）；**幂等键生命周期**（同草稿复用 / 草稿一改就换 / 成功 reset） |
 | `common/watchLaterSession.test.ts` | 稍后再看页面内记忆：**同一 URL 记得、换 URL 不记得**、取消即忘、不同内容互不影响 |
 | `player/progressReporter.test.ts` | 播放进度契约：45s 节奏、503 退避与**恢复**、停报条件、续播 `max`、本地补偿 TTL |
 
@@ -124,9 +125,11 @@ npm run stage                                                # dist → ../src/m
 ⇒ `videoCard` / `feed` / `hero` **红 3 条**（`/video/92` vs `/opus/92` 等），其余 172 绿；
 ⑫ 把 `gridPreview` 改成"不截断、overflow 恒 0" ⇒ `opusImages.test.ts` **红 1 条**；还原后全量 **175/175** 绿。
 （review 后补的 `isEditableTarget` / `cleanDescription` 4 条测试计入 175。）
+**2026-10-28（创作中心投稿页）**：⑬ 把 `SubmitKeyHolder.keyFor` 改成"每次新生成"（不再按草稿指纹复用）
+⇒ `uploadDraft.test.ts` **红 1 条**（同一草稿的重试复用）；还原后全量 **199/199** 绿。
 
 **真浏览器 E2E**（一次性脚本，放 `.tmp/`，**不入库**）：登录 / 互动 / 评论 / 进度 / 空间 /
-**收藏 / 历史 / 稍后再看 / 动态·关注粉丝 / 图文详情**各一支，必须真接口真写（`node .tmp/<name>-e2e.mjs`，需 Chrome `--remote-debugging-port=9222`）。
+**收藏 / 历史 / 稍后再看 / 动态·关注粉丝 / 图文详情 / 创作中心投稿**各一支，必须真接口真写（`node .tmp/<name>-e2e.mjs`，需 Chrome `--remote-debugging-port=9222`）。
 ★ 2026-10-26 起也可以直接对 **8080**（dist 上 Spring）跑，不必起 Vite —— 顺带验证转发与静态产物。
 收藏页那支还覆盖写路径：点「取消收藏」→ 卡片 2→1、侧栏计数 −1、toast、**刷新后仍 1**、API 恢复后回 2。
 稍后再看那支（`watchlater-e2e.mjs`）覆盖：匿名点卡片 → 登录浮层 → **登录后同一次点击续做** → 加入/取消 →
@@ -163,6 +166,13 @@ URL→`/video/...` 且 CDP target 数不变（同标签 SPA）；图文详情点
 lightbox 打开聚焦 + Tab 陷阱 + 关闭还焦点；缩略图切换 `scrollIntoView`；`/opus/{videoId}` 反向重定向
 `/video/{id}`；lightbox 与既有弹层同层（遮罩不盖顶栏，非新回归）。
 
+★ **2026-10-28 新增：创作中心投稿**（`.tmp/creator-e2e.mjs`，**68/68 PASS**；登录态；对 8080 dist 跑）：
+钉的是匿名「登录后才能投稿」、只有视频/图文两个 tab、无域字段一律不渲染、分区 0~9、
+真上传视频（7.4MB mp4 + 封面）与图文（2 图 + 封面）→ `/video/{id}` / `/opus/{id}`、请求带
+`Idempotency-Key` + multipart boundary、文字字段不在 URL、跑完 DELETE 还原（详情 404）。
+⚠️ 本机后端写 dev 媒体根 `D:/data/projects/MySpringTV/media` 被环境拒绝（`拒绝访问`）⇒ 该支用
+`UPLOAD_ROOT=.tmp/e2e-media` 起后端；**生产默认值不变**（口径见 [前端](../architecture/frontend/前端.md) §八）。
+
 ★ **静默机制**（进度上报 / 自动重试与退避 / 退出信号 / 崩溃补偿 / 幂等键 / 乐观更新 / 登录态时序）
 的**实现口径、代价与覆盖矩阵**见 [客户端静默机制](../architecture/frontend/客户端静默机制.md) §五 ——
 那里有一份**"明写没覆盖"清单**（幂等键复用、`restoreSession` 单飞、卸载收尾上报…），别当成已经验过。
@@ -176,8 +186,10 @@ lightbox 打开聚焦 + Tab 陷阱 + 关闭还焦点；缩略图切换 `scrollIn
 - 老前端：`src/main/resources/static/` 的 18 个文件已于 **2026-10-26 删除**（随 dist 上线同批，§十三）。
   该目录现在是**构建产物落点**（`npm run stage` 把 `frontend/dist` 拷进去，产物不入库），
   由 Spring 直接服务 `/`、`/search`、`/video/:id`、`/opus/:id`、`/space/:id`、`/favorites`、`/watchlater`、
-  `/history`、`/dynamic`、`/assets/**`。
+  `/history`、`/dynamic`、`/creator`、`/assets/**`。
   旧 SPA 已冻结过（2026-10-25），删除不影响任何活代码。
+- ⚠️ **agent 沙箱下后端写 dev 媒体根会被拒绝**（`D:/data/projects/MySpringTV/media` ⇒ `拒绝访问`）：
+  跑真上传 E2E 时用 `UPLOAD_ROOT=.tmp/e2e-media` 起后端；**用户正常起后端不受影响**（媒体根默认值不变）。
 
 ---
 
@@ -192,11 +204,15 @@ lightbox 打开聚焦 + Tab 陷阱 + 关闭还焦点；缩略图切换 `scrollIn
 > **⑱（2026-10-27 第七窗口）**：图文详情 `/opus/:id`（第 8 个入口；九宫格 ↔ 放大缩小平铺 + 评论）✅ ·
 > `contentHref` 落点统一（POST→opus / VIDEO→video；收藏夹方案 A 重定向）✅ ·
 > 纯文字图文网格卡（真简介；无简介 → 中性「图文动态」）✅ · 相关推荐同标签 SPA ✅
-> **下一窗口候选**：① 空间「合集和系列 / 最近点赞」（无端点，GAP-15）·
-> ② 首页 / 空间页在 1707 的残余像素差（低优先）· ③ GAP-28 首图回填（等后端契约批次）。
-> **明确不做**：动态详情页（本仓没有动态实体/转发域；图文详情已由 `/opus` 承接，视频动态仍进播放页）。
-> **明确延后**：创作中心 / 投稿页（用户 2026-10-26 拍板"复杂，暂不跟进"）；
-> 「编辑图文 = 取回原稿 → 原位覆盖」只记设计意图 + **GAP-22**（缺"追加图片"端点），不做页面。
+> **⑲（2026-10-28 第八窗口）**：创作中心投稿页 `/creator`（第 9 个入口；视频/图文真提交 + 上传进度 +
+> 幂等键；4 个无域 tab 与无域字段一律不渲染；E2E 68/68）✅
+> **下一窗口（已定，2026-10-28 用户拍板）**：先做**后端契约批次**（① `PUT /contents/{id}` 补 `categoryId`；
+> ② 图文加图 / 整份图片列表；③ 无封面补封面；④ 对齐"发布图文 10000 vs 编辑 5000"的简介上限），
+> 再交付 **我的稿件列表 + 编辑页**（取回 → 覆盖）。
+> **明确不做**：动态详情页（本仓没有动态实体/转发域；图文详情已由 `/opus` 承接，视频动态仍进播放页）·
+> 标签 / 创作声明 / 活动 / 定时发布 / 合集 / 商业推广 / 草稿与审核态（本仓无域或无语义）。
+> **其他候选**：空间「合集和系列 / 最近点赞」（无端点，GAP-15）· 首页 / 空间页 1707 残余像素差（低优先）·
+> GAP-28 首图回填（随契约批次）。
 > **设计沉淀**：前端应用口径在 [architecture/frontend/前端.md](../architecture/frontend/前端.md)；
 > 视觉校准依据在 [视觉基准](../architecture/frontend/视觉基准.md)；
 > 播放进度客户端行为**不在本篇**，以 [history-客户端契约](../architecture/domain/history/history-客户端契约.md) 为准。
@@ -204,7 +220,7 @@ lightbox 打开聚焦 + Tab 陷阱 + 关闭还焦点；缩略图切换 `scrollIn
 1. `frontend/` 脚手架（Vue + TS + Vite + vue-router）→ 配 **多入口**（`vite.config.ts` 的 `build.rollupOptions.input`）+ 每个入口一个 router → `npm run gen:api` 出类型
 2. 先做 `VideoCard` + `VideoGrid`（会立刻暴露 GAP-01）
 3. 首页闭环 → 截一张 B 站首页对照 → 攒第一批契约批次
-4. 播放页 → 搜索 → 用户空间 → 收藏 / 历史 → 动态 / 关注粉丝 →（可选）后台
+4. 播放页 → 搜索 → 用户空间 → 收藏 / 历史 → 动态 / 关注粉丝 → **创作中心投稿** →（下窗）编辑 / 后台
 
 ---
 
@@ -260,11 +276,12 @@ lightbox 打开聚焦 + Tab 陷阱 + 关闭还焦点；缩略图切换 `scrollIn
 | `favorites.html` | `/favorites`（`?folder=` / `?page=`）+ **`/watchlater`**（独立路由；旧 `?tab=later` 兼容） | `GET /favorite-folders` + `GET /favorites?folderId=` + `GET /watch-later` + `PUT /watch-later/{id}` + `DELETE /favorites`、`DELETE /watch-later` |
 | `history.html` | `/history?page=` | `GET /history`（**只读**：无删除/清空端点，GAP-19） |
 | `dynamic.html` | `/dynamic?page=` | `GET /feed`（**需登录**）+ `GET /users/{id}?pageSize=1` + `GET /users/{id}/following?pageSize=8` |
-| `upload.html` | `/upload` | `POST /contents/videos`、`/contents/posts` |
+| `creator.html` | `/creator` | `POST /contents/videos`、`/contents/posts`（**投稿页**；内容管理 / 编辑下一窗口） |
 
-> 2026-10-26 已落地 **六个入口**；**2026-10-27 第七个 `dynamic`、第八个 `opus`** —— 现在共 **八个**：
-> `index` / `search` / `video` / `opus` / `space` / `favorites` / `history` / `dynamic`。
-> `video` 已从"只读"补成完整页（互动 / 评论 / 进度）；`upload` 尚未建入口（灰态导航走 `/placeholder/*`）。
+> 2026-10-26 已落地 **六个入口**；**2026-10-27 第七个 `dynamic`、第八个 `opus`**；
+> **2026-10-28 第九个 `creator`** —— 现在共 **九个**：
+> `index` / `search` / `video` / `opus` / `space` / `favorites` / `history` / `dynamic` / `creator`。
+> `video` 已从"只读"补成完整页（互动 / 评论 / 进度）；创作中心顶栏「投稿」与「创作中心」现在都指向 `/creator`。
 > `/watchlater` 是 `favorites.html` 内的**独立路由**（转发到同一入口），**不是**独立入口。
 > `/opus` 是**独立入口**（不是 `video.html` 内的路由）：B 站图文是独立文档、独立新标签。
 
@@ -279,17 +296,17 @@ lightbox 打开聚焦 + Tab 陷阱 + 关闭还焦点；缩略图切换 `scrollIn
   dist 资源目录 `/static/` → `/assets/` 要同步进限流与静态白名单（见 §十三）。
   ★ **状态（2026-10-26）：① 已落地**（`WebMvcConfig#addViewControllers`，forward 不是 redirect）。`WebMvcConfig#addViewControllers` 用 **forward**（不是 redirect）
   把 `/`、`/search`、`/video/{id}`、**`/opus/{id}`**、`/space/{id}`、`/favorites`、**`/watchlater`**、`/history`、
-  **`/dynamic`**、`/placeholder/{feature}` 转到入口 HTML；
+  **`/dynamic`**、**`/creator`**、`/placeholder/{feature}` 转到入口 HTML；
   **不用 `@Controller`**（那会进端点登记簿 / spec，还要为默认拒绝开 `@Public` —— 它只是页面导航）；
   dist 由 `npm run stage` 落到 `src/main/resources/static/`（产物不入库）；`/assets/` 与 HTML 外壳进限流跳过清单。
-  `mvnw clean` 后实测：八个入口 200、`/assets/*.js` 200、`/api/v1/**` 200、旧 `/static/**` 404。
+  `mvnw clean` 后实测：九个入口 200、`/assets/*.js` 200、`/api/v1/**` 200、旧 `/static/**` 404。
 - ✅ **dev 侧 fallback 已落地**：`vite.config.ts` 的 `htmlHistoryFallback()` 把 `/search` → `search.html`、
   `/video/<digits>` → `video.html`、**`/opus/<digits>` → `opus.html`**、`/space/<digits>` → `space.html`、
   `/favorites` → `favorites.html`、
   **`/watchlater` → `favorites.html`**、`/history` → `history.html`、**`/dynamic` → `dynamic.html`**、
-  `/placeholder/*` → `index.html`，并挂在 `configureServer` **与** `configurePreviewServer` 上 ⇒ `npm run preview` 也能验打包产物。
+  **`/creator` → `creator.html`**、`/placeholder/*` → `index.html`，并挂在 `configureServer` **与** `configurePreviewServer` 上 ⇒ `npm run preview` 也能验打包产物。
   它只接管 `Accept: text/html` 的导航请求（`/api`、`/upload`、带扩展名的资源全部放行）。
-  ★ **生产转发要补的正是这份映射表**（八入口 + `/watchlater`，已落在 `WebMvcConfig#addViewControllers`，两处必须同步改）。
+  ★ **生产转发要补的正是这份映射表**（九入口 + `/watchlater`，已落在 `WebMvcConfig#addViewControllers`，两处必须同步改）。
 - ⚠️ **dev 代理要转发两段**：`/api` **和** `/upload` —— 封面是后端静态路径（`/upload/cover/…`），只代理 `/api` 会让所有图片 404。
 - **明确接受的代价**：跨应用整页刷新、公共请求（`/users/me`）每次进应用重复一次；**换来**与参考实现同构。
 
@@ -304,13 +321,13 @@ lightbox 打开聚焦 + Tab 陷阱 + 关闭还焦点；缩略图切换 `scrollIn
 当前有效结论（细节以代码 + 契约测试为准，不再复述当时的前置清单）：
 
 - dist 落 `src/main/resources/static`（产物不入库）；`/`、`/search`、`/video/:id`、**`/opus/:id`（2026-10-27）**、
-  `/space/:id`、`/favorites`、`/watchlater`、`/history`、**`/dynamic`（2026-10-27）**、`/assets/**` 全 200，
-  旧 `/static/**` 404；
+  `/space/:id`、`/favorites`、`/watchlater`、`/history`、**`/dynamic`（2026-10-27）**、**`/creator`（2026-10-28）**、
+  `/assets/**` 全 200，旧 `/static/**` 404；
 - 转发用 **`ViewController` + forward**（不进端点登记簿 / 不进 spec / 不需要 `@Public` / 地址栏 URL 不变）；
   dev 侧 `vite.config.ts` 是**同一张映射表**，两处必须同步改；
 - `/assets/`、HTML 外壳在 `RateLimitFilter.SKIP_EXACT` / `SKIP_PREFIXES` 里（否则 **429 掉 CSS**）；
 - `StaticForwardingContractTests`（断言 `forwardedUrl`，而非"最终 200"）+ `RateLimitFilterContractTests`
-  的零扣费探针钉住上面两条；新增入口时**两处都要加**（2026-10-27 加 `/dynamic`、`/opus` 即如此）。
+  的零扣费探针钉住上面两条；新增入口时**两处都要加**（2026-10-27 加 `/dynamic`、`/opus`；2026-10-28 加 `/creator` 即如此）。
 
 **删除时不做的事**：不动 `src/main/resources/db/migration/**`（逐字节冻结）、不动 `old-project/`（行为判据）。
 
@@ -323,10 +340,11 @@ lightbox 打开聚焦 + Tab 陷阱 + 关闭还焦点；缩略图切换 `scrollIn
 
 | 口径 | 做法 | 反例（别这么写） |
 |---|---|---|
-| **写动词** | `api/http.ts` 的 `getJson/postJson/putJson/deleteJson`，返回类型由 spec 推导；`204` 是成功 | 每个页面自己 `fetch` / 自己判信封 |
-| **幂等键** | 只有 4 条 `KEYED` 端点需要；键在"用户按下按钮"时取，**同一草稿的重试复用**，草稿一改就作废 | 每次请求新生成（重试 = 两条评论）；或让请求层自动加（掩盖"这个端点要不要幂等"） |
+| **写动词** | `api/http.ts` 的 `getJson/postJson/putJson/deleteJson`（multipart 用 **`postForm`**），返回类型由 spec 推导；`204` 是成功 | 每个页面自己 `fetch` / 自己判信封 |
+| **multipart 上传**（2026-10-28） | 投稿走 `postForm`（XHR；**10 分钟**超时；`upload.onprogress`）；信封 / Bearer / 204 / `Retry-After` 与四动词**共用 `parseEnvelope`**；文字字段进 `FormData`（1 万字简介不进 URL）；**不手设 `Content-Type`** | 手拼 boundary / 把文本字段拼进 query / 页面自己判信封 |
+| **幂等键** | 只有 4 条 `KEYED` 端点需要；键在"用户按下按钮"时取，**同一草稿的重试复用**，草稿一改就作废（投稿页用 `SubmitKeyHolder`） | 每次请求新生成（重试 = 两条评论）；或让请求层自动加（掩盖"这个端点要不要幂等"） |
 | **登录闸门** | **动作级**：`await requireLogin()`，弹浮层并阻塞到用户给出结果；登录成功后**这一次点击的意图继续执行** | 页面级跳登录页；浮层关掉就丢了这次操作 |
-| **页面级身份态**（2026-10-26 新增，收藏 / 历史 / 稍后再看） | **整页内容都属于"我"**时（匿名请求必然 401、没有"匿名可见的一部分"）：先 `await restoreSession()`，匿名渲染「登录后查看」+ 一个登录按钮，按钮本身走 `requireLogin()`；登录成功后 watcher 自动装载 | 进页面**自动弹**登录框 / 把 401 画成"空数据"（用户以为自己的收藏没了） |
+| **页面级身份态**（2026-10-26 新增；投稿页 2026-10-28） | **整页内容都属于"我"**时（匿名请求必然 401、没有"匿名可见的一部分"）：先 `await restoreSession()`，匿名渲染「登录后查看 / 登录后投稿」+ 一个登录按钮，按钮本身走 `requireLogin()`；登录成功后 watcher 自动装载。**表单用 `v-show` 保持挂载** ⇒ 登录后草稿不丢 | 进页面**自动弹**登录框 / 把 401 画成"空数据"（用户以为自己的收藏没了）/ 用 `v-if` 卸载表单导致草稿丢 |
 | **稍后再看状态**（2026-10-26 晚新增） | **只记本次页面**：加入成功时把 `(contentId, pathname+search)` 记进模块级 `reactive(Map)`；同一 URL 内再点=取消；刷新 / 换路由即忘（`common/watchLaterSession.ts`） | 每张卡片回源 `GET /watch-later` 查状态（N 次请求）/ 把初始"不知道"画成"未加入"并禁用 / 落 localStorage |
 | **跨应用落点**（2026-10-27） | 唯一规则 `contentHref(id, isPost)`：`POST → /opus/{id}`、`VIDEO → /video/{id}`；卡片默认 `target="_blank"`；**只有播放页相关推荐**传 `new-tab=false` + `router.push`（同标签 SPA） | 各处散写 `videoHref`（图文落播放页）/ 相关推荐也 `_blank` / 把 `/opus` 做成 `/video` 的应用内 tab |
 | **收藏夹图文**（2026-10-27，方案 A） | `FavoriteItemVO` 没有 `type` ⇒ 卡片先落 `/video/{id}`；播放页取到详情发现 `isPost` ⇒ `location.replace('/opus/{id}')` | 每张收藏卡回源详情查 type（N 次请求）/ 把图文画成视频卡还假装正常 |

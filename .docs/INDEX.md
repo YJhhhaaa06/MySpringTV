@@ -30,7 +30,8 @@ Flyway + Testcontainers。由 `old-project/TVhomework1`（Servlet + 手写连接
 > ① **前端**：新工程在 `frontend/`（Vue3 + TS + Vite，MPA 外壳 + 应用内 SPA，2026-10-25 起）。
 > ★ **2026-10-26 起 dist 上 Spring**：`npm run stage` 把 `frontend/dist` 同步到
 > `src/main/resources/static/`（**产物不入库**），由 Spring 直接服务（`/`、`/search`、`/video/:id`、
-> `/space/:id`、`/assets/**`）；**旧 SPA 的 18 个文件已删除**，`/static/**` 不再存在。
+> `/opus/:id`、`/space/:id`、`/favorites`、`/watchlater`、`/history`、`/dynamic`、`/creator`、`/assets/**`）；
+> **旧 SPA 的 18 个文件已删除**，`/static/**` 不再存在。
 > **重制期入口 = `task/CURRENT_FRONTEND.md`**；**前端应用口径 = `architecture/frontend/前端.md`**。
 > ② 鉴权**不迁 Spring Security**（2026-10-18 拍板，F-01/F-02 已核销）：自研 `JwtAuthFilter` + **默认拒绝**
 > （`@Public` 是唯一放行口）+ 处理器级角色判定（`@RequiresAdmin`）—— `SecurityPassthroughConfig` 是**终态**，
