@@ -99,6 +99,7 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
     private static final List<String> MULTIPART_ENDPOINTS = List.of(
             "POST /api/v1/contents/posts",
             "POST /api/v1/contents/videos",
+            "POST /api/v1/uploads/{type}",
             "PUT /api/v1/contents/{id}/media",
             "PUT /api/v1/admin/media/{id}");
 
@@ -156,8 +157,8 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
                 .as("登记簿里有、spec 里没有 —— springdoc 没能表达该端点（多为映射写法超出它识别的范围）")
                 .isEmpty();
         assertThat(fromSpec)
-                .as("端点总数应与 T54 的 67 条一致（T58/T59 后恒定）")
-                .hasSize(67);
+                .as("端点总数应与 T54 的 68 条一致（T58/T59 后 + 上传清单批次）")
+                .hasSize(68);
     }
 
     // ==================== 用例 3：假参数 ====================

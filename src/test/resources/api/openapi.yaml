@@ -1800,6 +1800,51 @@ paths:
           $ref: "#/components/responses/InternalError"
       tags:
       - user-controller
+  /api/v1/uploads/{type}:
+    post:
+      operationId: upload
+      parameters:
+      - in: path
+        name: type
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+              required:
+              - file
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseUploadedAssetVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - upload-controller
   /api/v1/users:
     post:
       operationId: register
@@ -2773,6 +2818,19 @@ components:
             $ref: "#/components/schemas/ApiFieldError"
         msg:
           type: string
+    ApiResponseUploadedAssetVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          $ref: "#/components/schemas/UploadedAssetVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
     ApiResponseUserInfoVO:
       type: object
       properties:
@@ -3602,6 +3660,16 @@ components:
         isPrivate:
           type: boolean
         name:
+          type: string
+    UploadedAssetVO:
+      type: object
+      properties:
+        durationSeconds:
+          anyOf:
+          - type: integer
+            format: int32
+          - type: "null"
+        url:
           type: string
     UserInfoVO:
       type: object

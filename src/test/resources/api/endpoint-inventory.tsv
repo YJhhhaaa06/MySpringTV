@@ -60,6 +60,7 @@ PUT	/api/v1/follows/{id}	LOGIN	ApiResponse<Void>
 GET	/api/v1/history	LOGIN	ApiResponse<PageResult<HistoryItemVO>>
 POST	/api/v1/history/flush	LOGIN	ApiResponse<Void>
 POST	/api/v1/sessions	PUBLIC	ApiResponse<LoginVO>
+POST	/api/v1/uploads/{type}	LOGIN	ApiResponse<UploadedAssetVO>
 POST	/api/v1/users	PUBLIC	ApiResponse<LoginVO>
 GET	/api/v1/users/me	LOGIN	ApiResponse<UserInfoVO>
 POST	/api/v1/users/me/check-ins	LOGIN	ApiResponse<SignInVO>

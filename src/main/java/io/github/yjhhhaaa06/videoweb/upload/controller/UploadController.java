@@ -11,6 +11,7 @@ import io.github.yjhhhaaa06.videoweb.upload.model.UploadResult;
 import io.github.yjhhhaaa06.videoweb.upload.model.UploadType;
 import io.github.yjhhhaaa06.videoweb.upload.model.vo.ContentCreatedVO;
 import io.github.yjhhhaaa06.videoweb.upload.model.vo.MediaReplacedVO;
+import io.github.yjhhhaaa06.videoweb.upload.model.vo.UploadedAssetVO;
 import io.github.yjhhhaaa06.videoweb.upload.service.FileUploadService;
 import io.github.yjhhhaaa06.videoweb.upload.service.Mp4DurationReader;
 import org.slf4j.Logger;
@@ -73,6 +74,53 @@ public class UploadController {
     public UploadController(FileUploadService fileUploadService, ContentService contentService) {
         this.fileUploadService = fileUploadService;
         this.contentService = contentService;
+    }
+
+    /**
+     * 单文件上传（{@code POST /api/v1/uploads/{type}}）：**只落盘、不写 DB**。
+     *
+     * <h2>它为什么存在（与发布端点的分工）</h2>
+     * 创建 / 编辑作品的正确提交单位是**媒体引用清单**，不是字节：文件先在这里上传并拿到
+     * 不可变的相对 URL，随后由 {@code POST /api/v1/contents}（创建）或
+     * {@code PUT /api/v1/contents/{id}}（编辑）按清单绑定。这样"保存"不需要重传未改动的
+     * 视频，且**编辑中的媒体对观众不可见**——未绑定的文件不参与任何内容装配。
+     *
+     * <h2>它刻意不做什么</h2>
+     * <ul>
+     *   <li><b>不写 {@code content_media}</b>：绑定关系只在提交清单时产生；</li>
+     *   <li><b>不校验业务元数据</b>（标题 / 分区）：那是提交端点的职责；</li>
+     *   <li><b>不做清理</b>：上传后放弃的请求会留下未被引用的文件（孤儿），由离线清理脚本
+     *       按"磁盘存在但库内无引用"回收，不进请求事务。</li>
+     * </ul>
+     *
+     * <p>返回的 {@code url} 是应用内相对路径；{@code durationSeconds} 只对视频有值，
+     * 解析失败 / 未知为 {@code null}（≠ 0）。提交清单时服务端会**重新解析**时长，
+     * 客户端回传值不参与写库。
+     *
+     * @param type {@code video} / {@code image} / {@code cover}（与 URL 里的目录同名）
+     * @param file 单文件 part {@code file}；缺失由框架 400，空文件走本方法 400
+     */
+    @PostMapping("/api/v1/uploads/{type}")
+    public ApiResponse<UploadedAssetVO> upload(@PathVariable("type") String type,
+                                               @RequestPart("file") MultipartFile file) {
+        UploadType uploadType = UploadType.fromDir(type);
+        if (uploadType == null) {
+            throw new ParamException(ErrorCode.UPLOAD_TYPE_INVALID, "type 不合法，应为 video/image/cover");
+        }
+        if (file == null || file.getSize() <= 0) {
+            throw new ParamException(ErrorCode.PARAM_INVALID, "请选择要上传的文件");
+        }
+
+        UploadResult result;
+        try {
+            result = fileUploadService.saveFile(file, uploadType);
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new UploadFailureException(e);
+        }
+        Integer duration = uploadType == UploadType.VIDEO ? readDuration(result) : null;
+        return ApiResponse.success(new UploadedAssetVO(result.url(), duration));
     }
 
     /**

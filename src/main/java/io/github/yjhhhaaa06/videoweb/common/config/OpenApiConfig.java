@@ -113,6 +113,7 @@ public class OpenApiConfig {
      */
     private static final Map<String, List<String>> REQUIRED_BODY_PARTS = Map.of(
             "POST /api/v1/contents/videos", List.of("video", "cover"),
+            "POST /api/v1/uploads/{type}", List.of("file"),
             "PUT /api/v1/contents/{id}/media", List.of("file"),
             "PUT /api/v1/admin/media/{id}", List.of("file"));
 
@@ -148,7 +149,9 @@ public class OpenApiConfig {
             // 失效占位条目的展示字段确实为 null
             "FavoriteItemVO", Set.of("coverUrl", "authorName"),
             "WatchLaterItemVO", Set.of("coverUrl", "authorName"),
-            "HistoryItemVO", Set.of("coverUrl", "authorName", "durationSeconds"));
+            "HistoryItemVO", Set.of("coverUrl", "authorName", "durationSeconds"),
+            // 单文件上传：只有视频有值；图片 / 封面恒 null（"未知" ≠ 0）
+            "UploadedAssetVO", Set.of("durationSeconds"));
 
     /**
      * 供 spec 护栏测试遍历（{@code OpenApiSpecExportTests}）——**不是业务 API**，运行期不要读它。
