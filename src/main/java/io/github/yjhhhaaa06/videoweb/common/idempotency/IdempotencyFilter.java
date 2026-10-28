@@ -389,9 +389,9 @@ public class IdempotencyFilter extends OncePerRequestFilter {
     /**
      * 占位 + 短轮询（写接口幂等.md §五："命中 {@code PENDING} ⇒ 2×100 ms，仍 PENDING ⇒ 409"）。
      *
-     * <p>⚠️ 休眠占的是 Tomcat 工作线程（本仓未启用虚拟线程、worker max=200），
-     * 故只在**真并发同 key** 的冲突路径上、最多 {@code attempts × interval-millis}；
-     * 这是已登记的已知代价，不要调大这个乘积。
+     * <p>★ 2026-10-28 起本仓启用虚拟线程（{@code spring.threads.virtual.enabled=true}）⇒
+     * {@link Thread#sleep} 只挂起虚拟线程、不占平台工作线程；本段仍只在**真并发同 key**
+     * 的冲突路径上、最多 {@code attempts × interval-millis}，不要调大这个乘积。
      */
     private IdempotencyStore.AcquireResult acquireWithPolling(String key, String owner, int pendingTtlSeconds) {
         IdempotencyStore.AcquireResult result = store.acquire(key, owner, pendingTtlSeconds);

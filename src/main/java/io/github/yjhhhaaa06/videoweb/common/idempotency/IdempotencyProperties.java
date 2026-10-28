@@ -21,7 +21,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * 跟着 {@link IdempotencyScope.Entry#pendingTtlSeconds()} 走（写接口幂等.md §十 末段）。
  *
  * @param ttl    已固化结果 / 墓碑的存活时间
- * @param poll   命中 {@code PENDING} 时的短轮询参数（⚠️ 占用容器工作线程，见 §十三 第 9 条）
+ * @param poll   命中 {@code PENDING} 时的短轮询参数（⚠️ 冲突路径上的额外等待，见 §十三 第 9 条）
  * @param limits 指纹与快照的上限（都按"超过即降级"，不做截断后计算）
  */
 @ConfigurationProperties(prefix = "video.idempotency")
@@ -51,8 +51,9 @@ public record IdempotencyProperties(Ttl ttl, Poll poll, Limits limits) {
     /**
      * 短轮询参数：命中别人的 {@code PENDING} 时等一小会儿再问一次，仍占着就 409。
      *
-     * <p>⚠️ {@code attempts × intervalMillis} 就是**冲突路径上**多占的容器工作线程时间
-     * （默认 2×100 ms）。本仓未启用虚拟线程 ⇒ 不要把这个乘积调大。
+     * <p>⚠️ {@code attempts × intervalMillis} 就是**冲突路径上**的额外等待
+     * （默认 2×100 ms）。2026-10-28 起本仓启用虚拟线程 ⇒ 这段休眠只挂起虚拟线程、
+     * 不占平台线程；乘积保持默认值，不要轻易调大。
      *
      * @param attempts       首次占位失败后再问的次数（默认 2 ⇒ 最多 3 次 ACQUIRE）
      * @param intervalMillis 每次之间的休眠（毫秒）
