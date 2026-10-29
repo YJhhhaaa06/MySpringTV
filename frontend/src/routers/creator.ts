@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import CreatorEditPage from '../pages/CreatorEditPage.vue'
 import CreatorUploadPage from '../pages/CreatorUploadPage.vue'
 import CreatorWorksPage from '../pages/CreatorWorksPage.vue'
 import PlaceholderPage from '../pages/PlaceholderPage.vue'
@@ -18,6 +19,7 @@ export const creatorRouter = createRouter({
   routes: [
     { path: '/creator', name: 'creator-upload', component: CreatorUploadPage },
     { path: '/creator/manage', name: 'creator-works', component: CreatorWorksPage },
+    { path: '/creator/edit/:id(\\d+)', name: 'creator-edit', component: CreatorEditPage },
     { path: '/:pathMatch(.*)*', name: 'not-found', component: PlaceholderPage },
   ],
   scrollBehavior: () => ({ top: 0 }),

@@ -92,19 +92,25 @@ function checkFile(
   return null
 }
 
-function checkTitle(title: string): UploadFieldError | null {
+/**
+ * 三个**文本字段**校验（`field` 与后端 `errors[].field` 同名）。
+ *
+ * <p>导出是因为编辑页复用同一套口径：投稿与编辑对标题 / 分区 / 简介的约束必须一致，
+ * 两处各写一份迟早会漂移（后端本来就只有一个 `ContentService`）。
+ */
+export function checkTitle(title: string): UploadFieldError | null {
   const value = title.trim()
   if (!value) return { field: 'title', message: '标题不能为空' }
   if (value.length > TITLE_MAX) return { field: 'title', message: `标题不得超过 ${TITLE_MAX} 字` }
   return null
 }
 
-function checkCategory(categoryId: number): UploadFieldError | null {
+export function checkCategory(categoryId: number): UploadFieldError | null {
   const valid = UPLOAD_CATEGORIES.some((item) => item.id === categoryId)
   return valid ? null : { field: 'categoryId', message: '请选择分区' }
 }
 
-function checkDescription(description: string, max: number): UploadFieldError | null {
+export function checkDescription(description: string, max: number): UploadFieldError | null {
   if (description.trim().length > max) {
     return { field: 'description', message: `简介不得超过 ${max} 字` }
   }
