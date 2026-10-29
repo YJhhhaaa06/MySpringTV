@@ -301,6 +301,9 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
             hitSkippedAndAssertUntouched("/history");
             hitSkippedAndAssertUntouched("/dynamic");
             hitSkippedAndAssertUntouched("/creator");
+            // 创作中心应用内路由（2026-10-29）：外壳转发，与 `/creator` 同口径
+            hitSkippedAndAssertUntouched("/creator/manage");
+            hitSkippedAndAssertUntouched("/creator/edit/42");
             hitSkippedAndAssertUntouched("/video/999999");
             hitSkippedAndAssertUntouched("/opus/999999");
             hitSkippedAndAssertUntouched("/space/999999");

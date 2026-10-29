@@ -58,6 +58,9 @@ class StaticForwardingContractTests extends AbstractIntegrationTest {
         assertForward("/dynamic", "/dynamic.html");
         // 创作中心（2026-10-28）：投稿页入口
         assertForward("/creator", "/creator.html");
+        // 创作中心应用内路由（2026-10-29）：稿件列表 / 编辑页（同一入口 HTML，应用内 router 分流）
+        assertForward("/creator/manage", "/creator.html");
+        assertForward("/creator/edit/42", "/creator.html");
         assertForward("/placeholder/live", "/index.html");
     }
 

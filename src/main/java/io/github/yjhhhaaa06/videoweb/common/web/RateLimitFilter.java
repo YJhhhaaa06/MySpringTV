@@ -136,7 +136,10 @@ public class RateLimitFilter extends OncePerRequestFilter {
      */
     private static final List<String> SKIP_PREFIXES = List.of(
             "/assets/", "/actuator/", "/upload/",
-            "/video/", "/opus/", "/space/", "/placeholder/");
+            "/video/", "/opus/", "/space/", "/placeholder/",
+            // 创作中心应用内路由（2026-10-29）：`/creator/manage`、`/creator/edit/{id}`
+            // 都是 HTML 外壳的转发入口，与 `/creator` 本身同口径 —— 成本在页面随后发的 `/api/v1/**`。
+            "/creator/");
 
     private final RateLimitProperties properties;
     private final RateLimitRedisOps ops;

@@ -25,7 +25,8 @@ const pageEntries: ReadonlyArray<readonly [RegExp, string]> = [
   [/^\/dynamic\/?$/, '/dynamic.html'],
   // 创作中心（2026-10-28）：**刻意不用 `/upload`** —— `/upload/**` 是后端媒体静态路径
   // （dev 侧 `/upload` 代理到后端、生产侧由 ResourceHandler 服务），页面路由撞上去会互相吃掉。
-  [/^\/creator\/?$/, '/creator.html'],
+  // 2026-10-29 起含应用内路由（`/creator/manage`、`/creator/edit/{id}`），与 WebMvcConfig 同步。
+  [/^\/creator(\/.*)?$/, '/creator.html'],
   [/^\/placeholder(\/.*)?$/, '/index.html'],
 ]
 

@@ -93,6 +93,12 @@ public class WebMvcConfig implements WebMvcConfigurer {
         // ⚠️ 页面路由**刻意不用 `/upload`**：`/upload/**` 是媒体静态路径（见 addResourceHandlers），
         //    两者撞在同一前缀上会互相吃掉（dev 侧 Vite 代理同理）。
         registry.addViewController("/creator").setViewName("forward:/creator.html");
+        // 创作中心应用内路由（2026-10-29）：稿件列表 / 编辑页。
+        // ⚠️ 逐条列，不用通配 `"/creator/**"`：通配会把未来任何 `/creator/**`（包括某个
+        //    可能新增的静态目录）一起吞成 HTML 外壳，而这里要的只是"这两个已知页面深链可直达"。
+        //    与 Vite 的 `pageEntries` 是同一张映射表，两处必须同步改。
+        registry.addViewController("/creator/manage").setViewName("forward:/creator.html");
+        registry.addViewController("/creator/edit/{id}").setViewName("forward:/creator.html");
         registry.addViewController("/placeholder/{feature}").setViewName("forward:/index.html");
     }
 
