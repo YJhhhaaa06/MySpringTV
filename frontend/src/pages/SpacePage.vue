@@ -5,10 +5,11 @@ import type { PublicFolderVM, SpaceHeaderVM, SpaceWorksVM, VideoCardVM } from '.
 import { loadFolderItems, loadPublicFolders, loadSpace } from '../api/profile'
 import { followUser, unfollowUser } from '../api/interactions'
 import { ApiError, describeError } from '../api/http'
-import { formatCount } from '../api/adapters/format'
+import { formatCount, formatCoinInt } from '../api/adapters/format'
 import { isAuthenticated, restoreSession, sessionState } from '../auth/session'
 import { requireLogin } from '../auth/loginPrompt'
 import { showToast } from '../common/toast'
+import { useCheckIn } from '../composables/useCheckIn'
 import AppIcon from '../components/common/AppIcon.vue'
 import EmptyState from '../components/common/EmptyState.vue'
 import Pagination from '../components/common/Pagination.vue'
@@ -171,6 +172,21 @@ async function toggleFollow(): Promise<void> {
     followBusy.value = false
   }
 }
+
+// ── 硬币 / 签到 ───────────────────────────────────────────────────────
+/**
+ * 签到卡只在自己的空间渲染（`header.isSelf`）：硬币余额与"今天签没签"都是私密事实，
+ * 别人的空间上放一张只有自己看得见的卡是照抄版式、不是照抄语义。
+ *
+ * ★ 状态来源是 `/users/me` 的 `signedToday`（服务端按上海自然日算），不落 localStorage
+ * ⇒ 换号不需要清任何缓存，跨设备 / 多标签页也不会出现"按钮亮着但一点就是已签到"。
+ */
+const {
+  balance: checkInBalance,
+  signedToday: checkInSigned,
+  busy: checkInBusy,
+  submit: submitCheckIn,
+} = useCheckIn()
 
 // ── 收藏夹 ────────────────────────────────────────────────────────────
 const folders = ref<PublicFolderVM[]>([])
@@ -408,6 +424,34 @@ function goItemPage(page: number): void {
                   <dd>{{ formatCount(header?.worksCount) }}</dd>
                 </div>
               </dl>
+            </section>
+
+            <!-- 硬币 / 签到：与「个人资料」等宽（同一个 side 列，不另起宽度）。
+                 只在看自己时渲染 —— 余额与签到状态是私密事实。 -->
+            <section v-if="header?.isSelf" class="side-card">
+              <h2 class="side-card__title">硬币</h2>
+              <dl class="side-list">
+                <div class="side-list__row">
+                  <dt>当前硬币</dt>
+                  <dd class="checkin__amount">
+                    <AppIcon name="coin" :size="16" />
+                    {{ formatCoinInt(checkInBalance) }}
+                  </dd>
+                </div>
+              </dl>
+              <button
+                class="btn checkin__btn"
+                :class="checkInSigned ? 'btn-ghost' : 'btn-primary'"
+                type="button"
+                :disabled="checkInBusy || checkInSigned"
+                @click="submitCheckIn"
+              >
+                {{ checkInSigned ? '今日已签到' : checkInBusy ? '签到中…' : '签到领 1 枚' }}
+              </button>
+              <!-- 说明"为什么现在不能点"，而不是让用户猜灰按钮是坏了还是签过了 -->
+              <p class="checkin__hint">
+                {{ checkInSigned ? '明天 0 点后可以再领 1 枚' : '每日签到可得 1 枚硬币' }}
+              </p>
             </section>
           </aside>
         </div>
@@ -669,6 +713,45 @@ function goItemPage(page: number): void {
   margin: 0;
   color: var(--text-1);
   font-variant-numeric: tabular-nums;
+}
+
+/* 两张侧栏卡之间留出呼吸；宽度由 side 列决定（= 「个人资料」卡同宽） */
+.side-card + .side-card {
+  margin-top: 12px;
+}
+
+.checkin__amount {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+}
+
+.checkin__amount :deep(svg) {
+  color: var(--brand-pink);
+}
+
+.checkin__btn {
+  width: 100%;
+  margin-top: 12px;
+}
+
+/*
+ * 已签到态的填充色用 `--line-1`（#e3e5e7）而不是 `--bg-1/bg-2`：
+ * 卡片底色就是 `--bg-1`，灰阶差两级以内的话按钮会"溶进卡片"，
+ * 界面上只剩一行孤零零的灰字 —— 看着像坏了，而不像"已签到"。
+ */
+.checkin__btn:disabled {
+  background: var(--line-1);
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+
+.checkin__hint {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-3);
 }
 
 .space-skeleton {
