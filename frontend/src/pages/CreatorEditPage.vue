@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { loadEditableContent, saveContentEdit } from '../api/creator'
 import { isDirty, swapImages, toEditableContent, toUpdatePayload, validateEdit } from '../api/creatorEdit'
@@ -15,6 +15,8 @@ import { showToast } from '../common/toast'
 import { UPLOAD_CATEGORIES } from '../constants/categories'
 import AppIcon from '../components/common/AppIcon.vue'
 import EmptyState from '../components/common/EmptyState.vue'
+import CoverCropper from '../components/creator/CoverCropper.vue'
+import CoverPreview from '../components/creator/CoverPreview.vue'
 import ImageReorderGrid from '../components/creator/ImageReorderGrid.vue'
 
 /**
@@ -57,6 +59,20 @@ const imageInput = ref<HTMLInputElement | null>(null)
 const addImagesInput = ref<HTMLInputElement | null>(null)
 /** 正在"换源"的那张图的序号（-1 = 不是换源，是追加） */
 const replaceIndex = ref(-1)
+
+/**
+ * 封面裁剪 / 预览弹层的开关与源（`url` 是 object URL，关闭时必须回收）。
+ *
+ * <p>编辑页的封面已经是**线上文件**（`/upload/cover/…`，同源）⇒「重新裁剪」先把它 fetch 成
+ * blob 再进裁剪；产物按 upload-only 规则先传拿新 URL，保存时才被 `PUT` 引用。
+ * 代价与"换源"一致：**取消 / 不保存会让新文件成为孤儿**（后端已知代价，离线脚本回收）。
+ */
+const coverCrop = reactive<{ open: boolean; url: string | null; fileName: string }>({
+  open: false,
+  url: null,
+  fileName: 'cover.jpg',
+})
+const coverPreviewOpen = ref(false)
 
 const authenticated = computed(() => sessionState.status === 'authenticated')
 const dirty = computed(() =>
@@ -205,13 +221,60 @@ function onCoverPicked(event: Event): void {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0] ?? null
   input.value = ''
-  if (!file || !draft.value) return
+  if (!file) return
+  // 选图只负责**打开裁剪**：未裁剪的图上传播出去以后，观众看到的仍是展示端替你切的那一版
+  openCoverCropper(file)
+}
+
+function openCoverCropper(file: File): void {
+  if (saving.value || busy.value) return
+  releaseCropperUrl()
+  coverCrop.url = URL.createObjectURL(file)
+  coverCrop.fileName = file.name
+  coverCrop.open = true
+}
+
+function releaseCropperUrl(): void {
+  if (coverCrop.url) URL.revokeObjectURL(coverCrop.url)
+  coverCrop.url = null
+}
+
+function closeCoverCropper(): void {
+  coverCrop.open = false
+  releaseCropperUrl()
+}
+
+function onCoverCropped(file: File): void {
+  closeCoverCropper()
   void uploadInto('cover', file, (url) => {
     if (!draft.value) return
     draft.value.coverUrl = url
     clearError('coverUrl')
   })
 }
+
+/** 重新裁剪**已上传**的封面：先取回字节再进裁剪（同源 ⇒ canvas 可读像素） */
+async function recropCover(): Promise<void> {
+  const url = draft.value?.coverUrl
+  if (!url || saving.value || busy.value) return
+  pageError.value = ''
+  try {
+    const response = await fetch(url)
+    if (!response.ok) throw new Error('cover fetch failed')
+    const blob = await response.blob()
+    const name = url.split('/').pop() || 'cover.jpg'
+    openCoverCropper(new File([blob], name, { type: blob.type || 'image/jpeg' }))
+  } catch {
+    pageError.value = '封面读取失败，请重新选择本地图片'
+  }
+}
+
+function openCoverPreview(): void {
+  if (!draft.value?.coverUrl) return
+  coverPreviewOpen.value = true
+}
+
+onBeforeUnmount(releaseCropperUrl)
 
 function onReplaceImagePicked(event: Event): void {
   const input = event.target as HTMLInputElement
@@ -366,18 +429,20 @@ function backToList(): void {
                   <span>添加封面</span>
                 </template>
               </button>
-              <p class="cover-hint">
-                JPG / PNG，≤50MB
-                <button
-                  v-if="draft.coverUrl"
-                  class="link-btn"
-                  type="button"
-                  :disabled="saving || busy !== null"
-                  @click="removeCover"
-                >
-                  移除封面
-                </button>
-              </p>
+              <div class="cover-hint">
+                <p>JPG / PNG，≤50MB</p>
+                <div v-if="draft.coverUrl" class="cover-actions">
+                  <button class="link-btn" type="button" :disabled="saving || busy !== null" @click="recropCover">
+                    重新裁剪
+                  </button>
+                  <button class="link-btn" type="button" :disabled="saving || busy !== null" @click="openCoverPreview">
+                    预览
+                  </button>
+                  <button class="link-btn" type="button" :disabled="saving || busy !== null" @click="removeCover">
+                    移除封面
+                  </button>
+                </div>
+              </div>
             </div>
             <p v-if="errorOf('coverUrl')" class="field-error">{{ errorOf('coverUrl') }}</p>
             <p v-if="busy === 'cover'" class="edit-hint">正在上传封面…</p>
@@ -418,7 +483,17 @@ function backToList(): void {
                   <span>添加封面</span>
                 </template>
               </button>
-              <p class="cover-hint">建议 16:9；JPG / PNG，≤50MB</p>
+              <div class="cover-hint">
+                <p>建议 16:9；JPG / PNG，≤50MB</p>
+                <div v-if="draft.coverUrl" class="cover-actions">
+                  <button class="link-btn" type="button" :disabled="saving || busy !== null" @click="recropCover">
+                    重新裁剪
+                  </button>
+                  <button class="link-btn" type="button" :disabled="saving || busy !== null" @click="openCoverPreview">
+                    预览
+                  </button>
+                </div>
+              </div>
             </div>
             <p v-if="errorOf('coverUrl')" class="field-error">{{ errorOf('coverUrl') }}</p>
             <p v-if="busy === 'cover'" class="edit-hint">正在上传封面…</p>
@@ -510,6 +585,22 @@ function backToList(): void {
         </button>
       </footer>
     </form>
+
+    <!-- 弹层 Teleport 到 body：放在这里只是就近 -->
+    <CoverCropper
+      v-if="coverCrop.open && coverCrop.url"
+      :source-url="coverCrop.url"
+      :file-name="coverCrop.fileName"
+      heading="裁剪封面"
+      @cropped="onCoverCropped"
+      @close="closeCoverCropper"
+    />
+    <CoverPreview
+      v-if="coverPreviewOpen && draft"
+      :src="draft.coverUrl"
+      :title="draft.title"
+      @close="coverPreviewOpen = false"
+    />
   </div>
 </template>
 
@@ -723,6 +814,17 @@ function backToList(): void {
 
 .cover-hint .link-btn {
   margin-left: 8px;
+}
+
+.cover-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.cover-actions .link-btn {
+  margin-left: 0;
 }
 
 .edit-submit {

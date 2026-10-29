@@ -23,6 +23,8 @@ import { showToast } from '../common/toast'
 import { UPLOAD_CATEGORIES } from '../constants/categories'
 import AppIcon from '../components/common/AppIcon.vue'
 import EmptyState from '../components/common/EmptyState.vue'
+import CoverCropper from '../components/creator/CoverCropper.vue'
+import CoverPreview from '../components/creator/CoverPreview.vue'
 
 /**
  * 投稿页（`/creator`，第 9 个入口）。
@@ -66,8 +68,24 @@ const postKeys = new SubmitKeyHolder()
 const videoPool = new AssetUploadPool()
 const postPool = new AssetUploadPool()
 
-const videoCoverPreview = ref<string | null>(null)
-const postCoverPreview = ref<string | null>(null)
+/**
+ * 封面区的状态（视频 / 图文各一份）。
+ *
+ * <p>`pick` 是**来源原图**：重新裁剪永远从原图开始 —— 从"已裁过的产物"再裁会把画面越裁越小。
+ * `preview` 是裁剪产物的 object URL，也就是写进 `draft.cover` 的那个 File。
+ * `committed` 用来区分"这次选图已确认"和"只是打开了裁剪框"：取消时要能丢掉未确认的图，
+ * 又不该把已生效那张的来源一起扔了。
+ */
+interface CoverUi {
+  pick: { file: File; url: string; committed: boolean } | null
+  preview: string | null
+  cropOpen: boolean
+  previewOpen: boolean
+}
+
+const videoCover = reactive<CoverUi>({ pick: null, preview: null, cropOpen: false, previewOpen: false })
+const postCover = reactive<CoverUi>({ pick: null, preview: null, cropOpen: false, previewOpen: false })
+
 const postImagePreviews = ref<string[]>([])
 
 const videoInput = ref<HTMLInputElement | null>(null)
@@ -140,21 +158,11 @@ function onVideoPicked(event: Event): void {
 }
 
 function onVideoCoverPicked(event: Event): void {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0] ?? null
-  videoDraft.cover = file
-  replaceVideoCoverPreview(file)
-  clearError('cover')
-  input.value = ''
+  acceptCoverPick('video', event)
 }
 
 function onPostCoverPicked(event: Event): void {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0] ?? null
-  postDraft.cover = file
-  replacePostCoverPreview(file)
-  clearError('cover')
-  input.value = ''
+  acceptCoverPick('post', event)
 }
 
 function onPostImagesPicked(event: Event): void {
@@ -173,20 +181,87 @@ function removePostImage(index: number): void {
   syncPostImagePreviews()
 }
 
-function removePostCover(): void {
-  postDraft.cover = null
-  replacePostCoverPreview(null)
+// ==================== 封面：选图 → 裁剪 → 预览 ====================
+
+function coverUiOf(kind: Kind): CoverUi {
+  return kind === 'video' ? videoCover : postCover
+}
+
+function coverFileOf(kind: Kind): File | null {
+  return kind === 'video' ? videoDraft.cover : postDraft.cover
+}
+
+function setCoverFile(kind: Kind, file: File | null): void {
+  if (kind === 'video') videoDraft.cover = file
+  else postDraft.cover = file
+}
+
+function releasePick(ui: CoverUi): void {
+  if (ui.pick) URL.revokeObjectURL(ui.pick.url)
+  ui.pick = null
+}
+
+function releasePreview(ui: CoverUi): void {
+  if (ui.preview) URL.revokeObjectURL(ui.preview)
+  ui.preview = null
+}
+
+/**
+ * 选中封面文件 = **立刻进裁剪**（不是直接当封面用）。
+ *
+ * <p>那 160×90 的缩略图看不出被切了什么，所以"选完就能提交"等于把切图交给展示端黑盒。
+ * 取消裁剪 ⇔ 这次没选（见 {@link onCropClosed}）。
+ */
+function acceptCoverPick(kind: Kind, event: Event): void {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0] ?? null
+  input.value = ''
+  if (!file) return
+  const ui = coverUiOf(kind)
+  releasePick(ui)
+  ui.pick = { file, url: URL.createObjectURL(file), committed: false }
+  ui.cropOpen = true
   clearError('cover')
 }
 
-function replaceVideoCoverPreview(file: File | null): void {
-  if (videoCoverPreview.value) URL.revokeObjectURL(videoCoverPreview.value)
-  videoCoverPreview.value = file ? URL.createObjectURL(file) : null
+function onCropped(kind: Kind, file: File): void {
+  const ui = coverUiOf(kind)
+  setCoverFile(kind, file)
+  releasePreview(ui)
+  ui.preview = URL.createObjectURL(file)
+  if (ui.pick) ui.pick.committed = true
+  ui.cropOpen = false
+  clearError('cover')
 }
 
-function replacePostCoverPreview(file: File | null): void {
-  if (postCoverPreview.value) URL.revokeObjectURL(postCoverPreview.value)
-  postCoverPreview.value = file ? URL.createObjectURL(file) : null
+function onCropClosed(kind: Kind): void {
+  const ui = coverUiOf(kind)
+  ui.cropOpen = false
+  if (ui.pick && !ui.pick.committed) releasePick(ui)
+}
+
+/** 重新裁剪：从**来源原图**重来（没有来源时退回当前封面），不叠加裁切损失 */
+function recrop(kind: Kind): void {
+  const ui = coverUiOf(kind)
+  if (!ui.pick) {
+    const cover = coverFileOf(kind)
+    if (!cover) return
+    ui.pick = { file: cover, url: URL.createObjectURL(cover), committed: true }
+  }
+  ui.cropOpen = true
+}
+
+function removeCover(kind: Kind): void {
+  const ui = coverUiOf(kind)
+  setCoverFile(kind, null)
+  releasePreview(ui)
+  releasePick(ui)
+  clearError('cover')
+}
+
+function openCoverPreview(kind: Kind): void {
+  if (!coverUiOf(kind).preview) return
+  coverUiOf(kind).previewOpen = true
 }
 
 function syncPostImagePreviews(): void {
@@ -195,8 +270,10 @@ function syncPostImagePreviews(): void {
 }
 
 onBeforeUnmount(() => {
-  if (videoCoverPreview.value) URL.revokeObjectURL(videoCoverPreview.value)
-  if (postCoverPreview.value) URL.revokeObjectURL(postCoverPreview.value)
+  for (const ui of [videoCover, postCover]) {
+    releasePreview(ui)
+    releasePick(ui)
+  }
   postImagePreviews.value.forEach((url) => URL.revokeObjectURL(url))
 })
 
@@ -204,12 +281,14 @@ onBeforeUnmount(() => {
 
 function resetVideoDraft(): void {
   Object.assign(videoDraft, createVideoDraft())
-  replaceVideoCoverPreview(null)
+  releasePreview(videoCover)
+  releasePick(videoCover)
 }
 
 function resetPostDraft(): void {
   Object.assign(postDraft, createPostDraft())
-  replacePostCoverPreview(null)
+  releasePreview(postCover)
+  releasePick(postCover)
   syncPostImagePreviews()
 }
 
@@ -395,13 +474,31 @@ async function submitPost(): Promise<void> {
               <span class="field__label"><i class="required">*</i>封面</span>
               <div class="cover-row">
                 <button class="cover-box" type="button" :disabled="submitting" @click="pickVideoCover">
-                  <img v-if="videoCoverPreview" :src="videoCoverPreview" alt="封面预览" />
+                  <img v-if="videoCover.preview" :src="videoCover.preview" alt="封面预览" />
                   <template v-else>
                     <AppIcon name="upload" :size="20" />
                     <span>添加封面</span>
                   </template>
                 </button>
-                <p class="cover-hint">建议 16:9；JPG / PNG，≤50MB</p>
+                <div class="cover-hint">
+                  <p>建议 16:9；JPG / PNG，≤50MB</p>
+                  <div v-if="videoDraft.cover" class="cover-actions">
+                    <button class="link-btn" type="button" :disabled="submitting" @click="recrop('video')">
+                      重新裁剪
+                    </button>
+                    <button
+                      class="link-btn"
+                      type="button"
+                      :disabled="submitting"
+                      @click="openCoverPreview('video')"
+                    >
+                      预览
+                    </button>
+                    <button class="link-btn" type="button" :disabled="submitting" @click="removeCover('video')">
+                      移除封面
+                    </button>
+                  </div>
+                </div>
               </div>
               <p v-if="errorOf('cover')" class="field-error">{{ errorOf('cover') }}</p>
               <input
@@ -512,7 +609,7 @@ async function submitPost(): Promise<void> {
               <span class="field__label">封面 <span class="optional">（可选）</span></span>
               <div class="cover-row">
                 <button class="cover-box" type="button" :disabled="submitting" @click="pickPostCover">
-                  <img v-if="postCoverPreview" :src="postCoverPreview" alt="封面预览" />
+                  <img v-if="postCover.preview" :src="postCover.preview" alt="封面预览" />
                   <template v-else>
                     <AppIcon name="upload" :size="20" />
                     <span>添加封面</span>
@@ -520,9 +617,22 @@ async function submitPost(): Promise<void> {
                 </button>
                 <div class="cover-hint">
                   <p>JPG / PNG，≤50MB</p>
-                  <button v-if="postDraft.cover" class="link-btn" type="button" :disabled="submitting" @click="removePostCover">
-                    移除封面
-                  </button>
+                  <div v-if="postDraft.cover" class="cover-actions">
+                    <button class="link-btn" type="button" :disabled="submitting" @click="recrop('post')">
+                      重新裁剪
+                    </button>
+                    <button
+                      class="link-btn"
+                      type="button"
+                      :disabled="submitting"
+                      @click="openCoverPreview('post')"
+                    >
+                      预览
+                    </button>
+                    <button class="link-btn" type="button" :disabled="submitting" @click="removeCover('post')">
+                      移除封面
+                    </button>
+                  </div>
                 </div>
               </div>
               <p v-if="errorOf('cover')" class="field-error">{{ errorOf('cover') }}</p>
@@ -591,6 +701,36 @@ async function submitPost(): Promise<void> {
         </form>
       </template>
     </div>
+
+    <!-- 弹层都 Teleport 到 body：放在这里只是就近，位置不影响渲染层级 -->
+    <CoverCropper
+      v-if="videoCover.cropOpen && videoCover.pick"
+      :source-url="videoCover.pick.url"
+      :file-name="videoCover.pick.file.name"
+      heading="裁剪封面（视频）"
+      @cropped="onCropped('video', $event)"
+      @close="onCropClosed('video')"
+    />
+    <CoverCropper
+      v-if="postCover.cropOpen && postCover.pick"
+      :source-url="postCover.pick.url"
+      :file-name="postCover.pick.file.name"
+      heading="裁剪封面（图文）"
+      @cropped="onCropped('post', $event)"
+      @close="onCropClosed('post')"
+    />
+    <CoverPreview
+      v-if="videoCover.previewOpen"
+      :src="videoCover.preview"
+      :title="videoDraft.title"
+      @close="videoCover.previewOpen = false"
+    />
+    <CoverPreview
+      v-if="postCover.previewOpen"
+      :src="postCover.preview"
+      :title="postDraft.title"
+      @close="postCover.previewOpen = false"
+    />
   </div>
 </template>
 
@@ -899,6 +1039,13 @@ async function submitPost(): Promise<void> {
   font-size: 12px;
   line-height: 18px;
   color: var(--text-3);
+}
+
+.cover-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 4px;
 }
 
 .link-btn {
