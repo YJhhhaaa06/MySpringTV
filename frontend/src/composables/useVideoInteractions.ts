@@ -1,6 +1,6 @@
 import { reactive, ref, type Ref } from 'vue'
 import type { AuthorCardVM, FavoriteFolderVM, InteractionVM, VideoDetailVM } from '../types/ui'
-import { applyCoinBalance } from '../auth/session'
+import { applyCoinBalance, applySignInResult } from '../auth/session'
 import { requireLogin } from '../auth/loginPrompt'
 import { showToast } from '../common/toast'
 import { ApiError } from '../api/http'
@@ -222,7 +222,16 @@ export function useVideoInteractions(
     }
   }
 
-  /** 硬币不足时的出口：真签到接口（**不是**前端假装加一枚） */
+  /**
+   * 硬币不足时的出口：真签到接口（**不是**前端假装加一枚）。
+   *
+   * <p>★ 重复签到**不是错误**：服务端回 200 + `credited=false`（幂等，见
+   * `architecture/domain/coin/coin.md` §二）。所以这里没有 409 分支 —— 早先那条
+   * `catch (409)` 从来没被走到过（后端从不抛 409），是注释把契约写错了留下的死代码。
+   *
+   * <p>用 `applySignInResult` 而不是 `applyCoinBalance`：签到同时要改
+   * "今天已签"这个状态（空间页硬币卡读它），只对齐余额会让两处显示打架。
+   */
   async function signInForCoins(): Promise<void> {
     // 先把上一条错误清掉：否则"硬币不足"会在签到请求在途期间继续挂着，
     // 看上去像"点了没反应"（E2E 当场撞到过这个读法）。
@@ -230,16 +239,10 @@ export function useVideoInteractions(
     coinInsufficient.value = false
     try {
       const result = await checkInToday()
-      applyCoinBalance(result?.balance)
-      coinError.value = ''
-      coinInsufficient.value = false
       // credited 只说明"这次真的入了账"；数额由服务端余额体现（不自己算差值）
+      applySignInResult(result?.balance)
       showToast(result?.credited ? '签到成功，硬币已到账' : '今天已经签到过了')
     } catch (error) {
-      if (error instanceof ApiError && error.status === 409) {
-        coinError.value = '今天已经签到过了，明天再来'
-        return
-      }
       coinError.value = errorText(error)
     }
   }

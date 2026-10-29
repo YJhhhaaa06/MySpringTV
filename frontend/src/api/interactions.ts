@@ -89,7 +89,13 @@ export function unfollowUser(userId: number): Promise<undefined> {
   return deleteJson('/api/v1/follows/{id}', { path: { id: userId } })
 }
 
-/** `POST /users/me/check-ins`：每日签到（领硬币）。重复签到 ⇒ 409 */
+/**
+ * `POST /users/me/check-ins`：每日签到（领硬币，`+1` 枚）。
+ *
+ * <p>★ **幂等、且重复签到不是错误**：首次「签到成功」（`credited=true`），
+ * 今日重复「今日已签到」（`credited=false`）——两者都是 **200**。
+ * 所以调用方不应捕 409，也不该把 `credited=false` 当失败（`SignInVO` 的注释里写着原因）。
+ */
 export function checkInToday(): Promise<SignInVO | undefined> {
   return postJson('/api/v1/users/me/check-ins')
 }
