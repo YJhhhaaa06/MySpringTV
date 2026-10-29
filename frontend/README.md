@@ -27,7 +27,8 @@ cd ..
 ```
 
 - `/`、`/search`、`/video/:id`、`/opus/:id`、`/space/:id`、`/favorites`、`/watchlater`（同一 `favorites.html` 入口）、
-  `/history`、`/dynamic`、`/creator`、`/placeholder/**` 由 `WebMvcConfig#addViewControllers` **forward** 到对应入口 HTML
+  `/history`、`/dynamic`、`/creator`（含应用内路由 `/creator/manage`、`/creator/edit/:id`）、`/placeholder/**`
+  由 `WebMvcConfig#addViewControllers` **forward** 到对应入口 HTML
   （地址栏 URL 不变）；与 dev 侧 `vite.config.ts` 的 `htmlHistoryFallback` 是**同一张映射表**，两处要同步改。
 - `/assets/**` 是构建产物；它在限流跳过清单里（HTML 外壳同理）——页面里的 `/api/v1/**` 照常过闸。
 - `src/main/resources/static/` **不入库**：它是 `npm run stage` 的产物。⇒ 新克隆的仓库在

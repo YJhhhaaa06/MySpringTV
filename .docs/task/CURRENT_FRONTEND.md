@@ -74,7 +74,7 @@ openapi.yaml ──gen──▶ frontend/src/types/api.d.ts     生成，只读�
 | 历史「筛选 / 搜索 / 记录开关」 | 不做 | **不渲染** tabs / 搜索框 / 「记录浏览历史」开关（GAP-20 / GAP-21，摆了也点不动） |
 | 动态页「发布框 / 转发 / 热搜 / 分区 tabs」 | 不做 | 发布框（投稿页暂缓）、转发（无转发域）、热搜与社区中心（GAP-24）、类型筛选 tabs（GAP-23）**都不渲染**；右栏用「我关注的人」真数据填位 |
 | 稍后再看批量管理（多选 / 清空 / 移入收藏夹） | 不做 | 只做单条移出；端点有（`DELETE /watch-later`、`PUT /watch-later/{id}/folder`）但 UI 本窗口未认领（**不是 GAP**） |
-| 创作中心 / 投稿 / 图文编辑 | **投稿页已交付（2026-10-28）**；编辑 / 换源**下一窗口** | 只渲染「视频投稿 / 图文投稿」两个 tab；4 个无域 tab 与标签 / 创作声明 / 活动 / 定时发布 / 合集 / 商业推广 / 草稿一律不渲染；编辑等后端补"分区 / 加图 / 补封面"（GAP-22、GAP-30/31） |
+| 创作中心 / 投稿 / 图文编辑 | **已交付（2026-10-29）**：投稿（upload + JSON 清单）· 稿件管理 · 编辑（取回 → 覆盖 + 图文长按换序） | 只渲染「视频投稿 / 图文投稿」两个 tab；4 个无域 tab 与标签 / 创作声明 / 活动 / 定时发布 / 合集 / 商业推广 / 草稿一律不渲染；稿件列表不渲染状态列（无审核域）与批量操作 |
 
 - ★ 本仓**目前一个 fixture 都没有**：占位组件只靠文案 + 图标，不需要假数据。
   若将来真需要，只许放 `frontend/src/mock/*.fixture.ts`，且仅占位组件可 import（用 ESLint `no-restricted-imports` 拦死）。
@@ -104,7 +104,10 @@ npm run stage                                                # dist → ../src/m
 | `api/adapters/{favorites,history}.test.ts` | 我的夹 / 稍后再看卡片（`addedTime` **不冒充**发布时间）；历史角标三态（`已看/总长` / `已看完` / 无总长只给「看到」）、按本地日历日分组 |
 | `api/adapters/{feed,relation}.test.ts` | 动态卡：`likeCount`/`commentCount` 缺失 ⇒ `null`、0 是真值、图文不显示播放量、`liked` 三态；关注/粉丝卡：`isFollowed=false` **不是**"没查"、空名字 ⇒ 未知用户 |
 | `api/http.test.ts` | 信封 / 204 / `Retry-After` / 幂等键 / 数组 query；**multipart：`postForm` 的进度回调、不手设 `Content-Type`、XHR 超时 / 网络错误的不同业务码** |
-| `api/uploadDraft.test.ts` | 投稿校验（标题 ≤50、视频简介 ≤1000、图文 ≤10000、分区 0~9、视频 .mp4 / 封面 .jpg·.png / 图片 .jpg·.png·.jpeg、单文件 50MB、合计 99MB）；FormData 形状（文本在 body、多图重复 `image` part）；**幂等键生命周期**（同草稿复用 / 草稿一改就换 / 成功 reset） |
+| `api/uploadDraft.test.ts` | 投稿校验（标题 ≤50、视频简介 ≤1000、图文 ≤10000、分区 0~9、视频 .mp4 / 封面 .jpg·.png / 图片 .jpg·.png·.jpeg、**单文件** 50MB ——"合计 99MB"随 upload 迁移退役）；**上传计划顺序**（视频先于封面 / 图文封面在前、图片按草稿顺序）；**创建载荷**（视频清单完整；图文不带 `videoUrl`、无封面不带键、`imageUrls` 顺序即 sort）；`fileKey` 口径；**幂等键生命周期** |
+| `api/upload.test.ts` | `AssetUploadPool`：**同一文件第二次不发请求且 URL 不变**（幂等指纹含 body，重传换 URL 会 409）、换文件/换角色/成功 `clear()` 后重新上传 |
+| `api/creatorEdit.test.ts` | 编辑页纯规则：详情 → 草稿（`-` 视为空简介、图片顺序原样）、草稿 → **整份覆盖载荷**（视频恰好视频+封面、图文无 `videoUrl`）、文本校验与投稿同源（视频 1000 / 图文 10000）、`swapImages`（不改入参 / 越界原样）、脏判定（`isNew` 不算改动、只加首尾空白不算改动） |
+| `api/adapters/creator.test.ts` | 稿件行：视频给时长与播放量、**图文播放量恒 `null`（行里画 —）**、落点 `/video` vs `/opus`、编辑入口恒 `/creator/edit/{id}`、分页 `total` 用契约值 |
 | `common/watchLaterSession.test.ts` | 稍后再看页面内记忆：**同一 URL 记得、换 URL 不记得**、取消即忘、不同内容互不影响 |
 | `player/progressReporter.test.ts` | 播放进度契约：45s 节奏、503 退避与**恢复**、停报条件、续播 `max`、本地补偿 TTL |
 
@@ -127,6 +130,9 @@ npm run stage                                                # dist → ../src/m
 （review 后补的 `isEditableTarget` / `cleanDescription` 4 条测试计入 175。）
 **2026-10-28（创作中心投稿页）**：⑬ 把 `SubmitKeyHolder.keyFor` 改成"每次新生成"（不再按草稿指纹复用）
 ⇒ `uploadDraft.test.ts` **红 1 条**（同一草稿的重试复用）；还原后全量 **199/199** 绿。
+**2026-10-29（编辑页 / 稿件列表）**：⑭ 把 `swapImages` 改成"只返回副本、不交换"
+⇒ `creatorEdit.test.ts` **红 3 条**（交换 / 载荷顺序 / 脏判定）；⑮ 把稿件行的 `playCountText` 对图文也调
+`formatCount`（`null` 被画成 `0`）⇒ `adapters/creator.test.ts` **红 1 条**；两次都还原后全量 **227/227** 绿。
 
 **真浏览器 E2E**（一次性脚本，放 `.tmp/`，**不入库**）：登录 / 互动 / 评论 / 进度 / 空间 /
 **收藏 / 历史 / 稍后再看 / 动态·关注粉丝 / 图文详情 / 创作中心投稿**各一支，必须真接口真写（`node .tmp/<name>-e2e.mjs`，需 Chrome `--remote-debugging-port=9222`）。
@@ -173,6 +179,18 @@ lightbox 打开聚焦 + Tab 陷阱 + 关闭还焦点；缩略图切换 `scrollIn
 ⚠️ 本机后端写 dev 媒体根 `D:/data/projects/MySpringTV/media` 被环境拒绝（`拒绝访问`）⇒ 该支用
 `UPLOAD_ROOT=.tmp/e2e-media` 起后端；**生产默认值不变**（口径见 [前端](../architecture/frontend/前端.md) §八）。
 
+★ **2026-10-29 新增三支：编辑闭环 / 稿件列表 / 视频编辑分支**（对 8080 dist 跑，headless Chrome 亦可）：
+`creator-edit-e2e.mjs`（**15/15**）—— 真建 3 图图文 → 打开 `/creator/edit/{id}` 取回（标题 / 正文 / 图片顺序都对）
+→ **长按 560ms**（真 `Input.dispatchMouseEvent`）第一张 ⇒ `aria-pressed=true` + 提示条、且此时**不交换**
+→ 点第三张 ⇒ 第一/三张互换 → 「保存修改」→ 出现「修改已生效」→ **详情 API 复算新顺序**
+→ 重进页面仍是新顺序 → 删除夹具。`creator-works-e2e2.mjs`（**7/7**）—— 列表行渲染、编辑链接形状、图文播放量画「—」、
+点编辑真进编辑页且 id 对得上。`creator-edit-video.mjs`（**6/6**）—— 视频分支 `<video>` 预览 + 封面 + 标题回填 +
+未改动时保存禁用 + 不渲染图片墙。另有 API 级 `edit-e2e.mjs`（**14/14**）：换序 / 文案整体替换 / 删图后物理文件 404 /
+未改 URL 不换名 / 删除后 404。
+⚠️ 两个坑（都踩过）：① **headless 视口只有 900px**，页面下半部分的按钮 `rect` 在视口外 ⇒ 直接按 rect 派发鼠标事件
+等于点在空白处（表现为"保存没反应"的假失败）⇒ 必须先 `scrollIntoView`；② **封面必须走 `/uploads/cover`**，
+拿一张 image 的 URL 顶上会被 `normalize` 判「封面地址不合法」400（媒体类型按目录校验）。
+
 ★ **静默机制**（进度上报 / 自动重试与退避 / 退出信号 / 崩溃补偿 / 幂等键 / 乐观更新 / 登录态时序）
 的**实现口径、代价与覆盖矩阵**见 [客户端静默机制](../architecture/frontend/客户端静默机制.md) §五 ——
 那里有一份**"明写没覆盖"清单**（幂等键复用、`restoreSession` 单飞、卸载收尾上报…），别当成已经验过。
@@ -210,9 +228,13 @@ lightbox 打开聚焦 + Tab 陷阱 + 关闭还焦点；缩略图切换 `scrollIn
 > ② `POST /api/v1/contents` JSON 媒体清单创建；③ `PUT /contents/{id}` 的 `media` 整份覆盖
 > （加图 / 删图 / 重排 / 补封面 / 清空；缺省 = 不动媒体）；④ 简介上限按类型（视频 1000 / 图文 10000，GAP-31）。
 > 旧 multipart 发布端点保留为**兼容面**，业务逻辑与清单校验只有一套。
-> **下一窗口**：投稿页迁移到 upload + JSON 清单 · **我的稿件列表 + 编辑页**（取回 → 覆盖）。
+> **⑳（2026-10-29 第九窗口）**：**投稿页迁到 upload + JSON 清单**（重试不重传、进度按累计字节）✅ ·
+> **稿件管理 `/creator/manage`**（借用 `GET /users/{id}.contentPage`；视频给播放量、图文画 —）✅ ·
+> **编辑页 `/creator/edit/{id}`**（取回 → 换源 / 增删图 / 长按换序 → 整份覆盖；脏判定驱动保存）✅ ·
+> `/creator/**` 深链转发 + 限流跳过 ✅ · 单测 199 → **227**；E2E 三支全绿（编辑 15/15、列表 7/7、视频分支 6/6）+ API 级 14/14。
 > **明确不做**：动态详情页（本仓没有动态实体/转发域；图文详情已由 `/opus` 承接，视频动态仍进播放页）·
-> 标签 / 创作声明 / 活动 / 定时发布 / 合集 / 商业推广 / 草稿与审核态（本仓无域或无语义）。
+> 标签 / 创作声明 / 活动 / 定时发布 / 合集 / 商业推广 / 草稿与审核态（本仓无域或无语义）·
+> **稿件删除**（`DELETE /contents/{id}` 是软删且不可恢复，要单独设计二次确认；本窗只用它清 E2E 夹具）。
 > **其他候选**：空间「合集和系列 / 最近点赞」（无端点，GAP-15）· 首页 / 空间页 1707 残余像素差（低优先）·
 > GAP-28 首图回填（**2026-10-29 拍板本窗不做**；保持文字卡面，不采用"上传时复制首图为封面"的写侧降级）。
 > **设计沉淀**：前端应用口径在 [architecture/frontend/前端.md](../architecture/frontend/前端.md)；
@@ -278,7 +300,7 @@ lightbox 打开聚焦 + Tab 陷阱 + 关闭还焦点；缩略图切换 `scrollIn
 | `favorites.html` | `/favorites`（`?folder=` / `?page=`）+ **`/watchlater`**（独立路由；旧 `?tab=later` 兼容） | `GET /favorite-folders` + `GET /favorites?folderId=` + `GET /watch-later` + `PUT /watch-later/{id}` + `DELETE /favorites`、`DELETE /watch-later` |
 | `history.html` | `/history?page=` | `GET /history`（**只读**：无删除/清空端点，GAP-19） |
 | `dynamic.html` | `/dynamic?page=` | `GET /feed`（**需登录**）+ `GET /users/{id}?pageSize=1` + `GET /users/{id}/following?pageSize=8` |
-| `creator.html` | `/creator` | `POST /contents/videos`、`/contents/posts`（**投稿页当前仍走 multipart 兼容面**；后端规范路径 `POST /uploads/{type}` + `POST /contents`，下窗迁移；内容管理 / 编辑下一窗口） |
+| `creator.html` | `/creator`（投稿）· `/creator/manage`（稿件管理）· `/creator/edit/:id`（编辑） | `POST /uploads/{type}` + `POST /contents`（JSON 清单）· `GET /users/{id}?page=`（稿件列表）· `GET /contents/{id}`（取回）· `PUT /contents/{id}`（整份覆盖） |
 
 > 2026-10-26 已落地 **六个入口**；**2026-10-27 第七个 `dynamic`、第八个 `opus`**；
 > **2026-10-28 第九个 `creator`** —— 现在共 **九个**：
@@ -298,7 +320,7 @@ lightbox 打开聚焦 + Tab 陷阱 + 关闭还焦点；缩略图切换 `scrollIn
   dist 资源目录 `/static/` → `/assets/` 要同步进限流与静态白名单（见 §十三）。
   ★ **状态（2026-10-26）：① 已落地**（`WebMvcConfig#addViewControllers`，forward 不是 redirect）。`WebMvcConfig#addViewControllers` 用 **forward**（不是 redirect）
   把 `/`、`/search`、`/video/{id}`、**`/opus/{id}`**、`/space/{id}`、`/favorites`、**`/watchlater`**、`/history`、
-  **`/dynamic`**、**`/creator`**、`/placeholder/{feature}` 转到入口 HTML；
+  **`/dynamic`**、**`/creator`**（含 2026-10-29 的 `/creator/manage`、`/creator/edit/{id}`）、`/placeholder/{feature}` 转到入口 HTML；
   **不用 `@Controller`**（那会进端点登记簿 / spec，还要为默认拒绝开 `@Public` —— 它只是页面导航）；
   dist 由 `npm run stage` 落到 `src/main/resources/static/`（产物不入库）；`/assets/` 与 HTML 外壳进限流跳过清单。
   `mvnw clean` 后实测：九个入口 200、`/assets/*.js` 200、`/api/v1/**` 200、旧 `/static/**` 404。
@@ -324,12 +346,13 @@ lightbox 打开聚焦 + Tab 陷阱 + 关闭还焦点；缩略图切换 `scrollIn
 
 - dist 落 `src/main/resources/static`（产物不入库）；`/`、`/search`、`/video/:id`、**`/opus/:id`（2026-10-27）**、
   `/space/:id`、`/favorites`、`/watchlater`、`/history`、**`/dynamic`（2026-10-27）**、**`/creator`（2026-10-28）**、
-  `/assets/**` 全 200，旧 `/static/**` 404；
+  **`/creator/manage` 与 `/creator/edit/:id`（2026-10-29）**、`/assets/**` 全 200，旧 `/static/**` 404；
 - 转发用 **`ViewController` + forward**（不进端点登记簿 / 不进 spec / 不需要 `@Public` / 地址栏 URL 不变）；
   dev 侧 `vite.config.ts` 是**同一张映射表**，两处必须同步改；
 - `/assets/`、HTML 外壳在 `RateLimitFilter.SKIP_EXACT` / `SKIP_PREFIXES` 里（否则 **429 掉 CSS**）；
 - `StaticForwardingContractTests`（断言 `forwardedUrl`，而非"最终 200"）+ `RateLimitFilterContractTests`
-  的零扣费探针钉住上面两条；新增入口时**两处都要加**（2026-10-27 加 `/dynamic`、`/opus`；2026-10-28 加 `/creator` 即如此）。
+  的零扣费探针钉住上面两条；新增入口时**两处都要加**（2026-10-27 加 `/dynamic`、`/opus`；2026-10-28 加 `/creator`；
+  2026-10-29 加 `/creator/manage`、`/creator/edit/{id}` 即如此 —— 后者在限流侧靠 `SKIP_PREFIXES` 的 `/creator/` 一举覆盖）。
 
 **删除时不做的事**：不动 `src/main/resources/db/migration/**`（逐字节冻结）、不动 `old-project/`（行为判据）。
 
