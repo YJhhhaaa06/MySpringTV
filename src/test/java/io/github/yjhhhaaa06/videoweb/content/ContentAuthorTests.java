@@ -131,6 +131,30 @@ class ContentAuthorTests extends AbstractContentIntegrationTest {
     }
 
     @Test
+    @DisplayName("★删单图：共享 URL 仍被另一作品引用时不删文件，最后一个引用者删除才清")
+    void 删单图_共享URL不误删文件() throws IOException {
+        String token = registerAndGetToken(AUTHOR_PHONE, AUTHOR);
+        long authorId = userIdOf(AUTHOR_PHONE);
+        long first = insertContent(authorId, CONTENT_TYPE_IMAGE, "共享A", "简介", 2);
+        long second = insertContent(authorId, CONTENT_TYPE_IMAGE, "共享B", "简介", 2);
+        String shared = "/upload/image/shared-media-delete.png";
+        insertMedia(first, shared, MEDIA_TYPE_IMAGE, 1);
+        insertMedia(second, shared, MEDIA_TYPE_IMAGE, 1);
+
+        Path file = Path.of(testMediaRoot()).resolve("image").resolve("shared-media-delete.png");
+        Files.createDirectories(file.getParent());
+        Files.write(file, new byte[]{(byte) 0x89, 'P', 'N', 'G'});
+
+        assertThat(deleteQuery("/api/v1/contents/" + first + "/media",
+                query("type", "2", "url", shared), token).getStatusCode().value()).isEqualTo(204);
+        assertThat(Files.exists(file)).as("B 仍引用 ⇒ 物理文件必须保留").isTrue();
+
+        assertThat(deleteQuery("/api/v1/contents/" + second + "/media",
+                query("type", "2", "url", shared), token).getStatusCode().value()).isEqualTo(204);
+        assertThat(Files.exists(file)).as("最后一个引用者删除后才清").isFalse();
+    }
+
+    @Test
     @DisplayName("删作品：非作者 403 且**不产生任何写入**；不存在/已删 404；未登录 401")
     void 删作品_权限与边界() {
         String authorToken = registerAndGetToken(AUTHOR_PHONE, AUTHOR);

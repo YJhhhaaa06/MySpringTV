@@ -463,7 +463,8 @@ public class ContentService {
      *
      * @param url 客户端给的媒体标识（可带 {@code video.media.base-url} 前缀；含 {@code +} 的文件名须 URL-encode）
      * @return 被删媒体的 url（**DB 行原值**，供调用方清理物理文件：
-     *         {@code ContentController.mediaDelete} 提交后调 {@code deleteFileByUrl}）
+     *         {@code ContentController.mediaDelete} 提交后调 {@code deleteFileByUrl}）；
+     *         若该 URL 仍被其他内容引用（历史/竞态）则返回 {@code null}（不删物理文件）
      */
     @Transactional
     public String deleteMedia(long contentId, long userId, int type, String url) {
@@ -482,7 +483,9 @@ public class ContentService {
         }
         contentMediaDao.compactImageSort(contentId, media.getSort());
         events.publishEvent(ContentCacheChangedEvent.refresh(contentId));
-        return media.getUrl();
+        // 历史/竞态下 URL 可能仍被别的作品引用：返回 null ⇒ Controller 不删物理文件。
+        return contentMediaDao.countByUrlExcludingContent(media.getUrl(), contentId) == 0
+                ? media.getUrl() : null;
     }
 
     /**
@@ -704,7 +707,8 @@ public class ContentService {
         }
         contentDao.updateFileExists(contentId, true, now);
         events.publishEvent(ContentCacheChangedEvent.refresh(contentId));
-        return oldUrl;
+        // 历史/竞态下旧 URL 可能仍被别的作品引用：返回 null ⇒ Controller 不删物理文件。
+        return contentMediaDao.countByUrlExcludingContent(oldUrl, contentId) == 0 ? oldUrl : null;
     }
 
     /** 所有权校验 + 定位媒体行，供删媒体/换源复用（404「媒体资源不存在」）。 */
