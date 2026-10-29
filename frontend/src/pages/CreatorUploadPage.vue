@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import { ApiError, describeError } from '../api/http'
-import { uploadPost, uploadVideo } from '../api/upload'
+import { AssetUploadPool, publishPost, publishVideo } from '../api/upload'
 import {
   POST_DESCRIPTION_MAX,
   SubmitKeyHolder,
@@ -56,6 +56,15 @@ const success = ref<{ id: number; href: string; kind: Kind } | null>(null)
 
 const videoKeys = new SubmitKeyHolder()
 const postKeys = new SubmitKeyHolder()
+
+/**
+ * 已上传文件的记忆（页面会话内）。
+ *
+ * <p>★ 它服务的不是"省流量"而是**重试的正确性**：创建端点的幂等指纹包含请求体，
+ * 重试若重新上传会拿到新 URL ⇒ 指纹变了 ⇒ 409。见 `api/upload.ts` 顶部说明。
+ */
+const videoPool = new AssetUploadPool()
+const postPool = new AssetUploadPool()
 
 const videoCoverPreview = ref<string | null>(null)
 const postCoverPreview = ref<string | null>(null)
@@ -241,7 +250,7 @@ async function submitVideo(): Promise<void> {
   stage.value = 'uploading'
   const key = videoKeys.keyFor(draftSignature(videoDraft))
   try {
-    const id = await uploadVideo(videoDraft, key, (loaded, total) => {
+    const id = await publishVideo(videoDraft, key, videoPool, (loaded, total) => {
       progress.value = progressPercent(loaded, total)
       if (progress.value >= 100) stage.value = 'processing'
     })
@@ -270,7 +279,7 @@ async function submitPost(): Promise<void> {
   stage.value = 'uploading'
   const key = postKeys.keyFor(draftSignature(postDraft))
   try {
-    const id = await uploadPost(postDraft, key, (loaded, total) => {
+    const id = await publishPost(postDraft, key, postPool, (loaded, total) => {
       progress.value = progressPercent(loaded, total)
       if (progress.value >= 100) stage.value = 'processing'
     })

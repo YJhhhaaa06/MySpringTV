@@ -1,18 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import {
-  MAX_COMBINED_BYTES,
   POST_DESCRIPTION_MAX,
   SubmitKeyHolder,
-  buildPostForm,
-  buildVideoForm,
   createPostDraft,
   createVideoDraft,
   draftSignature,
+  fileKey,
   formatBytes,
+  postPayload,
+  postUploadPlan,
   progressPercent,
   suffixOf,
+  totalPlanBytes,
   validatePostDraft,
   validateVideoDraft,
+  videoPayload,
+  videoUploadPlan,
 } from './uploadDraft'
 
 /**
@@ -90,12 +93,18 @@ describe('视频投稿校验', () => {
     )
   })
 
-  it('视频 + 封面合计超过 99MB 拒绝（100MB 是后端单请求上限，留 1MB multipart 余量）', () => {
-    const errors = validateVideoDraft(
+  it('每个文件各自 ≤50MB；"合计 99MB"这条 multipart 余量规则已随 upload 迁移退役', () => {
+    // 对照：单个文件 51MB 仍然拒绝（后端 max-file-size: 50MB）
+    const tooBig = validateVideoDraft(
+      videoDraft({ video: fakeFile('a.mp4', 51 * MB), cover: fakeFile('c.png', 1024) }),
+    )
+    expect(tooBig).toContainEqual({ field: 'video', message: '视频不能超过 50MB' })
+
+    // 两个 50MB 文件在逐个上传的形态下是合法的（旧实现会报"合计不能超过 99MB"）
+    const bothMax = validateVideoDraft(
       videoDraft({ video: fakeFile('a.mp4', 50 * MB), cover: fakeFile('c.png', 50 * MB) }),
     )
-    expect(MAX_COMBINED_BYTES).toBe(99 * MB)
-    expect(errors).toContainEqual({ field: 'video', message: '视频与封面合计不能超过 99MB' })
+    expect(bothMax).toEqual([])
   })
 
   it('合法草稿没有任何错误（对照组：上面的红不是"永远红"）', () => {
@@ -113,12 +122,14 @@ describe('图文投稿校验', () => {
     expect(errors).toEqual([{ field: 'description', message: '简介不得超过 10000 字' }])
   })
 
-  it('图片后缀与总大小：.gif 拒绝；两张 50MB 超过合计上限也拒绝', () => {
+  it('图片后缀：.gif 拒绝；多张各自 ≤50MB 时合计不再受限（逐个上传）', () => {
     const badSuffix = validatePostDraft(postDraft({ images: [fakeFile('a.gif', 1024)] }))
     expect(badSuffix).toEqual([{ field: 'image', message: '图片 1格式不支持（仅支持 .jpg / .png / .jpeg）' }])
 
-    const tooBig = validatePostDraft(postDraft({ images: [fakeFile('a.jpg', 50 * MB), fakeFile('b.jpg', 50 * MB)] }))
-    expect(tooBig).toContainEqual({ field: 'image', message: '封面与图片合计不能超过 99MB' })
+    const big = validatePostDraft(
+      postDraft({ images: [fakeFile('a.jpg', 50 * MB), fakeFile('b.jpg', 50 * MB)] }),
+    )
+    expect(big).toEqual([])
   })
 
   it('封面可选，但给了就必须是 .jpg/.png 且 ≤50MB', () => {
@@ -127,31 +138,70 @@ describe('图文投稿校验', () => {
   })
 })
 
-describe('提交体形状', () => {
-  it('视频：文本字段进 form（不是 query），首尾空白被去掉，两个文件同名 part', () => {
-    const video = fakeFile('a.mp4', 1024)
+describe('上传计划与创建载荷（upload + JSON 清单）', () => {
+  it('视频先传视频、后传封面（进度条前半程要能连续推进）', () => {
+    const video = fakeFile('a.mp4', 30 * MB)
     const cover = fakeFile('c.png', 1024)
-    const form = buildVideoForm(
-      videoDraft({ title: '  标题  ', description: '  简介  ', categoryId: 4, video, cover }),
-    )
-    expect(form.get('title')).toBe('标题')
-    expect(form.get('description')).toBe('简介')
-    expect(form.get('categoryId')).toBe('4')
-    expect(form.get('video')).toBe(video)
-    expect(form.get('cover')).toBe(cover)
+    const plan = videoUploadPlan(videoDraft({ video, cover }))
+    expect(plan.map((entry) => entry.type)).toEqual(['video', 'cover'])
+    expect(plan.map((entry) => entry.file)).toEqual([video, cover])
+    expect(totalPlanBytes(plan)).toBe(30 * MB + 1024)
   })
 
-  it('视频缺文件时不许构建半成品请求', () => {
-    expect(() => buildVideoForm(videoDraft({ video: null }))).toThrow('视频与封面未选择')
-  })
-
-  it('图文：无封面就没有 cover part；多图按顺序重复 image part', () => {
+  it('图文：封面在前、图片按草稿顺序（顺序就是 sort 1..n）', () => {
+    const cover = fakeFile('c.png', 5)
     const first = fakeFile('1.jpg', 10)
     const second = fakeFile('2.png', 20)
-    const form = buildPostForm(postDraft({ images: [first, second] }))
-    expect(form.has('cover')).toBe(false)
-    expect(form.getAll('image')).toEqual([first, second])
-    expect(form.get('title')).toBe('标题')
+    const plan = postUploadPlan(postDraft({ cover, images: [first, second] }))
+    expect(plan.map((entry) => entry.type)).toEqual(['cover', 'image', 'image'])
+    expect(plan.map((entry) => entry.file)).toEqual([cover, first, second])
+
+    // 无封面时计划里不能出现 cover 占位（后端 uploads 端点没有"空封面"这一说）
+    expect(postUploadPlan(postDraft({ images: [first] })).map((entry) => entry.type)).toEqual(['image'])
+  })
+
+  it('视频创建载荷：清单完整（视频 + 封面，无图片），文本去首尾空白', () => {
+    const payload = videoPayload(
+      videoDraft({ title: '  标题  ', description: '  简介  ', categoryId: 4 }),
+      '/upload/video/a.mp4',
+      '/upload/cover/c.png',
+    )
+    expect(payload).toEqual({
+      type: 'VIDEO',
+      title: '标题',
+      description: '简介',
+      categoryId: 4,
+      media: { videoUrl: '/upload/video/a.mp4', coverUrl: '/upload/cover/c.png', imageUrls: [] },
+    })
+  })
+
+  it('图文创建载荷：无封面时不带 coverUrl 键（不是空串）；videoUrl 必须缺席', () => {
+    const payload = postPayload(postDraft({ title: '标题' }), null, ['/upload/image/1.jpg'])
+    expect(payload.type).toBe('POST')
+    expect(payload.media).toEqual({ imageUrls: ['/upload/image/1.jpg'] })
+    expect('coverUrl' in payload.media).toBe(false)
+    expect('videoUrl' in payload.media).toBe(false)
+  })
+
+  it('图文创建载荷：imageUrls 顺序 = 传进来的顺序（长按换序后这就是新的 sort）', () => {
+    const payload = postPayload(postDraft(), '/upload/cover/c.png', [
+      '/upload/image/3.jpg',
+      '/upload/image/1.jpg',
+      '/upload/image/2.jpg',
+    ])
+    expect(payload.media.imageUrls).toEqual([
+      '/upload/image/3.jpg',
+      '/upload/image/1.jpg',
+      '/upload/image/2.jpg',
+    ])
+  })
+
+  it('文件标识只看 name/size/lastModified：改了任一项就是"另一个文件"', () => {
+    const file = fakeFile('a.mp4', 100, 7)
+    expect(fileKey(file)).toBe(fileKey(fakeFile('a.mp4', 100, 7)))
+    expect(fileKey(file)).not.toBe(fileKey(fakeFile('a.mp4', 101, 7)))
+    expect(fileKey(file)).not.toBe(fileKey(fakeFile('a.mp4', 100, 8)))
+    expect(fileKey(file)).not.toBe(fileKey(fakeFile('b.mp4', 100, 7)))
   })
 })
 
