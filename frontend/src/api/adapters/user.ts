@@ -17,6 +17,11 @@ function firstChar(name: string): string {
  *
  * <p>★ 后端**没有头像字段**（`UserInfoVO` 只有 id/username/phone/admin/coin/signedToday）
  * ⇒ 头像用昵称首字占位（`initial`）。这是 GAP 台账里的一条「M1 字段缺 / 前端适配」。
+ *
+ * <p>★ `signedToday` 必须原样带出：它是签到按钮「进页就置灰」的唯一判据
+ * （`UserInfoVO` 加这一列**就是为此**，见 `architecture/domain/coin/coin.md` §二）。
+ * 早先这里只映射了 `coin`，字段在 spec 里、在 VO 里都有，却在适配层被丢掉 ——
+ * 于是"没有签到状态"看起来像后端没做。
  */
 export function toCurrentUser(me: components['schemas']['UserInfoVO']): CurrentUserVM {
   const name = me.username?.trim() || 'B站用户'
@@ -26,6 +31,8 @@ export function toCurrentUser(me: components['schemas']['UserInfoVO']): CurrentU
     initial: firstChar(name).toUpperCase(),
     admin: me.admin === true,
     coin: me.coin ?? 0,
+    // 只认 true：缺字段 = 不知道，但签到按钮宁可"先别亮"（同 `admin` 的口径）
+    signedToday: me.signedToday === true,
     spaceHref: spaceHref(me.id),
   }
 }

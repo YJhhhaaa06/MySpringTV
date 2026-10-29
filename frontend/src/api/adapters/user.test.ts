@@ -31,6 +31,20 @@ describe('toCurrentUser', () => {
     expect(toCurrentUser({}).admin).toBe(false)
     expect(toCurrentUser({ admin: true }).admin).toBe(true)
   })
+
+  it('★ signedToday 原样带出（签到按钮「进页就置灰」的唯一判据）', () => {
+    // 去掉 toCurrentUser 里那一行映射，本用例必红 —— 这正是"后端有、前端丢"的那一环
+    expect(toCurrentUser({ signedToday: true }).signedToday).toBe(true)
+    expect(toCurrentUser({ signedToday: false }).signedToday).toBe(false)
+  })
+
+  it('signedToday 缺失 ⇒ false（不知道就先别点亮按钮，不当成"今天还没签"去放行）', () => {
+    expect(toCurrentUser({}).signedToday).toBe(false)
+  })
+
+  it('coin 保留一位小数（取整只在展示层，投币弹层要用真值）', () => {
+    expect(toCurrentUser({ coin: 1.5 }).coin).toBe(1.5)
+  })
 })
 
 describe('toAuthorCard', () => {

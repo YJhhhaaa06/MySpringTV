@@ -94,3 +94,27 @@ export function applyCoinBalance(balance: number | null | undefined): void {
   if (!state.user || typeof balance !== 'number' || !Number.isFinite(balance)) return
   state.user = { ...state.user, coin: balance }
 }
+
+/**
+ * 签到成功的**状态迁移**（纯函数：`session.test.ts` 直接断言，不用起 DOM）。
+ *
+ * <h2>★ 任何一次 200 的签到回执都意味着「今天已签」</h2>
+ * `credited` 只区分**是不是这一次入的账**（`true` = 本次 +1，`false` = 今天早先已签过），
+ * 两者都证明服务端已经把「今天」记成签到日 ⇒ `signedToday` 一律置 `true`。
+ * 把它写成 `signedToday = credited` 会让"点了但别人已签"重新点亮按钮
+ * （多标签页 / 手机先签过时必然撞上），用户会看到一个永远点不灰的按钮。
+ *
+ * @param balance 服务端回带的新余额；缺失 / 非有限值 ⇒ 保留本地值
+ *                （宁可显示旧余额，也不把 `undefined` 画成 `0` 枚）
+ */
+export function markSignedIn(user: CurrentUserVM | null, balance: number | null | undefined): CurrentUserVM | null {
+  if (!user) return null
+  const coin = typeof balance === 'number' && Number.isFinite(balance) ? balance : user.coin
+  return { ...user, coin, signedToday: true }
+}
+
+/** 签到接口返回后调用：余额对齐服务端 + 今天置为已签（未登录 ⇒ no-op）。 */
+export function applySignInResult(balance: number | null | undefined): void {
+  if (!state.user) return
+  state.user = markSignedIn(state.user, balance)
+}

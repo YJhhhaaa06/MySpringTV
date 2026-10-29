@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   cleanDescription,
+  formatCoinInt,
   formatCount,
   formatDateTime,
   formatDateTimeCn,
@@ -53,6 +54,27 @@ describe('formatCount', () => {
     expect(formatCount(null)).toBe('-')
     expect(formatCount(undefined)).toBe('-')
     expect(formatCount(-1)).toBe('-')
+  })
+})
+
+describe('formatCoinInt', () => {
+  it('★ 向下取整：1.5 枚显示 1（四舍五入会与"投 2 枚被拒"自相矛盾）', () => {
+    expect(formatCoinInt(1.5)).toBe('1')
+    expect(formatCoinInt(1.9)).toBe('1')
+    expect(formatCoinInt(0.9)).toBe('0')
+  })
+
+  it('整数原样显示', () => {
+    expect(formatCoinInt(0)).toBe('0')
+    expect(formatCoinInt(2)).toBe('2')
+    expect(formatCoinInt(100)).toBe('100')
+  })
+
+  it('缺失 / 非有限值 ⇒ `-`；负数按 0（脏值不画成负硬币）', () => {
+    expect(formatCoinInt(null)).toBe('-')
+    expect(formatCoinInt(undefined)).toBe('-')
+    expect(formatCoinInt(Number.NaN)).toBe('-')
+    expect(formatCoinInt(-1)).toBe('0')
   })
 })
 

@@ -30,6 +30,26 @@ function trimDecimal(value: number): string {
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
 }
 
+/**
+ * 硬币余额（**整数口径**）：`1.5 ⇒ 1`、`1.9 ⇒ 1`、`2.0 ⇒ 2`。
+ *
+ * <h2>★ 为什么取整、为什么是向下</h2>
+ * 硬币在后端存 `coin_deci`（**十分位**：`15` = 1.5 枚），只在 VO 出口换算一次成一位小数 ——
+ * 前端拿到的 `1.5` 是**真实余额**，不是显示噪音，所以**不能在适配层取整**
+ * （投币弹层要按 B 站移动端口径显示 `1.5`，并且 `balance < 2` 的判定要用真值）。
+ *
+ * 取整只发生在**这两个展示位**：顶栏头像卡与空间页「硬币」卡。
+ * 依据是实测的 B 站口径 —— 个人主页与桌面端各处的硬币数**只显示整数**，
+ * 只有移动端投币页能看到小数。向下而非四舍五入：`1.9` 枚时显示 `2` 会让
+ * "我有 2 枚" 与 "投 2 枚被拒（余额不足）" 自相矛盾，宁可少显示半枚。
+ *
+ * <p>缺失 / 非有限值 ⇒ `-`（与 {@link formatCount} 同口径，不把脏值画成 `0`）。
+ */
+export function formatCoinInt(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '-'
+  return String(Math.floor(Math.max(0, value)))
+}
+
 /** ISO 字符串 → Date；非法 / 空 ⇒ null（不抛错：一条脏数据不该把整页打挂） */
 export function parseDate(iso: string | null | undefined): Date | null {
   if (!iso) return null

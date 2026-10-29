@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { sessionState, signOut } from '../../auth/session'
+import { formatCoinInt } from '../../api/adapters/format'
 import { CREATOR_HREF, HEADER_ACTIONS, HEADER_NAV } from '../../constants/features'
 import LoginModal from '../auth/LoginModal.vue'
 import AppIcon from '../common/AppIcon.vue'
@@ -72,7 +73,8 @@ onUnmounted(() => {
           </a>
           <div class="user-menu">
             <p class="user-menu__name">{{ sessionState.user.name }}</p>
-            <p class="user-menu__meta">硬币 {{ sessionState.user.coin }}</p>
+            <!-- 硬币按 B 站口径取整（后端是一位小数，只有投币弹层显示小数） -->
+            <p class="user-menu__meta">硬币 {{ formatCoinInt(sessionState.user.coin) }}</p>
             <button class="user-menu__logout" type="button" @click="signOut">退出登录</button>
           </div>
         </div>

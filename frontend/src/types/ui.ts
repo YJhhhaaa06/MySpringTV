@@ -65,7 +65,19 @@ export interface CurrentUserVM {
   /** 头像占位：昵称首字（等 avatars 端点/字段，GAP 台账） */
   initial: string
   admin: boolean
+  /**
+   * 硬币余额，**一位小数**（后端 `coin_deci / 10`，`1.5` 就是一枚半）。
+   * ⚠️ 展示时要按 B 站口径取整：主页 / 顶栏是整数，只有投币弹层给一位小数 ——
+   * 见 `api/adapters/format.ts#formatCoinInt`。别在这里提前取整（投币弹层要用小数）。
+   */
   coin: number
+  /**
+   * 今天（**上海自然日**，后端 `SiteTime`）是否已签到。
+   *
+   * ★ 签到按钮**进页就置灰**的唯一判据：服务端权威值，不落 localStorage
+   * （理由见 `architecture/frontend/前端.md` §五「签到状态不落本地」）。
+   */
+  signedToday: boolean
   /** 个人空间跨应用链接 */
   spaceHref: string
 }
