@@ -9,7 +9,7 @@ npm install
 npm run gen:api     # openapi.yaml → src/types/api.d.ts（生成物入库，diff = 契约变更记录）
 npm run dev         # http://localhost:5173（/api、/upload 已代理到 127.0.0.1:8080）
 npm run typecheck   # vue-tsc -b —— 类型硬门禁
-npm run test        # vitest —— 适配器 fallback + 请求层 + 播放进度规则 + 稍后再看页面内记忆 + 图文图片两态 + 投稿草稿规则
+npm run test        # vitest —— 适配器 fallback + 请求层 + 播放进度规则 + 稍后再看页面内记忆 + 图文图片两态 + 投稿草稿规则 + 封面裁剪几何
 npm run build       # dist/{index,search,video,opus,space,favorites,history,dynamic,creator}.html
 npm run stage       # 把 dist 同步到 ../src/main/resources/static（Spring 直接服务它）
 npm run preview     # 验打包产物（同一套 history fallback + 代理）
