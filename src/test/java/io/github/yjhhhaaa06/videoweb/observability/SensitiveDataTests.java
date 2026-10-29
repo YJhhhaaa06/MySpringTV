@@ -31,8 +31,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       一条含手机号的消息与含手机号的异常 ⇒ 观察渲染出的行是掩码形态。
  *       这是可控、确定的"注射-观察"，也是"运行时回显参数"这条真实泄漏路径的等价物。</li>
  *   <li><b>不变式层</b>（{@link #四个输出端的历史行都搜不到明文手机号()}）：
- *       扫描**四个真实文件**的全部历史行（剥掉随机的 {@code req=} 字段，否则 16 位 hex 会偶发命中
- *       手机号形态造成误报——老用例踩过这个坑）⇒ 一行都不许有明文手机号。</li>
+ *       扫描**四个真实文件**的全部历史行（剥掉随机的 {@code req=} 字段 / 长 hex / UUID，
+ *       否则随机串会偶发命中手机号形态造成误报——老用例踩过 {@code req=} 与容器 id 两个坑，
+ *       2026-10-29 又踩到 Spring 自动生成安全密码的 UUID）⇒ 一行都不许有明文手机号。</li>
  * </ol>
  */
 @Tag("observability")
@@ -46,6 +47,14 @@ class SensitiveDataTests extends AbstractObservabilityTest {
      * 否则这条安全不变式变成随机红（见本类不变式用例的注释）。
      */
     private static final Pattern LONG_HEX = Pattern.compile("(?i)[0-9a-f]{16,}");
+
+    /**
+     * UUID（8-4-4-4-12）。Spring 启动时打印的 {@code Using generated security password: <uuid>}
+     * 就是它：末段 12 位**十进制子串**可能恰好命中 {@code 1[3-9]\d{9}}（2026-10-29 全量回归实测）。
+     * UUID 不是 PII，扫描前剥掉——这与上面的长 hex 剥离同一条判据，不是放宽安全标准。
+     */
+    private static final Pattern UUID = Pattern.compile(
+            "(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
 
     @Test
     @DisplayName("★ 日志出口把手机号掩码，消息与异常堆栈都不放过")
@@ -124,6 +133,7 @@ class SensitiveDataTests extends AbstractObservabilityTest {
             }
             List<String> offenders = readLines(file).stream()
                     .map(line -> REQ_PATTERN.matcher(line).replaceAll("req=<id>"))
+                    .map(line -> UUID.matcher(line).replaceAll("<uuid>"))
                     .map(line -> LONG_HEX.matcher(line).replaceAll("<hex>"))
                     .filter(line -> line.matches(".*1[3-9]\\d{9}.*"))
                     .toList();
