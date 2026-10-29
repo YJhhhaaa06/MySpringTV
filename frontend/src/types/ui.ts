@@ -355,3 +355,36 @@ export interface RelationPageVM {
   total: number
   totalPages: number
 }
+
+/**
+ * 创作中心「我的稿件」一行。
+ *
+ * <p>数据源是 `GET /users/{id}.contentPage`（公开主页的作品页）——本仓**没有**
+ * "创作者的稿件列表"端点，也没有草稿 / 审核态（`content` 没有状态列），
+ * 所以这里渲染的就是"我公开发布的作品"，不编状态列。
+ */
+export interface CreatorWorkVM {
+  id: number
+  title: string
+  isPost: boolean
+  /** 「视频」/「图文」——行首类型角标 */
+  typeText: string
+  coverUrl: string | null
+  /** 时长只对视频有值；`null` = 未解析 / 图文，不补 0 */
+  durationText: string | null
+  /** 播放量：图文恒 `null`（后端 `play_count` 对图文结构性恒 0，GAP-05） */
+  playCountText: string | null
+  createdAtText: string
+  /** 查看（观众视角）：`/video/{id}` 或 `/opus/{id}` */
+  viewHref: string
+  /** 编辑（作者视角）：`/creator/edit/{id}` */
+  editHref: string
+}
+
+/** 我的稿件一页 */
+export interface CreatorWorksVM {
+  items: CreatorWorkVM[]
+  page: number
+  total: number
+  totalPages: number
+}

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
 import LoginGate from '../components/auth/LoginGate.vue'
 import ToastHost from '../components/common/ToastHost.vue'
 import CreatorHeader from '../components/creator/CreatorHeader.vue'
@@ -6,13 +8,25 @@ import CreatorHeader from '../components/creator/CreatorHeader.vue'
 /**
  * 创作中心应用外壳（`creator.html` 的第 9 个入口）。
  *
- * <p>要 `LoginGate` / `ToastHost`：投稿页整页属于"我"，匿名时走页面级身份态，
+ * <p>要 `LoginGate` / `ToastHost`：投稿与稿件管理整页都属于"我"，匿名时走页面级身份态，
  * 登录按钮仍是 `requireLogin()`；上传失败 / 成功要说清楚原因。
  *
- * <p>★ 左栏只放**本仓真有页面**的入口：本窗口只有「投稿」。
- * 内容管理在下一窗口交付，其余栏目（数据中心 / 粉丝管理 / 收益管理 / 创作成长…）
- * 本仓没有域 ⇒ **不渲染**（不是灰态占位，摆出来就是点不动的东西）。
+ * <p>★ 左栏只放**本仓真有页面**的入口：投稿 / 稿件管理。
+ * 其余栏目（数据中心 / 粉丝管理 / 收益管理 / 创作成长…）本仓没有域 ⇒ **不渲染**
+ * （不是灰态占位，摆出来就是点不动的东西）。
+ *
+ * <p>★ 高亮用 `route.path` 前缀判定、不用 RouterLink 的 `active-class`：
+ * 后者会把 `/creator` 算作 `/creator/manage` 的激活项（两条同时高亮），
+ * 而 `/creator/edit/:id` 属于「稿件管理」的上下文，不该让「投稿」亮着。
  */
+const route = useRoute()
+
+const activeRail = computed<'upload' | 'works' | null>(() => {
+  const path = route.path
+  if (path === '/creator' || path === '/creator/') return 'upload'
+  if (path.startsWith('/creator/manage') || path.startsWith('/creator/edit')) return 'works'
+  return null
+})
 </script>
 
 <template>
@@ -21,7 +35,16 @@ import CreatorHeader from '../components/creator/CreatorHeader.vue'
     <div class="creator-shell">
       <aside class="creator-rail" aria-label="创作中心导航">
         <p class="creator-rail__group">创作中心</p>
-        <RouterLink class="creator-rail__item" active-class="is-active" to="/creator">投稿</RouterLink>
+        <RouterLink class="creator-rail__item" :class="{ 'is-active': activeRail === 'upload' }" to="/creator">
+          投稿
+        </RouterLink>
+        <RouterLink
+          class="creator-rail__item"
+          :class="{ 'is-active': activeRail === 'works' }"
+          to="/creator/manage"
+        >
+          稿件管理
+        </RouterLink>
       </aside>
       <main class="creator-main">
         <RouterView />
