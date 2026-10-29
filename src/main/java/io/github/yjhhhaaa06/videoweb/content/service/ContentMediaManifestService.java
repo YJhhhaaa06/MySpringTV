@@ -54,6 +54,12 @@ import java.util.Set;
  *       的唯一批量修复入口仍是媒体扫描。此处只是"不谎报已扫描"。</li>
  *   <li><b>孤儿文件</b>：上传后未提交的文件不可能在事务里回收（它还没被引用过），
  *       由离线清理脚本按"磁盘存在、库内无引用"处理。</li>
+ *   <li><b>未绑定上传无属主</b>：upload-only 端点只落盘、不记 uploader；未绑定的 URL
+ *       只靠 UUID 不可猜 + 登录态保护。若 URL 泄露，他人可在自己的清单里认领它。
+ *       本仓不做 upload 登记表（要新增持久化、认领与清理状态）；接对象存储时由存储层的
+ *       签名 / 生命周期承接这一职责。</li>
+ *   <li><b>占用计数没有 url 索引</b>：{@code content_media.url} 无普通索引 ⇒ 每个新 URL
+ *       一次全表计数。清单条目为个位数，先接受；有量时应先加 url 索引，而不是批量化。</li>
  * </ul>
  */
 @Slf4j
@@ -196,7 +202,10 @@ public class ContentMediaManifestService {
             if (!desiredKeys.contains(key) || !seen.add(key)) {
                 // 缺席 ⇒ 删；同 (type,url) 的重复历史行 ⇒ 只留第一行、其余删掉。
                 contentMediaDao.deleteMediaById(row.getMediaId());
-                if (!desiredUrls.contains(row.getUrl())) {
+                // ★ 删物理文件前再查一次"还有没有别人引用"：新清单路径已拒绝跨作品共享，
+                //   但历史数据 / 并发窗口仍可能让同一 URL 落在两个内容上；无条件删会打穿对方。
+                if (!desiredUrls.contains(row.getUrl())
+                        && contentMediaDao.countByUrlExcludingContent(row.getUrl(), contentId) == 0) {
                     removedUrls.add(row.getUrl());
                 }
             } else {

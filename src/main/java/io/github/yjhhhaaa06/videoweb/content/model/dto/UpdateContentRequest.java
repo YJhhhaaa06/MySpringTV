@@ -17,8 +17,10 @@ package io.github.yjhhhaaa06.videoweb.content.model.dto;
  * <p>{@code categoryId} 同理：{@code null} = 不改；0~9 = 改成该分区。
  *
  * <p>标题 / 简介的校验在 {@code ContentService#updateContent}：
- * 标题去空白后非空且 ≤50；简介按**内容类型**取上限（视频 1000 / 图文 10000，修 GAP-31），
- * 空简介落空串（与发布侧落 {@code "-"} 的旧口径不同，见编辑页的展示规则）。
+ * 标题去空白后非空且 ≤50；简介按**内容类型**取上限（视频 1000 / 图文 10000，修 GAP-31）。
+ *
+ * <p>⚠️ 文案字段是**整体替换**，不是"缺省不变"：{@code description} 缺省 / 空白 ⇒ 落空串
+ * （清空）。只有 {@code media} 用"对象在不在"表达"改不改"，两者不要混用。
  */
 public record UpdateContentRequest(String title, String description,
                                    Integer categoryId, MediaManifest media) {

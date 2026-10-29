@@ -60,7 +60,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li><b>响应类别</b>：401 与**登记簿的鉴权档位**对应；{@code ResponseEntity<Void>} 必须 204 且不留 200。</li>
  *   <li><b>错误信封</b>：失败体只有 {@code code/msg/errors}，九个错误响应组件指向同一个 {@code ApiError}；
  *       码字典 = 41 项（形状守恒，见下方"判别力边界"）。</li>
- *   <li><b>multipart + 必填</b>：四个上传端点是 {@code multipart/form-data}，且必填字段没被写成可选。</li>
+ *   <li><b>multipart + 必填</b>：五个上传端点是 {@code multipart/form-data}，且必填字段没被写成可选。</li>
  *   <li><b>503 与 servers</b>：503 只挂 {@code report} 路径（{@code flush} 必须没有）；{@code servers} 不钉 localhost。</li>
  * </ol>
  *
@@ -93,7 +93,7 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
     private static final boolean WRITE_MODE = Boolean.getBoolean("api.openapi.write");
 
     /**
-     * 声明了 {@code @RequestPart} 的端点（`T59` 登记为 multipart 例外，§2.5）—— **四条都在**。
+     * 声明了 {@code @RequestPart} 的端点（`T59` 登记为 multipart 例外，§2.5）—— **五条都在**。
      * 显式列出的理由与 `T59-3` 的计数护栏相同：让"改名后脱保"这件事**变红**，而不是静默失配。
      */
     private static final List<String> MULTIPART_ENDPOINTS = List.of(

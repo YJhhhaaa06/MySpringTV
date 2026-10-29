@@ -110,9 +110,11 @@ class ContentCreateTests extends AbstractHttpIntegrationTest {
         String first = upload(token, "image", pngBytes(), "a.png", "image/png");
         String second = upload(token, "image", pngBytes(), "b.png", "image/png");
 
+        // ★ 清单顺序与上传/插入顺序**相反**：若实现按 media id 排序而不是按清单下标，
+        //   期望值（second 在前）会红——这是排序用例的判别力，不是随意的夹具顺序。
         ResponseEntity<String> resp = post("/api/v1/contents",
                 createBody("POST", "新建图文", "", 2,
-                        media(null, coverUrl, List.of(first, second))), token);
+                        media(null, coverUrl, List.of(second, first))), token);
 
         assertThat(resp.getStatusCode().value()).as("%s", resp.getBody()).isEqualTo(200);
         long contentId = Envelope.num(resp, "contentId");
@@ -126,14 +128,14 @@ class ContentCreateTests extends AbstractHttpIntegrationTest {
         assertThat(mediaRowsOfType(contentId, 3))
                 .as("封面只有一行").containsExactly(Map.of("url", coverUrl, "sort", 1));
         assertThat(mediaRowsOfType(contentId, 2))
-                .as("图片按清单顺序写 sort 1..n")
+                .as("图片按清单顺序写 sort 1..n（与上传顺序相反）")
                 .containsExactly(
-                        Map.of("url", first, "sort", 1),
-                        Map.of("url", second, "sort", 2));
+                        Map.of("url", second, "sort", 1),
+                        Map.of("url", first, "sort", 2));
 
         assertThat(Envelope.data(get("/api/v1/contents/" + contentId, null)).path("imageUrls"))
                 .extracting(node -> node.asString())
-                .containsExactly(first, second);
+                .containsExactly(second, first);
     }
 
     // ==================== 2. 清单约束（写库之前拒绝） ====================
@@ -248,7 +250,7 @@ class ContentCreateTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("未登录创建 ⇒ 401（类级 @RequiresLogin 覆盖新端点）")
+    @DisplayName("未登录创建 ⇒ 401（HTTP 侧；注解机制由 SecurityContractTests 直接钉住，勿当判别力）")
     void 未登录_401() {
         ResponseEntity<String> resp = post("/api/v1/contents",
                 createBody("POST", "t", "d", 1, media(null, null, null)), null);

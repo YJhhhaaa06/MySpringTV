@@ -143,12 +143,14 @@ class ContentManifestUpdateTests extends AbstractHttpIntegrationTest {
     void 图文增删改序() {
         String token = registerAndGetToken("13800000603", "edit-post", PASSWORD);
         String a = upload(token, "image", pngBytes(), "a.png", "image/png");
+        // ★ 先传 d、再传 b：d 的 media id 小于 b。目标清单 [b,d] 与 id 序相反，
+        //   若 reconcile 按 id / 插入顺序排，b 会落到 sort 2 ⇒ 本用例红。
+        String d = upload(token, "image", pngBytes(), "d.png", "image/png");
         String b = upload(token, "image", pngBytes(), "b.png", "image/png");
         String cover = upload(token, "cover", pngBytes(), "c.png", "image/png");
         Created post = createPost(token, "图文", List.of(a, b), cover, "d", 2);
-        String d = upload(token, "image", pngBytes(), "d.png", "image/png");
 
-        // 目标：删 a、保留 b 并前移、追加 d
+        // 目标：删 a、保留 b 并前移、追加 d（清单序 ≠ id 序）
         ResponseEntity<String> resp = put("/api/v1/contents/" + post.contentId(),
                 updateBody("图文", "d", null, media(null, cover, List.of(b, d))), token);
         assertThat(resp.getStatusCode().value()).as("%s", resp.getBody()).isEqualTo(200);
@@ -196,6 +198,26 @@ class ContentManifestUpdateTests extends AbstractHttpIntegrationTest {
                 .containsExactly(Map.of("url", newCover, "sort", 1));
         assertThat(Envelope.data(get("/api/v1/contents/" + post.contentId(), null))
                 .path("coverUrl").asString()).isEqualTo(newCover);
+    }
+
+    @Test
+    @DisplayName("★重复历史行（同 type+url 两行）：清单只保留一行，重复行被清掉，文件不删")
+    void 重复历史行只保留一行() {
+        String token = registerAndGetToken("13800000612", "edit-dup", PASSWORD);
+        String a = upload(token, "image", pngBytes(), "a.png", "image/png");
+        Created post = createPost(token, "图文", List.of(a), null, "d", 2);
+        // 造历史脏数据：同一 (type,url) 两行（新清单路径已拒绝重复，但旧数据/竞态可能有）
+        jdbcTemplate.update("INSERT INTO content_media(content_id,url,type,sort) VALUES (?,?,2,2)",
+                post.contentId(), a);
+        assertThat(mediaRowsOfType(post.contentId(), 2)).hasSize(2);
+
+        ResponseEntity<String> resp = put("/api/v1/contents/" + post.contentId(),
+                updateBody("图文", "d", null, media(null, null, List.of(a))), token);
+        assertThat(resp.getStatusCode().value()).as("%s", resp.getBody()).isEqualTo(200);
+
+        assertThat(mediaRowsOfType(post.contentId(), 2))
+                .containsExactly(Map.of("url", a, "sort", 1));
+        assertThat(diskPath(a)).as("URL 仍在清单里 ⇒ 文件不得删除").exists();
     }
 
     // ==================== 4. 清单约束 ====================

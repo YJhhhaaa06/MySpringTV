@@ -24,7 +24,7 @@ import jakarta.validation.constraints.Size;
  * </ul>
  *
  * @param type        内容类型（JSON 用枚举名 {@code "VIDEO"} / {@code "POST"}）
- * @param title       标题（去首尾空白后落库）
+ * @param title       标题（**原样落库**；只校验非空与 ≤50。编辑侧才 trim，两者口径不同）
  * @param description 简介；{@code null} / 空白 ⇒ 落 {@code "-"}（与旧发布口径一致）
  * @param categoryId  分区（旧项目的 0~9 单数字分区体系）
  * @param media       整份媒体引用清单

@@ -388,7 +388,7 @@ public class ContentService {
             throw new ParamException(ErrorCode.PARAM_INVALID, "简介不超过10000字");
         }
         if (categoryId != null && (categoryId < 0 || categoryId > 9)) {
-            throw new ParamException(ErrorCode.PARAM_INVALID, "暂时没有这个分区");
+            throw new ParamException(ErrorCode.CONTENT_CATEGORY_INVALID, "暂时没有这个分区");
         }
 
         ContentCacheDTO dto = findOwnedContent(contentId, userId);
@@ -551,7 +551,11 @@ public class ContentService {
                 groupMediaByType(contentMediaDao.findMediaByContentId(contentId));
         for (List<ContentMedia> group : mediaByType.values()) {
             for (ContentMedia media : group) {
-                mediaUrls.add(media.getUrl());
+                // ★ 只清理"删完后不再被任何内容引用"的文件：新清单路径已拒绝跨作品共享 URL，
+                //   但历史数据 / 并发窗口仍可能共享；无条件删会顺带删掉别人的文件。
+                if (contentMediaDao.countByUrlExcludingContent(media.getUrl(), contentId) == 0) {
+                    mediaUrls.add(media.getUrl());
+                }
             }
         }
         contentDao.softDeleteContent(contentId);

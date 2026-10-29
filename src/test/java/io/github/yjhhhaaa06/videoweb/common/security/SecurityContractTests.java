@@ -110,6 +110,15 @@ class SecurityContractTests extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("★类级 @RequiresLogin：新增的 JSON 创建与单文件上传端点判为需登录")
+    void 创建与上传端点需登录() {
+        // ★ HTTP 级"未登录 ⇒ 401"是假绿：401 由 @CurrentUserId 参数解析器兜出，
+        //   去掉类级 @RequiresLogin 仍然 401。判别力只在这里（直接断言机制）。
+        assertThat(requiresLogin("POST", "/api/v1/contents")).isTrue();
+        assertThat(requiresLogin("POST", "/api/v1/uploads/video")).isTrue();
+    }
+
+    @Test
     @DisplayName("类级 @RequiresLogin：follow 全部端点判为需登录（TV 的 `/follow` 是**前缀**保护项，`T58` 后改由类级注解继续表达）")
     void follow类级注解覆盖全部端点() {
         // `T58` 契约变更（接口契约.md §2.3/§2.4）：关系 = PUT|DELETE /api/v1/follows/{id}，
