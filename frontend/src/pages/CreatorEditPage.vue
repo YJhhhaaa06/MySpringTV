@@ -195,6 +195,8 @@ function onVideoPicked(event: Event): void {
   void uploadInto('video', file, (url) => {
     if (!draft.value) return
     draft.value.videoUrl = url
+    // 换了源 ⇒ 旧时长不再代表这份文件（新时长由服务端保存时重新解析），别把它留在界面上
+    draft.value.durationText = null
     clearError('videoUrl')
   })
 }
