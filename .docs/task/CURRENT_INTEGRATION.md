@@ -4,7 +4,7 @@
 > ① **前后端联调**（已交付的页面 × 端点逐条打通、验真）② **有条件地补回功能**（补回要有判据，不凭手感）。
 >
 > **上一期 / 历史**（默认不读）：
-> 「前端重制期」登记台 [CURRENT_FRONTEND.md](./CURRENT_FRONTEND.md)（含选型 / 类型三层 / 开工顺序 / 踩坑，
+> 「前端重制期」遗留口径 [CURRENT_FRONTEND.md](./CURRENT_FRONTEND.md)（选型铁律 / 门禁 / 环境与坑 / 入口映射 / 客户端口径，
 > 仍作背景参考，但**不再是入口**）＋ [GAP 台账](./CURRENT_FRONTEND_GAPS.md)（**仍是**唯一差异清单）；
 > 「后端期」三件套 → [后端期登记台（归档）](../archive/backend-2026-10-30/README.md)（含 `I-27→F-28` 等改号映射）。
 >
@@ -113,6 +113,6 @@
 | 用户看不见的客户端行为（上报 / 重试 / 退出信号 / 乐观更新） | [客户端静默机制](../architecture/frontend/客户端静默机制.md) |
 | 视觉基准 / 截图复算 / 2560 校准 | [视觉基准](../architecture/frontend/视觉基准.md) |
 | 端点契约（状态码 / 错误码 / 入参出参形状） | [接口契约](../architecture/tech/api/接口契约.md) |
-| 跑起来 / 门禁 / 环境前置 | `frontend/README.md` · [CURRENT_FRONTEND.md](./CURRENT_FRONTEND.md) §六/§七（上一期实测记录，仍然有效） |
+| 跑起来 / 门禁 / 环境前置 | `frontend/README.md` · [CURRENT_FRONTEND.md](./CURRENT_FRONTEND.md)「门禁」「环境与中间件」（上一期沉淀，仍然有效） |
 | 编号是什么（`T#` / `R-##` / `F-##`） | 各专项活速查（`favorite.md` / `coin.md` / `history.md` / `写接口幂等.md` 附录） |
 | 跨期元约定 `G#` / `C#` | [`AGENTS.md`「跨期元约定」](../../AGENTS.md) |

@@ -47,7 +47,7 @@
 
 > ★ **稍后再看没有"是否已在池中"的查询端点**（[favorite.md §六](../architecture/domain/favorite/favorite.md) 红线）：
 > 本仓**不登记 GAP**、也不逐卡回源 —— 前端用 URL 作用域的内存记忆复刻 B 站实测行为
-> （见 [CURRENT_FRONTEND.md](./CURRENT_FRONTEND.md) §十四）。
+> （见 [CURRENT_FRONTEND.md](./CURRENT_FRONTEND.md)「客户端行为口径」）。
 > 这是**刻意不做**，不是缺口。
 
 > 实测补充（2026-10-25 起后端 curl，非文档推断）：
