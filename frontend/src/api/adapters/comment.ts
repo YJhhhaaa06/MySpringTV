@@ -10,7 +10,7 @@ import { formatCommentTime } from './format'
  * <ol>
  *   <li><b>没有头像</b>：GAP-08，昵称首字 + 渐变底。</li>
  *   <li><b>时间可能缺失</b>：`createTime` 自 GAP-12 起由后端返回，但有两个空值来源 ——
- *       存量 Redis 元素（key 无版本前缀，10 分钟 TTL 内读到的是老 JSON）与脏数据。
+ *       存量 Redis 元素（key 无版本前缀，且读命中会续期 ⇒ 热页可能长期如此，见 `I-32`）与脏数据。
  *       缺失 ⇒ 空串，渲染层**不显示**（不写"刚刚"顶上：那是编数字的变体）。</li>
  * </ol>
  *

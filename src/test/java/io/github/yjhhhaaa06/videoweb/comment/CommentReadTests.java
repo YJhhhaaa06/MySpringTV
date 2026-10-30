@@ -1,12 +1,15 @@
 package io.github.yjhhhaaa06.videoweb.comment;
 
 import io.github.yjhhhaaa06.videoweb.comment.dao.CommentDao;
+import io.github.yjhhhaaa06.videoweb.common.cache.CacheKeys;
 import io.github.yjhhhaaa06.videoweb.content.AbstractContentIntegrationTest;
 import io.github.yjhhhaaa06.videoweb.support.Envelope;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import tools.jackson.databind.JsonNode;
@@ -76,6 +79,10 @@ class CommentReadTests extends AbstractContentIntegrationTest {
      */
     @MockitoSpyBean
     private CommentDao commentDao;
+
+    /** 直接读写评论缓存（"存量老 JSON"这条只有在缓存载荷层才造得出来）。 */
+    @Autowired
+    private StringRedisTemplate stringRedis;
 
     @BeforeEach
     void 重置spy() {
@@ -158,6 +165,34 @@ class CommentReadTests extends AbstractContentIntegrationTest {
                 "SELECT create_time FROM comment WHERE comment_id = ?", LocalDateTime.class, commentId);
         assertThat(value).as("夹具评论 %s 必须有 create_time（列默认 CURRENT_TIMESTAMP）", commentId).isNotNull();
         return value.format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"));
+    }
+
+    @Test
+    @DisplayName("★ 存量缓存元素没有 createTime 键 ⇒ 200 + null（不是 500，也不回填假时间）")
+    void 存量缓存缺发布时间_降级为null() {
+        seed();
+        // 先走一次真实读：让缓存里是新格式（含 createTime），证明这条用例的对照组成立
+        JsonNode fresh = Envelope.data(get("/api/v1/contents/" + contentId + "/comments", null));
+        assertThat(fresh.path("list").get(0).path("createTime").isTextual())
+                .as("前置：新写入的缓存元素带 createTime").isTrue();
+
+        // ★ 模拟"部署前写入的元素"：Redis 里的老 JSON 没有这个键。
+        //   缓存 key 无版本前缀且读命中会续期 ⇒ 这个形态可能长期存在，不是只持续 10 分钟。
+        String rootsKey = CacheKeys.contentCommentRoots(contentId);
+        List<String> head = stringRedis.opsForList().range(rootsKey, 0, 0);
+        assertThat(head).as("前置：roots key 应已装载").isNotNull().hasSize(1);
+        String raw = head.get(0);
+        assertThat(raw).as("前置：roots 第一个元素可读").isNotNull();
+        String legacy = raw.replaceFirst(",\"createTime\":\"[^\"]*\"", "");
+        assertThat(legacy).as("构造老 JSON：必须真的删掉该键").doesNotContain("createTime");
+        stringRedis.opsForList().set(rootsKey, 0, legacy);
+
+        JsonNode data = Envelope.data(get("/api/v1/contents/" + contentId + "/comments", null));
+        JsonNode root0 = data.path("list").get(0);
+        assertThat(root0.path("commentId").asLong()).as("同一条主楼（没被 DB 重装顶掉）").isEqualTo(mainIds.get(0));
+        assertThat(root0.path("createTime").isNull())
+                .as("缺键 ⇒ 显式 null；前端据此不渲染时间节点")
+                .isTrue();
     }
 
     @Test

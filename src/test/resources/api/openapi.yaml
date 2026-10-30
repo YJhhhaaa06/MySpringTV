@@ -2937,8 +2937,10 @@ components:
           type: integer
           format: int64
         createTime:
-          type: string
-          format: date-time
+          anyOf:
+          - type: string
+            format: date-time
+          - type: "null"
         likeCount:
           type: integer
           format: int32
@@ -2995,8 +2997,10 @@ components:
           type: integer
           format: int64
         createTime:
-          type: string
-          format: date-time
+          anyOf:
+          - type: string
+            format: date-time
+          - type: "null"
         isLiked:
           type: boolean
         likeCount:

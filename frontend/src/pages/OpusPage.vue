@@ -28,7 +28,7 @@ import OpusImageGallery from '../components/opus/OpusImageGallery.vue'
  * - 图文没有播放语义（GAP-05）⇒ 不渲染播放量；
  * - 图文不支持投币（coin 域只服务视频）⇒ 操作栏**不渲染硬币按钮**；
  * - 没有「列出点赞人 / 转发人」端点、也没有转发域 ⇒ 不渲染「赞与转发」tab；
- * - 评论没有时间（GAP-12）、没有排序参数（GAP-13）⇒ 复用 `CommentSection`，不摆时间/排序条；
+ * - 评论没有排序参数（GAP-13）⇒ 复用 `CommentSection`，不摆排序条（时间已由 GAP-12 补回，无需本页处理）；
  * - 没有转发数 ⇒ 分享只做「复制链接」，不显示数字（与播放页同一份 `shareCurrentPage`）。
  *
  * <h2>互动态</h2>

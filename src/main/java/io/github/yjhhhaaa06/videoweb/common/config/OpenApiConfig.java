@@ -144,8 +144,9 @@ public class OpenApiConfig {
             // 匿名 / 看自己 ⇒ null（三态，不是 false）
             "ProfileVO", Set.of("isFollowed"),
             // 主楼没有 parent / replyTo；叶子没有 children（CommentVO 与 children 的 item 类型各一份）
-            "CommentVO", Set.of("parentId", "replyToUserId", "replyToUsername", "children"),
-            "CommentCacheDTO", Set.of("parentId", "replyToUserId", "replyToUsername", "children"),
+            // createTime（GAP-12）：DB 列可空 + 存量 Redis 元素没有该键 ⇒ 运行期会显式 null
+            "CommentVO", Set.of("parentId", "replyToUserId", "replyToUsername", "children", "createTime"),
+            "CommentCacheDTO", Set.of("parentId", "replyToUserId", "replyToUsername", "children", "createTime"),
             // 失效占位条目的展示字段确实为 null
             "FavoriteItemVO", Set.of("coverUrl", "authorName"),
             "WatchLaterItemVO", Set.of("coverUrl", "authorName"),

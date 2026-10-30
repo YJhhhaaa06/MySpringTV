@@ -70,8 +70,11 @@ export function parseDate(iso: string | null | undefined): Date | null {
  */
 export function parseServerTime(iso: string | null | undefined): Date | null {
   if (!iso) return null
-  // 只给"含 T 且无偏移"的串补时区：纯日期串（`2026-10-30`）按 ES 规范是 UTC 午夜，补了反而非法。
-  const text = iso.includes('T') && !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(iso) ? `${iso}+08:00` : iso
+  // 只给"含时间部分且无偏移"的串补时区：纯日期串（`2026-10-30`）按 ES 规范是 UTC 午夜，补了反而非法。
+  // 偏移面覆盖 `Z` / `+08:00` / `+08` / `-0500`；空格分隔（`2026-10-30 14:12:59`）同样按服务端时间解释。
+  const hasOffset = /(?:Z|[+-]\d{2}(?::?\d{2})?)$/i.test(iso)
+  const hasTime = /[T ]\d{2}:\d{2}/.test(iso)
+  const text = hasTime && !hasOffset ? `${iso}+08:00` : iso
   const date = new Date(text)
   return Number.isNaN(date.getTime()) ? null : date
 }

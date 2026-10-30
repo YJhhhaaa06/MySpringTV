@@ -172,6 +172,12 @@ describe('formatCommentTime（评论区：自然日 + 分钟/小时）', () => {
     expect(formatCommentTime('2026-10-30T14:00:00', now, SH)).toBe('2026-10-30 14:00')
   })
 
+  it('★ 同一自然日内、未来超过 1 分钟也走绝对时间（这条才是"未来分支"的判别力）', () => {
+    // 若删掉未来分支：同日 + 负 diff ⇒ 命中 `diff < 60_000` ⇒ "刚刚"（错）。跨日的用例杀不掉它。
+    const now = new Date('2026-10-30T14:00:00+08:00')
+    expect(formatCommentTime('2026-10-30T15:00:00', now, SH)).toBe('2026-10-30 15:00')
+  })
+
   it('1 分钟内的"未来"仍算刚刚（Date 头与 create_time 都只有秒级精度）', () => {
     const now = new Date('2026-10-30T13:59:30+08:00')
     expect(formatCommentTime('2026-10-30T14:00:00', now, SH)).toBe('刚刚')
@@ -190,8 +196,26 @@ describe('parseServerTime（契约 §2.7：无偏移串按 +08:00 解释）', ()
   })
 
   it('已带偏移 ⇒ 原样解析（不重复追加时区）', () => {
-    expect(parseServerTime('2026-10-30T06:12:59Z')?.getTime())
-      .toBe(Date.parse('2026-10-30T06:12:59Z'))
+    expect(parseServerTime('2026-10-30T06:12:59Z')?.toISOString())
+      .toBe('2026-10-30T06:12:59.000Z')
+    expect(parseServerTime('2026-10-30T09:12:59-05:00')?.toISOString())
+      .toBe('2026-10-30T14:12:59.000Z')
+  })
+
+  it('非法偏移形态 ⇒ null（宁可消失，也不许当成"无偏移"再拼一遍时区）', () => {
+    // `+08` 不是合法 ISO 偏移（V8 不认）。判据是"不静默偏 8 小时"，不是"必须宽容解析"。
+    expect(parseServerTime('2026-10-30T14:12:59+08')).toBeNull()
+  })
+
+  it('空格分隔的服务端串同样按 +08:00 解释（不能落回浏览器本地时区）', () => {
+    expect(parseServerTime('2026-10-30 14:12:59')?.toISOString())
+      .toBe('2026-10-30T06:12:59.000Z')
+  })
+
+  it('★ 测试环境时区固定为 UTC —— parseServerTime 的判别力前提', () => {
+    // 本机若是 +08:00，"补 +08:00"与"按本地解析"结果相同 ⇒ 上面几条测不出实现是否真补了。
+    // 由 vitest.config.ts 的 test.env.TZ 钉住；这条红 = 前提破了，不是本功能坏了。
+    expect(new Date().getTimezoneOffset()).toBe(0)
   })
 
   it('空 / 非法 ⇒ null', () => {

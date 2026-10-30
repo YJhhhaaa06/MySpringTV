@@ -168,8 +168,8 @@ export interface VideoDetailVM {
 /**
  * 评论（`CommentVO` / 楼中楼）。
  *
- * <p>★ 后端 `CommentVO` **没有 `createTime`**（GAP 台账 M1）⇒ `timeText` 恒空串，
- * 界面上不出现时间；**不许**拿"刚刚"顶上（那是编数字的变体）。
+ * <p>时间：`createTime` 自 GAP-12 起由后端返回，由 `formatCommentTime` 转成 `timeText`。
+ * 空串 = 缺时间（存量缓存 / 脏数据）⇒ 渲染层不显示节点；**不许**用"刚刚"兜空值。
  */
 export interface CommentVM {
   id: number

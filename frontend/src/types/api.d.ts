@@ -1103,8 +1103,7 @@ export interface components {
             content?: string;
             /** Format: int64 */
             contentId?: number;
-            /** Format: date-time */
-            createTime?: string;
+            createTime?: string | null;
             /** Format: int32 */
             likeCount?: number;
             parentId?: number | null;
@@ -1130,8 +1129,7 @@ export interface components {
             content?: string;
             /** Format: int64 */
             contentId?: number;
-            /** Format: date-time */
-            createTime?: string;
+            createTime?: string | null;
             isLiked?: boolean;
             /** Format: int32 */
             likeCount?: number;

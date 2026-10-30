@@ -78,9 +78,12 @@ public class CommentCacheDTO {
      * <p>与其它对外 VO 的时间字段同口径：序列化为 {@code yyyy-MM-ddTHH:mm:ss}、
      * 语义时区 Asia/Shanghai（《接口契约》§2.7）。前端按用户本地时区呈现。
      *
-     * <p>★ 本项目历史数据里该列可空（{@code DEFAULT CURRENT_TIMESTAMP} 但未声明 NOT NULL），
-     * 且**存量 Redis 元素没有这个键**（缓存 key 无版本前缀，10 分钟 TTL 内读到的是老 JSON）
-     * ⇒ 前端必须容忍 {@code null}（不显示时间），不能当成"必有值"。
+     * <p>★ 该列可空（{@code DEFAULT CURRENT_TIMESTAMP} 但未声明 NOT NULL），且**存量 Redis 元素
+     * 没有这个键**（缓存 key 无版本前缀）⇒ 前端必须容忍 {@code null}（不显示时间）。
+     *
+     * <p>⚠️ 别以为"等 10 分钟就好"：命中路径会 {@code EXPIRE} 续期
+     * （{@code CommentRedisOps#readRootsInterval}）⇒ 持续有读的内容页里，老元素可能**长期**
+     * 返回 {@code null}，直到该 key 被失效或重写（`I-32`）。这是已登记的降级，不是 bug。
      */
     private LocalDateTime createTime;
 
