@@ -2,6 +2,7 @@ package io.github.yjhhhaaa06.videoweb.comment.model.cache;
 
 import lombok.Data;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -24,11 +25,18 @@ import java.util.List;
  *       在此基础上加 {@code isLiked}。</li>
  * </ol>
  *
- * <h2>★ 字段集是冻结契约（JSON 形状）</h2>
+ * <h2>★ 字段集是对外契约（JSON 形状）</h2>
  * 对外的评论 JSON 键 = {@code username / commentId / contentId / userId / content / parentId /
- * replyToUserId / replyToUsername / likeCount / replyCount / children}（+ VO 的 {@code isLiked}）。
+ * replyToUserId / replyToUsername / createTime / likeCount / replyCount / children}
+ * （+ VO 的 {@code isLiked}）。
  * 旧 pytest 对 {@code commentId} / {@code content} / {@code children} / {@code replyCount}
  * 有逐字断言。
+ *
+ * <p>⚠️ <b>加字段要三处同步</b>（`GAP-12`，2026-10-31 补 {@code createTime}）：本类字段
+ * + {@code CommentMapper.xml} 的 {@code commentCacheMap} 映射
+ * + {@code CommentService#convertToCommentVO} 的**手写逐字段拷贝**。
+ * 漏最后一处时，缓存里有值、响应里恒 {@code null} —— DB 与缓存都"看起来正常"，
+ * 只表现成"前端不显示时间"。判别力由 {@code CommentReadTests} 的反向验证钉住。
  *
  * <h2>{@code children} 的两种形态（T10-A/T10-B，必须分清）</h2>
  * <ul>
@@ -63,6 +71,18 @@ public class CommentCacheDTO {
 
     /** 被回复者名（{@code LEFT JOIN users r}）。 */
     private String replyToUsername;
+
+    /**
+     * 发布时间（列 {@code create_time}，{@code datetime}，秒级）。
+     *
+     * <p>与其它对外 VO 的时间字段同口径：序列化为 {@code yyyy-MM-ddTHH:mm:ss}、
+     * 语义时区 Asia/Shanghai（《接口契约》§2.7）。前端按用户本地时区呈现。
+     *
+     * <p>★ 本项目历史数据里该列可空（{@code DEFAULT CURRENT_TIMESTAMP} 但未声明 NOT NULL），
+     * 且**存量 Redis 元素没有这个键**（缓存 key 无版本前缀，10 分钟 TTL 内读到的是老 JSON）
+     * ⇒ 前端必须容忍 {@code null}（不显示时间），不能当成"必有值"。
+     */
+    private LocalDateTime createTime;
 
     private int likeCount;
 

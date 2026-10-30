@@ -2936,6 +2936,9 @@ components:
         contentId:
           type: integer
           format: int64
+        createTime:
+          type: string
+          format: date-time
         likeCount:
           type: integer
           format: int32
@@ -2991,6 +2994,9 @@ components:
         contentId:
           type: integer
           format: int64
+        createTime:
+          type: string
+          format: date-time
         isLiked:
           type: boolean
         likeCount:
