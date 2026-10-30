@@ -21,17 +21,29 @@ import java.util.List;
  *   <li>用 {@code @JsonIgnore} 屏蔽 {@code videoUrl} / {@code imageUrls}——
  *       **列表不带媒体地址**（TV 的设计：列表只需要封面，媒体地址属详情）</li>
  * </ol>
- * ⚠️ T43 起两个 VO **不再逐字段同形**：详情多出公共计数（T48 起五个；列表一个都没有，见下一节）。
- * 于是对外 JSON 的键集 = 父类键集 − {videoUrl, imageUrls} + {interaction}，
+ * ⚠️ T43 起两个 VO **不再逐字段同形**；GAP-01（2026-10-26）起列表也带**三个可空公共计数**
+ * （见下一节），但仍不含详情独有的媒体字段与投币/收藏数。
+ * 于是对外 JSON 的键集 = 父类键集 − {videoUrl, imageUrls}
+ * + {interaction, likeCount, commentCount, playCount}，
  * 即 {@code {id, authorId, type, title, description, categoryId, commentEnabled, authorName,
- * coverUrl, createTime, interaction}}。
+ * coverUrl, durationSeconds, createTime, interaction, likeCount, commentCount, playCount}}。
  *
- * <h2>★ T43：列表**不带任何公共计数**（用户 2026-10-19 拍板）</h2>
- * 点赞 / 评论 / 收藏 / 投币 / 播放五个计数一律独立 key，且**只在详情响应平铺返回**
- * （见 {@link ContentDetailVO}）。列表卡片不再显示数字 —— 于是本类**没有** {@code coinCount}
- * （T40 曾加过，T43 撤掉）、也没有 {@code likeCount} / {@code commentCount}（它们已从父类移出）。
- * <p>口径与理由见 {@code architecture/tech/cache/缓存与数据一致性.md} §五：计数的读放大
- * 换"内容缓存不再被高频计数失效"，列表页不为展示位付 N 趟批量。
+ * <h2>★ GAP-01（2026-10-26）：列表平铺三个**可空**计数，按面按需填充</h2>
+ * T43 的"列表零计数"已被按面推翻。三类卡片对计数的需求不同（B站对照见
+ * {@code .docs/temp/gap01-backend-note.md}），故这里只平铺**当前有展示位**的三维，
+ * 且全部用包装类型 {@link Long}：
+ * <pre>
+ *   网格卡片（首页 / 搜索 / 相关推荐 / 空间投稿） ⇒ playCount
+ *   动态卡片（/feed）                              ⇒ playCount + likeCount + commentCount
+ * </pre>
+ * ★ {@code null} = **本面不查这一维**，{@code 0} = 真实值 —— 两者必须可区分，
+ * 这正是选包装类型而不是 {@code long} 的理由（互动态三态踩过同款坑）。
+ * 没有展示位的 {@code coinCount} / {@code favoriteCount} **连字段都不加**：
+ * 加了但恒 {@code null} 的键等于让契约说谎（要加时先有展示位）。
+ *
+ * <p>★ 计数仍是**独立 key**、仍然**不进** {@link ContentCacheDTO}（T43 的核心口径未变）：
+ * 列表带计数只多一趟批量读，内容载荷不会因点赞 / 评论而失效。
+ * 读取通道见 {@code ContentCountBatchAggregate}，维度常量写在四个调用点上。
  *
  * <h2>★ 列表里 {@code interaction.coin} **恒 {@code null}** 是契约，不是漏填</h2>
  * 列表四个面没有任何投币展示位 ⇒ 批量契约不查该维（{@code InteractionDimension} 刻意没有
@@ -75,6 +87,31 @@ public class ContentVO extends ContentCacheDTO {
      */
     private InteractionStatusVO interaction;
 
+    /**
+     * 内容的**点赞数**（公共计数，请求无关；GAP-01 起列表按面可空填充）。
+     *
+     * <p>★ 只有动态卡片（{@code /feed}）查这一维；网格卡片为 {@code null}（= 本面不查，**不是 0**）。
+     * 来源是 {@code content:likeCount:{id}}（点赞域持有），与详情同名同源。
+     */
+    private Long likeCount;
+
+    /**
+     * 内容的**评论总数**（公共计数，请求无关；GAP-01）。
+     *
+     * <p>★ 只有动态卡片（{@code /feed}）查这一维；网格卡片为 {@code null}。
+     * 口径同详情：含楼中楼的**评论总数**（{@code content.comment_count}），不是主楼数。
+     */
+    private Long commentCount;
+
+    /**
+     * 内容的**播放量**（公共计数，请求无关；GAP-01）。
+     *
+     * <p>★ **所有列表面都查**（网格卡片封面角标 / 动态卡片嵌入块）⇒ 正常响应里不会是 {@code null}；
+     * 该包装类型只为与另外两维保持同一契约形态（未请求时统一 {@code null}）。
+     * 图文内容的语义是「浏览」而非「播放」（口径见 GAP-05）。
+     */
+    private Long playCount;
+
     public ContentVO() {
     }
 
@@ -84,6 +121,30 @@ public class ContentVO extends ContentCacheDTO {
 
     public void setInteraction(InteractionStatusVO interaction) {
         this.interaction = interaction;
+    }
+
+    public Long getLikeCount() {
+        return likeCount;
+    }
+
+    public void setLikeCount(Long likeCount) {
+        this.likeCount = likeCount;
+    }
+
+    public Long getCommentCount() {
+        return commentCount;
+    }
+
+    public void setCommentCount(Long commentCount) {
+        this.commentCount = commentCount;
+    }
+
+    public Long getPlayCount() {
+        return playCount;
+    }
+
+    public void setPlayCount(Long playCount) {
+        this.playCount = playCount;
     }
 
     /** 列表不返回视频地址（TV {@code @JsonIgnore} 原样）。 */

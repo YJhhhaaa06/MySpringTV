@@ -6,6 +6,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.MultiValueMap;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -99,6 +102,56 @@ class ContentAuthorTests extends AbstractContentIntegrationTest {
         assertThat(deleteQuery("/api/v1/contents/" + String.valueOf(otherContentId), query(), otherToken)
                 .getStatusCode().value()).as("`T59`：删除 = 204").isEqualTo(204);
         assertThat(countMediaRows(contentId)).as("自己的那些行没有被「复活」").isZero();
+    }
+
+    @Test
+    @DisplayName("★删作品：共享 URL 仍被另一作品引用时**不得删物理文件**；最后一个引用者删除才清")
+    void 删作品_共享URL不误删文件() throws IOException {
+        String token = registerAndGetToken(AUTHOR_PHONE, AUTHOR);
+        long authorId = userIdOf(AUTHOR_PHONE);
+        long first = insertContent(authorId, CONTENT_TYPE_IMAGE, "共享A", "简介", 2);
+        long second = insertContent(authorId, CONTENT_TYPE_IMAGE, "共享B", "简介", 2);
+        String shared = "/upload/image/shared-delete.png";
+        insertMedia(first, shared, MEDIA_TYPE_IMAGE, 1);
+        insertMedia(second, shared, MEDIA_TYPE_IMAGE, 1);
+
+        Path file = Path.of(testMediaRoot()).resolve("image").resolve("shared-delete.png");
+        Files.createDirectories(file.getParent());
+        Files.write(file, new byte[]{(byte) 0x89, 'P', 'N', 'G'});
+        assertThat(Files.exists(file)).isTrue();
+
+        assertThat(deleteQuery("/api/v1/contents/" + first, query(), token)
+                .getStatusCode().value()).isEqualTo(204);
+        assertThat(Files.exists(file))
+                .as("第二个作品仍引用该 URL ⇒ 文件必须保留（否则删 A 会打穿 B）").isTrue();
+
+        assertThat(deleteQuery("/api/v1/contents/" + second, query(), token)
+                .getStatusCode().value()).isEqualTo(204);
+        assertThat(Files.exists(file)).as("最后一个引用者删除后才清理物理文件").isFalse();
+    }
+
+    @Test
+    @DisplayName("★删单图：共享 URL 仍被另一作品引用时不删文件，最后一个引用者删除才清")
+    void 删单图_共享URL不误删文件() throws IOException {
+        String token = registerAndGetToken(AUTHOR_PHONE, AUTHOR);
+        long authorId = userIdOf(AUTHOR_PHONE);
+        long first = insertContent(authorId, CONTENT_TYPE_IMAGE, "共享A", "简介", 2);
+        long second = insertContent(authorId, CONTENT_TYPE_IMAGE, "共享B", "简介", 2);
+        String shared = "/upload/image/shared-media-delete.png";
+        insertMedia(first, shared, MEDIA_TYPE_IMAGE, 1);
+        insertMedia(second, shared, MEDIA_TYPE_IMAGE, 1);
+
+        Path file = Path.of(testMediaRoot()).resolve("image").resolve("shared-media-delete.png");
+        Files.createDirectories(file.getParent());
+        Files.write(file, new byte[]{(byte) 0x89, 'P', 'N', 'G'});
+
+        assertThat(deleteQuery("/api/v1/contents/" + first + "/media",
+                query("type", "2", "url", shared), token).getStatusCode().value()).isEqualTo(204);
+        assertThat(Files.exists(file)).as("B 仍引用 ⇒ 物理文件必须保留").isTrue();
+
+        assertThat(deleteQuery("/api/v1/contents/" + second + "/media",
+                query("type", "2", "url", shared), token).getStatusCode().value()).isEqualTo(204);
+        assertThat(Files.exists(file)).as("最后一个引用者删除后才清").isFalse();
     }
 
     @Test

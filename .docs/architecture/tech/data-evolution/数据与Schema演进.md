@@ -273,7 +273,7 @@ V7 **减 2 张**（删遗留 `video` / `videoinfo`），V8 **不动表 / 列**�
 | # | 表 / 列 | 归属域 | 用途（一句） | 口径 |
 |---|---|---|---|---|
 | 20 | `watch_history` | history | 播放记录：**一人一内容一行**（`uk_user_content` 是 ODKU / `INSERT IGNORE` 的落点）+ `idx_user_update_content`（**V8 起**：列表倒序 + 三列覆盖）+ `idx_content_id` 只服务不变量复算 | `play_counted` 与 `progress_seconds` **解耦**（拆端点：`/report` 只改进度、`/play` 只改标记）；**不可删**（删了就和"播放量只增"打架） |
-| — | `content_media.duration_seconds` | （列在 content_media 上，业务归 upload 解析 / content 投影） | 视频时长（秒；mp4 `moov → mvhd` 解析） | **可空**，NULL = 未知（解析失败 / 图文 / 存量不回填）；只对 `type=1` 的媒体行有意义 |
+| — | `content_media.duration_seconds` | （列在 content_media 上，业务归 upload 解析 / content 投影） | 视频时长（秒；mp4 `moov → mvhd` 解析） | **可空**，NULL = 未知（解析失败 / 图文 / 文件缺失；存量已于 2026-10-27 一次性回填）；只对 `type=1` 的媒体行有意义 |
 | — | `content.play_count` | （列在 content 上，业务归 content 自持） | 播放量（**按用户去重**，一人一次） | `int unsigned` 且**只增**（没有取消播放）⇒ 刻意没有 like / comment 的防负守卫 |
 
 **V7 增量（`V7__drop_legacy_video.sql`，2026-10-21 播放记录专项 T45）——★ 只删表、不动结构**：
@@ -331,8 +331,8 @@ V7 **减 2 张**（删遗留 `video` / `videoinfo`），V8 **不动表 / 列**�
 存量数据的质量问题（如 `content.file_exists` / `last_verify_time` 表意"媒体完整性尚未全量核对"，
 以及 `video` / `videoinfo` 两张**无消费者的 TV 遗留表**）**继承自历史数据、非本仓引入**；
 处置口径是**逐条表态、不阻塞**——不因数据瑕疵阻断 schema 演进与上线。
-（`video` / `videoinfo` 已于 T45/V7 **删除表结构**；存量内容的时长不回填是另一条已知代价，
-见 [history.md §十](../../domain/history/history.md)。）
+（`video` / `videoinfo` 已于 T45/V7 **删除表结构**；存量内容时长已于 2026-10-27 用一次性工具回填，
+见 [history.md §六.2](../../domain/history/history.md)。）
 
 > 本篇只给这一条边界口径，**不逐条展开**；需要时在对应域的文档或工单里单独表态。
 

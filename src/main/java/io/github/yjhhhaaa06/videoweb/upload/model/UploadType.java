@@ -80,6 +80,22 @@ public enum UploadType {
         return null;
     }
 
+    /**
+     * 按磁盘子目录名（{@code video / image / cover}）映射上传类型，用于"先传文件、后提交清单"
+     * 的 upload-only 端点（路径 {@code /api/v1/uploads/{type}}）。
+     *
+     * <p>只认**小写目录名**：它就是 URL 里出现的那一段（{@code /upload/cover/x.png}），
+     * 不是枚举名。无匹配返回 {@code null}（调用方 400）。
+     */
+    public static UploadType fromDir(String dir) {
+        for (UploadType type : values()) {
+            if (type.dir.equals(dir)) {
+                return type;
+            }
+        }
+        return null;
+    }
+
     /** 磁盘子目录名（拼落盘路径与 URL 都用它）。 */
     public String getDir() {
         return dir;

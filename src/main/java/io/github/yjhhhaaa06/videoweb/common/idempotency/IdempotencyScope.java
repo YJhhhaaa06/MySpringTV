@@ -75,7 +75,7 @@ public final class IdempotencyScope {
     }
 
     /**
-     * 全部非 GET 端点（当前 39 条：POST 13 / PUT 15 / DELETE 11）。
+     * 全部非 GET 端点（当前 41 条：POST 15 / PUT 15 / DELETE 11）。
      *
      * <p>⚠️ 增删端点必须同步改这里，否则 {@code IdempotencyScopeTableTests} 红。
      * {@code Map.of} 只到 10 对 ⇒ 用 {@link Map#ofEntries}。
@@ -85,6 +85,8 @@ public final class IdempotencyScope {
             // KEYED：效果层非幂等、客户端又必须知道"成没成 / 成的是哪一条"（写接口幂等.md §三）
             // ========================================================================
             entry("POST /api/v1/comments", keyed("comment", 30)),
+            // JSON 清单创建：同一意图重试只建一条内容；载荷指纹（JSON body 级）保证换内容 ⇒ 422。
+            entry("POST /api/v1/contents", keyed("content", 120)),
             entry("POST /api/v1/contents/videos", keyed("video", 120)),
             entry("POST /api/v1/contents/posts", keyed("post", 120)),
             entry("POST /api/v1/contents/{id}/coins", keyed("coin", 30)),
@@ -93,6 +95,9 @@ public final class IdempotencyScope {
             // NATURAL：重试不改变 DB 终态，且响应可判（备注只标灰色地带）
             // ========================================================================
             entry("POST /api/v1/admin/media/scan", natural()),
+            // 灰色地带：重试会再落一份**未被引用**的文件（孤儿），DB 终态完全不变；
+            // 客户端应把重试视为"换一个 URL"，而不是"同一次上传的幂等重放"。
+            entry("POST /api/v1/uploads/{type}", natural()),
             entry("POST /api/v1/contents/{id}/play", natural()),
             entry("POST /api/v1/coupons/{id}/claims", natural()),   // 重复领券由 CouponService 回查订单返原券码（结构性修复）
             // 灰色地带：重名合法（业务规则），重试会**多建一个夹**；写接口幂等.md §三 明确不在覆盖范围。

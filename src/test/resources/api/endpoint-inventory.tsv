@@ -23,6 +23,7 @@ PUT	/api/v1/comments/{id}/like	LOGIN	ApiResponse<Void>
 GET	/api/v1/comments/{id}/like-count	LOGIN	ApiResponse<Long>
 GET	/api/v1/comments/{id}/replies	PUBLIC	ApiResponse<CursorResult<CommentVO>>
 GET	/api/v1/contents	PUBLIC	ApiResponse<PageResult<ContentVO>>
+POST	/api/v1/contents	LOGIN	ApiResponse<ContentCreatedVO>
 POST	/api/v1/contents/posts	LOGIN	ApiResponse<ContentCreatedVO>
 GET	/api/v1/contents/recommended	PUBLIC	ApiResponse<List<ContentVO>>
 POST	/api/v1/contents/videos	LOGIN	ApiResponse<ContentCreatedVO>
@@ -60,6 +61,7 @@ PUT	/api/v1/follows/{id}	LOGIN	ApiResponse<Void>
 GET	/api/v1/history	LOGIN	ApiResponse<PageResult<HistoryItemVO>>
 POST	/api/v1/history/flush	LOGIN	ApiResponse<Void>
 POST	/api/v1/sessions	PUBLIC	ApiResponse<LoginVO>
+POST	/api/v1/uploads/{type}	LOGIN	ApiResponse<UploadedAssetVO>
 POST	/api/v1/users	PUBLIC	ApiResponse<LoginVO>
 GET	/api/v1/users/me	LOGIN	ApiResponse<UserInfoVO>
 POST	/api/v1/users/me/check-ins	LOGIN	ApiResponse<SignInVO>

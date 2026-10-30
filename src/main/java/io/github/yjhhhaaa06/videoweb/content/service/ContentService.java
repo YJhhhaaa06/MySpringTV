@@ -17,6 +17,9 @@ import io.github.yjhhhaaa06.videoweb.content.event.ContentPublishedEvent;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentType;
 import io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentCountColumns;
+import io.github.yjhhhaaa06.videoweb.content.model.ContentCountField;
+import io.github.yjhhhaaa06.videoweb.content.model.SearchOrder;
+import io.github.yjhhhaaa06.videoweb.content.model.dto.MediaManifest;
 import io.github.yjhhhaaa06.videoweb.content.model.entity.Content;
 import io.github.yjhhhaaa06.videoweb.content.model.entity.ContentMedia;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.AdminContentVO;
@@ -56,11 +59,12 @@ import java.util.Set;
  *   <tr><td>{@code GET /api/v1/contents/{id}}（详情，`T58` 前为 /search/IdSearch）</td><td>{@link #getContentDetailVO}</td><td>无（纯读）</td></tr>
  *   <tr><td>{@code GET /comment/show}</td><td>{@link #getCommentsForContent} ×2 重载</td><td>无（纯读）</td></tr>
  *   <tr><td>{@code POST /content/commentEnabled}</td><td>{@link #setCommentEnabled}</td><td>{@code @Transactional}</td></tr>
- *   <tr><td>{@code POST /content/update}</td><td>{@link #updateContentInfo}</td><td>{@code @Transactional}</td></tr>
+ *   <tr><td>{@code PUT /api/v1/contents/{id}}</td><td>{@link #updateContent}</td><td>{@code @Transactional}</td></tr>
  *   <tr><td>{@code POST /content/delete} / {@code /mediaDelete}</td><td>{@link #deleteContent} / {@link #deleteMedia}</td>
  *       <td>{@code @Transactional}</td></tr>
- *   <tr><td>{@code POST /api/upload/video}</td><td>{@link #addVideo}</td><td>{@code @Transactional}（S7）</td></tr>
- *   <tr><td>{@code POST /api/upload/post}</td><td>{@link #addPost}</td><td>{@code @Transactional}（S7）</td></tr>
+ *   <tr><td>{@code POST /api/v1/contents}（JSON 清单）</td><td>{@link #createVideo} / {@link #createPost}</td><td>{@code @Transactional}</td></tr>
+ *   <tr><td>{@code POST /api/v1/contents/videos|posts}（multipart 兼容面）</td>
+ *       <td>同上（Controller 落盘后转清单）</td><td>{@code @Transactional}</td></tr>
  *   <tr><td>{@code POST /api/upload/replace}</td><td>{@link #replaceMedia}</td><td>{@code @Transactional}（S7）</td></tr>
  *   <tr><td>{@code GET /api/v1/admin/contents}</td><td>{@link #listContentForAdmin}</td>
  *       <td>无（纯读，S8 去事务）</td></tr>
@@ -87,6 +91,8 @@ public class ContentService {
     private final ContentCountAggregate countAggregate;
     private final InteractionService interactionService;
     private final ContentStatusFiller contentStatusFiller;
+    private final ContentCountFiller contentCountFiller;
+    private final ContentMediaManifestService contentMediaManifestService;
     private final ApplicationEventPublisher events;
 
     /**
@@ -107,6 +113,9 @@ public class ContentService {
      */
     private static final Set<InteractionDimension> KEYWORD_SEARCH_DIMENSIONS = Set.of();
 
+    /** 搜索结果是**网格卡片**：只显示播放量（GAP-01）。 */
+    private static final Set<ContentCountField> KEYWORD_SEARCH_COUNT_FIELDS = Set.of(ContentCountField.PLAY);
+
     public ContentService(ContentDao contentDao,
                           ContentMediaDao contentMediaDao,
                           CommentDao commentDao,
@@ -115,6 +124,8 @@ public class ContentService {
                           ContentCountAggregate countAggregate,
                           InteractionService interactionService,
                           ContentStatusFiller contentStatusFiller,
+                          ContentCountFiller contentCountFiller,
+                          ContentMediaManifestService contentMediaManifestService,
                           ApplicationEventPublisher events,
                           MediaProperties mediaProps) {
         this.contentDao = contentDao;
@@ -125,6 +136,8 @@ public class ContentService {
         this.countAggregate = countAggregate;
         this.interactionService = interactionService;
         this.contentStatusFiller = contentStatusFiller;
+        this.contentCountFiller = contentCountFiller;
+        this.contentMediaManifestService = contentMediaManifestService;
         this.events = events;
         this.mediaProps = mediaProps;
     }
@@ -144,18 +157,32 @@ public class ContentService {
      * <p><b>顺序契约</b>（T15 tie-breaker，见 {@code ContentDao.keywordSearchInBrief}）：
      * 结果顺序 = {@code create_time DESC, id DESC}，来自 DAO 的 SQL；**字段值来自缓存**。
      * 故即使有人改了缓存加载顺序，页间顺序也不会漂移。
+     * ★ `GAP-10` 起顺序**可被 {@code order=PLAY} 改成** {@code play_count DESC, id DESC}
+     * —— 变的只是 DAO 里那一个 {@code ORDER BY} 片段，"顺序由 SQL 定、字段值由缓存给"这条不变量不变。
      *
      * <p><b>跳过 null</b>：某 id 在缓存/DB 都取不到（已删 / 媒体损坏）时**跳过该条**，不从列表里补位
      * ——于是返回条数可能少于 pageSize，而 {@code total} 仍是 SQL 的命中总数。TV 原样，
      * 且旧 pytest 对"total == 单页条数"只在**测试数据集可控**的用例里断言。
      *
+     * <p>★ `GAP-10`：{@code type} / {@code order} 为 {@code null} 时**与加参数前逐字等价**
+     * （不筛 + 最新）。这里只做"枚举 → SQL 入参"的翻译：
+     * 类型给 {@code getTypeNumber()}（DB 列值），排序给 {@link SearchOrder#name()}
+     * （白名单字符串，mapper 只拿它做 {@code <choose>} 比较，绝不拼接）。
+     * 合法性校验**不在本层**：非法枚举在 Controller 的参数绑定阶段就 400 了。
+     *
      * @param keyword 关键词（**已 trim** 由调用方保证；DAO 的分支判据就是它的长度）
      * @param userId  当前用户 id，{@code null} = 匿名（不填个性化字段）
+     * @param type    内容类型筛选；{@code null} = 不过滤
+     * @param order   排序；{@code null} = 最新发布
      */
-    public PageResult<ContentVO> search(String keyword, Long userId, int page, int pageSize) {
+    public PageResult<ContentVO> search(String keyword, Long userId, int page, int pageSize,
+                                        ContentType type, SearchOrder order) {
         int offset = (page - 1) * pageSize;
-        int total = contentDao.countKeywordSearch(keyword);
-        List<Long> contentIds = contentDao.keywordSearchInBrief(keyword, offset, pageSize);
+        // ⚠️ 这两行是"枚举 → SQL"的唯一翻译点：type 变成列值，order 变成白名单字面量。
+        Integer typeNumber = type == null ? null : type.getTypeNumber();
+        String orderKey = (order == null ? SearchOrder.LATEST : order).name();
+        int total = contentDao.countKeywordSearch(keyword, typeNumber);
+        List<Long> contentIds = contentDao.keywordSearchInBrief(keyword, typeNumber, orderKey, offset, pageSize);
 
         // 事务外：该页批量读（一趟 pipeline 拉多条三态，miss 走批量装载），按原序跳过 null
         List<ContentVO> result = new ArrayList<>();
@@ -171,7 +198,8 @@ public class ContentService {
         if (userId != null && !result.isEmpty()) {
             contentStatusFiller.fillInteractionBatch(result, userId, KEYWORD_SEARCH_DIMENSIONS);
         }
-        // T43：列表不再返回任何公共计数（只在详情平铺）⇒ 这里不再有 coinCount 批量。
+        // GAP-01：网格卡片只显示播放量；公共计数不看登录态（匿名同样填）。
+        contentCountFiller.fillCountsBatch(result, KEYWORD_SEARCH_COUNT_FIELDS);
         return new PageResult<>(result, total, page, pageSize);
     }
 
@@ -323,18 +351,31 @@ public class ContentService {
     // ========================================================================
 
     /**
-     * 作者本人编辑作品标题与简介（A3）。
+     * 作者本人编辑作品：标题 / 简介 / 分区，以及**可选的整份媒体清单**。
      *
-     * <p>三条**参数校验在事务外**（TV 亦在事务外）：标题非空、标题 ≤50（对齐前端 maxlength）、
-     * 简介 ≤5000。校验先于归属校验——顺序保留决定"非作者 + 标题为空"时报 400 还是 403（TV 报 400）。
+     * <h2>校验顺序与 GAP-31</h2>
+     * 标题非空且 ≤50 在归属校验**之前**（保留 TV 的"非作者 + 空标题 ⇒ 400"口径）；
+     * 简介先做全站硬上限 10000 的前置检查，再在拿到内容类型后按类型收紧
+     * （视频 1000 / 图文 10000）——后者必须知道类型，故放在归属校验之后。
+     * ★ 由此产生一处**有意的顺序变化**：非作者 + 5001 字的图文简介现在报 403 而不是 400
+     * （旧实现是"一律 5000 前置"）；标题与分区仍然先于归属校验。
      *
-     * <p>全文索引（ngram）由 MySQL 自动维护，无额外语句（TV 原注释）。
+     * <h2>{@code media} 的语义</h2>
+     * {@code null} = 不动媒体（只改文案，兼容旧调用方）；非 {@code null} = 按
+     * {@code ContentMediaManifestService#reconcile} **整份覆盖**：
+     * 删缺席行、插新增行、按数组顺序重写 {@code sort}。媒体写入与内容行更新同一事务，
+     * 任一失败整体回滚。
      *
-     * <p>提交后**重载**内容 key（{@code Op.REFRESH}）并刷新索引——文案变了，光失效会让首次读者
-     * 回源（可接受）但索引里只有 id 不含文案，故这里用 REFRESH 更贴近 TV 的 {@code refreshContent}。
+     * <h2>提交后副作用</h2>
+     * {@code ContentCacheChangedEvent.refresh}（AFTER_COMMIT）；返回的"被移除 URL"由
+     * Controller 在**事务提交后**删物理文件（本方法返回时事务已提交）。
+     *
+     * @param media 整份媒体清单；{@code null} = 不改媒体
+     * @return 需要清理的物理文件 URL（不再被本作品引用；可能为空）
      */
     @Transactional
-    public void updateContentInfo(long contentId, long userId, String title, String description) {
+    public List<String> updateContent(long contentId, long userId, String title, String description,
+                                      Integer categoryId, MediaManifest media) {
         String t = title == null ? "" : title.trim();
         String d = description == null ? "" : description.trim();
         if (t.isEmpty()) {
@@ -343,12 +384,33 @@ public class ContentService {
         if (t.length() > 50) {
             throw new ParamException(ErrorCode.PARAM_INVALID, "标题不超过50字");
         }
-        if (d.length() > 5000) {
-            throw new ParamException(ErrorCode.PARAM_INVALID, "简介不超过5000字");
+        if (d.length() > 10_000) {
+            throw new ParamException(ErrorCode.PARAM_INVALID, "简介不超过10000字");
         }
-        findOwnedContent(contentId, userId);
+        if (categoryId != null && (categoryId < 0 || categoryId > 9)) {
+            throw new ParamException(ErrorCode.CONTENT_CATEGORY_INVALID, "暂时没有这个分区");
+        }
+
+        ContentCacheDTO dto = findOwnedContent(contentId, userId);
+        ContentType type = ContentType.fromTypeNumber(dto.getType());
+        if (type == null) {
+            // 装载契约已拒绝未知类型；走到这里是数据绕过了媒体装配，按不可用处理。
+            throw new IllegalStateException("未知内容类型: contentId=" + contentId + ", type=" + dto.getType());
+        }
+        int limit = type == ContentType.VIDEO ? 1000 : 10_000;
+        if (d.length() > limit) {
+            throw new ParamException(ErrorCode.PARAM_INVALID, "简介不超过" + limit + "字");
+        }
+
         contentDao.updateContentInfo(contentId, t, d);
+        if (categoryId != null) {
+            contentDao.updateCategoryId(contentId, categoryId);
+        }
+        List<String> removedUrls = media == null
+                ? List.of()
+                : contentMediaManifestService.reconcile(contentId, type, media);
         events.publishEvent(ContentCacheChangedEvent.refresh(contentId));
+        return removedUrls;
     }
 
     /**
@@ -401,7 +463,8 @@ public class ContentService {
      *
      * @param url 客户端给的媒体标识（可带 {@code video.media.base-url} 前缀；含 {@code +} 的文件名须 URL-encode）
      * @return 被删媒体的 url（**DB 行原值**，供调用方清理物理文件：
-     *         {@code ContentController.mediaDelete} 提交后调 {@code deleteFileByUrl}）
+     *         {@code ContentController.mediaDelete} 提交后调 {@code deleteFileByUrl}）；
+     *         若该 URL 仍被其他内容引用（历史/竞态）则返回 {@code null}（不删物理文件）
      */
     @Transactional
     public String deleteMedia(long contentId, long userId, int type, String url) {
@@ -420,7 +483,9 @@ public class ContentService {
         }
         contentMediaDao.compactImageSort(contentId, media.getSort());
         events.publishEvent(ContentCacheChangedEvent.refresh(contentId));
-        return media.getUrl();
+        // 历史/竞态下 URL 可能仍被别的作品引用：返回 null ⇒ Controller 不删物理文件。
+        return contentMediaDao.countByUrlExcludingContent(media.getUrl(), contentId) == 0
+                ? media.getUrl() : null;
     }
 
     /**
@@ -432,11 +497,7 @@ public class ContentService {
      * 前缀为空（默认）时原样返回。
      */
     private String stripMediaBaseUrl(String url) {
-        String base = mediaProps.baseUrl();
-        if (url == null || base == null || base.isEmpty() || !url.startsWith(base)) {
-            return url;
-        }
-        return url.substring(base.length());
+        return mediaProps.stripBaseUrl(url);
     }
 
     // ========================================================================
@@ -493,7 +554,11 @@ public class ContentService {
                 groupMediaByType(contentMediaDao.findMediaByContentId(contentId));
         for (List<ContentMedia> group : mediaByType.values()) {
             for (ContentMedia media : group) {
-                mediaUrls.add(media.getUrl());
+                // ★ 只清理"删完后不再被任何内容引用"的文件：新清单路径已拒绝跨作品共享 URL，
+                //   但历史数据 / 并发窗口仍可能共享；无条件删会顺带删掉别人的文件。
+                if (contentMediaDao.countByUrlExcludingContent(media.getUrl(), contentId) == 0) {
+                    mediaUrls.add(media.getUrl());
+                }
             }
         }
         contentDao.softDeleteContent(contentId);
@@ -515,7 +580,7 @@ public class ContentService {
     // ========================================================================
 
     /**
-     * 发布视频（{@code POST /api/upload/video}）：建内容行 + 插视频/封面两条媒体行。
+     * 创建视频（{@code POST /api/v1/contents} 的 {@code type=VIDEO}；multipart 兼容面同样落到这里）。
      *
      * <h2>★ 决策表 §四·S7：✅ 保持单事务</h2>
      * 「建内容 + 插媒体」必须同进同退——否则会留下"有内容行但无媒体行"的记录，
@@ -523,36 +588,35 @@ public class ContentService {
      * TV 用 {@code transactionTemplate.execute} 把 {@code doAddContent + addMedia×2} 包在一个事务里，
      * 新实现照此用 {@code @Transactional}。
      *
-     * <h2>提交后副作用（模式 A）</h2>
-     * 旧实现在事务后调 {@code contentCache.addContent(videoId)}。本实现改为发
-     * {@code ContentCacheChangedEvent.refresh(videoId)}（AFTER_COMMIT）。
-     * **语义已核对等价**：新 {@code ContentCache.refreshContent} = 装载 → 写 key → 进索引，
-     * 与旧 {@code addContent} 逐字相同（两者在新实现里其实是同一段代码）。
+     * <h2>媒体校验在事务内、写库之前</h2>
+     * {@link ContentMediaManifestService#normalize} 负责：类型约束（视频必须有视频 + 封面、不能带图）、
+     * URL 形状、文件真实存在、未被别的作品占用、重复 URL。任一条不通过 ⇒ 400 且零写入。
+     * 视频时长由它在**新视频**上解析；解析失败按未知（{@code null}）落库，不阻断发布
+     * （见 {@code architecture/domain/history/history.md} §六.2 —— 时长只影响进度百分比）。
      *
-     * <h2>提交后副作用（S9 起共两个事件）</h2>
+     * <h2>提交后副作用</h2>
      * <ol>
-     *   <li><b>feed 投递</b>：TV 在此处直调 {@code feedPushNotifier.publishContentPublished(videoId, userId)}
-     *       （提交后、失败只降级）。**S9 已兑现**（原 {@code TODO(feed 切片)} / 台账 A3 闭合）：
-     *       本类只发 {@code ContentPublishedEvent}，由 {@code feed.event.ContentPublishedFeedListener}
-     *       订阅后投 MQ —— 于是 **content 不依赖 feed**（消掉 TV 的 {@code content ⇄ feed} 环）。</li>
-     *   <li><b>内容缓存刷新</b>：发 {@code ContentCacheChangedEvent.refresh(contentId)}（AFTER_COMMIT）。</li>
+     *   <li>{@code ContentPublishedEvent}：feed 域订阅后投递写扩散消息（content 不依赖 feed）；</li>
+     *   <li>{@code ContentCacheChangedEvent.refresh}：装载 → 写 key → 进索引（AFTER_COMMIT）；</li>
+     *   <li>{@code ContentMilestoneEvent}：里程碑日志（AFTER_COMMIT）。</li>
      * </ol>
      *
-     * <h2>⚠️ 一处有意留后</h2>
-     * <b>文件落盘与 DB 无法原子</b>：由 Controller 在失败时删除已落盘文件补偿（见 {@code UploadController}）。
+     * <h2>⚠️ 文件与 DB 仍不原子</h2>
+     * multipart 兼容面由 Controller 在失败时删除本次已落盘文件；JSON 清单面引用的是**此前已上传**
+     * 的资源，失败时它们退化为未被引用的孤儿（由离线清理脚本回收）。
      *
-     * @param videoUrl 已落盘视频的**应用内相对 URL**
-     * @param coverUrl 已落盘封面的应用内相对 URL
-     * @param durationSeconds 视频时长（秒）；{@code null} = 解析失败 / 未知（**不阻断发布**，
-     *                        见 {@code history.md} §六.2 —— 只影响"进度百分比"，不影响可播性）
+     * @param manifest 整份媒体引用清单（视频 + 封面；镜像上传端点返回的 URL）
      * @return 新内容 id
      */
     @Transactional
-    public long addVideo(long userId, String title, String description, int categoryId,
-                         String videoUrl, String coverUrl, Integer durationSeconds) {
+    public long createVideo(long userId, String title, String description, int categoryId,
+                            MediaManifest manifest) {
+        ContentMediaManifestService.NormalizedMedia media =
+                contentMediaManifestService.normalize(ContentType.VIDEO, manifest, null);
         long contentId = doAddContent(userId, ContentType.VIDEO, title, description, categoryId);
-        contentMediaDao.addMedia(contentId, videoUrl, UploadType.VIDEO.getMediaType(), 1, durationSeconds);
-        contentMediaDao.addMedia(contentId, coverUrl, UploadType.COVER.getMediaType(), 1, null);
+        contentMediaDao.addMedia(contentId, media.videoUrl(), UploadType.VIDEO.getMediaType(), 1,
+                media.videoDurationSeconds());
+        contentMediaDao.addMedia(contentId, media.coverUrl(), UploadType.COVER.getMediaType(), 1, null);
         // S9 补回（原 TODO(feed 切片)）：声明"内容已发布"，由 feed 域订阅后投递写扩散消息。
         // ★ 与 TV 的差异：TV 直调 feedPushNotifier（content→feed 编译期依赖），此处改发事件
         //   （content 只声明自己发生了什么）——消掉 content⇄feed 环（《决策留痕表》C-9）。
@@ -565,30 +629,30 @@ public class ContentService {
     }
 
     /**
-     * 发布图文（{@code POST /api/upload/post}）：建内容行 + 可选封面 + 0~n 张图片。
+     * 创建图文（{@code POST /api/v1/contents} 的 {@code type=POST}；multipart 兼容面同样落到这里）。
      *
-     * <p>决策与副作用口径同 {@link #addVideo}（✅ 保持单事务 / REFRESH 事件 / feed TODO）。
-     * 与视频的唯一结构差异：封面**可选**（{@code coverUrl == null} 不插行），
-     * 图片的 {@code sort} 从 1 递增（TV 原样）。
+     * <p>决策与副作用口径同 {@link #createVideo}。与视频的唯一结构差异：封面**可选**
+     * （清单里 {@code coverUrl} 为空则不插行），图片按清单顺序写 {@code sort} 1..n。
      *
-     * @param coverUrl  封面相对 URL；{@code null} 表示无封面
-     * @param imageUrls 正文图片相对 URL 列表（可为空；顺序即 {@code sort} 1..n）
+     * @param manifest 整份媒体引用清单（封面可选 + 0~n 张图片）
      */
     @Transactional
-    public long addPost(long userId, String title, String description, int categoryId,
-                        String coverUrl, List<String> imageUrls) {
+    public long createPost(long userId, String title, String description, int categoryId,
+                           MediaManifest manifest) {
+        ContentMediaManifestService.NormalizedMedia media =
+                contentMediaManifestService.normalize(ContentType.POST, manifest, null);
         long contentId = doAddContent(userId, ContentType.POST, title, description, categoryId);
-        if (coverUrl != null) {
-            contentMediaDao.addMedia(contentId, coverUrl, UploadType.COVER.getMediaType(), 1, null);
+        if (media.coverUrl() != null) {
+            contentMediaDao.addMedia(contentId, media.coverUrl(), UploadType.COVER.getMediaType(), 1, null);
         }
         int sort = 1;
-        for (String imageUrl : imageUrls) {
+        for (String imageUrl : media.imageUrls()) {
             contentMediaDao.addMedia(contentId, imageUrl, UploadType.IMAGE.getMediaType(), sort++, null);
         }
-        // S9 补回（原 TODO(feed 切片)）：口径同 addVideo（《遗留台账》A3 → 已闭合）。
+        // S9 补回（原 TODO(feed 切片)）：口径同 createVideo（《遗留台账》A3 → 已闭合）。
         events.publishEvent(new ContentPublishedEvent(contentId, userId));
         events.publishEvent(ContentCacheChangedEvent.refresh(contentId));
-        // T2 里程碑（B12）：口径同 addVideo（AFTER_COMMIT 才落 "添加动态成功"）。
+        // T2 里程碑（B12）：口径同 createVideo（AFTER_COMMIT 才落 "添加动态成功"）。
         events.publishEvent(new ContentMilestoneEvent(contentId, ContentMilestoneEvent.Action.POST_ADDED));
         return contentId;
     }
@@ -643,7 +707,8 @@ public class ContentService {
         }
         contentDao.updateFileExists(contentId, true, now);
         events.publishEvent(ContentCacheChangedEvent.refresh(contentId));
-        return oldUrl;
+        // 历史/竞态下旧 URL 可能仍被别的作品引用：返回 null ⇒ Controller 不删物理文件。
+        return contentMediaDao.countByUrlExcludingContent(oldUrl, contentId) == 0 ? oldUrl : null;
     }
 
     /** 所有权校验 + 定位媒体行，供删媒体/换源复用（404「媒体资源不存在」）。 */

@@ -34,8 +34,10 @@ import io.github.yjhhhaaa06.videoweb.interaction.model.vo.InteractionStatusVO;
  * {@code 模块边界与依赖.md} §六 登记例外）。评论数与播放量由内容域自持
  * （{@code content} 不得依赖 {@code comment}，见 {@code ArchitectureTests} 规则 4）。
  *
- * <p>⚠️ T43 起**列表 VO 与本类不再同形**：列表没有任何计数（用户 2026-10-19 拍板），
- * 见 {@link ContentVO}。互动态仍在两处共用同一个子对象定义。
+ * <p>⚠️ T43 起**列表 VO 与本类不再同形**：GAP-01（2026-10-26）起列表按面带
+ * {@code playCount} / {@code likeCount} / {@code commentCount}（均为可空），
+ * 但仍**没有** {@code coinCount} / {@code favoriteCount}、也没有媒体字段，见 {@link ContentVO}。
+ * 互动态仍在两处共用同一个子对象定义。
  * ⚠️ 本类走 {@code InteractionService.getStatus}（单条、**无**维度入参 —— R-13 刻意
  * 不为详情扩大契约面，见 {@code InteractionService} 类注释）。
  *
@@ -88,7 +90,7 @@ public class ContentDetailVO extends ContentCacheDTO {
      * 该列由播放写路径在**首播**分支事务内 +1（{@code HistoryService#play}），
      * 缓存键由 {@code PlayCountChangedListener} 在提交后条件 {@code INCRBY 1} 维护
      * （口径见 {@code architecture/domain/history/history.md} §五）。
-     * ★ 同样**不进** {@link ContentCacheDTO}：进了列表就跟着带，破"列表零计数"。
+     * ★ 同样**不进** {@link ContentCacheDTO}：进了载荷就会跟着列表带（列表按面只平铺三维）。
      */
     private long playCount;
 

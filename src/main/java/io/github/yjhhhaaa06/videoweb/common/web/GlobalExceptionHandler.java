@@ -59,15 +59,17 @@ import java.util.Set;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    /** 根路径上的静态文件（精确匹配）：缺文件时只回 404 状态、不产信封。 */
-    private static final Set<String> STATIC_EXACT = Set.of("/", "/index.html", "/favicon.ico");
+    /** 根路径上的静态文件 / 前端入口 HTML（精确匹配）：缺文件时只回 404 状态、不产信封。 */
+    private static final Set<String> STATIC_EXACT = Set.of(
+            "/", "/index.html", "/search.html", "/video.html", "/opus.html", "/space.html",
+            "/favorites.html", "/history.html", "/dynamic.html", "/favicon.ico", "/favicon.svg");
 
     /**
-     * 静态媒体 / 样式脚本前缀：缺文件时同样不产信封。
+     * 静态媒体 / 前端构建产物前缀：缺文件时同样不产信封。
      *
      * <p>⚠️ 与 {@code RateLimitFilter} 的跳过前缀**同集合但不是同一份**（见 {@link #handleNoResource}）。
      */
-    private static final List<String> STATIC_PREFIXES = List.of("/static/", "/upload/");
+    private static final List<String> STATIC_PREFIXES = List.of("/assets/", "/upload/");
 
     private final ApiErrorWriter errorWriter;
 
@@ -370,7 +372,7 @@ public class GlobalExceptionHandler {
      * 变成 **500**（契约与实现漂移的根源，见 {@code architecture/tech/api/接口契约.md} §三 #6）。
      *
      * <h2>为什么静态资源要"只回状态、不回信封"</h2>
-     * {@code /upload/**}（媒体）、{@code /static/**}（样式脚本）与三个根路径的缺失文件，
+     * {@code /upload/**}（媒体）、{@code /assets/**}（前端构建产物）与入口 HTML 的缺失文件，
      * 消费方是 {@code <img>} / {@code <video>} / 浏览器加载器 —— 它们**不看 body**，
      * 给一段 JSON 只会让"看一眼响应体"的排查路径误以为那是业务错误。
      * 这也是访问日志 {@code code=0}（"从未产生业务信封"哨兵）**仍然存在**的场景。
@@ -382,8 +384,8 @@ public class GlobalExceptionHandler {
      * 未映射的业务路径走的是**同一个** {@code /**} 资源处理器（这正是未映射一度变 500 的原因），
      * 异常层拿不到任何区分信息。代价：新增资产目录要同步本清单，**漂移不会自己变红**——
      * {@code FrameworkErrorContractTests} 只覆盖能造出 404 的三个入口（{@code /favicon.ico}、
-     * {@code /static/}、{@code /upload/}）；{@code /} 与 {@code /index.html} 在当前工程里存在（回 200），
-     * 无法用 404 覆盖。
+     * {@code /assets/}、{@code /upload/}）；入口 HTML 在**已 stage 前端产物**的工程里存在（回 200），
+     * 无法用 404 覆盖，只能靠这里的注释与 review。
      *
      * <p>{@code /actuator/**} **不在**本清单：它由独立的 {@code WebMvcEndpointHandlerMapping}
      * 处理，不会抛本异常。

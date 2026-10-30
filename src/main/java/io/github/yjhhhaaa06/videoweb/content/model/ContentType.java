@@ -25,4 +25,19 @@ public enum ContentType {
     public int getTypeNumber() {
         return typeNumber;
     }
+
+    /**
+     * {@code content.type} 列值 → 枚举；未知值返回 {@code null}。
+     *
+     * <p>从 DB 行/缓存载荷反向映射时用（如编辑根据"已存在的内容类型"选简介上限）。
+     * 调用方拿到 {@code null} 说明数据越过了媒体装配的校验，应按"不可用"处理，不要静默当 POST。
+     */
+    public static ContentType fromTypeNumber(int typeNumber) {
+        for (ContentType type : values()) {
+            if (type.typeNumber == typeNumber) {
+                return type;
+            }
+        }
+        return null;
+    }
 }

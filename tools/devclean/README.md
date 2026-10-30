@@ -1,6 +1,9 @@
 # tools/devclean/ —— 开发期数据清理（**不是运维脚本**）
 
 > 共同语言约定（UTF-8 输出 / 路径从仓库根推导 / 会写的脚本默认只预演）见 **`tools/README.md` §三**，此处不重复。
+>
+> ★ 本目录同时承接**派生数据修复**（`recount.py` 重算计数 / `backfill_duration.py` 回填时长）：
+> 它们只改**派生列**、可重复执行、默认 dry-run；§二 的删除红线**不适用于**这两类（它们不删行）。
 
 ---
 
@@ -26,14 +29,18 @@
 
 ---
 
-## 三、四个脚本：三个干活 + 一个编排
+## 三、脚本：清理 / 重算 / 回填 + 一个编排
 
 | 脚本 | 干什么 | 默认 | `--apply` 做什么 |
 |------|--------|------|------------------|
 | `db_clean.py` | **DB 清理**：顺 15 类悬挂引用逐表清扫（`NOT EXISTS`） | 报「将删 N / 保留 M」 | 单事务执行删除 + 末尾复核残留 |
 | `media_clean.py` | **媒体清理**：盘上文件若无任何 `content_media.url` 指向它 ⇒ 孤儿 ⇒ **移到** `<媒体根同级>/trash/` | 列孤儿（含大小 / 样例 20 个） | 有孤儿时搬走并写 `trash/manifest-<时间戳>.txt`（无孤儿则不写） |
 | `recount.py` | **计数重算**：重算 7 个计数列，口径 = **不含软删行** | 逐列报"当前漂移行数"（= `F-07` 探针） | 单事务重算 + 复核并打印剩余漂移（**不改变退出码**，要判失败请自己看输出） |
+| `backfill_duration.py` | **存量视频时长回填**（T46 的推翻条件；只填 `duration_seconds IS NULL`） | 逐行报 可回填 / 文件缺失 / 解析失败 | 单事务写 `CASE` 回填 + 复核目标行仍为 NULL 的数量 |
 | `devclean.py` | **一键编排**：`备份(DB) → 媒体确认关卡 → DB → 媒体 → 重算` | **全链 dry-run** | 先备份 DB、含媒体步需 `--media-backed-up` |
+
+> `backfill_duration.py` **不并入 `devclean.py` 编排**：它不是例行清理，是一次性数据修复
+> （同 `recount.py` 也不在编排里）。跑它就是一条命令，别为一件事加第二套编排。
 
 ### 3.1 顺序是**依赖**，不是偏好
 
@@ -72,6 +79,19 @@ dry-run 与 apply **走同一段 SQL**：dry-run = 在同一事务里**真跑删
 
 `recount.py` 同理：dry-run 的漂移查询与 apply 的聚合**共用同一段派生表 SQL**（`AGG`），口径只有一处。
 
+### 3.4 `backfill_duration.py` 的口径（一次性，2026-10-27）
+
+| 项 | 口径 |
+|---|---|
+| 解析 | 与 `upload/service/Mp4DurationReader` 逐条一致：只读 box 头，moov 可在文件尾，v0 / v1，`size==0/1`；`timescale==0` / duration 全 F / 截断 / 非 mp4 ⇒ **保持 NULL**（不写 0） |
+| 写什么 | **只填 `duration_seconds IS NULL`**；已有值一个都不覆盖（可重复执行） |
+| 路径 | `/upload/{video|image|cover}/...` → 媒体根；拒绝 `..` 与越界（与 `FileUploadService` 同源） |
+| 文件缺失 | 跳过并登记 —— **不写 0**（`file_exists=0` 是审计快照，不作为"跳过"依据；确实读不到文件时绝不猜） |
+| 缓存 | **不刷缓存**；`content:{id}` 在 TTL 内仍可能读到 null（既有口径，见 `history.md` §六.3） |
+
+⚠️ Python 侧解析器是 `Mp4DurationReader` 的**镜像**：改 Java 规则必须同步改它。
+落地时已用 Java 解析器对媒体根下 **44 个真实 mp4** 逐一比对（结果全等）。
+
 ---
 
 ## 四、用法
@@ -92,6 +112,10 @@ python tools/devclean/media_clean.py                         # 列孤儿
 python tools/devclean/media_clean.py --apply
 python tools/devclean/recount.py                             # = F-07 探针
 python tools/devclean/recount.py --apply
+
+# 存量时长回填（一次性；先备份再跑）
+python tools/devclean/backfill_duration.py                   # 预演：可回填 / 文件缺失 / 解析失败
+python tools/devclean/backfill_duration.py --apply
 ```
 
 `devclean.py --apply` 的两道关卡，**按这个顺序执行**：① **先备份 DB**（调 `tools/backup.py`，**DB-only**，媒体不备份）；
@@ -107,6 +131,7 @@ python tools/devclean/recount.py --apply
 | `db_clean.py` | 成功（dry-run 与 apply 都返回 0） | `1` 解析 / 连接 / SQL 失败，或 apply 后仍有残留 / 护栏表被改动；`2` 未找到 `mysql` 客户端 |
 | `media_clean.py` | 成功 | `1` 配置 / 连接 / 扫描失败；`2` 未找到 `mysql` 客户端 |
 | `recount.py` | 成功 | `1` 连接 / SQL 失败；`2` 未找到 `mysql` 客户端 |
+| `backfill_duration.py` | 成功（dry-run 与 apply 都返回 0） | `1` 连接 / SQL / 回填后复核失败；`2` 未找到 `mysql` 客户端 |
 | `devclean.py` | 成功 | `1` 中止（备份失败 / 缺确认关卡 / 子脚本失败） |
 
 ---

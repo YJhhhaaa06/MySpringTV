@@ -4,6 +4,7 @@ import io.github.yjhhhaaa06.videoweb.content.model.AuthorContentId;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentAuthorAndType;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentCoinCount;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentCountColumns;
+import io.github.yjhhhaaa06.videoweb.content.model.ContentCountRow;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentFavoriteCount;
 import io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO;
 import io.github.yjhhhaaa06.videoweb.content.model.entity.Content;
@@ -200,6 +201,26 @@ public interface ContentDao {
      * @return 五计数列；内容行不存在 ⇒ {@code null}（防御分支，正常调用时序下不可达）
      */
     ContentCountColumns findCountColumns(@Param("contentId") long contentId);
+
+    /**
+     * **一趟 IN 读齐多条内容的五个公共计数列**（GAP-01 列表批量计数回源）。
+     *
+     * <p>SQL: {@code select id, like_count, comment_count, favorite_count, coin_count, play_count
+     * from content where id in (...)}。
+     *
+     * <p>★ 为什么是 IN 而不是逐 id 调 {@link #findCountColumns}：一页最多 100 条，
+     * 逐条调就是 100 条 SQL；也不该为每张卡片调详情端点（那会把载荷装载与媒体装配再跑一遍）。
+     *
+     * <p>★ <b>刻意不加 {@code is_deleted = 0}</b>：同 {@link #findCoinCount}——读的是**列值**，
+     * 可见性由列表装载（{@code ContentCache} 的三态读）判定；能进入本查询的 id 都是装载成功的条目。
+     *
+     * <p>⚠️ 返回 record ⇒ 必须用 {@code <constructor>} 映射（{@code ContentMapper.xml}），
+     * javaType 用包装类型。
+     *
+     * @param ids 该页内容的 id（调用方保证非空；空集合不要调本方法，SQL 会变成非法 IN ()）
+     * @return 命中的行；缺失的 id 不出现（列表正常时序不会有缺失行）
+     */
+    List<ContentCountRow> findCountColumnsByIds(@Param("ids") Collection<Long> ids);
 
     /**
      * 读某内容的**点赞总数**（**单列窄查询**，T44-1 计数缓存 miss 的回源切换点）。
@@ -433,15 +454,36 @@ public interface ContentDao {
      *
      * <p>入参 {@code keyword} 必须是**已 trim** 的（调用方负责）；单/多字符分支的判据就是它的长度。
      *
+     * <h2>★ `GAP-10`（2026-10-27）：类型筛选 + 排序</h2>
+     * <ul>
+     *   <li>{@code typeNumber}：{@code content.type} 的列值（1 视频 / 2 图文），
+     *       {@code null} = 不过滤。两条分支都要带上它（mapper 里是同一个
+     *       {@code searchTypeFilter} 片段，**count 也 include 它**——否则 total 与 list 口径漂移）。</li>
+     *   <li>{@code orderKey}：**白名单字符串**，取值只能是 {@code SearchOrder} 的
+     *       {@code name()}（{@code LATEST} / {@code PLAY}），由 Service 翻译后传入。
+     *       ⚠️ 它**不是**用户输入：mapper 只用它做 {@code <choose test="orderKey == 'PLAY'">} 比较，
+     *       没有 {@code ${}} 拼接（不存在注入面）。新增取值必须同改 mapper 与用例，否则静默落进
+     *       {@code <otherwise>}（= 最新）。</li>
+     * </ul>
+     * ⚠️ {@code PLAY} 排序在图文上**退化**为 {@code id DESC}：图文 {@code play_count} 结构性恒 0
+     * （{@code /play} 只收视频）—— 口径见 {@code SearchController#keywordSearch}。
+     *
      * @param offset 起始偏移（{@code (page-1)*pageSize}，由 Service 计算并保证 ≥0）
      * @param limit  页大小
      */
     List<Long> keywordSearchInBrief(@Param("keyword") String keyword,
+                                    @Param("typeNumber") Integer typeNumber,
+                                    @Param("orderKey") String orderKey,
                                     @Param("offset") int offset,
                                     @Param("limit") int limit);
 
-    /** 关键词搜索命中总数。分支判据与 {@link #keywordSearchInBrief} **必须同源**（否则 total 与 list 口径漂移）。 */
-    int countKeywordSearch(@Param("keyword") String keyword);
+    /**
+     * 关键词搜索命中总数。分支判据与 {@link #keywordSearchInBrief} **必须同源**（否则 total 与 list 口径漂移）。
+     *
+     * <p>★ `GAP-10`：{@code typeNumber} 的过滤条件与列表版**共用同一个 mapper 片段**
+     * ——"筛选后 total 变了、但列表没变"（或反之）会直接表现为页码错乱。
+     */
+    int countKeywordSearch(@Param("keyword") String keyword, @Param("typeNumber") Integer typeNumber);
 
     /** 某作者的内容总数（主页 GET /api/v1/users/{id} 信封的 total）。TV: {@code SELECT COUNT(*) FROM content WHERE user_id = ? AND is_deleted = 0} */
     int countContentByUser(@Param("userId") long userId);
@@ -489,6 +531,15 @@ public interface ContentDao {
     int updateContentInfo(@Param("contentId") long contentId,
                           @Param("title") String title,
                           @Param("description") String description);
+
+    /**
+     * 作者编辑分区（{@code PUT /api/v1/contents/{id}} 的可选字段）。
+     *
+     * <p>与 {@link #updateContentInfo} 拆成两条语句而不是合并成一条：旧签名被
+     * {@code ContentCacheTests} 的"事务回滚"用桩点依赖，改签名会让那条**机制证明**跟着改；
+     * 两条语句在同一事务里，语义与"一条 SET 三列"等价。
+     */
+    int updateCategoryId(@Param("contentId") long contentId, @Param("categoryId") int categoryId);
 
     /** 作者删除作品：软删。TV: {@code UPDATE content SET is_deleted = 1 WHERE id = ?} */
     int softDeleteContent(@Param("contentId") long contentId);

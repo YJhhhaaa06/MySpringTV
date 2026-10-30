@@ -31,4 +31,20 @@ public record MediaProperties(String baseUrl) {
             baseUrl = "";
         }
     }
+
+    /**
+     * 剥掉对外 URL 前缀，得到库内相对 URL 的**唯一实现**。
+     *
+     * <p>详情响应拼了 {@link #baseUrl()}（{@code ContentCache#jointUrl}），客户端回传的
+     * 媒体地址多半是拼好的值；写路径（删图、清单提交）比较 / 落库前必须先脱前缀，
+     * 否则"带前缀的 url"既匹配不到库内行，也会让文件删除静默失效。
+     *
+     * <p>前缀为空（默认）时原样返回。入参 {@code null} 返回 {@code null}。
+     */
+    public String stripBaseUrl(String url) {
+        if (url == null || baseUrl == null || baseUrl.isEmpty() || !url.startsWith(baseUrl)) {
+            return url;
+        }
+        return url.substring(baseUrl.length());
+    }
 }

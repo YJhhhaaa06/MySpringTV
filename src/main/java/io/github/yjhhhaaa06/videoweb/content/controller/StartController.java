@@ -5,7 +5,9 @@ import io.github.yjhhhaaa06.videoweb.common.security.Public;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
 import io.github.yjhhhaaa06.videoweb.common.web.PageParams;
 import io.github.yjhhhaaa06.videoweb.content.cache.ContentCache;
+import io.github.yjhhhaaa06.videoweb.content.model.ContentCountField;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentVO;
+import io.github.yjhhhaaa06.videoweb.content.service.ContentCountFiller;
 import io.github.yjhhhaaa06.videoweb.content.service.ContentStatusFiller;
 import io.github.yjhhhaaa06.videoweb.interaction.model.InteractionDimension;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -60,12 +62,18 @@ public class StartController {
      */
     private static final Set<InteractionDimension> START_DIMENSIONS = Set.of(InteractionDimension.FOLLOW);
 
+    /** 首页 / 相关推荐都是**网格卡片**：只显示播放量（GAP-01）。 */
+    private static final Set<ContentCountField> START_COUNT_FIELDS = Set.of(ContentCountField.PLAY);
+
     private final ContentCache contentCache;
     private final ContentStatusFiller contentStatusFiller;
+    private final ContentCountFiller contentCountFiller;
 
-    public StartController(ContentCache contentCache, ContentStatusFiller contentStatusFiller) {
+    public StartController(ContentCache contentCache, ContentStatusFiller contentStatusFiller,
+                           ContentCountFiller contentCountFiller) {
         this.contentCache = contentCache;
         this.contentStatusFiller = contentStatusFiller;
+        this.contentCountFiller = contentCountFiller;
     }
 
     /**
@@ -88,7 +96,8 @@ public class StartController {
                 PageParams.parseIntOrNull(categoryId),
                 RECOMMEND_LIMIT);
         contentStatusFiller.fillInteractionBatch(recommend, userId, START_DIMENSIONS);
-        // T43：列表不再返回任何公共计数（计数只在详情平铺）⇒ 这里不再有第二趟批量。
+        // GAP-01：网格卡片只显示播放量；公共计数不看登录态（匿名同样填）。
+        contentCountFiller.fillCountsBatch(recommend, START_COUNT_FIELDS);
         return ApiResponse.success(recommend);
     }
 }

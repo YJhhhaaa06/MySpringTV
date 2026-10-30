@@ -6,16 +6,22 @@ import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
 import io.github.yjhhhaaa06.videoweb.common.security.CurrentUserId;
 import io.github.yjhhhaaa06.videoweb.common.security.RequiresLogin;
 import io.github.yjhhhaaa06.videoweb.common.web.ApiResponse;
+import io.github.yjhhhaaa06.videoweb.content.model.ContentType;
+import io.github.yjhhhaaa06.videoweb.content.model.dto.CreateContentRequest;
+import io.github.yjhhhaaa06.videoweb.content.model.dto.MediaManifest;
 import io.github.yjhhhaaa06.videoweb.content.service.ContentService;
 import io.github.yjhhhaaa06.videoweb.upload.model.UploadResult;
 import io.github.yjhhhaaa06.videoweb.upload.model.UploadType;
 import io.github.yjhhhaaa06.videoweb.upload.model.vo.ContentCreatedVO;
 import io.github.yjhhhaaa06.videoweb.upload.model.vo.MediaReplacedVO;
+import io.github.yjhhhaaa06.videoweb.upload.model.vo.UploadedAssetVO;
 import io.github.yjhhhaaa06.videoweb.upload.service.FileUploadService;
 import io.github.yjhhhaaa06.videoweb.upload.service.Mp4DurationReader;
+import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -76,6 +82,81 @@ public class UploadController {
     }
 
     /**
+     * 单文件上传（{@code POST /api/v1/uploads/{type}}）：**只落盘、不写 DB**。
+     *
+     * <h2>它为什么存在（与发布端点的分工）</h2>
+     * 创建 / 编辑作品的正确提交单位是**媒体引用清单**，不是字节：文件先在这里上传并拿到
+     * 不可变的相对 URL，随后由 {@code POST /api/v1/contents}（创建）或
+     * {@code PUT /api/v1/contents/{id}}（编辑）按清单绑定。这样"保存"不需要重传未改动的
+     * 视频，且**编辑中的媒体对观众不可见**——未绑定的文件不参与任何内容装配。
+     *
+     * <h2>它刻意不做什么</h2>
+     * <ul>
+     *   <li><b>不写 {@code content_media}</b>：绑定关系只在提交清单时产生；</li>
+     *   <li><b>不校验业务元数据</b>（标题 / 分区）：那是提交端点的职责；</li>
+     *   <li><b>不做清理</b>：上传后放弃的请求会留下未被引用的文件（孤儿），由离线清理脚本
+     *       按"磁盘存在但库内无引用"回收，不进请求事务。</li>
+     * </ul>
+     *
+     * <p>返回的 {@code url} 是应用内相对路径；{@code durationSeconds} 只对视频有值，
+     * 解析失败 / 未知为 {@code null}（≠ 0）。提交清单时服务端会**重新解析**时长，
+     * 客户端回传值不参与写库。
+     *
+     * @param type {@code video} / {@code image} / {@code cover}（与 URL 里的目录同名）
+     * @param file 单文件 part {@code file}；缺失由框架 400，空文件走本方法 400
+     */
+    @PostMapping("/api/v1/uploads/{type}")
+    public ApiResponse<UploadedAssetVO> upload(@PathVariable("type") String type,
+                                               @RequestPart("file") MultipartFile file) {
+        UploadType uploadType = UploadType.fromDir(type);
+        if (uploadType == null) {
+            throw new ParamException(ErrorCode.UPLOAD_TYPE_INVALID, "type 不合法，应为 video/image/cover");
+        }
+        if (file == null || file.getSize() <= 0) {
+            throw new ParamException(ErrorCode.PARAM_INVALID, "请选择要上传的文件");
+        }
+
+        UploadResult result;
+        try {
+            result = fileUploadService.saveFile(file, uploadType);
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new UploadFailureException(e);
+        }
+        Integer duration = uploadType == UploadType.VIDEO ? readDuration(result) : null;
+        return ApiResponse.success(new UploadedAssetVO(result.url(), duration));
+    }
+
+    /**
+     * 创建作品（{@code POST /api/v1/contents}，JSON 清单）：**规范写路径**。
+     *
+     * <p>请求体 = 元数据 + 整份媒体引用清单（先经 {@code POST /api/v1/uploads/{type}} 上传）。
+     * 服务端在一个事务里建内容行 + 媒体行；媒体校验（类型约束 / 文件存在 / 跨作品占用 / 重复）
+     * 由 {@code ContentMediaManifestService} 完成。与旧 multipart 发布端点共享同一段
+     * {@code ContentService#createVideo / createPost}，不产生第二套业务逻辑。
+     *
+     * <p>元数据校验在本类（与 multipart 路径同文案）：标题非空且 ≤50、分区 0~9、
+     * 简介按类型（视频 1000 / 图文 10000），空简介落 {@code "-"}。
+     * 声明式约束（{@code @Valid}）先于本方法执行：缺 {@code type/title/categoryId/media}
+     * 走统一校验失败体（400 + {@code errors[]}）。
+     */
+    @PostMapping("/api/v1/contents")
+    public ApiResponse<ContentCreatedVO> create(@CurrentUserId long userId,
+                                                @RequestBody @Valid CreateContentRequest request) {
+        ContentType type = request.type();
+        String t = requireTitle(request.title());
+        String d = normalizeDescription(request.description(),
+                descriptionMax(type), descriptionMessage(type));
+        int category = request.categoryId();
+        long contentId = switch (type) {
+            case VIDEO -> contentService.createVideo(userId, t, d, category, request.media());
+            case POST -> contentService.createPost(userId, t, d, category, request.media());
+        };
+        return ApiResponse.success(new ContentCreatedVO(contentId));
+    }
+
+    /**
      * 发布视频（{@code POST /api/upload/video}）：表单 {@code title/description/categoryId} +
      * 两个文件 part {@code video} / {@code cover}。成功返回 {@code {"contentId": N}}。
      *
@@ -84,8 +165,9 @@ public class UploadController {
      * 文件类型不支持 → 400 {@code "文件类型不支持"}（{@link FileUploadService#saveFile}）。
      *
      * <p>★ <b>时长解析（T46）</b>：落盘之后、写库之前解析 mp4 头的 {@code moov → mvhd}，
-     * 结果随 {@code addVideo} 一起进事务。**解析失败不阻断发布**（{@code null} = 未知），
-     * 理由见 {@code history.md} §六.2：时长只服务"进度百分比"，异常 mp4 不应变成新的失败点。
+     * 结果随 {@code createVideo} 一起进事务。**解析失败不阻断发布**（{@code null} = 未知），
+     * 理由见 {@code architecture/domain/history/history.md} §六.2：时长只服务"进度百分比"，
+     * 异常 mp4 不应变成新的失败点。
      */
     @PostMapping("/api/v1/contents/videos")
     public ApiResponse<ContentCreatedVO> uploadVideo(@CurrentUserId long userId,
@@ -103,8 +185,9 @@ public class UploadController {
         try {
             videoResult = fileUploadService.saveFile(video, UploadType.VIDEO);
             coverResult = fileUploadService.saveFile(cover, UploadType.COVER);
-            long contentId = contentService.addVideo(userId, t, d, category,
-                    videoResult.url(), coverResult.url(), readDuration(videoResult));
+            // 兼容面：落盘后转成与 JSON 清单完全相同的入参 —— 业务校验 / 时长解析只在下游一处。
+            long contentId = contentService.createVideo(userId, t, d, category,
+                    new MediaManifest(videoResult.url(), coverResult.url(), null));
             return ApiResponse.success(new ContentCreatedVO(contentId));
         } catch (BusinessException e) {
             deleteQuietly(videoResult);
@@ -155,7 +238,8 @@ public class UploadController {
                 }
             }
 
-            long contentId = contentService.addPost(userId, t, d, category, coverUrl, imageUrls);
+            long contentId = contentService.createPost(userId, t, d, category,
+                    new MediaManifest(null, coverUrl, imageUrls));
             return ApiResponse.success(new ContentCreatedVO(contentId));
         } catch (BusinessException e) {
             savedPaths.forEach(fileUploadService::deleteFileQuietly);
@@ -240,6 +324,16 @@ public class UploadController {
             throw new ParamException(ErrorCode.PARAM_INVALID, "标题不得超过50字");
         }
         return title;
+    }
+
+    /** 简介上限按内容类型（发布侧口径：视频 1000 / 图文 10000，TV 原样）。 */
+    private static int descriptionMax(ContentType type) {
+        return type == ContentType.VIDEO ? 1000 : 10000;
+    }
+
+    /** 与 {@link #descriptionMax} 配套的拒因文案（两条旧 multipart 端点逐字使用）。 */
+    private static String descriptionMessage(ContentType type) {
+        return type == ContentType.VIDEO ? "简介不得超过1000字" : "内容不得超过10000字";
     }
 
     /** 简介为空 ⇒ {@code "-"}（TV 原样占位）；超长 ⇒ 对应文案。 */

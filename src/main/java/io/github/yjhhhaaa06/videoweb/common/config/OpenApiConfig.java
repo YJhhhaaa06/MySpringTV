@@ -35,6 +35,7 @@ import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -112,8 +113,55 @@ public class OpenApiConfig {
      */
     private static final Map<String, List<String>> REQUIRED_BODY_PARTS = Map.of(
             "POST /api/v1/contents/videos", List.of("video", "cover"),
+            "POST /api/v1/uploads/{type}", List.of("file"),
             "PUT /api/v1/contents/{id}/media", List.of("file"),
             "PUT /api/v1/admin/media/{id}", List.of("file"));
+
+    /**
+     * GAP-07：**运行期真的会返回显式 {@code null}** 的响应字段（schema 名 → 属性名）。
+     *
+     * <p>spec 的默认行为只声明"可缺省"（非 required），生成 TypeScript 后是
+     * {@code string | undefined}；但这些字段在运行期**一定有这个键、值为 {@code null}**
+     * （Jackson 默认包含 null）⇒ 前端必须按 {@code | null} 兜底，否则 TS 类型在说谎。
+     *
+     * <p>★ 为什么不"把所有非原生类型都标 nullable"：{@code title} / {@code createTime} /
+     * {@code username} 这类字段虽然 Java 类型可空，但契约上**承诺非空**（响应构造保证）。
+     * 一律标 null 会让生成类型退化成"什么都不能直接用"，反而掩盖真正的运行时分支。
+     * 故这里只登记**已确认存在 null 分支**的字段；新增时按同一判据补行。
+     *
+     * <h2>为什么 `$ref` 字段要用 anyOf</h2>
+     * OpenAPI 3.1 表达可空 `$ref` 的标准形态是 {@code anyOf: [$ref, {type: 'null'}]}
+     * （{@code nullable: true} 是 3.0 的写法，3.1 已移除）。
+     */
+    private static final Map<String, Set<String>> NULLABLE_VO_FIELDS = Map.of(
+            // 互动态三态：null = 本面不查 / 匿名；这是 R-13 的核心契约
+            "InteractionStatusVO", Set.of("isLiked", "isFavorited", "isFollowed", "coin"),
+            // 列表按面裁剪的三个计数 + 图文无封面 / 时长未知 + 匿名无 interaction
+            "ContentVO", Set.of("coverUrl", "durationSeconds", "interaction",
+                    "likeCount", "commentCount", "playCount"),
+            // 详情：图文无 videoUrl、视频无 imageUrls、图文无时长、匿名无 interaction
+            "ContentDetailVO", Set.of("coverUrl", "durationSeconds", "videoUrl", "imageUrls", "interaction"),
+            // 匿名 / 看自己 ⇒ null（三态，不是 false）
+            "ProfileVO", Set.of("isFollowed"),
+            // 主楼没有 parent / replyTo；叶子没有 children（CommentVO 与 children 的 item 类型各一份）
+            "CommentVO", Set.of("parentId", "replyToUserId", "replyToUsername", "children"),
+            "CommentCacheDTO", Set.of("parentId", "replyToUserId", "replyToUsername", "children"),
+            // 失效占位条目的展示字段确实为 null
+            "FavoriteItemVO", Set.of("coverUrl", "authorName"),
+            "WatchLaterItemVO", Set.of("coverUrl", "authorName"),
+            "HistoryItemVO", Set.of("coverUrl", "authorName", "durationSeconds"),
+            // 单文件上传：只有视频有值；图片 / 封面恒 null（"未知" ≠ 0）
+            "UploadedAssetVO", Set.of("durationSeconds"));
+
+    /**
+     * 供 spec 护栏测试遍历（{@code OpenApiSpecExportTests}）——**不是业务 API**，运行期不要读它。
+     *
+     * <p>暴露出来的理由：测试若手抄一份字段清单，注册表改名时两边会一起漂；遍历同一份表，
+     * 才能让"注册了但没生效"变红。
+     */
+    public static Map<String, Set<String>> nullableVoFields() {
+        return NULLABLE_VO_FIELDS;
+    }
 
 
     public OpenApiConfig() {
@@ -200,6 +248,55 @@ public class OpenApiConfig {
                     .url("/")
                     .description("同源部署：按调用方当前的 origin 拼路径")));
         };
+    }
+
+    /**
+     * GAP-07：把 {@link #NULLABLE_VO_FIELDS} 里登记的属性改成 OpenAPI 3.1 的可空表达。
+     *
+     * <p>运行在 springdoc 生成完 schema 之后（{@link OpenApiCustomizer} 的时点），
+     * 只改已存在的组件；schema / 属性改名时这里会**静默失配**——故由
+     * {@code OpenApiSpecExportTests} 里的一条断言兜住（见 {@code 可空字段确实标了null}）。
+     */
+    @Bean
+    public OpenApiCustomizer nullableVoFieldsCustomizer() {
+        return openApi -> {
+            Components components = openApi.getComponents();
+            if (components == null || components.getSchemas() == null) {
+                return;
+            }
+            NULLABLE_VO_FIELDS.forEach((schemaName, fields) -> {
+                Schema<?> schema = components.getSchemas().get(schemaName);
+                if (schema == null || schema.getProperties() == null) {
+                    return;
+                }
+                for (String field : fields) {
+                    Schema<?> property = (Schema<?>) schema.getProperties().get(field);
+                    if (property != null) {
+                        schema.getProperties().put(field, nullable(property));
+                    }
+                }
+            });
+        };
+    }
+
+    /**
+     * 把一个属性 schema 改成 3.1 的可空形态：统一用 {@code anyOf: [原 schema, {type: "null"}]}。
+     *
+     * <p>★ 为什么不用 {@code type: [原类型, "null"]}（3.1 的另一标准写法）：
+     * swagger-core 2.2.55 的 YAML 解析器把 {@code type} 当文本读，遇到类型数组会抛
+     * {@code ArrayNode cannot be cast to TextNode}（本仓的 spec 快照测试就是用它解析的）。
+     * {@code anyOf} 两种解析器都认，且 openapi-typescript 会生成 {@code T | null}。
+     */
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static Schema nullable(Schema property) {
+        Schema wrapper = new Schema<>();
+        wrapper.addAnyOfItem(property);
+        Schema nullSchema = new Schema<>();
+        // ★ type 与 types 同时设置：`type("null")` 只写 types，YAML 序列化会漏掉（实测输出 `{}`）
+        nullSchema.setType("null");
+        nullSchema.setTypes(new LinkedHashSet<>(Set.of("null")));
+        wrapper.addAnyOfItem(nullSchema);
+        return wrapper;
     }
 
     /**

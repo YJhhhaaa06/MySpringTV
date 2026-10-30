@@ -16,6 +16,7 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
@@ -51,7 +52,14 @@ import static org.mockito.Mockito.doThrow;
  *       <td>上传成功后**不读任何接口**，直接查 Redis 里 {@code content:{id}} 已存在
  *           ——排除"读接口触发的 cache-aside 回填"这个替代来源</td></tr>
  * </table>
+ *
+ * <p>★ 本类断言的是 **Redis 侧的可观察终态**（{@code content:{id}} 在提交后已写入）。
+ * 全量回归里本类的 spy 上下文会被其他类复用；一旦该上下文被 TestContext 缓存关闭
+ * （{@code JedisConnectionFactory} 进入 STOPPED），断言就会在"环境不可用"上假红。
+ * 用"进类前重建上下文"把这条测试与跨类上下文生命周期解耦——它本来就需要一个
+ * 可用的 Redis 客户端，而不是复用别人的缓存态。
  */
+@DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_CLASS)
 class UploadTransactionTests extends AbstractHttpIntegrationTest {
 
     private static final String PASSWORD = "abc123456";

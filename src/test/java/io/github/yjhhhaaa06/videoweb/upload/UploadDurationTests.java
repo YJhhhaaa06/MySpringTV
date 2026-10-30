@@ -88,9 +88,9 @@ class UploadDurationTests extends AbstractHttpIntegrationTest {
         JsonNode data = Envelope.data(get("/api/v1/contents/" + contentId, null));
 
         assertThat(data.has("durationSeconds")).as("新键必须在").isTrue();
-        // ★ T48 起键集 18 → 19（新增 playCount）：这是**契约跟随**，不是测试迎合 ——
+        // ★ T48 起详情键集 18 → 19（新增 playCount）：这是**契约跟随**，不是测试迎合 ——
         //   依据 = architecture/domain/history/history.md §五「第 5 个公共计数」：
-        //   播放量与赞/评/藏/币一样只在详情平铺（不进 ContentCacheDTO ⇒ 列表仍零计数）。
+        //   详情五维平铺；GAP-01 起列表另带 play/like/comment 三维（不进 ContentCacheDTO）。
         assertThat(keysOf(data))
                 .as("★ 精确键集：多一个 / 少一个都是契约变更（durationSeconds / playCount 之外不许有别的漂移）")
                 .containsExactlyInAnyOrder(
@@ -101,7 +101,7 @@ class UploadDurationTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("列表响应同样带 durationSeconds（慢变字段，不是计数 ⇒ 不受 T43'列表零计数'约束）")
+    @DisplayName("列表响应同样带 durationSeconds（慢变字段；GAP-01 起列表另有三维可空计数）")
     void 列表也带时长() {
         String token = registerAndGetToken("13800000203", "dur-list", PASSWORD);
         long contentId = uploadVideo(token, TITLE_KEYWORD + " 列表时长", mp4Seconds(7), "list.mp4", "video/mp4");

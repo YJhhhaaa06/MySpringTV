@@ -1,0 +1,88 @@
+/**
+ * 设计令牌（B 站网页版的**可复算**近似）。
+ * 色值 / 字号 / 圆角 / 栅格宽度都出自 2026-10-25 实拍，不凭感觉调。
+ */
+:root {
+  color-scheme: light;
+
+  /* 品牌色 */
+  --brand-pink: #fb7299;
+  --brand-pink-dark: #e45c85;
+  --brand-blue: #00aeec;
+  --brand-blue-dark: #00a1d6;
+  --brand-blue-bg: #e3f8ff;
+
+  /* 文字（B 站四级灰阶） */
+  --text-1: #18191c;
+  --text-2: #61666d;
+  --text-3: #9499a0;
+  --text-4: #c9ccd0;
+  --text-inverse: #ffffff;
+
+  /* 背景 / 描边 */
+  --bg-0: #ffffff;
+  --bg-1: #f6f7f8;
+  --bg-2: #f1f2f3;
+  --bg-mask: rgba(0, 0, 0, 0.5);
+  --line-1: #e3e5e7;
+  --line-2: #f1f2f3;
+
+  /* 圆角 / 阴影 */
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 10px;
+  --radius-pill: 999px;
+  --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.12);
+
+  /* 尺寸 */
+  --header-h: 64px;
+
+  /*
+   * 内容容器宽度：**逐页实测，不搞一个数字全站通吃**（2026-10-26 / 10-27 校准）。
+   *
+   * B 站 2026-10 实拍（全部换算成 **CSS px**；2560 截图是 150% 缩放，CSS 视口 1707×932）：
+   *   首页    1440/1600 = 1320，1707 = 1412  ⇒ max(1320px, 82.5vw)
+   *   搜索    1600 = 1472，1707 = 1500      ⇒ min(1500px, 92vw)
+   *   播放页  1600 = 1520，1707 = 1565      ⇒ min(1565px, 95vw)
+   *           侧栏：B 站 CSS 在 `min-width:1681px` 时 350→411（video.0.*.css，
+   *           2026-10-27 从线上 CSS 复核；上一窗口目测的「约 455」不成立）
+   *   动态页  1707 = 1336（左 260 / 中 1fr / 右 320）⇒ max(1248px, 78vw)
+   *   历史页  1707 = 1188（时间轴 76 + 4 列 ×258）⇒ 1160（B 站 history-record 的
+   *           `.history-wrap` 在 ≥1415px 就是 1160px；旧「锁 1320」偏宽 11%）
+   */
+  --content-w: max(1320px, 82.5vw);
+  --content-w-search: min(1500px, 92vw);
+  --content-w-video: min(1565px, 95vw);
+  --content-w-dynamic: max(1248px, 78vw);
+  /*
+   * 图文详情（opus）：B 站线上 `.opus-detail` **外框 708px**，
+   * 内边距 56 ⇒ 正文 596px；右侧 `.side-toolbar` 58px。1707 CSS 实拍同值。
+   */
+  --content-w-opus: 708px;
+  --grid-gap: 20px;
+  --grid-cols: 5;
+  --card-title-size: 15px;
+
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+}
+
+@media (max-width: 1400px) {
+  :root {
+    --grid-cols: 4;
+  }
+}
+
+@media (max-width: 1100px) {
+  :root {
+    --grid-cols: 3;
+  }
+}
+
+@media (max-width: 760px) {
+  :root {
+    --grid-cols: 2;
+    --grid-gap: 12px;
+  }
+}

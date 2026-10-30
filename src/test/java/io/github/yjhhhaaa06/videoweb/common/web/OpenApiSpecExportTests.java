@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.common.web;
 
+import io.github.yjhhhaaa06.videoweb.common.config.OpenApiConfig;
 import io.github.yjhhhaaa06.videoweb.common.exception.ErrorCode;
 import io.github.yjhhhaaa06.videoweb.support.AbstractIntegrationTest;
 import io.swagger.v3.core.util.Yaml;
@@ -59,7 +60,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li><b>响应类别</b>：401 与**登记簿的鉴权档位**对应；{@code ResponseEntity<Void>} 必须 204 且不留 200。</li>
  *   <li><b>错误信封</b>：失败体只有 {@code code/msg/errors}，九个错误响应组件指向同一个 {@code ApiError}；
  *       码字典 = 41 项（形状守恒，见下方"判别力边界"）。</li>
- *   <li><b>multipart + 必填</b>：四个上传端点是 {@code multipart/form-data}，且必填字段没被写成可选。</li>
+ *   <li><b>multipart + 必填</b>：五个上传端点是 {@code multipart/form-data}，且必填字段没被写成可选。</li>
  *   <li><b>503 与 servers</b>：503 只挂 {@code report} 路径（{@code flush} 必须没有）；{@code servers} 不钉 localhost。</li>
  * </ol>
  *
@@ -92,12 +93,13 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
     private static final boolean WRITE_MODE = Boolean.getBoolean("api.openapi.write");
 
     /**
-     * 声明了 {@code @RequestPart} 的端点（`T59` 登记为 multipart 例外，§2.5）—— **四条都在**。
+     * 声明了 {@code @RequestPart} 的端点（`T59` 登记为 multipart 例外，§2.5）—— **五条都在**。
      * 显式列出的理由与 `T59-3` 的计数护栏相同：让"改名后脱保"这件事**变红**，而不是静默失配。
      */
     private static final List<String> MULTIPART_ENDPOINTS = List.of(
             "POST /api/v1/contents/posts",
             "POST /api/v1/contents/videos",
+            "POST /api/v1/uploads/{type}",
             "PUT /api/v1/contents/{id}/media",
             "PUT /api/v1/admin/media/{id}");
 
@@ -155,8 +157,8 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
                 .as("登记簿里有、spec 里没有 —— springdoc 没能表达该端点（多为映射写法超出它识别的范围）")
                 .isEmpty();
         assertThat(fromSpec)
-                .as("端点总数应与 T54 的 67 条一致（T58/T59 后恒定）")
-                .hasSize(67);
+                .as("端点总数应与 T54 的 69 条一致（T58/T59 后 + 上传清单批次）")
+                .hasSize(69);
     }
 
     // ==================== 用例 3：假参数 ====================
@@ -378,6 +380,59 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
                     .as("%s 的目标资源 id 在 body/query 里，会回 404 ⇒ 不能因为'路径没变量'就不声明", key)
                     .containsKey("404");
         }
+    }
+
+    @Test
+    @DisplayName("★ GAP-07：注册表里每个可空字段都是 3.1 的 null 类型；未登记的承诺非空字段不受影响")
+    void 可空字段确实标了null() {
+        OpenAPI spec = parse(generate());
+
+        // ★ 遍历**与生成侧同一份注册表**：手抄清单会在两边一起漂，遍历才能让"注册了但没生效"变红
+        OpenApiConfig.nullableVoFields().forEach((schemaName, fields) ->
+                fields.forEach(field -> assertNullable(spec, schemaName, field)));
+
+        // 对照：承诺非空的字段不能被一并标 null（否则生成类型退化成"什么都要判空"）
+        assertNotNullType(property(spec, "ContentVO", "title"), "title 契约上承诺非空");
+        assertNotNullType(property(spec, "ContentVO", "id"), "原生 long 不可能为 null");
+    }
+
+    /** 断言属性不是可空表达（兼容 3.1 下 `type` / `types` / `anyOf` 三种承载方式）。 */
+    private static void assertNotNullType(Schema<?> property, String reason) {
+        assertThat(property.getAnyOf()).as(reason + " ⇒ 不应被 anyOf 包成可空").isNull();
+        assertThat(property.get$ref()).as(reason + " ⇒ 不应是 $ref").isNull();
+        if (property.getTypes() != null) {
+            assertThat(property.getTypes()).as(reason + " ⇒ 不应含 null").doesNotContain("null");
+        }
+        assertThat(property.getType()).as(reason + " ⇒ type 不应是 null").isNotEqualTo("null");
+    }
+
+    /**
+     * 断言一个属性是 3.1 的可空表达：统一为 {@code anyOf: [原 schema, {type: "null"}]}。
+     * ⚠️ swagger-core 读回 `type: "null"` 时会留一个 null 元素（模型表达不了这种 schema）。
+     */
+    private static void assertNullable(OpenAPI spec, String schemaName, String field) {
+        Schema<?> property = property(spec, schemaName, field);
+        if (property.get$ref() != null || property.getAnyOf() != null) {
+            assertThat(property.getAnyOf())
+                    .as("%s.%s 必须用 anyOf 包一层 null", schemaName, field)
+                    .isNotNull()
+                    // swagger-core 读回 `type: "null"` 时会留一个 null 元素（模型表达不了这种 schema），
+                    // 故用 anyMatch 容忍 null 项；若将来解析器能表达，仍认 type=="null"。
+                    .anyMatch(s -> s == null || "null".equals(s.getType()));
+            return;
+        }
+        assertThat(property.getTypes())
+                .as("%s.%s 必须含 null 类型", schemaName, field)
+                .isNotNull()
+                .contains("null");
+    }
+
+    private static Schema<?> property(OpenAPI spec, String schemaName, String field) {
+        Schema<?> schema = spec.getComponents().getSchemas().get(schemaName);
+        assertThat(schema).as("spec 缺 schema %s", schemaName).isNotNull();
+        Schema<?> property = (Schema<?>) schema.getProperties().get(field);
+        assertThat(property).as("spec 缺属性 %s.%s", schemaName, field).isNotNull();
+        return property;
     }
 
     // ==================== 生成 ====================

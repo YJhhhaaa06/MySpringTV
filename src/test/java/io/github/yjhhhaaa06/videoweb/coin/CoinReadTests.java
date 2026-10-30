@@ -27,7 +27,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       {@code coinCount} 仍返回 —— 公共计数与登录态无关；</li>
  *   <li><b>列表</b>：{@code /start} / {@code /search/keywordSearch} / {@code /profile} 的
  *       {@code interaction.coin} **恒 {@code null}**（契约，见 {@code InteractionDimension} 没有
- *       {@code COIN} 常量）；★ T43 起列表**也不带任何公共计数**（{@code coinCount} 等键不存在）；</li>
+ *       {@code COIN} 常量）；GAP-01 起列表按面带 `play/like/comment` 三维，
+ *       但投币 / 收藏仍**没有展示位 ⇒ 键不存在**；</li>
  *   <li><b>键集</b>：详情与列表面的 {@code interaction} 都**恰好四维**
  *       {@code {isLiked, isFavorited, isFollowed, coin}}。</li>
  * </ul>
@@ -40,9 +41,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       {@link #详情与列表的interaction恰好四维()}（视频详情的 coin 值断言）变红；</li>
  *   <li>把 {@code type == 1} 的分流写反 / 去掉（图文也查）⇒ 图文用例的
  *       {@code coin == null} 变红；</li>
- *   <li>详情不再平铺 {@code coinCount}（比如回到"只走列表批量"）⇒
+ *   <li>详情不再平铺 {@code coinCount} ⇒
  *       {@link #详情视频_投币后coin与coinCount都与DB一致()} 变红；</li>
- *   <li>把 {@code coinCount} 加回列表 VO ⇒ {@link #列表不返回任何公共计数()} 的
+ *   <li>把 {@code coinCount} 加回列表 VO ⇒ {@link #列表不返回投币收藏计数()} 的
  *       {@code has(...) == false} 变红；</li>
  *   <li>把批量改成逐条（或让缓存事件不生效）⇒ {@link #投币后立即读详情_缓存写后读回填链路通()}
  *       会读到陈旧的 0。</li>
@@ -139,20 +140,21 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
     }
 
     // ========================================================================
-    // 4. 列表：coin 恒 null；**列表不再返回任何公共计数**（T43）
+    // 4. 列表：coin 恒 null；列表只带 play/like/comment（GAP-01，按面无展示位的两维不加字段）
     // ========================================================================
 
     /**
-     * ★ T43（用户 2026-10-19 拍板）：四个公共计数**只在详情平铺**，列表一律不带。
+     * ★ GAP-01（2026-10-26）：列表按面平铺 play / like / comment 三维；
+     * **投币数与收藏数没有展示位 ⇒ 连字段都不加**（加了但恒 null 的键等于让契约说谎）。
      *
-     * <p>断言的判别力：删掉 {@code ContentVO} 上的 {@code coinCount} 字段**不会**让调用方报错
-     * （JSON 少了键），只有"键必须不存在"的断言能抓住"有人又把它加回列表"。
+     * <p>断言的判别力：删掉 {@code ContentVO} 上的字段**不会**让调用方报错
+     * （JSON 少了键），只有"键必须不存在"的断言能抓住"有人把无展示位的计数加回列表"。
      * 用 {@code has()} 而不是 {@code asLong() == 0} —— 后者对**缺失节点**同样返回 0，
      * 是典型假绿（{@code AGENTS.md} T42 复核①）。
      */
     @Test
-    @DisplayName("★列表（/start · /search · /profile）：不返回任何公共计数（coinCount 键不存在）")
-    void 列表不返回任何公共计数() {
+    @DisplayName("★列表（/recommended · /contents）：只有 playCount，coin/favorite 键不存在，like/comment 为 null")
+    void 列表不返回投币收藏计数() {
         TestUser author = registerUser("13900004004", "coinread_list_author");
         TestUser voter = registerUser("13900004014", "coinread_list_voter");
         setCoinDeci(voter.id(), 10);
@@ -169,10 +171,11 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
                 .as("登录 ⇒ interaction 仍是对象").isTrue();
         assertThat(startItem.path("interaction").path("coin").isNull())
                 .as("★ 列表不查投币维 ⇒ coin 恒 null（契约，不是漏填）").isTrue();
-        assertThat(startItem.has("coinCount")).as("★ T43：列表不带 coinCount").isFalse();
-        assertThat(startItem.has("likeCount")).as("★ T43：列表不带 likeCount").isFalse();
-        assertThat(startItem.has("commentCount")).as("★ T43：列表不带 commentCount").isFalse();
-        assertThat(startItem.has("favoriteCount")).as("★ T43：列表不带 favoriteCount").isFalse();
+        assertThat(startItem.has("coinCount")).as("★ 没有展示位 ⇒ 连字段都不加").isFalse();
+        assertThat(startItem.has("favoriteCount")).as("★ 没有展示位 ⇒ 连字段都不加").isFalse();
+        assertThat(startItem.path("likeCount").isNull()).as("网格卡片不查赞维 ⇒ null").isTrue();
+        assertThat(startItem.path("commentCount").isNull()).as("网格卡片不查评论维 ⇒ null").isTrue();
+        assertThat(startItem.path("playCount").isNumber()).as("网格卡片只带播放量（GAP-01）").isTrue();
 
         // ---- /search/keywordSearch（登录）：同上 ----
         JsonNode searchItem = itemOf(
@@ -181,14 +184,18 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
         assertThat(searchItem.path("interaction").path("coin").isNull())
                 .as("★ /search 的 coin 也恒 null").isTrue();
         assertThat(searchItem.has("coinCount")).as("★ /search 不带 coinCount").isFalse();
+        assertThat(searchItem.has("favoriteCount")).as("★ /search 不带 favoriteCount").isFalse();
+        assertThat(searchItem.path("likeCount").isNull()).as("搜索结果网格不查赞维 ⇒ null").isTrue();
+        assertThat(searchItem.path("commentCount").isNull()).as("搜索结果网格不查评论维 ⇒ null").isTrue();
+        assertThat(searchItem.path("playCount").isNumber()).as("搜索结果网格带播放量（GAP-01）").isTrue();
     }
 
     // ========================================================================
-    // 5. /profile：coin 恒 null；同样不带计数
+    // 5. /profile：coin 恒 null；只带 playCount（GAP-01）
     // ========================================================================
 
     @Test
-    @DisplayName("主页：条目 interaction.coin 恒 null；不带任何公共计数")
+    @DisplayName("主页：条目 interaction.coin 恒 null；只有 playCount，coin/favorite 键不存在")
     void 主页coin恒null且不带计数() {
         TestUser author = registerUser("13900004005", "coinread_profile_author");
         TestUser voter = registerUser("13900004015", "coinread_profile_voter");
@@ -205,7 +212,11 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
         assertThat(item.path("interaction").isObject()).as("登录 ⇒ interaction 是对象").isTrue();
         assertThat(item.path("interaction").path("coin").isNull())
                 .as("★ 主页条目不带投币维 ⇒ coin 恒 null").isTrue();
-        assertThat(item.has("coinCount")).as("★ T43：主页条目不带 coinCount").isFalse();
+        assertThat(item.has("coinCount")).as("★ 没有展示位 ⇒ 连字段都不加").isFalse();
+        assertThat(item.has("favoriteCount")).as("★ 没有展示位 ⇒ 连字段都不加").isFalse();
+        assertThat(item.path("likeCount").isNull()).as("主页投稿网格不查赞维 ⇒ null").isTrue();
+        assertThat(item.path("commentCount").isNull()).as("主页投稿网格不查评论维 ⇒ null").isTrue();
+        assertThat(item.path("playCount").isNumber()).as("主页投稿网格只带播放量（GAP-01）").isTrue();
     }
 
     // ========================================================================
@@ -272,7 +283,8 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
     }
 
     // ========================================================================
-    // 8. 列表批量 —— ⛔ T43 已删除（列表不再返回任何计数，"一趟批量"这条红线随之消失）
+    // 8. 列表批量 —— ⛔ T43 删过 coinCount 批量；GAP-01 的列表批量只走 content 域，
+    //    投币维仍不在任何列表面上（`ContentVO` 没有 coinCount 字段）
     // ========================================================================
 
     // ========================================================================

@@ -185,20 +185,27 @@ class ContentPlayCountTests extends AbstractContentIntegrationTest {
                 .as("★ 404 路径不回填（聚合若在 404 之前执行，会把列值回填进来 ⇒ 红）").isFalse();
     }
 
-    // ==================== 列表零计数 ====================
+    // ==================== GAP-01：列表按面带计数 ====================
 
     @Test
-    @DisplayName("★列表（/start）：不带 playCount（T43 列表零计数口径，用 has()==false 判'没有'）")
-    void 列表不带播放量() {
+    @DisplayName("★列表（/contents/recommended）：网格卡片带 playCount（= DB 列），like/comment 为 null")
+    void 列表带播放量() {
         long contentId = insertVideoContent(authorId, "播放量列表");
         assertThat(post("/api/v1/contents/" + contentId + "/play", null, viewerToken).getStatusCode().value())
                 .isEqualTo(200);
 
         JsonNode startItem = itemOf(Envelope.data(get("/api/v1/contents/recommended", viewerToken)), contentId);
-        // ★ 必须用 has(key)==false：asLong() 对缺失节点返回 0，分不出"没有这个键"与"值就是 0"
-        assertThat(startItem.has("playCount"))
-                .as("★ 列表卡片不带任何计数（列表零计数是契约，不是漏填）").isFalse();
-        assertThat(startItem.has("likeCount")).as("对照：既有计数同样不在列表上").isFalse();
+        assertThat(startItem.path("playCount").asLong())
+                .as("★ GAP-01：网格卡片带播放量；独立 oracle = DB 列")
+                .isEqualTo((long) playCountColumn(contentId))
+                .isEqualTo(1L);
+        // ★ 必须用 isNull()：asLong() 对 null 节点返回 0，分不出"本面不查"与"值就是 0"
+        assertThat(startItem.path("likeCount").isNull())
+                .as("网格卡片不查赞维 ⇒ null（不是 0）").isTrue();
+        assertThat(startItem.path("commentCount").isNull())
+                .as("网格卡片不查评论维 ⇒ null（不是 0）").isTrue();
+        assertThat(startItem.has("coinCount")).as("没有展示位 ⇒ 连字段都不加").isFalse();
+        assertThat(startItem.has("favoriteCount")).as("没有展示位 ⇒ 连字段都不加").isFalse();
     }
 
     // ==================== 夹具 / oracle ====================

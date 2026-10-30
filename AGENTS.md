@@ -93,7 +93,7 @@
 2. **代码注释只许引用 `architecture/**` 与 `archive/**` 的路径**；
    **文档别名**（`需求篇` / `设计篇` / `分期篇` / `骨架 §` / `三期设计`…）与 **`task/CURRENT_*` 登记台**
    **一律禁入代码** —— 前者工具测不到、后者每期重建，写进去就是**静默断链**。
-3. **改完必跑两道门禁，都要 0 违规**：`python tools/docs/doc_refs.py`（`src/`）＋ `python tools/docs/doc_links.py`（`.docs/`）；
+3. **改完必跑两道门禁，都要 0 违规**：`python tools/docs/doc_refs.py`（`src/` 与 `frontend/src/`）＋ `python tools/docs/doc_links.py`（`.docs/`）；
    期收尾再加 `python tools/docs/doc_stats.py`（防膨胀）。
 4. ⚠️ `src/main/resources/db/migration/**` **逐字节冻结**（Flyway checksum ⇒ 改一字符就应用起不来）；
    那里的旧路径由**归档 README** 承接重定向，**不许改它**。

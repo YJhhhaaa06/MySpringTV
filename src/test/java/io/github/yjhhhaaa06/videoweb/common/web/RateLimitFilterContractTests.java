@@ -274,7 +274,7 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
     // ==================== 覆盖范围 ====================
 
     @Test
-    @DisplayName("跳过清单（/、/index.html、/static/**、/actuator/**、/upload/**、/favicon.ico）：桶一个字节都不动")
+    @DisplayName("跳过清单（/、/index.html、/assets/**、/actuator/**、/upload/**、favicon、HTML 外壳）：桶一个字节都不动")
     void 跳过清单_桶一个字节都不动() {
         seedSentinels();
         Path probe = Path.of(AbstractIntegrationTest.testMediaRoot())
@@ -286,12 +286,28 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
             // 依次命中跳过清单的每一条；每条之后都复核两个桶字节不变（哨兵即对照）。
             hitSkippedAndAssertUntouched("/");
             hitSkippedAndAssertUntouched("/index.html");
-            hitSkippedAndAssertUntouched("/static/css/common.css");
+            // 前端构建产物（`/assets/**` 取代旧 SPA 的 `/static/**`）：缺文件也是 404、不耗令牌
+            hitSkippedAndAssertUntouched("/assets/t25-missing.js");
             hitSkippedAndAssertUntouched("/actuator/health");
             hitSkippedAndAssertUntouched("/upload/" + UPLOAD_PROBE);
             // /favicon.ico：文件不存在 ⇒ NoResourceFoundException ⇒ T56 起回 **404 无体**
-            // （静态资源不产信封，见 GlobalExceptionHandler#handleNoResource）；此处只证一件事：不耗令牌。
             hitSkippedAndAssertUntouched("/favicon.ico");
+            hitSkippedAndAssertUntouched("/favicon.svg");
+            // ★ HTML 外壳 = 静态文件（生产由 WebMvcConfig#addViewControllers 转发到入口 HTML）：
+            //   它们不碰 DB / Redis，跳过的只是外壳；页面随后发的 /api/v1/** 才是成本。
+            hitSkippedAndAssertUntouched("/search");
+            hitSkippedAndAssertUntouched("/favorites");
+            hitSkippedAndAssertUntouched("/watchlater");
+            hitSkippedAndAssertUntouched("/history");
+            hitSkippedAndAssertUntouched("/dynamic");
+            hitSkippedAndAssertUntouched("/creator");
+            // 创作中心应用内路由（2026-10-29）：外壳转发，与 `/creator` 同口径
+            hitSkippedAndAssertUntouched("/creator/manage");
+            hitSkippedAndAssertUntouched("/creator/edit/42");
+            hitSkippedAndAssertUntouched("/video/999999");
+            hitSkippedAndAssertUntouched("/opus/999999");
+            hitSkippedAndAssertUntouched("/space/999999");
+            hitSkippedAndAssertUntouched("/placeholder/live");
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         } finally {

@@ -2,14 +2,23 @@ package io.github.yjhhhaaa06.videoweb.observability;
 
 import io.github.yjhhhaaa06.videoweb.content.AbstractContentIntegrationTest;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentMediaDao;
+import io.github.yjhhhaaa06.videoweb.content.model.dto.MediaManifest;
 import io.github.yjhhhaaa06.videoweb.content.service.ContentService;
 import io.github.yjhhhaaa06.videoweb.support.LogCapture;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -53,6 +62,22 @@ class ContentMilestoneTests extends AbstractContentIntegrationTest {
     @MockitoSpyBean
     private ContentMediaDao contentMediaDao;
 
+    /**
+     * 清单校验会检查"文件真实存在" ⇒ 为固定 URL 写真实素材（而不是再 spy 一个
+     * {@code ContentMediaManifestService}）：少一个 spy 就少一种 Spring 上下文，
+     * 避免全量回归时测试上下文缓存被挤爆（本仓 spy 组合已接近缓存上限）。
+     */
+    @BeforeEach
+    void writeMediaFiles() throws IOException {
+        Path root = Path.of(testMediaRoot());
+        write(root, "/upload/video/obs-mile.mp4", mp4Seconds(12));
+        write(root, "/upload/video/rollback.mp4", mp4Seconds(1));
+        write(root, "/upload/cover/obs-mile.png", pngBytes());
+        write(root, "/upload/cover/obs-mile-post.png", pngBytes());
+        write(root, "/upload/cover/rollback.png", pngBytes());
+        write(root, "/upload/image/obs-mile-post_1.jpg", pngBytes());
+    }
+
     @Test
     @DisplayName("添加视频 / 添加动态 / 删除内容 各在提交后落恰好一条 INFO 里程碑")
     void 发布与删除各在提交后落一条里程碑() {
@@ -60,16 +85,17 @@ class ContentMilestoneTests extends AbstractContentIntegrationTest {
 
         try (LogCapture system = LogCapture.root()) {
             system.clear();
-            long videoId = contentService.addVideo(authorId, "obs-mile-video", "d", 1,
-                    "/upload/video/obs-mile.mp4", "/upload/cover/obs-mile.png", 12);
+            long videoId = contentService.createVideo(authorId, "obs-mile-video", "d", 1,
+                    new MediaManifest("/upload/video/obs-mile.mp4", "/upload/cover/obs-mile.png", null));
             String videoLine = lineContaining(system.lines(), "msg=添加视频成功, contentId=" + videoId);
             assertThat(videoLine).contains("level=INFO")
                     .contains("logger=io.github.yjhhhaaa06.videoweb.content.event.ContentMilestoneListener");
             assertThat(countContaining(system.lines(), "msg=添加视频成功, contentId=" + videoId)).isEqualTo(1);
 
             system.clear();
-            long postId = contentService.addPost(authorId, "obs-mile-post", "d", 2,
-                    "/upload/cover/obs-mile-post.png", List.of("/upload/image/obs-mile-post_1.jpg"));
+            long postId = contentService.createPost(authorId, "obs-mile-post", "d", 2,
+                    new MediaManifest(null, "/upload/cover/obs-mile-post.png",
+                            List.of("/upload/image/obs-mile-post_1.jpg")));
             assertThat(lineContaining(system.lines(), "msg=添加动态成功, contentId=" + postId))
                     .contains("level=INFO");
 
@@ -93,8 +119,8 @@ class ContentMilestoneTests extends AbstractContentIntegrationTest {
 
         try (LogCapture system = LogCapture.root()) {
             system.clear();
-            assertThatThrownBy(() -> contentService.addVideo(authorId, "obs-mile-rollback", "d", 1,
-                    "/upload/video/rollback.mp4", "/upload/cover/rollback.png", null))
+            assertThatThrownBy(() -> contentService.createVideo(authorId, "obs-mile-rollback", "d", 1,
+                    new MediaManifest("/upload/video/rollback.mp4", "/upload/cover/rollback.png", null)))
                     .isInstanceOf(IllegalStateException.class);
 
             assertThat(countContaining(system.lines(), "msg=添加视频成功"))
@@ -119,5 +145,48 @@ class ContentMilestoneTests extends AbstractContentIntegrationTest {
 
     private static long countContaining(List<String> lines, String needle) {
         return lines.stream().filter(line -> line.contains(needle)).count();
+    }
+
+    /** 测试媒体根 + URL（{@code /upload/{dir}/{file}} → {@code root/{dir}/{file}}）。 */
+    private static void write(Path root, String url, byte[] bytes) throws IOException {
+        Path target = root;
+        for (String segment : url.substring("/upload/".length()).split("/")) {
+            target = target.resolve(segment);
+        }
+        Files.createDirectories(target.getParent());
+        Files.write(target, bytes);
+    }
+
+    /** 手搓 mp4（{@code timescale=1000}，时长 = 秒数）：只满足"文件真实存在 + 能解析时长"。 */
+    private static byte[] mp4Seconds(int seconds) {
+        ByteBuffer mvhd = ByteBuffer.allocate(20).order(ByteOrder.BIG_ENDIAN);
+        mvhd.put((byte) 0).put(new byte[3]);
+        mvhd.putInt(0).putInt(0);
+        mvhd.putInt(1000);
+        mvhd.putInt(seconds * 1000);
+        return concat(
+                box("ftyp", "isomiso2avc1mp41".getBytes(StandardCharsets.ISO_8859_1)),
+                box("mdat", new byte[1024]),
+                box("moov", box("mvhd", mvhd.array())));
+    }
+
+    private static byte[] pngBytes() {
+        return new byte[]{(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    }
+
+    private static byte[] box(String type, byte[] payload) {
+        ByteBuffer buffer = ByteBuffer.allocate(8 + payload.length).order(ByteOrder.BIG_ENDIAN);
+        buffer.putInt(8 + payload.length);
+        buffer.put(type.getBytes(StandardCharsets.ISO_8859_1));
+        buffer.put(payload);
+        return buffer.array();
+    }
+
+    private static byte[] concat(byte[]... parts) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        for (byte[] part : parts) {
+            out.writeBytes(part);
+        }
+        return out.toByteArray();
     }
 }

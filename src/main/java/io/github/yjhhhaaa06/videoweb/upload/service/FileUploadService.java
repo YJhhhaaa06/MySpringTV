@@ -155,6 +155,35 @@ public class FileUploadService {
         return props.root() + File.separator + dir + File.separator + fileName;
     }
 
+    /**
+     * 上传 URL → 上传类型（{@code video / image / cover}）；非法 URL 返回 {@code null}。
+     *
+     * <p>与 {@link #resolveAbsolutePath} 共用同一个形状正则：清单提交时要校验
+     * "这个 URL 是不是放在该角色期望的目录里"（例如把 {@code /upload/image/x.jpg}
+     * 当视频提交）。两份正则必然漂移，故形状判定只留这一处。
+     */
+    public UploadType typeOfUrl(String url) {
+        if (url == null) {
+            return null;
+        }
+        Matcher matcher = UPLOAD_URL_PATTERN.matcher(url);
+        if (!matcher.matches() || matcher.group(2).contains("..")) {
+            return null;
+        }
+        return UploadType.fromDir(matcher.group(1));
+    }
+
+    /**
+     * 该应用内相对 URL 对应的文件是否存在（清单提交的"新资源必须真实存在"校验）。
+     *
+     * <p>{@code false} 涵盖三种情况：URL 形状非法 / 路径逃逸 / 文件确实不在盘上。
+     * 调用方拿到 {@code false} 一律按"媒体文件不存在"拒绝——不区分原因，避免给路径探测口。
+     */
+    public boolean exists(String url) {
+        String path = resolveAbsolutePath(url);
+        return path != null && new File(path).isFile();
+    }
+
     /** 校验：contentType 非空 **且** 扩展名合法，否则 {@code "文件类型不支持"}（TV 逐字）。 */
     private void validate(MultipartFile file, UploadType type) {
         String contentType = file.getContentType();

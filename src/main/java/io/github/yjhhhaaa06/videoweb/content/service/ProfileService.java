@@ -5,6 +5,7 @@ import io.github.yjhhhaaa06.videoweb.common.exception.NotFoundException;
 import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
 import io.github.yjhhhaaa06.videoweb.content.cache.ContentCache;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
+import io.github.yjhhhaaa06.videoweb.content.model.ContentCountField;
 import io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentVO;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ProfileVO;
@@ -45,7 +46,7 @@ import java.util.Set;
  * ③ 用户行 + 总数 + 窗口 id（DB）    —— 用户不存在 ⇒ 404
  * ④ 页内内容批量（ContentCache）      —— 取不到的条目**跳过**（已删/媒体损坏）
  * ⑤ 页内互动态（互动域批量，只带赞维）  —— 仅登录且列表非空
- * ⑥ 页内公共计数（coin 域批量）        —— 列表非空即读，**与登录态无关**（T40）
+ * ⑥ 页内公共计数（本域批量）            —— 列表非空即读，**与登录态无关**（GAP-01 起只有播放量）
  * </pre>
  * ①② 放在 ③ 之前是 TV 的原样顺序（缓存读比 DB 读便宜，且 404 时白读一次也无害）。
  *
@@ -74,22 +75,28 @@ public class ProfileService {
      */
     private static final Set<InteractionDimension> PROFILE_DIMENSIONS = Set.of(InteractionDimension.LIKE);
 
+    /** 主页「投稿」是**网格卡片**：只显示播放量（GAP-01）。 */
+    private static final Set<ContentCountField> PROFILE_COUNT_FIELDS = Set.of(ContentCountField.PLAY);
+
     private final UserDao userDao;
     private final ContentDao contentDao;
     private final FollowService followService;
     private final ContentCache contentCache;
     private final ContentStatusFiller contentStatusFiller;
+    private final ContentCountFiller contentCountFiller;
 
     public ProfileService(UserDao userDao,
                           ContentDao contentDao,
                           FollowService followService,
                           ContentCache contentCache,
-                          ContentStatusFiller contentStatusFiller) {
+                          ContentStatusFiller contentStatusFiller,
+                          ContentCountFiller contentCountFiller) {
         this.userDao = userDao;
         this.contentDao = contentDao;
         this.followService = followService;
         this.contentCache = contentCache;
         this.contentStatusFiller = contentStatusFiller;
+        this.contentCountFiller = contentCountFiller;
     }
 
     /**
@@ -136,7 +143,8 @@ public class ProfileService {
         if (currentUserId != null && !contentList.isEmpty()) {
             contentStatusFiller.fillInteractionBatch(contentList, currentUserId, PROFILE_DIMENSIONS);
         }
-        // T43：列表不再返回任何公共计数（计数只在详情平铺）⇒ 这里不再有 coinCount 批量。
+        // GAP-01：主页「投稿」是网格卡片，只显示播放量；公共计数不看登录态。
+        contentCountFiller.fillCountsBatch(contentList, PROFILE_COUNT_FIELDS);
 
         return new ProfileVO(profileUserId, user.getUsername(),
                 followerCount, followCount, isFollowed,

@@ -14,11 +14,11 @@
 
 | 页面（**正式名**） | 它在代码里 | 会调用的 history 端点 | 频次 |
 |---|---|---|---|
-| **播放页** | SPA `#/video/:id`（`static/static/js/views/detail.js`：左播放器 + 标题 + 评论） | `GET /api/v1/contents/{id}/progress` | **每次打开** 1 次 |
+| **播放页** | `frontend/src/pages/VideoPage.vue`（左播放器 + 标题 + 评论；旧 SPA 的 `views/detail.js` 已于 2026-10-26 删除） | `GET /api/v1/contents/{id}/progress` | **每次打开** 1 次 |
 | | | `POST /api/v1/contents/{id}/play` | **每次打开** 1 次（开始播放时） |
 | | | `PUT /api/v1/contents/{id}/progress` | 每 30–60s + 暂停 + 拖动进度 |
 | | | `POST /api/v1/history/flush` | 暂停 / 退出 / 切页 |
-| **历史记录页** | 展示"我看过的视频"的列表页（本期**前端未做**，`main.js` 的"历史"导航仍是 `disabled`） | `GET /api/v1/history` | 翻页时 |
+| **历史记录页**（= 历史页，`history.html`） | `frontend/src/pages/HistoryPage.vue`（按天分组 + 封面进度条 + 失效占位；2026-10-26 交付） | `GET /api/v1/history` | 每次打开 / 翻页 1 次 |
 | **详情（数据面）** | `GET /api/v1/contents/{id}` 的返回体 | **无**（只读 `playCount` / `durationSeconds` 两个字段） | — |
 
 ★ **一句话记住**：**写与续播只在播放页**（`POST …/play` · `PUT …/progress` · `POST /history/flush`）；

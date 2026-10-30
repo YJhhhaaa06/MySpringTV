@@ -33,8 +33,8 @@ import java.util.List;
  * 让标题、媒体 URL、作者名这些**慢变**字段陪葬（热内容上内容缓存近乎永久失效）。
  * 现在五个计数一律走独立 key（{@code content:likeCount} / {@code content:commentCount} /
  * {@code content:favoriteCount} / {@code content:coinCount} / {@code content:playCount}），
- * **只在详情响应里平铺返回**；列表面不再带任何计数。口径见
- * {@code architecture/tech/cache/缓存与数据一致性.md} §五。
+ * 详情五维平铺；GAP-01（2026-10-26）起列表按面平铺其中三维（play / like / comment，均可空），
+ * 但同样**不进本载荷**。口径见 {@code architecture/tech/cache/缓存与数据一致性.md} §五。
  * <p>⚠️ 于是本载荷只承载"**改一次要写库**"的字段：编辑内容 / 删改媒体 / 改名 / 删除。
  * 若将来又想往这里塞计数，先读上面那条口径。
  *

@@ -1,5 +1,8 @@
 # 当期问题（Current Issues）
 
+> ⚠️ **后端期已收口（2026-10-25），冻结**：前端重制期**不读本文件**，入口 → [CURRENT_FRONTEND.md](CURRENT_FRONTEND.md)
+> （`F-15` / `T61` 两条结转已摘入其 §九）。
+
 > **定位**：执行过程中**当场发现、且本期或下期要处理**的问题 —— 阻塞、偏差、待裁决、踩到的坑。
 > **与 `FURTHER_ISSUES.md` 的分工**：**本期/下期解决** → 本文件；**暂时不会排期解决**（结转 / 留池）→ `FURTHER_ISSUES.md`。
 > **边界**：需求与痛点 → `CURRENT_NEEDS.md`；任务执行态 → `CURRENT_TASKS.md`。

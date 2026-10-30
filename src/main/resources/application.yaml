@@ -17,6 +17,28 @@ spring:
     name: MySpringTV
 
   # --------------------------------------------------------------------------
+  # 虚拟线程（2026-10-28 启用）。JDK 25 + Boot 4.1.1 ⇒ 打开后：
+  #   ① 内嵌 Tomcat 的请求处理线程换成虚拟线程（Boot 的
+  #      TomcatVirtualThreadsWebServerFactoryCustomizer 接管；server.tomcat.threads.max 随之失效）；
+  #   ② Spring 的 applicationTaskExecutor 换成 SimpleAsyncTaskExecutor + 虚拟线程
+  #      （本仓目前没有 @Async / MVC 异步，②暂无消费者；将来加 @Async 时自动生效）。
+  # 决策出处：archive/migration/report/TV-Spring迁移选型决策记录.md（决策④"虚拟线程开，
+  #          背压场合显式有界"）。
+  # ⚠️ 虚拟线程 ≠ 背压（决策④原文）：它只让"阻塞等待"变便宜，**不限制在途请求数** ——
+  #    Tomcat 不再拿 200 个工作线程兜底并发，自此在途保护只剩两道闸：
+  #    video.rate-limit.server 的桶 + Hikari（maximum-pool-size=20，
+  #    等连接上限 connection-timeout=5s）。新增高并发入口前先想清楚这两道闸。
+  # ⚠️ 仓库内三处**手建**的守护调度器（history 缓冲轮询 / feed 重建去抖 / feed 投递重放）
+  #    不受本开关影响：它们是常驻单线程定时器（Executors.newSingleThreadScheduledExecutor）、
+  #    不承接请求，保持平台线程。
+  # ⚠️ 依赖 JDK 25：synchronized 块不再钉住载体线程（JEP 491）⇒ Jedis / Hikari 这类
+  #    同步代码不会把载体线程耗在 pinned 状态。换回 JDK 21 需重新评估。
+  # --------------------------------------------------------------------------
+  threads:
+    virtual:
+      enabled: true
+
+  # --------------------------------------------------------------------------
   # 数据源（决策②）：HikariCP 由 mybatis-spring-boot-starter 传递引入
   # 口径差异：TV 是自研 MyConnectionPool（initSize/maxSize/timeoutMs）；
   #          此处换成 Hikari，参数按语义对映（initSize→minimum-idle,
@@ -388,18 +410,17 @@ video:
       task-cost: ${RATE_LIMIT_SERVER_TASK_COST:10}
     # 用户桶：per-key 配额（登录态 key = user:{userId}、匿名态 key = anon:{ip}）。
     # ⚠️ 匿名桶刻意比登录桶**宽 3 倍**：IP 是共享的（NAT / 内网 / 校园网下一片用户共用一个出口 IP），
-    #    按登录桶口径会误伤整片人。锚点：登录 20/2 = "正常人远达不到每分钟 120 次"。
-    #    推翻条件：有真实用户行为分布 / 真实匿名请求分布。
+    #    按登录桶口径会误伤整片人。锚点：登录 200/10  旧20/2导致手速快了一点就被限流，已10倍/5倍提高
     user:
       authed:
-        capacity: ${RATE_LIMIT_USER_AUTHED_CAPACITY:20}
-        refill-per-sec: ${RATE_LIMIT_USER_AUTHED_REFILL_PER_SEC:2}
+        capacity: ${RATE_LIMIT_USER_AUTHED_CAPACITY:200}
+        refill-per-sec: ${RATE_LIMIT_USER_AUTHED_REFILL_PER_SEC:10}
       # ⚠️⚠️ 匿名桶在 MockMvc 里**全是 127.0.0.1** ⇒ 测试互相吃额度（NAT 语义退化成全局限流）。
       #    故这两键必须可覆盖：非限流测试若被误伤，把它调成一个很大的数即可（对冲口径见
       #    architecture/tech/rate-limit/限流.md §六；该环境的测试夹具前提见 T25）。
       anon:
-        capacity: ${RATE_LIMIT_USER_ANON_CAPACITY:60}
-        refill-per-sec: ${RATE_LIMIT_USER_ANON_REFILL_PER_SEC:6}
+        capacity: ${RATE_LIMIT_USER_ANON_CAPACITY:600}
+        refill-per-sec: ${RATE_LIMIT_USER_ANON_REFILL_PER_SEC:30}
     cost:
       # 未登记路由的兜底权重。★ **不是 0** —— "漏配 = 不限"正是要防的。
       default-base: ${RATE_LIMIT_COST_DEFAULT_BASE:1}
@@ -436,8 +457,10 @@ video:
         "[POST /api/v1/sessions]": 5
         "[POST /api/v1/users]": 5
         # —— 上传与媒体重活（10：流式写文件 + 批量回写；scan 为媒体全盘扫描，restore 同为媒体重操作）——
+        "[POST /api/v1/contents]": 10
         "[POST /api/v1/contents/videos]": 10
         "[POST /api/v1/contents/posts]": 10
+        "[POST /api/v1/uploads/{type}]": 10
         "[PUT /api/v1/contents/{id}/media]": 10
         "[POST /api/v1/admin/media/scan]": 10
         "[PUT /api/v1/admin/media/{id}]": 10
@@ -508,8 +531,10 @@ video:
       #   故它只决定"失败后多久才允许重发"——短是刻意的（它只是排障与指标的留痕）。
       failed-seconds: ${IDEMPOTENCY_TTL_FAILED_SECONDS:5}
     poll:
-      # 命中别人的 PENDING 时：再问几次 / 每次隔多久。默认 2 × 100 ms ⇒ 冲突路径上最多多占
-      #   容器工作线程 200 ms（本仓未启用虚拟线程、worker max=200；已知代价第 9 条）。
+      # 命中别人的 PENDING 时：再问几次 / 每次隔多久。默认 2 × 100 ms ⇒ 冲突路径上最多多等
+      #   200 ms。★ 2026-10-28 起本仓启用虚拟线程（spring.threads.virtual.enabled=true）⇒
+      #   这段 Thread.sleep 只挂起虚拟线程、不占平台线程，线程成本不再是约束；
+      #   乘积仍保持 2×100 ms —— 约束变成了"冲突请求的等待语义"（已知代价第 9 条）。
       #   ⚠️ 不要轻易调大这个乘积 —— 它乘的是"同时并发同 key 的请求数"。
       attempts: ${IDEMPOTENCY_POLL_ATTEMPTS:2}
       interval-millis: ${IDEMPOTENCY_POLL_INTERVAL_MILLIS:100}

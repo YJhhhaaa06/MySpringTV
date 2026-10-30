@@ -10,8 +10,10 @@
 
 ## 一、这个系统是什么（30 秒）
 
-类 bilibili 的视频站后端。技术栈：Spring Boot 4.1 / Java 25 + MyBatis + Jedis + Spring AMQP +
-Flyway + Testcontainers。
+类 bilibili 的视频站，由**后端**与**前端**两部分组成：
+
+- **后端**：Spring Boot 4.1 / Java 25 + MyBatis + Jedis + Spring AMQP + Flyway + Testcontainers。
+- **前端**：Vue 3 + TypeScript + Vite + vue-router；**MPA 外壳 + 应用内 SPA**，工程在 `frontend/`。
 
 ### 1.1 模块地图
 
@@ -64,12 +66,26 @@ io.github.yjhhhaaa06.videoweb
 | 数据 | Flyway SQL-first；**V1 baseline 冻结**；增量演进已到 **V8**（`favorite_*`（V2/V3）+ `watch_later`（V4）+ `content_coin`/`coin_count`（V5）+ `watch_history`/`duration_seconds`/`play_count`（V6）+ 删遗留 `video`/`videoinfo`（V7）+ `watch_history` 列表覆盖索引（V8））；下一次 **V9** | [数据与Schema演进](tech/data-evolution/数据与Schema演进.md) |
 | 事务 | 事务边界载体独立成 bean（避免自调用）；纯读去事务 | [事务边界](tech/transaction/事务边界.md) |
 
+### 1.3 前端应用地图（`frontend/`）
+
+```
+index.html   → 首页应用     `/`、`/placeholder/:feature`
+search.html  → 搜索应用     `/search?keyword=&page=`
+video.html   → 播放页应用   `/video/:id`（只读）
+space/upload → 尚未建入口（灰态导航走占位路由）
+```
+
+- 一个入口一个 HTML + 一个 vue-router 实例：**跨应用整页跳转**、应用内 SPA。
+- 类型三层：`openapi.yaml` → `src/types/api.d.ts`（生成入库）→ `src/types/ui.ts` → `src/api/adapters/`。
+- 应用形态 / 页面 × 端点矩阵 / 降级约定 → [frontend/前端](frontend/前端.md)。
+
 ---
 
 ## 二、按"我要做什么"选文档
 
 | 我要… | 读这篇 | 何时更新 |
 |---|---|---|
+| ★ **写前端页面 / 了解前端消费口径** | [frontend/前端](frontend/前端.md) | 入口 / 路由 / 类型层 / 降级约定变更 |
 | **写新业务模块 / 加一条跨域依赖** | [模块边界与依赖](tech/module-boundary/模块边界与依赖.md) | 包结构或 ArchUnit 规则变更 |
 | 让某域**响应别的域发生的事** | [领域事件与解耦](tech/events/领域事件与解耦.md) | 新增事件 / 监听器 |
 | **加缓存 / 改缓存口径**（三态、空标记、key 命名、失效） | [缓存与数据一致性](tech/cache/缓存与数据一致性.md) | 缓存口径变更 |
@@ -102,6 +118,10 @@ io.github.yjhhhaaa06.videoweb
 > ＋（可选）`tech/<面>/<面>-已知代价.md`。目录名用英文短名（`security` / `rate-limit` /
 > `observability` / `cache` / `resilience` / `mq` / `events` / `transaction` /
 > `module-boundary` / `data-evolution` / `api` / `idempotency`），**文件名保持中文**（代码注释按基名解析，目录无关）。
+>
+> ★ **第三类：`frontend/`（应用层）** —— 前端**不是**后端的一个"面"，也不属于任何业务域：
+> 它有独立的入口、路由与类型层。目录 = `frontend/`，文件名中文且带 `前端-` 前缀
+> （`doc_refs.py` 按基名解析，必须防撞名）。
 
 | 文档 | 讲什么 | **不讲什么**（去向） |
 |---|---|---|
@@ -129,10 +149,11 @@ io.github.yjhhhaaa06.videoweb
 | [domain/history-上报缓冲](domain/history/history-上报缓冲.md) | `/report` 只写 Redis 的**缓冲机制**（两个 key / 三条写路径 / 落库与条件删 / 剪枝 / 失败姿态 / 已知代价） | 域结构 → history；客户端配合 → history-客户端契约 |
 | [domain/history-客户端契约](domain/history/history-客户端契约.md) | 播放器**必须怎么做**（上报节奏 / 退出信号 `fetch keepalive` / 503 退避 / 崩溃补偿 / 自测清单） | 服务端实现 → history-上报缓冲；用户可见 → history-需求 |
 | [domain/history-术语表](domain/history/history-术语表.md) | ★ **术语表试点**：页面 ↔ 端点矩阵、一物一名、**错→对**四句、三条写作硬规则、推广判据 | 本域机制 → history 各篇；不做概念全景 |
+| [frontend/前端](frontend/前端.md) | 前端应用形态（MPA 外壳 + 应用内 SPA）、入口与路由、类型三层、页面 × 端点矩阵、登录态、**降级约定** | 后端机制 → 上述各篇；视觉 / 请求层 / 代价 → 后续独立成篇 |
 
 ---
 
-## 四、写作规范（所有 `tech/` 与 `domain/` 文档通用）
+## 四、写作规范（所有 `tech/`、`domain/` 与 `frontend/` 文档通用）
 
 1. **首块定位**：3–5 行引用块 —— 定位（先读这一句）+ "本篇只讲什么、不讲的去向（文末 §边界）"。
 2. **结论先行**，章节用中文序号（一、二、三…）。
@@ -148,9 +169,10 @@ io.github.yjhhhaaa06.videoweb
 7. **体量红线**：单文件 ≤ 40 KB、单章节 ≤ 300 行（`python tools/docs/doc_stats.py` 阈值）。
 8. **末尾固定节《边界与去向（机制外链）》**：列"不在本篇的内容 → 去向"。
 9. 类名 / 配置键用 inline code；参数给**默认值**。
-10. **已知代价台账**：每个成篇的域 / 横切面可配一份代价台账 —— 域 = `domain/<域>/<域>-已知代价.md`，
-    **横切面 = `tech/<面>/<面>-已知代价.md`**（先例 = `tech/security/安全与鉴权-已知代价.md`；命名必须带前缀，
-    `doc_refs.py` 按基名解析），**通用模板 = [已知代价-模板](已知代价-模板.md)（复制即用）**，填好的范例见
+10. **已知代价台账**：每个成篇的域 / 横切面 / 应用层可配一份代价台账 —— 域 = `domain/<域>/<域>-已知代价.md`，
+    **横切面 = `tech/<面>/<面>-已知代价.md`**（先例 = `tech/security/安全与鉴权-已知代价.md`），
+    **应用层 = `frontend/前端-已知代价.md`**（命名必须带前缀，`doc_refs.py` 按基名解析），
+    **通用模板 = [已知代价-模板](已知代价-模板.md)（复制即用）**，填好的范例见
     [favorite 的台账](domain/favorite/favorite-已知代价.md)。条目正文**读者视角**——先说人话、再给机制细节，
     新接手的人**不翻源码**就能读懂 What / Impact；只登记**已拍板接受**的，还在评审的进 `task/FURTHER_ISSUES.md`。
 11. ★ **术语表（按需，不做标配）**：一个域**已发生 ≥2 次**"同一个东西两种叫法"造成的返工，

@@ -116,6 +116,28 @@
         from content where id = #{contentId}
     </select>
 
+    <!-- GAP-01 列表批量计数回源：一条 IN 取齐多行的五列（ContentCountRow 是 record ⇒ <constructor>；
+         多带 id 用于按 id 归位。同样不加 is_deleted 过滤，理由同 findCountColumns）。 -->
+    <resultMap id="contentCountRowMap"
+               type="io.github.yjhhhaaa06.videoweb.content.model.ContentCountRow">
+        <constructor>
+            <arg column="id" javaType="java.lang.Long"/>
+            <arg column="like_count" javaType="java.lang.Long"/>
+            <arg column="comment_count" javaType="java.lang.Long"/>
+            <arg column="favorite_count" javaType="java.lang.Long"/>
+            <arg column="coin_count" javaType="java.lang.Long"/>
+            <arg column="play_count" javaType="java.lang.Long"/>
+        </constructor>
+    </resultMap>
+
+    <select id="findCountColumnsByIds" resultMap="contentCountRowMap">
+        select id, like_count, comment_count, favorite_count, coin_count, play_count
+        from content where id in
+        <foreach item="id" collection="ids" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
     <!-- T39 批量回填：一趟 IN 取多条（ContentCoinCount 是 record ⇒ 必须 <constructor>；
          javaType 必须是包装类型 Long / Integer，构造器按 Class 匹配）。
          同样不带走 is_deleted 过滤（理由同 findCoinCount）。 -->
@@ -288,36 +310,69 @@
       tie-breaker，T15 修复；缺它同秒内容分页会重复/漏项）。
       判据 = trim 后关键词长度（Service 已 trim）。
       TV 的 `pstmt.setString(1, "%" + kw + "%")` 等价写作 `CONCAT('%', #{keyword}, '%')`。
+
+      ★ GAP-10（2026-10-27）：筛选/排序抽成下面两个片段，**两条分支 + count 四处共用一个定义**
+      —— 复制四份就会漏一处，而漏 count 或漏一条分支的表现都是"total 与 list 口径不一致"
+      （页码多出来 / 某类内容出现在不该出现的 tab）。
     -->
+
+    <!-- GAP-10：类型筛选。typeNumber = content.type 列值（1 视频 / 2 图文），null ⇒ 不过滤。
+         ⚠️ count 也要 include（见下方），否则筛选后 total 不变。 -->
+    <sql id="searchTypeFilter">
+        <if test="typeNumber != null">
+            AND c.type = #{typeNumber}
+        </if>
+    </sql>
+
+    <!-- GAP-10：排序。orderKey 只可能是 Service 给的 SearchOrder.name()（白名单）⇒ 这里是**比较**
+         而不是拼接（没有 ${}，无注入面）。两处 ORDER BY 都必须带 `, c.id DESC`：
+         缺它同秒（LATEST）/ 同播放量（PLAY）的内容会跨页重复或漏项 —— T15 的教训对 play_count 同样成立。
+         ⚠️ 新增枚举值要在这里加 <when>，否则静默落进 <otherwise>（= 最新）。 -->
+    <sql id="searchOrderBy">
+        <choose>
+            <when test="orderKey == 'PLAY'">
+                ORDER BY c.play_count DESC, c.id DESC
+            </when>
+            <otherwise>
+                ORDER BY c.create_time DESC, c.id DESC
+            </otherwise>
+        </choose>
+    </sql>
+
     <select id="keywordSearchInBrief" resultType="java.lang.Long">
         <choose>
             <when test="keyword != null and keyword.length() == 1">
                 SELECT c.id FROM content c
                 WHERE c.title LIKE CONCAT('%', #{keyword}, '%') AND c.is_deleted = 0
-                ORDER BY c.create_time DESC, c.id DESC
+                <include refid="searchTypeFilter"/>
+                <include refid="searchOrderBy"/>
                 LIMIT #{offset}, #{limit}
             </when>
             <otherwise>
                 SELECT c.id FROM content c
                 WHERE MATCH(c.title, c.description) AGAINST (#{keyword} IN NATURAL LANGUAGE MODE)
                   AND c.is_deleted = 0
-                ORDER BY c.create_time DESC, c.id DESC
+                <include refid="searchTypeFilter"/>
+                <include refid="searchOrderBy"/>
                 LIMIT #{offset}, #{limit}
             </otherwise>
         </choose>
     </select>
 
-    <!-- TV: countKeywordSearch —— 分支判据与 list 查询**同源**（否则 total 与 list 口径漂移）。 -->
+    <!-- TV: countKeywordSearch —— 分支判据与 list 查询**同源**（否则 total 与 list 口径漂移）。
+         ★ GAP-10：类型过滤必须**同时**出现在这里，否则筛选后 total 仍按全类型算。 -->
     <select id="countKeywordSearch" resultType="int">
         <choose>
             <when test="keyword != null and keyword.length() == 1">
                 SELECT COUNT(*) FROM content c
                 WHERE c.title LIKE CONCAT('%', #{keyword}, '%') AND c.is_deleted = 0
+                <include refid="searchTypeFilter"/>
             </when>
             <otherwise>
                 SELECT COUNT(*) FROM content c
                 WHERE MATCH(c.title, c.description) AGAINST (#{keyword} IN NATURAL LANGUAGE MODE)
                   AND c.is_deleted = 0
+                <include refid="searchTypeFilter"/>
             </otherwise>
         </choose>
     </select>
@@ -352,6 +407,11 @@
     <!-- TV: updateContentInfo（A3）。全文索引由 MySQL 自动维护，无额外语句。 -->
     <update id="updateContentInfo">
         UPDATE content SET title = #{title}, description = #{description} WHERE id = #{contentId}
+    </update>
+
+    <!-- 编辑分区（清单批次追加）：与 updateContentInfo 同事务执行；0~9 的取值由 Service 校验。 -->
+    <update id="updateCategoryId">
+        UPDATE content SET category_id = #{categoryId} WHERE id = #{contentId}
     </update>
 
     <!-- TV: softDeleteContent（A1，复用 is_deleted 字段，无 DDL）。 -->

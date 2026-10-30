@@ -123,6 +123,27 @@ public interface ContentMediaDao {
                  @Param("durationSeconds") Integer durationSeconds);
 
     /**
+     * 统计"除指定内容之外，还有谁引用了这个 URL"（清单提交的跨内容占用校验）。
+     *
+     * <p>文件删除按"一个 URL 只属于一个内容"的假设做（{@code deleteFileByUrl} 不知道引用计数），
+     * 故提交清单时必须拒绝**已被别的作品占用**的 URL：否则 A 换源时会把 B 的文件删掉。
+     * 创建路径传 {@code -1}（不存在该 id）即可统计全表。
+     *
+     * <p>⚠️ 无唯一索引 ⇒ 这是一次普通索引/全表计数，不是"存在性断言"；并发下两个内容
+     * 同时首次引用同一 URL 的窗口仍在（已知代价，见清单写入的类注释）。
+     */
+    int countByUrlExcludingContent(@Param("url") String url,
+                                   @Param("excludedContentId") long excludedContentId);
+
+    /**
+     * 重排单条媒体的 {@code sort}（清单提交按数组下标重写图片顺序）。
+     *
+     * <p>与 {@link #compactImageSort} 的区别：后者是"删一张后整体前移"的旧端点专用；
+     * 本方法按**目标值**写一行，供清单 reconcile 对"保留下来但位置变了"的行逐条更新。
+     */
+    int updateMediaSort(@Param("mediaId") long mediaId, @Param("sort") int sort);
+
+    /**
      * 换源：更新单条媒体的 url，并立即标记"文件存在" + 记录校验时间。
      *
      * <p>TV: {@code update content_media set url=?, file_exists=?, last_verify_time=? where id=?}
