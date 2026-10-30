@@ -15,6 +15,7 @@ function comment(fields: Partial<Record<keyof CommentVO, unknown>> = {}): Commen
     username: '五个字神人',
     content: '不是你们网站是交不起网费吗',
     parentId: null,
+    createTime: '2026-10-30T13:32:00',
     likeCount: 3,
     isLiked: false,
     replyCount: 3,
@@ -30,10 +31,11 @@ describe('toComment', () => {
     const vm = toComment(
       comment({
         children: [
-          { commentId: 32, userId: 11, username: '我需要医疗兵', content: '是这样的', parentId: 14, likeCount: 0, isLiked: true },
+          { commentId: 32, userId: 11, username: '我需要医疗兵', content: '是这样的', parentId: 14, createTime: '2026-10-30T13:32:00', likeCount: 0, isLiked: true },
         ],
       }),
       4,
+      new Date('2026-10-30T14:00:00+08:00'),
     )
     expect(vm.id).toBe(14)
     expect(vm.initial).toBe('五')
@@ -42,10 +44,18 @@ describe('toComment', () => {
     expect(vm.replies).toHaveLength(1)
     expect(vm.replies[0]?.liked).toBe(true) // ★ children 的点赞态是真的（spec 少声明了）
     expect(vm.replies[0]?.parentId).toBe(14)
+    expect(vm.replies[0]?.timeText).toBe('28分钟前') // ★ 递归必须把 now 传下去（漏传 ⇒ 用真实时钟 ⇒ 红）
   })
 
-  it('★ 后端没有 createTime ⇒ timeText 恒空串（不编"刚刚"）', () => {
-    expect(toComment(comment(), null).timeText).toBe('')
+  it('★ GAP-12 补回后：时间文本按评论口径格式化（不是空串，也不是"刚刚"兜底）', () => {
+    // 契约跟随（G8）：后端自 2026-10-31 起返回 createTime，本用例原先断言的"恒空串"作废。
+    const now = new Date('2026-10-30T14:00:00+08:00')
+    expect(toComment(comment(), null, now).timeText).toBe('28分钟前')
+  })
+
+  it('createTime 缺失（存量缓存 / 脏数据）⇒ 空串，渲染层不显示', () => {
+    const now = new Date('2026-10-30T14:00:00+08:00')
+    expect(toComment(comment({ createTime: null }), null, now).timeText).toBe('')
   })
 
   it('canDelete 只给自己的评论（匿名一律 false）', () => {
@@ -121,7 +131,7 @@ describe('toPublishedComment', () => {
     expect(vm.initial).toBe('F')
     expect(vm.canDelete).toBe(true)
     expect(vm.likeCount).toBe(0)
-    expect(vm.timeText).toBe('') // 与旧评论一致：都没有时间
+    expect(vm.timeText).toBe('刚刚') // 本机刚提交成功就是"刚刚"，不等服务端回传 createTime
   })
 
   it('回复：带上被 @ 的人与主楼 id', () => {

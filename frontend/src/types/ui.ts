@@ -189,7 +189,7 @@ export interface CommentVM {
   replyToName: string | null
   /** 当前登录用户能否删（自己的评论才显示删除按钮） */
   canDelete: boolean
-  /** 空串 = 后端没有时间字段（GAP），渲染处直接不显示 */
+  /** 评论时间（`刚刚` / `N分钟前` / `N小时前` / `YYYY-MM-DD HH:MM`）；空串 = 缺时间或脏数据，渲染处不显示 */
   timeText: string
 }
 
