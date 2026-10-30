@@ -54,7 +54,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *       （上锁必须连带给它加 {@code @Transactional}）。
  * </ol>
  * ⇒ 完整论证 + "何时该改硬上限"（走计数列 + 原子条件 {@code UPDATE}，即 coupon 域那种形态）
- * 见 {@code FURTHER_ISSUES.md} <b>F-23</b>。
+ * 见 {@code favorite-已知代价.md} 的 <b>F-23</b> 条。
  *
  * @param defaultFolderMaxItems 默认夹内容上限（5000；每用户至多一个默认夹）
  * @param customFolderMaxItems  自建夹内容上限（500）

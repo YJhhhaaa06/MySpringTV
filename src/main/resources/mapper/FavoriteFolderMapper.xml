@@ -101,7 +101,7 @@
            代价量级 = 该用户的夹数（≤ 21 行）⇒ 回表无所谓。别按索引形状推断计划（I-06）。
          ★ 不碰 favorite_item（夹数与夹内内容数无关）。
          ⚠️ 与随后的 INSERT 之间没有锁 ⇒ 真并发下可越界（软上限，≤ 并发请求数、越界后自限）：
-           用户 2026-10-14 拍板接受，论证见 FavoriteLimitProperties 类注释与 FURTHER_ISSUES.md F-23。 -->
+           用户 2026-10-14 拍板接受，论证见 FavoriteLimitProperties 类注释与 favorite-已知代价.md 的 F-23 条。 -->
     <select id="countCustomFoldersByUserId" resultType="int">
         SELECT COUNT(*) FROM favorite_folder WHERE user_id = #{userId} AND is_default = 0
     </select>

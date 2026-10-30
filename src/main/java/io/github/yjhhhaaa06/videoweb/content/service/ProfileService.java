@@ -54,7 +54,7 @@ import java.util.Set;
  * {@code FollowService} 的公开查询方法——关注域的缓存实现不再是对外 API。行为不变。
  *
  * <h2>★ T13（R-13）：⑤ 由"直连 {@code LikeService} 批量"改为走互动域</h2>
- * 这就是 {@code FURTHER_ISSUES.md} <b>F-16</b> 的兑现 —— R-10 立下"content 不再直接依赖
+ * 这就是 {@code favorite.md} 附录 <b>F-16</b> 的兑现 —— R-10 立下"content 不再直接依赖
  * like / follow"时，{@code ProfileService} 是唯一**有意保留**的例外（当初记在
  * {@code favorite.md 附录「编号速查」} I-09），至此归零：本类不再 import like / follow 的
  * 点赞契约（follow 的两条是**用户维度**的 {@code ProfileVO.isFollowed} 与两个计数，

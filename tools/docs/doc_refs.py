@@ -79,7 +79,9 @@ SCAN_SUFFIXES = {
 MD_TOKEN = re.compile(r"(?<![\w./-])([\w./-]+\.md)")
 # 别名黑名单：这些词**不是文件名**，任何工具都测不到 ⇒ 写进代码即静默断链
 ALIASES = re.compile(r"需求篇|设计稿|设计篇|分期篇|三期设计|骨架\s*§")
-# `task/` 每期重建的登记台：解析到这些文件即违规；FURTHER_ISSUES.md 是结转池（不重建），例外放行
+# `task/` 每期重建的登记台：解析到这些文件即违规；FURTHER_ISSUES.md 是结转池（不重建），例外放行。
+# ★ 2026-10-30 起该例外的用法收窄：**只有"仍在池"的条目**可从代码引它（如 F-18）；
+#   已核销的 `F-##` 一律指稳定层（域速查 / `*-已知代价.md`），否则已核销条目退场后即成静默断链。
 TASK_DIR = ".docs/task/"
 TASK_REGISTRY_EXEMPT = "FURTHER_ISSUES.md"
 # 不带 `.md` 的裸 token（`实测口径见 `CURRENT_TASKS` 的 T28 回写`）—— MD_TOKEN 看不见

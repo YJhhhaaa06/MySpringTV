@@ -232,7 +232,7 @@ public class FavoriteCache {
      *       否则本端点会退化成"**每请求一次点查且永不收敛**"。这条取舍的完整论证与代价登记在
      *       {@code FavoriteService.getFavoriteStatus} 的 javadoc（那里是它的唯一事实源）。</li>
      *   <li><b>判据不是"更快"</b>：本仓无流量，省下来的是亚毫秒级点查，**收益测不出**。
-     *       这么做的理由是"**同一个语义不该有两个来源**"（见 {@code FURTHER_ISSUES.md} <b>F-17</b>）。
+     *       这么做的理由是"**同一个语义不该有两个来源**"（见 {@code favorite.md} 附录 <b>F-17</b>）。
      *       ⚠️ 别把它写成性能优化 —— 与类注释末节"代价"同一口径。</li>
      * </ul>
      */

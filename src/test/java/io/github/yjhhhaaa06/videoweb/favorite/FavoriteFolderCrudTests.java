@@ -159,7 +159,7 @@ class FavoriteFolderCrudTests extends AbstractHttpIntegrationTest {
         TestUser me = register("13800001015", "重名用户");
 
         // ★ 期望值出自业务口径（B 站实测可重名，用户 2026-10-14 拍板），**不是**抄实现：
-        //   它是 FURTHER_ISSUES.md F-11 里"是否拒重名"那个问号的答案 ⇒ 同名是**合法状态**，
+        //   它是 favorite.md 附录 F-11 里"是否拒重名"那个问号的答案 ⇒ 同名是**合法状态**，
         //   不得加 (user_id, name) 唯一键，也不得写"先 SELECT 同名再 INSERT"。
         assertThat(addFolder("同名夹", me.token).getStatusCode().value()).isEqualTo(200);
         assertThat(addFolder("同名夹", me.token).getStatusCode().value())

@@ -20,7 +20,7 @@ Flyway + Testcontainers。由 `old-project/TVhomework1`（Servlet + 手写连接
 | 现在该知道什么 | 值 |
 |---|---|
 | **写代码读哪里** | `architecture/` 是**唯一活的事实源**（域设计 + 横切机制 + **前端应用层**），主索引 `architecture/ARCHITECTURE.md` |
-| **本期做什么**（★ **联调期**，2026-10-30 起） | ★ **`task/CURRENT_INTEGRATION.md`**（唯一入口：联调判据 / 有条件补回 / 任务 / 结转）｜差异清单 `task/CURRENT_FRONTEND_GAPS.md`｜上一期 `task/CURRENT_FRONTEND.md`（重制期，仅作背景）｜**后端期三件套已归档**（`archive/backend-2026-10-30/`）｜遗留池仍为 `task/FURTHER_ISSUES.md` |
+| **本期做什么**（★ **联调期**，2026-10-30 起） | ★ **`task/CURRENT_INTEGRATION.md`**（唯一入口：联调判据 / 有条件补回 / 任务 / 结转）｜差异清单 `task/CURRENT_FRONTEND_GAPS.md`｜上一期 `task/CURRENT_FRONTEND.md`（重制期，仅作背景）｜**后端期登记台已归档**（`archive/backend-2026-10-30/`）｜执行中发现的问题 `task/CURRENT_ISSUES.md`（`I-##`，`I-31` 起）｜遗留池 `task/FURTHER_ISSUES.md`（`F-##`，`F-30` 起） |
 | **已收口的专项** | 收藏（2026-10-15）、限流（2026-10-17）、接口契约（2026-10-24）、**写接口幂等（2026-10-25）** —— 结论已沉淀进 `architecture/`（幂等 / 接口契约的设计是**活文档**，不建 `archive/`） |
 | **回归基线** | `python tools/run_tests.py`（默认排除 `resilience`）＋ `--group resilience`；**最近一次登记的 = 默认集 852 + resilience 41 = 893 例全绿**（2026-10-25，`T68` 后）。⚠️ `T70` 之后**未全量复跑** ⇒ 该数字是旧基线，**以本窗复跑为准**。⚠️ 跑全量须设 `DB_POOL_MAX_SIZE=4` |
 | **环境** | dev 库 `spring_tv`@3306、媒体根 `D:/data/projects/MySpringTV/media` |
@@ -54,8 +54,8 @@ Flyway + Testcontainers。由 `old-project/TVhomework1`（Servlet + 手写连接
 │   │                        + `客户端静默机制.md`（用户看不见的：进度上报 / 自动重试 / 退出信号 / 幂等键 / 乐观更新 / 登录态时序）
 │   │                        + `视觉基准.md`（B 站参考图矩阵（匿名 + 登录态 2560）/ 本仓产物对照 / 复算命令 / 截图坑 / 2560 校准依据）
 │   └── 已知代价-模板.md   ← 代价台账**通用模板**（新建域 / 横切面复制即用；登记纪律与标签定义内嵌）
-├── task/                 ← **执行登记台**（随期滚动）：**`CURRENT_INTEGRATION.md`（联调期唯一入口）** + `CURRENT_FRONTEND_GAPS.md`（GAP 差异清单）+ `CURRENT_FRONTEND.md`（重制期，上一期）+ `FURTHER_ISSUES.md`（结转池）
-│                            ⚠️ 完成即清出（归宿 = git commit）；**编号（`T#` / `R-##` / `F-##` / `G#` / `C#`）不回收**；★ **`I-##` 已随后端台归档冻结**（2026-10-30）
+├── task/                 ← **执行登记台**（随期滚动）：**`CURRENT_INTEGRATION.md`（联调期唯一入口）** + `CURRENT_ISSUES.md`（问题）+ `FURTHER_ISSUES.md`（结转池）+ `CURRENT_FRONTEND_GAPS.md`（GAP 差异清单）+ `CURRENT_FRONTEND.md`（重制期，上一期）
+│                            ⚠️ 完成即清出（归宿 = git commit）；**编号（`T#` / `R-##` / `I-##` / `F-##` / `G#` / `C#`）不回收、不复用**
 ├── temp/                 ← 草稿（gitignore）
 └── archive/              ← **冻结历史**（按归档日，只读追溯，**非必要勿读**）：收藏 / 限流 / 老项目迁移 / **后端期登记台（2026-10-30）** 四批
                             ⚠️ 其中**从老项目迁移而来时使用的文档，已严重滞后，非必要勿读**
@@ -70,13 +70,13 @@ Flyway + Testcontainers。由 `old-project/TVhomework1`（Servlet + 手写连接
 | ★ **写新代码 / 了解架构** | **`architecture/ARCHITECTURE.md`**（模块地图 + "写代码前读哪篇" + 写作规范）→ 横切机制进 `architecture/tech/` 各篇、业务域进 `architecture/domain/`、**前端进 `architecture/frontend/`** | 架构变更时 |
 | ★ **写前端页面 / 了解前端** | **`architecture/frontend/前端.md`**（应用形态 + 页面 × 端点矩阵 + 降级约定 + 请求层约定）；**视觉对照 / 截图复算 / 2560 校准依据 → `architecture/frontend/视觉基准.md`**；跑起来 / 门禁 → `frontend/README.md`；本阶段任务 → `task/CURRENT_INTEGRATION.md`；缺口 → `task/CURRENT_FRONTEND_GAPS.md` | 入口 / 路由 / 消费口径 / 视觉基准变更 |
 | ★ **改"用户看不见但要一直跑"的行为**（进度上报、自动重试与退避、退出信号、崩溃补偿、幂等键、乐观更新与对齐、登录态时序、限流感知） | **`architecture/frontend/客户端静默机制.md`**（四要素：触发 / 做了什么 / 代价 / 怎么验 + **"没覆盖"清单**）；数值契约 → `domain/history/history-客户端契约.md` | 这类行为一旦改动（改了就要同时更新"验证矩阵"） |
-| ★ **执行中登记（任务 / 需求 / 问题）** | ★ **联调期 → `task/CURRENT_INTEGRATION.md`（唯一入口）**；GAP 差异清单 → `task/CURRENT_FRONTEND_GAPS.md`；上一期（重制期）→ `task/CURRENT_FRONTEND.md`；结转池 → `FURTHER_ISSUES.md` | 每窗开 / 收时 |
-| ★ **查某个编号是什么**（`T#` / `R-##` / `F-##` / `G#` / `C#`；★ `I-##` 已冻结） | **活速查**（每号**只许一行结论**）：`favorite.md` / `coin.md` / **`history.md`** / `tech/idempotency/写接口幂等.md` 各篇 **附录「编号速查」**；限流的在 `architecture/tech/rate-limit/限流.md` 附录。★ **按专项找**，别在一个附录里找别的域的号 | 每期收尾把已终结的编号收编进速查 |
+| ★ **执行中登记（任务 / 需求 / 问题）** | ★ **联调期 → `task/CURRENT_INTEGRATION.md`（唯一入口：任务 / 范围 / 判据）**；执行中发现的问题 → `task/CURRENT_ISSUES.md`（`I-##`）；本期不解决的 → `task/FURTHER_ISSUES.md`（`F-##`）；GAP 差异清单 → `task/CURRENT_FRONTEND_GAPS.md`；上一期（重制期）→ `task/CURRENT_FRONTEND.md` | 每窗开 / 收时 |
+| ★ **查某个编号是什么**（`T#` / `R-##` / `I-##` / `F-##` / `G#` / `C#`） | **活速查**（每号**只许一行结论**）：`favorite.md` / `coin.md` / **`history.md`** / `tech/idempotency/写接口幂等.md` 各篇 **附录「编号速查」**；限流的在 `architecture/tech/rate-limit/限流.md` 附录。★ **按专项找**，别在一个附录里找别的域的号 | 每期收尾把已终结的编号收编进速查 |
 | ★ **加新功能 / 看设计** | `architecture/domain/favorite/`（`favorite.md` 设计 + `favorite-需求.md` 用户可见规则 + `favorite-已知代价.md` 台账）、`feed/feed.md`（域文档样板）、`history/history.md`（播放记录：写读路径 + 时长 + 编号速查）。本期做哪些 ⇒ `task/CURRENT_INTEGRATION.md` | 开工前登记 / 设计变更时 |
 | ★ **改端点 / 加端点**（路径、HTTP 方法、状态码、错误码、入参出参形状） | [接口契约](architecture/tech/api/接口契约.md)（状态码分层 + 码表 + 路径/方法判据 + 载荷规范；`R-21` 起为唯一活事实源）；护栏与产物（端点登记簿 / `openapi.yaml` 的生成与更新纪律）→ [接口契约-护栏与Spec](architecture/tech/api/接口契约-护栏与Spec.md) | 端点或契约变更时 |
 | ★ **让写端点"重试不重复"**（幂等键 / 响应重放 / 新增 `Idempotency-Key`） | [写接口幂等](architecture/tech/idempotency/写接口幂等.md)（设计 + 为什么不做 X）；用例与对外契约 → [写接口幂等-测试与契约](architecture/tech/idempotency/写接口幂等-测试与契约.md) | 幂等覆盖范围、状态机或 TTL 变更时 |
 | ★ **某个词到底指什么**（页面名 / 会话 / 标签页这类指代） | 试点 = [history-术语表](architecture/domain/history/history-术语表.md)（页面↔端点矩阵 + 一物一名 + 错→对）。★ **只此一域**，推广判据见该篇 §五 | 该域发生新的术语歧义时 |
-| **知道下一步做什么** | `task/CURRENT_INTEGRATION.md` §二 / §三 + `task/FURTHER_ISSUES.md` | 排期 / 收尾时 |
+| **知道下一步做什么** | `task/CURRENT_INTEGRATION.md` §二 / §三 + `task/CURRENT_ISSUES.md` + `task/FURTHER_ISSUES.md` | 排期 / 收尾时 |
 | **知道当初为什么这么定** | 结论在 `architecture/**`（域文档的「编号速查」+ `*-已知代价.md` 的四要素）；过程与逐条论证只留 git 历史（归档**非必要勿读**） | 新决策进活文档 |
 | **改 schema / 加迁移** | `architecture/tech/data-evolution/数据与Schema演进.md`（V1 冻结、当前 **V8**、下次 **V9**、§2.4 冻结纪律） | 每次演进 |
 | **处理事务边界** | `architecture/tech/transaction/事务边界.md`（写新事务开工前必须表态） | 事务边界变化时 |
@@ -129,8 +129,8 @@ python tools/docs/doc_refs.py      # ★ 代码注释的文档引用（`src/` + 
    ⚠️ **但 `src/main/resources/db/migration/**` 是例外：已应用的迁移逐字节冻结，连注释都不能改**
    （Flyway checksum 覆盖全文 ⇒ `Migration checksum mismatch`、应用起不来；详见
    `architecture/tech/data-evolution/数据与Schema演进.md` **§2.4**）。那里的历史指向由**目标文档**承接重定向。
-4. ★ **编号纪律**：① **编号不回收**，且**每个前缀只服务一个编号空间**（`F-##` 是唯一活着的 F 空间；
-   **`I-##` 已于 2026-10-30 随后端台归档冻结**（新问题一律 `F-##`）；其余冻结前缀不得再生成新号）。② **引用编号必须同时给第二锚点**（`favorite.md §x` 或 `类#方法`）——
+4. ★ **编号纪律**：① **编号不回收、不复用**，且**每个前缀只服务一个编号空间**（`F-##` 是唯一活着的 F 空间；
+   后端期已用的 `I-01`–`I-30` 随归档留在原地、**不复用**（联调期新问题从 `I-31` 起）；其余冻结前缀不得再生成新号）。② **引用编号必须同时给第二锚点**（`favorite.md §x` 或 `类#方法`）——
    "只有编号、没有第二锚点"的引用不合格，总账一挪家注释就废。③ 让代码引用的新编号，**先在编号速查登记**。
    ④ **方案代号（A / B / C / 甲 / 乙 …）一律不得进代码注释** —— 它们不在任何编号空间里，写进去即悬空引用
    （实测过与 `C-#` 文字编号撞字母）。⇒ 代码只引用**正式编号 + 第二锚点**。

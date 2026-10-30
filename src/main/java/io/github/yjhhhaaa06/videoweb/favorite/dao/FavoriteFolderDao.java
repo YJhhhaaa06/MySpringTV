@@ -154,7 +154,7 @@ public interface FavoriteFolderDao {
      * <p>⚠️ <b>它是"软上限"的判定输入</b>：本查询与随后的 {@code INSERT} 之间没有锁，
      * 真并发下可越界（≤ 并发请求数、越界后自限）。这是用户 2026-10-14 拍板接受的取舍，
      * 完整论证（含"为什么不上行锁"）见 {@code FavoriteLimitProperties} 类注释与
-     * {@code FURTHER_ISSUES.md} <b>F-23</b>。
+     * {@code favorite-已知代价.md} 的 <b>F-23</b> 条。
      *
      * @param userId 当前登录用户
      * @return 自建夹个数（一个都没有 ⇒ 0）
