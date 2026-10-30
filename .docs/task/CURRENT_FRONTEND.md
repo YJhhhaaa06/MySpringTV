@@ -1,8 +1,7 @@
 # 前端重制期登记台（Current Frontend）
 
-> **定位**：**前端重制专项的唯一入口**。2026-10-25 起生效。
-> **后端期登记台**（`CURRENT_NEEDS.md` / `CURRENT_TASKS.md` / `CURRENT_ISSUES.md`）**已收口冻结，本专项不读它们**；
-> 跨期结转池仍是 `FURTHER_ISSUES.md`（后端遗留账，前端不必读）。
+> ⚠️ **上一期（已收口 2026-10-30）**：本期入口 = [CURRENT_INTEGRATION.md](./CURRENT_INTEGRATION.md)（联调期）—— 本文件**留作背景参考，不再是入口**。
+> GAP 台账见 [CURRENT_FRONTEND_GAPS.md](./CURRENT_FRONTEND_GAPS.md)；**后端期三件套已归档** → [后端期登记台](../archive/backend-2026-10-30/README.md)；结转池 `FURTHER_ISSUES.md`。
 > **边界**：本文件记「做什么 / 缺口 / 门禁」；**设计细则**在重制期开工后按 SOP 迁入 `architecture/`。
 > **后端改动**：所有「要后端适配」的条目先在本文件 §三 登记，**不直接动后端**（见 §四）。
 

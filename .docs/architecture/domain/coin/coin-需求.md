@@ -117,4 +117,4 @@
 | 鉴权（哪些端点需登录） | [安全与鉴权](../../tech/security/安全与鉴权.md) |
 | 端点限流权重 | [限流](../../tech/rate-limit/限流.md) |
 | 本域**未处置的候选**（含明细页 / 获币面板 / 通知） | `task/FURTHER_ISSUES.md` |
-| 本期做哪些、任务怎么拆 | `task/CURRENT_NEEDS.md` · `task/CURRENT_TASKS.md` |
+| 本期做哪些、任务怎么拆 | `task/CURRENT_INTEGRATION.md` |

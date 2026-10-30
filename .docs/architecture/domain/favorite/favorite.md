@@ -338,7 +338,7 @@ content.favorite_count bigint（V2 加列 / V3 回填；冗余列，见 §四）
 | G14 | 每个任务**显式标注「可质疑」** | 跨期元约定 |
 
 > ★ `G1`–`G6` / `C-1`–`C-6` / `G8` / `G13` / `G14` 是**跨期元约定**（任务与需求的管理纪律），
-> 定义在 `task/CURRENT_TASKS.md`（运行约定）与 `task/CURRENT_NEEDS.md`（通用约定），**不属本域**。
+> 定义在 `AGENTS.md`「跨期元约定」（`G#` 运行约定 / `C#` 通用约定），**不属本域**。
 
 ---
 
@@ -356,4 +356,4 @@ content.favorite_count bigint（V2 加列 / V3 回填；冗余列，见 §四）
 | Flyway 策略、V1 冻结、V2–V4 怎么写 | [数据与Schema演进](../../tech/data-evolution/数据与Schema演进.md) |
 | 端点是否需要登录、401/403 语义 | [安全与鉴权](../../tech/security/安全与鉴权.md) |
 | 收藏要不要发事件、谁订阅 | [领域事件与解耦](../../tech/events/领域事件与解耦.md) |
-| 本期做哪些 / 任务拆解 / 未排期的债 | `task/CURRENT_NEEDS.md` · `task/CURRENT_TASKS.md` · `task/FURTHER_ISSUES.md` |
+| 本期做哪些 / 任务拆解 / 未排期的债 | `task/CURRENT_INTEGRATION.md` · `task/FURTHER_ISSUES.md` |

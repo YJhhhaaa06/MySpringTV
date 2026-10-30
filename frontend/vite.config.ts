@@ -3,7 +3,7 @@ import vue from '@vitejs/plugin-vue'
 import { defineConfig, type Connect, type Plugin } from 'vite'
 
 /**
- * 前端重制：**MPA 外壳 + 应用内 SPA**（口径见 `.docs/task/CURRENT_FRONTEND.md` §十二）。
+ * 前端重制：**MPA 外壳 + 应用内 SPA**（口径见 `.docs/architecture/frontend/前端.md` §一）。
  *
  * <p>跨应用 = 整页跳转（每个入口一个 HTML + 一个 vue-router 实例）；
  * 应用内 = `createWebHistory`，切 tab 只改 URL、不整页重载。

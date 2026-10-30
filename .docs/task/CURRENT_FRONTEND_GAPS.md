@@ -1,8 +1,8 @@
 # 前端 GAP 台账（CURRENT_FRONTEND_GAPS）
 
-> **定位**：从 [CURRENT_FRONTEND.md](./CURRENT_FRONTEND.md) §三 拆出的**唯一接口差异清单**
-> （2026-10-27；登记台到约 40 KB 线，按"台账超过约 40 KB 再拆独立文件"拆出）。
-> **登记台仍是唯一入口**；本文件只承接「GAP 表 + 实测补充」。新增 GAP 只加在这里，ID 不回收。
+> **定位**：本仓的**唯一接口差异清单**（原从 [CURRENT_FRONTEND.md](./CURRENT_FRONTEND.md) §三 拆出，2026-10-27）。
+> **入口** = [CURRENT_INTEGRATION.md](./CURRENT_INTEGRATION.md)（联调期登记台）；本文件只承接「GAP 表 + 实测补充」，
+> 新增 GAP 只加在这里，ID 不回收。⚠️ 联调期**新发现**的差异也进本表（不开新编号空间）。
 > 类型 / 临时表现 / 编号纪律与原 §三 完全一致（下面保留原文）。
 
 `类型` 四分类：`M1 字段缺` / `M2 形状异` / `M3 端点缺` / `M4 语义异`。

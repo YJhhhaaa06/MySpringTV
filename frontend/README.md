@@ -1,6 +1,7 @@
 # MySpringTV 前端（仿哔哩哔哩网页版）
 
-> 口径与 GAP 台账在 `.docs/task/CURRENT_FRONTEND.md`（**唯一入口**）；
+> 阶段任务与判据在 `.docs/task/CURRENT_INTEGRATION.md`（**当前入口**）；GAP 差异清单在
+> `.docs/task/CURRENT_FRONTEND_GAPS.md`；
 > 应用层设计（入口 / 路由 / 类型三层 / 端点矩阵 / 降级约定 / 请求层约定）在
 > `.docs/architecture/frontend/前端.md`。本文件只写"怎么跑"。
 

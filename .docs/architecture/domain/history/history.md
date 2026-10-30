@@ -463,9 +463,9 @@ filesort；新索引前三列即排序键（前向索引扫描）：
 
 ## 附录：编号速查（**活**的查证入口）
 
-> 追溯用，**读文档不必读本表**。每号一行结论；未完成的任务不收编（滚动见 `task/CURRENT_TASKS.md`）；
+> 追溯用，**读文档不必读本表**。每号一行结论；未完成的任务不收编（滚动见 `task/CURRENT_INTEGRATION.md`）；
 > 逐条论证与失败尝试走 git。`T45`–`T53` 的结论 = 下面各行 + 本篇正文；过程 commit 见
-> `CURRENT_TASKS.md` 周期头的区间。
+> `archive/backend-2026-10-30/CURRENT_TASKS.md` 周期头的区间。
 > ⚠️ **表里的端点路径是"当时"的形态**：`T58` 起全站资源化为 `/api/v1/**`（`T59` 又统一了入参 / 出参形状）。
 > 本表**不逐行改写** —— 改了就把"留痕"改成假记录；**当前路径以 [接口契约](../../tech/api/接口契约.md) §2.3
 > 与 `src/test/resources/api/openapi.yaml` 为准**。
@@ -486,7 +486,7 @@ filesort；新索引前三列即排序键（前向索引扫描）：
 | T51-3 | 读路径（当时为读缓冲优先，已被 `T52` 推翻）+ 客户端契约**独立成篇**（本期只登记、不实现） | [客户端契约](./history-客户端契约.md) |
 | T52 | `/position` 改回只点查 DB（`R-20`）；写路径一字未动；客户端 `resume()` 取 `max(服务端, 本地)` | 本篇 §7.2 · [上报缓冲](./history-上报缓冲.md) §六/§七 |
 | T53 | **文档收口**：四篇改为读者顺序（§〇 上手 + 术语先行）、删除正文里的任务号 / 交付状态记录（追溯收进本表）、新增 [history-术语表](./history-术语表.md) 作为域内术语试点 | 本篇 §〇 · [术语表](./history-术语表.md) |
-| I-23 | 验收口径矛盾：`T47` 只该钉写路径两段（`/report`、`/play`），却要求"四端点" ⇒ 本批只钉两路由 + 注释写明读面两段下一批必补；`T49` 补 `/list`、`/position`（四路由齐，核销）。★ 2026-10-30 从冻结登记台收编（原只在 `CURRENT_ISSUES.md` 一行，而 `SecurityContractTests` 引用了它） | `SecurityContractTests` · §三 |
+| I-23 | 验收口径矛盾：`T47` 只该钉写路径两段（`/report`、`/play`），却要求"四端点" ⇒ 本批只钉两路由 + 注释写明读面两段下一批必补；`T49` 补 `/list`、`/position`（四路由齐，核销）。★ 2026-10-30 从冻结登记台收编（原只在 `archive/backend-2026-10-30/CURRENT_ISSUES.md` 一行，而 `SecurityContractTests` 引用了它） | `SecurityContractTests` · §三 |
 
 ---
 
@@ -505,4 +505,4 @@ filesort；新索引前三列即排序键（前向索引扫描）：
 | 跨域边与 ArchUnit 规则 | [模块边界与依赖](../../tech/module-boundary/模块边界与依赖.md) |
 | schema 演进纪律（V1 冻结 / 迁移文件逐字节冻结） | [数据与Schema演进](../../tech/data-evolution/数据与Schema演进.md) |
 | 已拍板接受的代价（历史不可删 / 无容量上限） | [history-已知代价](./history-已知代价.md) |
-| 本期做哪些、任务怎么拆 | `task/CURRENT_NEEDS.md` · `task/CURRENT_TASKS.md` |
+| 本期做哪些、任务怎么拆 | `task/CURRENT_INTEGRATION.md` |
