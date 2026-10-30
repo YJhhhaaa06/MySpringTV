@@ -201,7 +201,8 @@ async function loadReplies(): Promise<void> {
       <p class="comment__content">{{ comment.content }}</p>
 
       <p class="comment__meta">
-        <!-- 时间：后端 CommentVO 没有 createTime（GAP 台账），**不显示**，也不写"刚刚" -->
+        <!-- 时间：GAP-12 补回后由后端 createTime 格式化；空串（存量缓存 / 脏数据）不渲染节点 -->
+        <span v-if="comment.timeText" class="comment__time">{{ comment.timeText }}</span>
         <button
           class="comment__action"
           :class="{ 'is-active': comment.liked }"
@@ -387,6 +388,11 @@ async function loadReplies(): Promise<void> {
   display: inline-flex;
   align-items: center;
   gap: 3px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.comment__time {
   font-size: 12px;
   color: var(--text-3);
 }
