@@ -17,12 +17,11 @@
 ## 一、周期头（每窗开读）
 
 * ★ **状态**：2026-10-30 开窗。本窗第一件事 = 补一次全量回归基线（见下）+ 起联调清单。
-* ★ **编号**：任务 **`T71`** 起 / 决策 **`R-25`** 起 / 问题 **`I-31`** 起 / 结转 **`F-30`** 起。
+* ★ **编号**：任务 **`T72`** 起（`T71` 已用）/ 决策 **`R-25`** 起 / 问题 **`I-33`** 起（`I-31`/`I-32` 已用）/ 结转 **`F-30`** 起。
   ⚠️ **编号不回收、不复用**：后端期已用的 `I-01`–`I-30` 随归档留在原地，联调期**从 `I-31` 继续**；
   `F-##` 同理（`F-01`–`F-29` 已用，见 [FURTHER_ISSUES](./FURTHER_ISSUES.md)）。
-* ★ **回归基线**：最近一次登记 = 默认集 **852** + `resilience` **41**（2026-10-25，`T68` 后）。
-  ⚠️ `T70`（搜索筛选/排序）之后**没有再全量复跑** ⇒ 上面的数字是**旧基线**，本窗跑一次再回填：
-  `DB_POOL_MAX_SIZE=4 python tools/run_tests.py`（默认排除 resilience）+ `--group resilience`。
+* ★ **回归基线**：默认集 **907**（2026-10-31，`DB_POOL_MAX_SIZE=4`，`T71` 后全绿）+ 前端 **273**；
+  `resilience` 组仍是旧登记 **41**（2026-10-25，本轮未复跑，需时另跑 `--group resilience`）。
   跑全量必须带 `DB_POOL_MAX_SIZE=4`，否则容器 MySQL `Too many connections`（**不是代码缺陷**）。
 * ★ **门禁**：文档三道 —— `python tools/docs/doc_links.py` · `python tools/docs/doc_refs.py` · `python tools/docs/doc_stats.py`；
   前端 `npm run typecheck` / `npm run test` / `npm run build`（跑起来与截图规矩见 `frontend/README.md`）。
