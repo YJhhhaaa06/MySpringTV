@@ -43,8 +43,9 @@ npm run stage                                                # dist → ../src/m
 
 | 文件 | 钉住的口径 |
 |---|---|
-| `api/adapters/format.test.ts` | 万/亿、`mm:ss`、相对时间、图文中文日期、**后端空简介占位 `-` 视为空** |
-| `api/adapters/{videoCard,hero,search,videoDetail,user,interaction,comment,space}.test.ts` | 各页 VM 的缺口 fallback（`playCount` 缺失 ⇒ `null`、图文不显示计数、三态 `null ≠ false`、评论无时间 ⇒ 空串）；**POST → `/opus/{id}` / VIDEO → `/video/{id}` 分流** |
+| `api/adapters/format.test.ts` | 万/亿、`mm:ss`、相对时间、图文中文日期、**后端空简介占位 `-` 视为空**、**评论时间口径**（自然日 / 刚刚 / 跨日绝对时间 / 未来超 1 分钟走绝对）、**`parseServerTime` 按 +08:00 解释** |
+| `api/serverClock.test.ts` | 服务器时钟锚点：无锚点退回浏览器时钟、锚点走**单调时钟**、**改系统时间不跟跳**、坏 `Date` 头不清旧锚点 |
+| `api/adapters/{videoCard,hero,search,videoDetail,user,interaction,comment,space}.test.ts` | 各页 VM 的缺口 fallback（`playCount` 缺失 ⇒ `null`、图文不显示计数、三态 `null ≠ false`、评论时间缺失 ⇒ 空串 / 有值 ⇒ 按口径格式化）；**POST → `/opus/{id}` / VIDEO → `/video/{id}` 分流** |
 | `api/opusImages.test.ts` | 图文图片区：1/2/3+ 列数、>9 张 `+N` 截断、循环切图、旋转只留 0/90/180/270、输入控件不接快捷键 |
 | `api/adapters/{favorites,history}.test.ts` | 夹 / 稍后再看卡（`addedTime` **不冒充**发布时间）；历史角标三态、按本地日历日分组 |
 | `api/adapters/{feed,relation}.test.ts` | 动态卡 `likeCount/commentCount` 缺失 ⇒ `null`、0 是真值、`liked` 三态；关注卡 `isFollowed=false` **不是**"没查" |

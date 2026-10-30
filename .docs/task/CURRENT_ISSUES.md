@@ -27,7 +27,8 @@
 
 | 编号 | 分类 | 问题 | 证据 | 影响 | 处置 / 去向 |
 |---|---|---|---|---|---|
-| `I-31` | 偏差 | `formatDateTime` / `formatDateTimeCn` / `formatRelativeDate` 仍用 `parseDate`（按**浏览器本地时区**解析无偏移串） | `frontend/src/api/adapters/format.ts#parseDate`；`T71` 只把**评论链路**换成了 `parseServerTime` | 非 +08:00 的浏览器下，播放页 / 图文详情 / 首页卡 / 动态卡的时间偏 8 小时（目标用户群不暴露，本机测试也测不出） | **本期不做**：改 `parseDate` 会波及 3 个域的输出，且现有用例依赖"解析与格式化同时区抵消"（在 +08:00 外会红）。**待裁决**：是否统一走 `parseServerTime`（需同步给用例加时区前提或注入偏移） |
+| `I-31` | 偏差 | `formatDateTime` / `formatDateTimeCn` / `formatRelativeDate` 仍用 `parseDate`（按**浏览器本地时区**解析无偏移串）；`videoCard.ts` / `feed.ts` 的 `now` 默认仍是 `new Date()` | `frontend/src/api/adapters/format.ts#parseDate`；`T71` 只把**评论链路**换成了 `parseServerTime` + `serverNow` | ① 非 +08:00 浏览器下，播放页 / 图文详情 / 首页卡 / 动态卡偏 8 小时；② 用户改系统时间时，首页卡 / 动态卡仍会全部"刚刚"（**改 `parseDate` 不覆盖这一半**）。另：`localOffsetMinutes()` 取"此刻"偏移，跨 DST 时区下历史评论的绝对时间会差 1 小时 | **本期不做（已接受）**：改 `parseDate` 波及 3 个域输出，且现有用例依赖"解析与格式化同时区抵消"。**推翻条件** = 出现非 +08:00 目标用户 / 需要跨区排序 / 要统一时钟基准 |
+| `I-32` | 债务 | 存量评论缓存元素没有 `createTime` 键，且**读命中会续期** | `CommentRedisOps#readRootsInterval` 与 `CommentCache#attachReplies` 都在命中路径 `EXPIRE`；`CommentReadTests#存量缓存缺发布时间_降级为null` 钉住"200 + null" | 持续有读的内容页里，老评论可能**长期**不显示时间 —— 不是"10 分钟自然过期"（部署前写入的元素会被续期保留） | **不修（已知代价）**：评论缓存 key 无版本前缀，加前缀会牵动全部评论缓存用例；当前表现是"不显示时间"，不撒谎。**推翻条件** = 有真实存量数据且必须首个请求就显示 ⇒ 加 key 版本前缀或部署后一次性 `DEL` |
 
 ---
 
