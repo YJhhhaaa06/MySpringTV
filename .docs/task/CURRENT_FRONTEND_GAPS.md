@@ -25,7 +25,7 @@
 | GAP-09 | M3 端点缺 | 首页 / HeroBanner | 运营 banner 位（B 站首页大轮播是广告/活动位） | 无任何 banner/运营端点 | 前端适配 | 用 `recommended` 前 3 条**有封面的**做「推荐橱窗」轮播（真封面真标题，非假图）；无内容时不渲染轮播 | 无（不补） | 长期 |
 | GAP-10 | M3 端点缺（参数） | 搜索页 / tabs·排序条 | `type` 筛选（视频/图文）+ 排序（播放/最新） | 原只有 `keyword/page/pageSize` | **前后端均已补** | —（已可筛可排） | ✅ 已落地（2026-10-27）：`?type=VIDEO\|POST&order=LATEST\|PLAY`，两个**可选枚举**（大小写敏感，非法值 400 + `errors[field]`）；类型过滤与 `count` **共用 mapper 片段**（total 同源）；`PLAY` = `play_count DESC, id DESC`。⚠️ 图文 `play_count` 结构性恒 0 ⇒ 前端**图文 tab 不渲染**「最多播放」，后端**不设特例**（照收不报错）。⚠️ 与 `recommended?type=1\|2` 的**数字**口径刻意不一致（§2.5 要求语义字符串；那套是 TV 遗留、前端未消费） | **已销账（2026-10-27）** |
 | GAP-11 | M3 端点缺 | 首页 / ChannelWall「热门」 | 热门榜 | 没有排行榜端点（`recommended` 是推荐流，不是排行） | 前端不做 | 灰态占位 → `/placeholder/popular` | 无 | 不做 |
-| GAP-12 | M1 字段缺 | 播放页 / 评论区 | 评论发布时间 | `CommentVO` 没有 `createTime`（只有 `commentId` 可推先后） | 后端补（P3） | **不显示时间**（不写"刚刚"顶上） | 评论 VO 加 `createTime` | 待补 |
+| GAP-12 | M1 字段缺 | 播放页·图文详情 / 评论区 | 评论发布时间 | ✅ 已交付（2026-10-31）：`CommentVO` / `CommentCacheDTO` 带 `createTime` | ✅ 前后端均已接 | —（已可显示） | ✅ 三处同步：`CommentCacheDTO` 字段 + `commentCacheMap` 映射 + `convertToCommentVO` 手写拷贝；spec 已重生成。展示口径见 [前端.md §六](../architecture/frontend/前端.md) | **已销账（2026-10-31）** |
 | GAP-13 | M3 参数缺 | 播放页 / 评论排序 | 热度 / 时间排序 | `GET /contents/{id}/comments` 只有 `page/pageSize`，固定按 `comment_id` 升序 | 前端适配 | **不渲染排序条**；发布后跳到末页并高亮 | 加 `order` 参数 | 长期 |
 | GAP-14 | M1 字段缺 | 空间页 / 头部 | banner 图 / 签名 / 生日 / 地区 | `ProfileVO` 只有 id、username、两个计数、`contentPage` | 前端适配（不做资料域） | **低饱和渐变 banner**；资料卡只放真计数 | 无 | 长期 |
 | GAP-15 | M3 端点缺 | 空间页 / tabs | 动态 / 合集和系列 / 最近点赞 | 无对应端点（`/feed` 是「我关注的动态」，不是某人的） | 前端不做 | **不渲染这三个 tab**（不摆点不动的） | 无 | 不做 |
