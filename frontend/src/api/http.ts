@@ -1,5 +1,6 @@
 import { readToken } from '../auth/token'
 import type { components, paths } from '../types/api'
+import { syncServerClock } from './serverClock'
 
 /**
  * 极简请求层：**只为"类型来自 spec"这一件事存在**。
@@ -165,6 +166,11 @@ async function request<T>(url: string, init: RequestInit, headers: Headers): Pro
     clearTimeout(timer)
   }
 
+  // ★ 用服务器时间校准"现在"：`Date` 由服务器生成，与 create_time 同源。
+  //   必须在 parseEnvelope 之前同步 —— 时间文本是在本函数返回之后才格式化的，
+  //   晚一步就会让首屏用浏览器时钟渲染（用户改过系统时间时表现为"全部刚刚"）。
+  syncServerClock(response.headers.get('Date'))
+
   return parseEnvelope<T>(response.status, await response.text(), retryAfterOf(response))
 }
 
@@ -304,6 +310,7 @@ export function postForm<K extends keyof paths>(
 
     xhr.onload = () => {
       try {
+        syncServerClock(xhr.getResponseHeader('Date'))
         resolve(
           parseEnvelope(xhr.status, xhr.responseText, retryAfterValue(xhr.getResponseHeader('Retry-After'))),
         )

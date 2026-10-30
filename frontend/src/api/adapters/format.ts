@@ -5,6 +5,8 @@
  * 不是"实现细节"。写在组件里就只能靠截图回归，写在这里可以按业务规则先写断言。
  */
 
+import { serverNow } from '../serverClock'
+
 /** 时长：`mm:ss`，超过一小时 `h:mm:ss`。null / 0 / 负数 / 非法 ⇒ null（不显示角标） */
 export function formatDuration(seconds: number | null | undefined): string | null {
   if (seconds === null || seconds === undefined) return null
@@ -50,7 +52,7 @@ export function formatCoinInt(value: number | null | undefined): string {
   return String(Math.floor(Math.max(0, value)))
 }
 
-/** ISO 字符串 → Date；非法 / 空 ⇒ null（不抛错：一条脏数据不该把整页打挂） */
+/** ISO 字符串 → Date（**按浏览器本地时区**解析）；非法 / 空 ⇒ null（不抛错：一条脏数据不该把整页打挂） */
 export function parseDate(iso: string | null | undefined): Date | null {
   if (!iso) return null
   const date = new Date(iso)
@@ -58,9 +60,30 @@ export function parseDate(iso: string | null | undefined): Date | null {
 }
 
 /**
- * 相对发布时间（B 站口径）：`刚刚` / `N分钟前` / `N小时前` / `N天前` / `MM-DD` / `YYYY-MM-DD`。
+ * 服务端时间串 → Date（**按契约 §2.7 的 Asia/Shanghai 语义**解析）。
+ *
+ * <p>对外时间是 `yyyy-MM-ddTHH:mm:ss`、本地时间、**不引入偏移**。直接 `new Date(iso)`
+ * 会把它当**浏览器本地时区** ⇒ 跨时区时偏 8 小时，甚至把已发布的内容显示成"未来"。
+ * 这里显式补 `+08:00`，先拿到**正确的时间点**（epoch），之后才能按用户本地时区呈现。
+ *
+ * <p>已带偏移（`Z` / `+08:00`）的串原样解析；非法 ⇒ null。
+ */
+export function parseServerTime(iso: string | null | undefined): Date | null {
+  if (!iso) return null
+  // 只给"含 T 且无偏移"的串补时区：纯日期串（`2026-10-30`）按 ES 规范是 UTC 午夜，补了反而非法。
+  const text = iso.includes('T') && !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(iso) ? `${iso}+08:00` : iso
+  const date = new Date(text)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+/**
+ * 相对发布时间（**列表卡口径**）：`刚刚` / `N分钟前` / `N小时前` / `N天前` / `MM-DD` / `YYYY-MM-DD`。
  *
  * <p>`now` 显式传入是为了可测：断言按业务口径推，不按当前时钟猜。
+ *
+ * <p>⚠️ 评论时间**不用它**（规则不同：评论跨自然日就变绝对时间，且要精确到分钟）——
+ * 见 {@link formatCommentTime}。两者刻意不合并：合并会让首页卡多出 `HH:mm`，
+ * 或让评论区丢掉"今天"的日界。
  */
 export function formatRelativeDate(iso: string | null | undefined, now: Date = new Date()): string {
   const date = parseDate(iso)
@@ -96,6 +119,64 @@ export function formatDateTimeCn(iso: string | null | undefined): string {
   if (!date) return ''
   const pad = (value: number) => String(value).padStart(2, '0')
   return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日 ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+/**
+ * "未来"的容忍窗口：`Date` 头与 `create_time` 都只有秒级精度，
+ * 刚发布的评论可能算出 `-1s`。1 分钟内的"未来"仍按"刚刚"处理，不算异常。
+ */
+const FUTURE_TOLERANCE_MS = 60_000
+
+/** 本地相对 UTC 的分钟偏移（+08:00 ⇒ 480）。`getTimezoneOffset()` 的符号与之相反。 */
+function localOffsetMinutes(): number {
+  return -new Date().getTimezoneOffset()
+}
+
+/** 把 epoch 换成"某时区下的墙上日序号"（用于判自然日，不依赖运行环境时区）。 */
+function wallDayIndex(epochMs: number, offsetMinutes: number): number {
+  return Math.floor((epochMs + offsetMinutes * 60_000) / 86_400_000)
+}
+
+/** 某时区下的 `YYYY-MM-DD HH:MM`（只依赖传入的偏移，不读运行环境时区）。 */
+function formatWallDateTime(epochMs: number, offsetMinutes: number): string {
+  const wall = new Date(epochMs + offsetMinutes * 60_000)
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${wall.getUTCFullYear()}-${pad(wall.getUTCMonth() + 1)}-${pad(wall.getUTCDate())} ${pad(wall.getUTCHours())}:${pad(wall.getUTCMinutes())}`
+}
+
+/**
+ * 评论发布时间（B 站 **web 端**评论区口径）。
+ *
+ * <h2>规则（按 2026-10-30 的实测截图定）</h2>
+ * <ul>
+ *   <li>同一**自然日**内：`刚刚`（&lt;1 分钟）/ `N分钟前`（&lt;1 小时）/ `N小时前`；</li>
+ *   <li>跨自然日：`YYYY-MM-DD HH:MM`（**恒带年**，不做"当年省年"）；</li>
+ *   <li>迟于 `now` 超过 1 分钟（客户端时钟慢 / 数据脏）：走绝对时间 ——
+ *       **不假装知道相对时间**（旧实现把负差值算成"刚刚"，这是明确的错误分支）。</li>
+ * </ul>
+ *
+ * <h2>★ 为什么日界按"传入的 offset"而不是 {@code getFullYear()}</h2>
+ * 自然日必须绑一个时区才有意义。默认取浏览器当前偏移（web 的正确做法：按用户本地时区）；
+ * 显式传入是为了**可测**——同一组用例可以同时钉 `+08:00` 与 `-05:00` 下的日界，
+ * 不依赖跑测试那台机器的时区。
+ *
+ * <p>`now` 默认取服务器时钟（{@code serverNow}），不是浏览器时钟：见 `serverClock.ts`。
+ */
+export function formatCommentTime(
+  iso: string | null | undefined,
+  now: Date = serverNow(),
+  offsetMinutes: number = localOffsetMinutes(),
+): string {
+  const date = parseServerTime(iso)
+  if (!date) return ''
+  const diff = now.getTime() - date.getTime()
+  if (diff < -FUTURE_TOLERANCE_MS) return formatWallDateTime(date.getTime(), offsetMinutes)
+  if (wallDayIndex(date.getTime(), offsetMinutes) !== wallDayIndex(now.getTime(), offsetMinutes)) {
+    return formatWallDateTime(date.getTime(), offsetMinutes)
+  }
+  if (diff < 60_000) return '刚刚'
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}分钟前`
+  return `${Math.floor(diff / 3_600_000)}小时前`
 }
 
 /**

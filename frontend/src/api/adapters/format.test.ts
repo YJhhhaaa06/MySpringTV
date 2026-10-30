@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest'
 import {
   cleanDescription,
   formatCoinInt,
+  formatCommentTime,
   formatCount,
   formatDateTime,
   formatDateTimeCn,
   formatDuration,
   formatRelativeDate,
   initialOf,
+  parseServerTime,
 } from './format'
 
 describe('formatDuration', () => {
@@ -131,6 +133,70 @@ describe('formatDateTimeCn', () => {
   it('空 / 非法 ⇒ 空串', () => {
     expect(formatDateTimeCn(null)).toBe('')
     expect(formatDateTimeCn('x')).toBe('')
+  })
+})
+
+describe('formatCommentTime（评论区：自然日 + 分钟/小时）', () => {
+  /** +08:00（契约语义时区）。显式传入 ⇒ 用例不依赖跑测试那台机器的时区。 */
+  const SH = 8 * 60
+  /** UTC-5（对照：同一条评论在不同时区下的"今天"不同）。 */
+  const NY = -5 * 60
+
+  it('同一自然日：刚刚 / N分钟前 / N小时前', () => {
+    const now = new Date('2026-10-30T14:00:00+08:00')
+    expect(formatCommentTime('2026-10-30T13:59:30', now, SH)).toBe('刚刚')
+    expect(formatCommentTime('2026-10-30T13:32:00', now, SH)).toBe('28分钟前')
+    expect(formatCommentTime('2026-10-30T13:00:00', now, SH)).toBe('1小时前')
+    expect(formatCommentTime('2026-10-30T08:00:00', now, SH)).toBe('6小时前')
+  })
+
+  it('★ 跨自然日 ⇒ 绝对时间（不是"24 小时内"：23:59 发的，次日 00:01 看就是绝对时间）', () => {
+    const now = new Date('2026-10-31T00:01:00+08:00')
+    expect(formatCommentTime('2026-10-30T23:59:00', now, SH)).toBe('2026-10-30 23:59')
+  })
+
+  it('★ 日界按传入偏移：同一条评论在 UTC-5 下仍属"同一天"，因此还是相对时间', () => {
+    // 上海 10-30 23:24 = UTC-5 的 10-30 10:24；上海 10-31 01:00 = UTC-5 的 10-30 12:00
+    const now = new Date('2026-10-31T01:00:00+08:00')
+    expect(formatCommentTime('2026-10-30T23:24:00', now, SH)).toBe('2026-10-30 23:24')
+    expect(formatCommentTime('2026-10-30T23:24:00', now, NY)).toBe('1小时前')
+  })
+
+  it('跨年也恒带年（不做"当年省年"）', () => {
+    const now = new Date('2026-10-30T14:00:00+08:00')
+    expect(formatCommentTime('2021-01-07T06:31:00', now, SH)).toBe('2021-01-07 06:31')
+  })
+
+  it('★ 迟于 now 超过 1 分钟 ⇒ 绝对时间（旧实现把负差值算成"刚刚"，这是明确的错误分支）', () => {
+    const now = new Date('2020-01-01T00:00:00+08:00')
+    expect(formatCommentTime('2026-10-30T14:00:00', now, SH)).toBe('2026-10-30 14:00')
+  })
+
+  it('1 分钟内的"未来"仍算刚刚（Date 头与 create_time 都只有秒级精度）', () => {
+    const now = new Date('2026-10-30T13:59:30+08:00')
+    expect(formatCommentTime('2026-10-30T14:00:00', now, SH)).toBe('刚刚')
+  })
+
+  it('null / 非法 ⇒ 空串（渲染层据此不显示，不写"刚刚"顶上）', () => {
+    expect(formatCommentTime(null, new Date('2026-10-30T14:00:00+08:00'), SH)).toBe('')
+    expect(formatCommentTime('not-a-date', new Date('2026-10-30T14:00:00+08:00'), SH)).toBe('')
+  })
+})
+
+describe('parseServerTime（契约 §2.7：无偏移串按 +08:00 解释）', () => {
+  it('无偏移 ⇒ 得到正确的时间点（不是浏览器本地时区）', () => {
+    expect(parseServerTime('2026-10-30T14:12:59')?.getTime())
+      .toBe(Date.parse('2026-10-30T14:12:59+08:00'))
+  })
+
+  it('已带偏移 ⇒ 原样解析（不重复追加时区）', () => {
+    expect(parseServerTime('2026-10-30T06:12:59Z')?.getTime())
+      .toBe(Date.parse('2026-10-30T06:12:59Z'))
+  })
+
+  it('空 / 非法 ⇒ null', () => {
+    expect(parseServerTime(null)).toBeNull()
+    expect(parseServerTime('x')).toBeNull()
   })
 })
 
