@@ -4,7 +4,7 @@
  * <p>为什么单独成模块：这条判据全是"看不出来"的 —— 关掉开关后少报一次进度，界面没有任何变化；
  * 而写错极性会让**所有用户**的记录静默消失。所以它必须是纯函数、必须能单测。
  * 契约原文见 `architecture/domain/history/history-需求.md` §2.1 与
- * `architecture/domain/history/history-客户端契约.md` §二.2。
+ * `architecture/domain/history/history-客户端契约.md` §2.1。
  *
  * <h2>三态，不是一个 boolean</h2>
  * <ul>

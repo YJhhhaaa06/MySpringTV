@@ -45,6 +45,14 @@ describe('toCurrentUser', () => {
   it('coin 保留一位小数（取整只在展示层，投币弹层要用真值）', () => {
     expect(toCurrentUser({ coin: 1.5 }).coin).toBe(1.5)
   })
+
+  it('★ historyRecording 与上面两条**反向**：缺失 ⇒ true（按"开"，DB 默认值）', () => {
+    // 去掉 toCurrentUser 里那行 `!== false` 映射（或改成 `=== true`），本用例必红。
+    // 口径与 signedToday 相反是有意的：那里缺字段宁可"别放行"，这里缺字段宁可"别关掉记录"。
+    expect(toCurrentUser({}).historyRecording).toBe(true)
+    expect(toCurrentUser({ historyRecording: true }).historyRecording).toBe(true)
+    expect(toCurrentUser({ historyRecording: false }).historyRecording).toBe(false)
+  })
 })
 
 describe('toAuthorCard', () => {

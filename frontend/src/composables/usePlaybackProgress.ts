@@ -50,11 +50,13 @@ export interface PlaybackProgress {
 interface Session {
   contentId: number
   el: HTMLVideoElement
-  reporter: ProgressReporter
+  /** `null` = `read-only`（关闭记录）：没有上报器，只有"定位到续播点"那一个监听 */
+  reporter: ProgressReporter | null
   playCounted: boolean
   lastPendingWrite: number
   listeners: Array<[keyof HTMLMediaElementEventMap, EventListener]>
   onVisibility: () => void
+  readOnly: boolean
 }
 
 export function usePlaybackProgress(
@@ -72,14 +74,28 @@ export function usePlaybackProgress(
     if (!current) return
     for (const [type, listener] of current.listeners) current.el.removeEventListener(type, listener)
     document.removeEventListener('visibilitychange', current.onVisibility)
-    current.reporter.stop()
-    if (finalize) {
+    current.reporter?.stop()
+    if (finalize && !current.readOnly) {
       // 切内容 / 卸载：把最后一段进度报出去再落库（失败也无处可报，页面正在走）
+      // ★ `readOnly`（关闭记录）一律不写：这里发的是 `/progress` + `/flush` 两条写请求。
       const seconds = Math.max(0, Math.floor(current.el.currentTime))
       if (seconds > 0 && !current.el.paused) {
         void reportProgress(current.contentId, seconds).catch(() => {})
         flushHistoryOnExit()
       }
+    }
+  }
+
+  /** 把播放头定位到续播点（`<video>` 上唯一"读出来给用户看"的动作，不写任何东西） */
+  function applyResume(el: HTMLVideoElement, target: number): void {
+    // 服务端可能给了超过时长的旧值：别 seek 到片尾之外
+    const duration = Number.isFinite(el.duration) ? el.duration : Infinity
+    if (target >= MIN_RESUME_SECONDS && target < duration - 1) {
+      el.currentTime = target
+      const text = formatDuration(target)
+      if (text) showToast(`已从上次看的位置 ${text} 继续`)
+    } else {
+      resumeSeconds.value = 0
     }
   }
 
@@ -118,11 +134,34 @@ export function usePlaybackProgress(
     const resumePlan = planResume(serverProgress, pending)
     resumeSeconds.value = resumePlan.start
 
+    // ★ 定位是**读**，两条分支共用（`read-only` 也要能从上次的位置继续）。
+    //   元数据可能在本函数的 `await` 期间就已加载（详情到达即设 src）⇒ 那时再挂
+    //   `loadedmetadata` 永远不触发、续播静默失效。有元数据就立刻定位，只定位一次。
+    let sought = false
+    const seek = (): void => {
+      if (sought) return
+      sought = true
+      applyResume(el, resumePlan.start)
+    }
+    if (el.readyState >= 1) seek()
+
     if (plan === 'read-only') {
-      // 关掉记录 ⇒ 到这儿为止：不建 reporter、不挂任何写监听（`/play`、`/progress`、`/flush`、
-      // `visibilitychange`、每秒 pending 全都没有），并把**上一段遗留的本地 pending 清掉** ——
-      // 否则下次打开会因 `needsCatchUp` 补报一次，等于开关没关住。
+      // 关掉记录 ⇒ 到此为止：**不建 reporter、不挂任何写监听**（`/play`、`/progress`、
+      // `/flush`、`visibilitychange`、每秒 pending 全都没有），只留"定位到续播点"这一个。
+      // 并把**上一段遗留的本地 pending 清掉** —— 否则下次打开会因 `needsCatchUp` 补报一次，
+      // 等于开关没关住。
       clearPending(contentId)
+      session = {
+        contentId,
+        el,
+        reporter: null,
+        playCounted: false,
+        lastPendingWrite: 0,
+        listeners: [['loadedmetadata', seek]],
+        onVisibility: () => {},
+        readOnly: true,
+      }
+      el.addEventListener('loadedmetadata', seek)
       return
     }
 
@@ -144,21 +183,7 @@ export function usePlaybackProgress(
     }
 
     const listeners: Session['listeners'] = [
-      [
-        'loadedmetadata',
-        () => {
-          // 服务端可能给了超过时长的旧值：别 seek 到片尾之外
-          const duration = Number.isFinite(el.duration) ? el.duration : Infinity
-          const target = resumePlan.start
-          if (target >= MIN_RESUME_SECONDS && target < duration - 1) {
-            el.currentTime = target
-            const text = formatDuration(target)
-            if (text) showToast(`已从上次看的位置 ${text} 继续`)
-          } else {
-            resumeSeconds.value = 0
-          }
-        },
-      ],
+      ['loadedmetadata', seek],
       [
         'play',
         () => {
@@ -213,6 +238,7 @@ export function usePlaybackProgress(
       lastPendingWrite: 0,
       listeners,
       onVisibility,
+      readOnly: false,
     }
     for (const [type, listener] of listeners) el.addEventListener(type, listener)
     document.addEventListener('visibilitychange', onVisibility)
