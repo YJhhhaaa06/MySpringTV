@@ -6,6 +6,7 @@ import { formatCoinInt } from '../../api/adapters/format'
 import { CREATOR_HREF, HEADER_ACTIONS, HEADER_NAV } from '../../constants/features'
 import LoginModal from '../auth/LoginModal.vue'
 import AppIcon from '../common/AppIcon.vue'
+import UserAvatar from '../common/UserAvatar.vue'
 import SearchBox from './SearchBox.vue'
 
 /**
@@ -69,7 +70,7 @@ onUnmounted(() => {
             :href="sessionState.user.spaceHref"
             :title="`${sessionState.user.name} 的空间`"
           >
-            <span class="avatar">{{ sessionState.user.initial }}</span>
+            <UserAvatar :user-id="sessionState.user.id" :size="34" />
           </a>
           <div class="user-menu">
             <p class="user-menu__name">{{ sessionState.user.name }}</p>
@@ -279,20 +280,6 @@ onUnmounted(() => {
   display: block;
   border-radius: 50%;
   line-height: 0;
-}
-
-.avatar {
-  display: flex;
-  width: 34px;
-  height: 34px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-inverse);
-  background: linear-gradient(135deg, var(--brand-pink) 0%, var(--brand-blue) 100%);
-  text-shadow: none;
 }
 
 .user-menu {

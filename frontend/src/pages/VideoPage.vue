@@ -13,6 +13,7 @@ import { usePlaybackProgress } from '../composables/usePlaybackProgress'
 import { useWatchLaterAction } from '../composables/useWatchLaterAction'
 import AppIcon from '../components/common/AppIcon.vue'
 import EmptyState from '../components/common/EmptyState.vue'
+import UserAvatar from '../components/common/UserAvatar.vue'
 import VideoCard from '../components/common/VideoCard.vue'
 import VideoActionBar from '../components/video/VideoActionBar.vue'
 import CoinDialog from '../components/video/CoinDialog.vue'
@@ -269,7 +270,7 @@ function onCommentCount(count: number): void {
       <aside class="video-side">
         <section v-if="author" class="author-card">
           <a class="author-card__avatar" :href="author.href" :title="`${author.name} 的空间`">
-            {{ author.initial }}
+            <UserAvatar :user-id="author.id" :initial="author.initial" :size="48" />
           </a>
           <div class="author-card__body">
             <a class="author-card__name" :href="author.href">{{ author.name }}</a>
@@ -470,17 +471,10 @@ function onCommentCount(count: number): void {
 }
 
 .author-card__avatar {
-  display: flex;
-  width: 48px;
-  height: 48px;
+  display: block;
   flex: none;
-  align-items: center;
-  justify-content: center;
   border-radius: 50%;
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--text-inverse);
-  background: linear-gradient(135deg, var(--brand-pink) 0%, var(--brand-blue) 100%);
+  line-height: 0;
 }
 
 .author-card__body {

@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import type { DynamicCardVM } from '../../types/ui'
 import { formatCount } from '../../api/adapters/format'
 import AppIcon from '../common/AppIcon.vue'
+import UserAvatar from '../common/UserAvatar.vue'
 
 /**
  * 动态卡（B 站 2026-10 版式，参照 `.screenshots/bilibili-2026-10-26/dynamic-feed-all`）：
@@ -56,7 +57,7 @@ const showLikeCount = computed(
         rel="noopener"
         :title="`${item.authorName} 的空间`"
         :aria-label="`${item.authorName} 的空间`"
-      >{{ item.authorInitial }}</a>
+      ><UserAvatar :user-id="item.authorId" :initial="item.authorInitial" :size="52" /></a>
       <div class="dyn-card__ident">
         <a class="dyn-author" :href="item.authorHref" target="_blank" rel="noopener">{{ item.authorName }}</a>
         <p class="dyn-meta">
@@ -144,17 +145,10 @@ const showLikeCount = computed(
 }
 
 .dyn-avatar {
-  display: flex;
-  width: 52px;
-  height: 52px;
+  display: block;
   flex: none;
-  align-items: center;
-  justify-content: center;
   border-radius: 50%;
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--text-inverse);
-  background: linear-gradient(135deg, var(--brand-pink) 0%, var(--brand-blue) 100%);
+  line-height: 0;
 }
 
 .dyn-card__ident {

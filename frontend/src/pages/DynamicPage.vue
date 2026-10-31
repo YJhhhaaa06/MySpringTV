@@ -14,6 +14,7 @@ import { showToast } from '../common/toast'
 import AppIcon from '../components/common/AppIcon.vue'
 import EmptyState from '../components/common/EmptyState.vue'
 import Pagination from '../components/common/Pagination.vue'
+import UserAvatar from '../components/common/UserAvatar.vue'
 import DynamicCard from '../components/feed/DynamicCard.vue'
 
 /**
@@ -186,7 +187,11 @@ function followingHref(userId: number): string {
         <aside class="dyn-side">
           <section class="dyn-profile">
             <div class="dyn-profile__head">
-              <span class="dyn-profile__avatar">{{ me?.initial ?? '?' }}</span>
+              <UserAvatar
+                :user-id="me?.id ?? null"
+                :initial="me?.initial ?? '?'"
+                :size="58"
+              />
               <div class="dyn-profile__ident">
                 <p class="dyn-profile__name">{{ me?.name ?? '加载中…' }}</p>
                 <p class="dyn-profile__coin">硬币 {{ me?.coin ?? 0 }}</p>
@@ -280,7 +285,7 @@ function followingHref(userId: number): string {
                   rel="noopener"
                   :title="`${user.name} 的空间`"
                 >
-                  <span class="dyn-following__avatar">{{ user.initial }}</span>
+                  <UserAvatar :user-id="user.id" :initial="user.initial" :size="36" />
                   <span class="dyn-following__name">{{ user.name }}</span>
                 </a>
               </li>
@@ -335,20 +340,6 @@ function followingHref(userId: number): string {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-
-.dyn-profile__avatar {
-  display: flex;
-  width: 58px;
-  height: 58px;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  font-size: 22px;
-  font-weight: 600;
-  color: var(--text-inverse);
-  background: linear-gradient(135deg, var(--brand-pink) 0%, var(--brand-blue) 100%);
 }
 
 .dyn-profile__ident {
@@ -489,20 +480,6 @@ function followingHref(userId: number): string {
 
 .dyn-following__user:hover {
   background: var(--bg-1);
-}
-
-.dyn-following__avatar {
-  display: flex;
-  width: 36px;
-  height: 36px;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-inverse);
-  background: linear-gradient(135deg, var(--brand-pink) 0%, var(--brand-blue) 100%);
 }
 
 .dyn-following__name {

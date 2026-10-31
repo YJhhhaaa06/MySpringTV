@@ -62,7 +62,7 @@ export interface HeroSlideVM {
 export interface CurrentUserVM {
   id: number
   name: string
-  /** 头像占位：昵称首字（等 avatars 端点/字段，GAP 台账） */
+  /** 昵称首字（只有拿不到 `id` 时才当头像兜底；默认头像见 `UserAvatar`） */
   initial: string
   admin: boolean
   /**
@@ -185,7 +185,7 @@ export interface CommentVM {
   parentId: number | null
   authorId: number
   authorName: string
-  /** 头像占位：昵称首字 */
+  /** 昵称首字（无 `authorId` 时的头像兜底；默认头像按 `authorId` 分配） */
   initial: string
   content: string
   likeCount: number
@@ -328,7 +328,7 @@ export interface DynamicCardVM {
   authorId: number
   authorName: string
   authorHref: string
-  /** 头像占位：昵称首字（后端没有头像字段，GAP 台账） */
+  /** 昵称首字（拿不到 `authorId` 时的头像兜底；默认头像按 `authorId` 分配） */
   authorInitial: string
   /** 相对时间（`刚刚` / `4分钟前` / `05-09`） */
   timeText: string
@@ -358,11 +358,12 @@ export interface DynamicPageVM {
  * 关注 / 粉丝列表里的一个人（`FollowUserVO`）。
  *
  * <p>★ 这个 VO 只有 `userId / username / isFollowed / isSelf` —— **没有头像、没有签名**
- * （GAP 台账）⇒ 卡片只渲染首字头像、名字与关注按钮，不编签名。
+ * （GAP 台账）⇒ 卡片只渲染默认 SVG 头像、名字与关注按钮，不编签名。
  */
 export interface RelationUserVM {
   id: number
   name: string
+  /** 昵称首字（拿不到 `id` 时才当头像兜底；默认头像按 `id` 分配） */
   initial: string
   /** 当前登录用户是否关注了 TA（端点要求登录 ⇒ 这个布尔一定是真值，不是三态） */
   followed: boolean

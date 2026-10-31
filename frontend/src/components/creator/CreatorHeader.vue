@@ -2,6 +2,7 @@
 import { sessionState } from '../../auth/session'
 import { requireLogin } from '../../auth/loginPrompt'
 import AppIcon from '../common/AppIcon.vue'
+import UserAvatar from '../common/UserAvatar.vue'
 
 /**
  * 创作中心顶栏（与主站 `AppHeader` 刻意不同）。
@@ -32,7 +33,7 @@ function login(): void {
           :href="sessionState.user.spaceHref"
           :title="`${sessionState.user.name} 的空间`"
         >
-          <span class="creator-header__avatar">{{ sessionState.user.initial }}</span>
+          <UserAvatar :user-id="sessionState.user.id" :size="30" />
           <span class="creator-header__name">{{ sessionState.user.name }}</span>
         </a>
         <button
@@ -129,19 +130,6 @@ function login(): void {
   gap: 8px;
   font-size: 13px;
   color: var(--text-2);
-}
-
-.creator-header__avatar {
-  display: flex;
-  width: 30px;
-  height: 30px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-inverse);
-  background: linear-gradient(135deg, var(--brand-pink) 0%, var(--brand-blue) 100%);
 }
 
 .creator-header__login {

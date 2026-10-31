@@ -12,6 +12,7 @@ import { showToast } from '../../common/toast'
 import AppIcon from '../common/AppIcon.vue'
 import EmptyState from '../common/EmptyState.vue'
 import Pagination from '../common/Pagination.vue'
+import UserAvatar from '../common/UserAvatar.vue'
 
 /**
  * 空间页的「关注 / 粉丝」面板（B 站 `/{uid}/relation/following` 的对应物）。
@@ -205,7 +206,7 @@ async function signIn(): Promise<void> {
                 class="relation-card__avatar"
                 :to="{ name: 'space', params: { id: user.id } }"
                 :title="`${user.name} 的空间`"
-              >{{ user.initial }}</RouterLink>
+              ><UserAvatar :user-id="user.id" :initial="user.initial" :size="60" /></RouterLink>
               <div class="relation-card__body">
                 <RouterLink
                   class="relation-card__name"
@@ -334,17 +335,10 @@ async function signIn(): Promise<void> {
 }
 
 .relation-card__avatar {
-  display: flex;
-  width: 60px;
-  height: 60px;
+  display: block;
   flex: none;
-  align-items: center;
-  justify-content: center;
   border-radius: 50%;
-  font-size: 22px;
-  font-weight: 600;
-  color: var(--text-inverse);
-  background: linear-gradient(135deg, var(--brand-pink) 0%, var(--brand-blue) 100%);
+  line-height: 0;
 }
 
 .relation-card__body {

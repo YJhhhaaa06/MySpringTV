@@ -13,6 +13,7 @@ import { useCheckIn } from '../composables/useCheckIn'
 import AppIcon from '../components/common/AppIcon.vue'
 import EmptyState from '../components/common/EmptyState.vue'
 import Pagination from '../components/common/Pagination.vue'
+import UserAvatar from '../components/common/UserAvatar.vue'
 import VideoCard from '../components/common/VideoCard.vue'
 import VideoGrid from '../components/home/VideoGrid.vue'
 import RelationPanel from '../components/space/RelationPanel.vue'
@@ -303,7 +304,12 @@ function goItemPage(page: number): void {
 
       <template v-else>
         <header class="space-header">
-          <span class="space-avatar">{{ header?.initial ?? '?' }}</span>
+          <UserAvatar
+            class="space-avatar"
+            :user-id="header?.id ?? null"
+            :initial="header?.initial ?? '?'"
+            :size="84"
+          />
           <div class="space-ident">
             <h1 class="space-name">{{ header?.name ?? '加载中…' }}</h1>
             <p class="space-meta">
@@ -502,18 +508,8 @@ function goItemPage(page: number): void {
 }
 
 .space-avatar {
-  display: flex;
-  width: 84px;
-  height: 84px;
-  flex: none;
-  align-items: center;
-  justify-content: center;
   border: 3px solid var(--bg-0);
   border-radius: 50%;
-  font-size: 30px;
-  font-weight: 600;
-  color: var(--text-inverse);
-  background: linear-gradient(135deg, var(--brand-pink) 0%, var(--brand-blue) 100%);
   box-shadow: var(--shadow-1);
 }
 

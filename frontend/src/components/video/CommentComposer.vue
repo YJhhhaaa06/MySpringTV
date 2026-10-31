@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { isAuthenticated, sessionState } from '../../auth/session'
 import { requireLogin } from '../../auth/loginPrompt'
+import UserAvatar from '../common/UserAvatar.vue'
 
 /**
  * 评论输入框（主页与楼中楼共用）。
@@ -47,7 +48,13 @@ async function submit(): Promise<void> {
 
 <template>
   <form class="composer" :class="{ 'composer--compact': compact }" @submit.prevent="submit">
-    <span v-if="!compact" class="composer__avatar" aria-hidden="true">{{ avatar }}</span>
+    <UserAvatar
+      v-if="!compact"
+      :user-id="sessionState.user?.id ?? null"
+      :initial="avatar"
+      :size="40"
+      aria-hidden="true"
+    />
     <div class="composer__body">
       <textarea
         v-model="message"
@@ -74,20 +81,6 @@ async function submit(): Promise<void> {
 .composer {
   display: flex;
   gap: 12px;
-}
-
-.composer__avatar {
-  display: flex;
-  width: 40px;
-  height: 40px;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-inverse);
-  background: linear-gradient(135deg, var(--brand-pink) 0%, var(--brand-blue) 100%);
 }
 
 .composer__body {

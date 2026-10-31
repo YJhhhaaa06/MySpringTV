@@ -10,6 +10,7 @@ import { sessionState } from '../auth/session'
 import { shareCurrentPage } from '../common/share'
 import { useVideoInteractions } from '../composables/useVideoInteractions'
 import EmptyState from '../components/common/EmptyState.vue'
+import UserAvatar from '../components/common/UserAvatar.vue'
 import CommentSection from '../components/video/CommentSection.vue'
 import FavoriteDialog from '../components/video/FavoriteDialog.vue'
 import OpusActionRail from '../components/opus/OpusActionRail.vue'
@@ -147,7 +148,7 @@ function onCommentCount(count: number): void {
             rel="noopener"
             :title="`${detail.authorName} 的空间`"
             :aria-label="`${detail.authorName} 的空间`"
-          >{{ authorInitial }}</a>
+          ><UserAvatar :user-id="detail.authorId" :initial="authorInitial" :size="48" /></a>
           <div class="opus-author__body">
             <a
               class="opus-author__name"
@@ -246,17 +247,10 @@ function onCommentCount(count: number): void {
 }
 
 .opus-avatar {
-  display: flex;
-  width: 48px;
-  height: 48px;
+  display: block;
   flex: none;
-  align-items: center;
-  justify-content: center;
   border-radius: 50%;
-  font-size: 19px;
-  font-weight: 600;
-  color: var(--text-inverse);
-  background: linear-gradient(135deg, var(--brand-pink) 0%, var(--brand-blue) 100%);
+  line-height: 0;
 }
 
 .opus-author__body {
