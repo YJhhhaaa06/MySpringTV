@@ -1,10 +1,11 @@
 # 播放记录（history）域
 
-> 定位（先读这一句）：本域记录**谁把哪个视频看到哪了**，并在**首次播放**时给内容累计一次**播放量**。
+> 定位（先读这一句）：本域记录**谁把哪个视频看到哪了**，并在**当天首次播放**时给内容累计一次**播放量**
+> （`R-26` 起"当天"= 业务时区 `Asia/Shanghai` 的自然日）。
 > 本篇是服务端的**唯一事实源**（数据模型 / 端点契约 / 写读路径 / 口径 / 边界）。
 > **用户可见规则** → [history-需求](./history-需求.md)；**上报缓冲机制** → [history-上报缓冲](./history-上报缓冲.md)；
 > **客户端怎么配合** → [history-客户端契约](./history-客户端契约.md)；
-> **已拍板接受的代价**（历史不可删 / 无容量上限）→ [history-已知代价](./history-已知代价.md)。
+> **已拍板接受的代价**（口径变更不可比 / 行数与账本无界 / 删除可复活 / 开关不强制）→ [history-已知代价](./history-已知代价.md)。
 >
 > 读法：只想接入或判断行为 ⇒ **§〇 + §三**；改代码 ⇒ 再读 **§四 / §七**；想知道"为什么这么做" ⇒ **§十**。
 > ★ 页面与词（播放页 / 历史记录页 / 观看会话 / 标签页）**先看** [history-术语表](./history-术语表.md) ——
@@ -20,34 +21,39 @@
 
 ```
 播放页                           服务端                                     存储
-/play     ──────────────────>  判首播（一人一次）──> content.play_count +1 ──> 事件 ──> content:playCount
+/play     ──────────────────>  判当天首播（一人一天一次）──> content.play_count +1 ──> 事件 ──> content:playCount
 /report   ──────────────────>  校验 + clamp ─────────> Redis 缓冲（hash + dirty 集合）
 /flush    ──────────────────>  批量 ODKU ────────────> watch_history（写成功才条件删缓冲）
 【服务端轮询】────────────────>  同一段落库（只兜"停止上报"的会话）
+/delete   ──────────────────>  删行 + 清缓冲 ─────────> watch_history（账本与 play_count 都不动）
 /list     <──────────────────  一页 watch_history + 一趟 loadContentVOs（取不到的做失效占位）
 /position <──────────────────  一条 uk_user_content 点查（只读**已落库**的值）
 ```
 
 | 谁 | 做什么 | 端点 |
 |---|---|---|
-| 播放页 · 开始播放 | 记一次播放量（一人一次，幂等） | `POST /api/v1/contents/{id}/play` |
+| 播放页 · 开始播放 | 记一次播放量（一人一天一次，幂等） | `POST /api/v1/contents/{id}/play` |
 | 播放页 · 初始化 | 取续播位置（无记录 ⇒ 0） | `GET /api/v1/contents/{id}/progress` |
 | 播放页 · 播放中 | 报进度，**只进缓冲不落库** | `PUT /api/v1/contents/{id}/progress` |
 | 播放页 · 暂停/退出/切页 | 把该用户缓冲**同步落库** | `POST /api/v1/history/flush` |
 | 历史记录页 · 翻页 | 分页读列表（**唯一的读端点**） | `GET /api/v1/history` |
+| 历史记录页 · 删一条 / 批量 / 清空 | 删行 + 清缓冲（幂等） | `DELETE /api/v1/history` |
 
-**三条最容易记错的口径**：
+**四条最容易记错的口径**：
 
 1. **一人一内容一行**（`uk_user_content`）：重复上报只改这一行，列表里不会出现两条。
-2. **播放量按人去重、只增**；详情平铺，列表卡片也带播放量（GAP-01 起网格封面角标 / 动态嵌入块）。
+2. **播放量按人去重、只增**，`R-26` 起**去重的粒度是自然日**（每人每内容每天至多 1 次）；
+   详情平铺，列表卡片也带播放量（GAP-01 起网格封面角标 / 动态嵌入块）。
 3. **进度后到即新（LWW）**，没有"只能增"守卫 ⇒ 重看从头会把进度改回 0（刻意偏离 B站，§十 #1）。
+4. ★ **历史行可删，账本不可删**：删历史不减播放量，也不会让同一天再播重复计（`R-26`）。
 
 **代码落点**（想读实现直接跳这里）：
 
 | 面 | 类 |
 |---|---|
-| 入口 | `history/controller/HistoryController`（类级 `@RequiresLogin`，五个端点） |
-| 写 | `HistoryService#report / #play / #flush` · `HistoryReportBuffer`（Redis 语义层）· `HistoryFlushService`（落库编排）· `HistoryFlushScheduler`（兜底轮询） |
+| 入口 | `history/controller/HistoryController`（类级 `@RequiresLogin`，六个端点） |
+| 写 | `HistoryService#report / #play / #flush / #delete` · `HistoryReportBuffer`（Redis 语义层）· `HistoryFlushService`（落库编排）· `HistoryFlushScheduler`（兜底轮询） |
+| 播放量去重 | `history/dao/PlayDedupDao`（账本，`R-26`）· `history/service/PlayDay`（业务日界：`Asia/Shanghai`） |
 | 读 | `HistoryService#list / #position` · `WatchHistoryDao` |
 | 播放量 | `content.play_count` 列 · `ContentCountAggregate`（详情第五键）· `content.event.PlayCountChangedListener` |
 | 时长 | `upload/service/Mp4DurationReader` → `content_media.duration_seconds` → `ContentCacheDTO` |
@@ -58,19 +64,20 @@
 
 | 做 | 不做 |
 |---|---|
-| 进度上报（`PUT /api/v1/contents/{id}/progress`，**先进 Redis 缓冲**，见 [上报缓冲](./history-上报缓冲.md)） | 历史删除 / 清空 |
-| 播放事件（`POST /api/v1/contents/{id}/play`，去重计播放量；**不进缓冲**） | 前端页面（旧 `static/` 已**删除**，2026-10-26；新前端**已接入**：播放页 2026-10-25、历史列表页 2026-10-26，见 [客户端静默机制](../../frontend/客户端静默机制.md)） |
-| 历史列表（`GET /api/v1/history`，失效占位；**不合并缓冲**） | 历史列表缓存 |
-| 续播位置（`GET /api/v1/contents/{id}/progress`，**只读已落库的值**） | 服务端**降频**（节流由客户端负责；缓冲只挡写库，不挡请求） |
-| 退出 flush（`POST /api/v1/history/flush`）+ 空闲轮询兜底（[上报缓冲](./history-上报缓冲.md)） | 客户端节流（服务端不做；**已由新前端实现**，见 [客户端契约](./history-客户端契约.md) §三） |
-| 「记录浏览历史」开关（`R-25`：用户级列 + `users/me` 端点，**本域不持端不长边**） | 服务端**强制**这个开关（四个写口一律不校验；代价与推翻条件见 [已知代价](./history-已知代价.md)） |
-| mp4 时长解析（发布 / 换源） | 「已看完」标记（由前端按 `progress / duration` 推导） |
-| 详情播放量（第 5 个公共计数） | 历史容量上限 / 旧行清理 |
-| 失效内容占位（抄收藏域形态） | ~~存量内容时长回填~~（2026-10-27 已一次性完成，见 §六.2） |
+| 进度上报（`PUT /api/v1/contents/{id}/progress`，**先进 Redis 缓冲**，见 [上报缓冲](./history-上报缓冲.md)） | 历史列表缓存 |
+| 播放事件（`POST /api/v1/contents/{id}/play`，**按自然日**去重计播放量；**不进缓冲**） | 前端页面（旧 `static/` 已**删除**，2026-10-26；新前端**已接入**：播放页 2026-10-25、历史列表页 2026-10-26、删除 / 清空 2026-10-31，见 [客户端静默机制](../../frontend/客户端静默机制.md)） |
+| 历史列表（`GET /api/v1/history`，失效占位；**不合并缓冲**） | 服务端**降频**（节流由客户端负责；缓冲只挡写库，不挡请求） |
+| 历史删除 / 清空（`R-26`：`DELETE /api/v1/history`，`contentIds` ≤500 或 `all=true`；**连带清缓冲**） | 客户端节流（服务端不做；**已由新前端实现**，见 [客户端契约](./history-客户端契约.md) §三） |
+| 续播位置（`GET /api/v1/contents/{id}/progress`，**只读已落库的值**） | 服务端**强制**「记录浏览历史」开关（四个写口一律不校验；代价与推翻条件见 [已知代价](./history-已知代价.md)） |
+| 退出 flush（`POST /api/v1/history/flush`）+ 空闲轮询兜底（[上报缓冲](./history-上报缓冲.md)） | 「已看完」标记（由前端按 `progress / duration` 推导） |
+| 「记录浏览历史」开关（`R-25`：用户级列 + `users/me` 端点，**本域不持端不长边**） | 账本清理（`content_play_dedup` **不清理**；真要清走 `tools/devclean/` 运维脚本，`R-26`③） |
+| mp4 时长解析（发布 / 换源） | 历史容量上限（行数无界，见 [已知代价](./history-已知代价.md)） |
+| 详情播放量（第 5 个公共计数）· 失效内容占位（抄收藏域形态） | ~~存量内容时长回填~~（2026-10-27 已一次性完成，见 §六.2） |
+| 播放量去重账本（`V10`，每人·每内容·每天至多一行） | ~~历史不可删~~（`R-26` 已推翻） |
 
 ---
 
-## 二、数据模型（Flyway **V6** 建表；**V7** 清遗留表；**V8** 换列表索引）
+## 二、数据模型（Flyway **V6** 建表；**V7** 清遗留表；**V8** 换列表索引；**V10** 拆标记 + 建账本）
 
 ```sql
 -- V6：播放记录
@@ -111,6 +118,24 @@ ALTER TABLE `watch_history`
   COMMENT '历史列表倒序（update_time DESC, content_id DESC）+ 三列覆盖；每条上报改 update_time ⇒ 一并维护';
 ```
 
+```sql
+-- V10：播放量去重账本 + 拆掉 watch_history 的死列/死索引（R-26）
+CREATE TABLE IF NOT EXISTS `content_play_dedup` (
+  `user_id`     bigint   NOT NULL,
+  `content_id`  bigint   NOT NULL,
+  `play_date`   date     NOT NULL COMMENT '计过数的自然日（业务时区 Asia/Shanghai）',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记账时刻（审计；日界看 play_date）',
+  PRIMARY KEY (`user_id`,`content_id`,`play_date`),
+  KEY `idx_date` (`play_date`) COMMENT '只服务将来的运维清理（WHERE play_date < ?），不在运行时读路径上'
+) COMMENT='播放量去重账本（每人·每内容·每天至多一行；只增）';
+
+-- 去重标记搬走后两者都是死物：play_counted 不再被任何判定读写（留着会被当成真相）；
+-- idx_content_id 唯一用途是"不变量复算"，复算已搬到账本，它变成每次插入都付费的死索引。
+ALTER TABLE `watch_history`
+  DROP KEY `idx_content_id`,
+  DROP COLUMN `play_counted`;
+```
+
 **口径**：
 
 | # | 口径 | 理由 |
@@ -118,7 +143,8 @@ ALTER TABLE `watch_history`
 | 1 | 一人一内容**一行**（`uk_user_content`） | 重复上报只更新；列表里不出现同一视频两条 |
 | 2 | `progress_seconds` 单位**秒** | 客户端只传秒；不引入毫秒/时间戳 |
 | 3 | **不存 duration 快照** | 时长真相只有 `content_media.duration_seconds` 一份；历史读当前值 |
-| 4 | `play_counted` 与 `progress` **解耦** | `/report` 只改进度，`/play` 只改标记（§四） |
+| 4 | 去重证据**不在本表**（`R-26`：搬进 `content_play_dedup`） | 本表只存"看到哪了" ⇒ 删行不影响播放量；标记与进度解耦（旧 `play_counted` 已随 V10 拆掉） |
+| 4b | 账本主键 = `(user_id, content_id, play_date)`，`play_date` 是**业务日** | "每人每内容每天一次"是多值事实（同一对 (user,content) 可以有 N 天 × 1 次）⇒ 日期必须在键里；日界按 `Asia/Shanghai` 算（`PlayDay`），**不用 `CURDATE()`**（它取 MySQL 时区，容器常 UTC） |
 | 5 | `update_time` 必须**显式** `SET ... = CURRENT_TIMESTAMP` | `ON UPDATE` 在"值没变"时不触发 ⇒ 重复上报同一秒不会移到最前 |
 | 6 | `idx_content_id` 不是运行时读路径 | 只服务不变量复算（`play_count == COUNT(*)`）与将来的清理工具 |
 
@@ -140,13 +166,14 @@ filesort。新索引**前三列就是排序键**，第四列 `progress_seconds` 
 
 写 = `PUT` / `POST` + **JSON body**（`T59` 起，见 [`接口契约.md`](../../tech/api/接口契约.md) §2.5）、读 = `GET` + query。
 进度覆盖幂等 ⇒ PUT，播放 / flush 是动作 ⇒ POST（见该篇 §2.4）；旧的 form 表单形态已随 `T59` 作废。
-`HistoryController` **类级 `@RequiresLogin`**：五个端点都只对当前登录用户有意义。
+`HistoryController` **类级 `@RequiresLogin`**：六个端点都只对当前登录用户有意义。
 
 | 端点 | 入参 | 出参（`data`） | 说明 |
 |---|---|---|---|
+| `DELETE /api/v1/history` | query：`contentIds`（逗号分隔 / 重复参数，去重后 ≤**500**）**或** `all=true`（**互斥**） | 无（**204**，`code=OK`） | `R-26`：删单条 / 批量 / 清空；**幂等**（行不存在也 204）、**不校验内容存在性**（失效占位要能删）、**不动 `play_count`**；连带清该用户的 Redis 缓冲 |
 | `PUT /api/v1/contents/{id}/progress` | 路径 `{id}` + JSON body `{"progress"}`（秒，整数） | 无（`msg="success"`） | **只写 Redis 缓冲、不落库**；后到即新（LWW）；按当前时长 clamp；Redis 不可用 ⇒ **503 + `Retry-After`** |
 | `POST /api/v1/history/flush` | 无（`userId` 取自登录态） | 无（`msg="success"`） | 把**该用户全部**脏缓冲**同步**落库（退出信号）；落库失败仍 **200**（数据留缓冲等兜底） |
-| `POST /api/v1/contents/{id}/play` | `contentId`（进路径） | 无（`msg="success"`） | 首播去重后 `play_count + 1`；行不存在则建行（progress=0） |
+| `POST /api/v1/contents/{id}/play` | `contentId`（进路径） | 无（`msg="success"`） | **当天**首播去重后 `play_count + 1`；**无论是否首播**都保证历史行存在（progress=0） |
 | `GET /api/v1/history` | `page`、`pageSize` | `PageResult<HistoryItemVO>` | 按 `update_time DESC, content_id DESC`；缺省 20 / 上限 100 |
 | `GET /api/v1/contents/{id}/progress` | `contentId`（进路径） | `{ "progress": 123 }` | 无记录 ⇒ `0`；**不校验内容、不返回 404** |
 
@@ -211,20 +238,18 @@ ON DUPLICATE KEY UPDATE
 - **不做"进度只能增"的守卫**：后到即新。重看从头会把进度改回 0（与 B站 不同，见
   [history-需求](./history-需求.md) §六）。
 
-### 4.2 `POST /api/v1/contents/{id}/play`：首播判定，`@Transactional`
+### 4.2 `POST /api/v1/contents/{id}/play`：当天首播判定，`@Transactional`
 
 ```sql
--- ① 行不存在：直接建行并标记已计
-INSERT IGNORE INTO watch_history (user_id, content_id, progress_seconds, play_counted)
-VALUES (?, ?, 0, 1);
--- affected = 1 ⇒ 首播；= 0 ⇒ 行已存在，走 ②
+-- ① 记一笔"今天计过数"（R-26 起判据在这里，不在历史行上）
+INSERT IGNORE INTO content_play_dedup (user_id, content_id, play_date)
+VALUES (?, ?, ?);            -- play_date = PlayDay.today()（Java 按 Asia/Shanghai 算）
+-- affected = 1 ⇒ 今天首播；= 0 ⇒ 今天已计，直接 200
 
--- ② 行已存在：条件抢占标记
-UPDATE watch_history SET play_counted = 1
- WHERE user_id = ? AND content_id = ? AND play_counted = 0;
--- affected = 1 ⇒ 首播；= 0 ⇒ 已计过，直接 200
+-- ② **无条件**保证历史行存在（只 play 不 report 的视频也要出现在列表里）
+INSERT IGNORE INTO watch_history (user_id, content_id, progress_seconds) VALUES (?, ?, 0);
 
--- ③ 首播分支（与 ①/② 同一事务）
+-- ③ 今天首播分支（与 ①② 同一事务）
 UPDATE content SET play_count = play_count + 1 WHERE id = ?;
 -- ④ 发布 PlayCountChangedEvent(contentId)（AFTER_COMMIT 更新 content:playCount）
 ```
@@ -232,13 +257,19 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
 - ★ **不用 `ON DUPLICATE KEY UPDATE` 判首播**：`useAffectedRows=false` 下"插入"与"值没变的更新"
   都返回 1 ⇒ 会把重复播放误判成首播。`INSERT IGNORE` 的 `1/0` 无歧义（与 coin 的
   `insertIgnoreZero` 同形）。
-- 并发：两个首播请求，①或②只有一个 `affected=1` ⇒ 播放量恰 `+1`。
-- 锁序：先 `watch_history` 后 `content`；**内容删除不碰 `watch_history`**（无反向锁序）。
-  理论上仍有"`INSERT IGNORE` 共享锁 → 条件 `UPDATE` 排他锁"的 1213 窗口（未复现，§十 #9）。
+- ★ **日期进主键 ⇒ 一条语句回答"今天有没有计过"**：旧实现要两条（`INSERT IGNORE` + 条件
+  `UPDATE ... WHERE play_counted = 0`），现在只一条，两条语句之间的锁序窗口也随之消失。
+- ★ ② **必须无条件执行**：用户删了历史又重看时，今天不会再计播放量（账本还在），
+  但历史行**应该重新出现** —— 只在首播时建行会让"页面在播、列表里却没有它"。
+- 并发：两个首播请求，① 只有一个 `affected=1` ⇒ 播放量恰 `+1`。
+- 锁序：先 `content_play_dedup`、再 `watch_history`、后 `content`；内容删除既不碰账本也不碰历史行
+  ⇒ 无反向锁序。
+- ★ **删历史不改变今天的判定**：账本行不在 `watch_history` 里，删行删不到它
+  ⇒ "删了再播"不重复计、"明天再播"照常再计一次（`R-26` 的全部意义）。
 - `/play` 在行不存在时**建行（progress=0）**：否则"先 play 后 report"会丢播放量；
   历史里出现一条 00:00 的记录是预期行为。
 - `/play` 是**唯一**计播放量入口；`/report` 不计数。播放事件丢失 ⇒ 本次不计，下次观看会再发；
-  **只看一次且丢包 ⇒ 永久少计**（§十 #2）。
+  **只看一次且丢包 ⇒ 永久少计**（§十 #2）。跨日会话不补计（事件只在会话开始发一次）。
 
 ### 4.3 事务边界
 
@@ -246,7 +277,28 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
 |---|---|---|
 | `/report` | **不加** | 只写 Redis：单条 Lua（`HSET` + `ZADD`）本身原子（[上报缓冲](./history-上报缓冲.md)） |
 | `/flush` / 轮询兜底 | **一批一事务**；失败后**逐条重试** | 批量 ODKU 必须同进同退；一次数据异常若整批回滚会"毒死全批"⇒ 失败降级逐条，把坏行摘出去（[上报缓冲](./history-上报缓冲.md) §四） |
-| `/play` | **加** | 标记位 + `content.play_count` 必须同进同退；否则不变量没有自愈路径 |
+| `/play` | **加** | 账本行 + `content.play_count` 必须同进同退；否则不变量没有自愈路径 |
+| `DELETE /history` | **不加** | 单条 `DELETE` 本身原子；缓冲清理**不属于**同一原子域（让 DB 事务包住一次 Redis 往返只会把失败面拉长），失败只记 WARN |
+
+### 4.4 `DELETE /api/v1/history`：删行 + 清缓冲（`R-26`）
+
+```sql
+-- 批量（Service 已去重、已校验非空且 ≤500）
+DELETE FROM watch_history WHERE user_id = ? AND content_id IN (...);
+-- 清空
+DELETE FROM watch_history WHERE user_id = ?;
+```
+
+顺序是**先删库、再清缓冲**：库是真相，缓冲只是"还没落库的进度"。
+
+- ★ **必须清缓冲**：`/report` 只写 Redis，那批脏进度留着的话，下一次 `/flush` 或轮询兜底会把行
+  **原样写回来**（"删了又回来"）。按内容清 = `HDEL` + "hash 空了就 `DEL` 并摘脏成员"（一条 Lua）；
+  清空 = `DEL` + `ZREM`（一条 Lua，原子，避免僵尸成员）。
+- ★ **缓冲清理失败不阻断删除**（只记 WARN）：删除是用户意图，不该因缓存抖动而失败；代价 = 极窄窗口内
+  可能复活一条（§十 #7b）。★ **不校验内容存在性**：失效占位必须删得掉（同收藏域 G11 红线）。
+- ★ **不动 `content.play_count`**、不产生跨域写、不发事件 —— 删历史不减播放量（B站 同口径）。
+  客户端还要清 `history:pending:{contentId}`（`/position` 已答 0，但播放页取 `max(服务端, 本地)`
+  ⇒ 不清会从旧位置续播并把行重建）；只做后端不够（见 [客户端契约](./history-客户端契约.md) §十二）。
 
 ---
 
@@ -259,12 +311,17 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
 | 详情读 | 计数聚合 **4 键 → 5 键**：`ContentCountColumns` 加 `playCount`、`ContentDao#findCountColumns` 加列、`ContentCountAggregate` 的解析 / 合并 / 回填各加一位。⚠️ record 组件**必须用包装 `Long`**（MyBatis `<constructor>` 按 javaType 反射，原生 `long` 会 `NoSuchMethodException` ⇒ 详情 500） |
 | 回填 | content 域内 `ContentCountCache#backfillPlayCount`（**不经互动域**——键是自己的） |
 | 失效 | `content.event.PlayCountChangedListener` 订阅 `history.event.PlayCountChangedEvent`，**条件 `INCRBY 1`**（冷 key 不建，同 coin 的 `content:coinCount`） |
-| 不变量 | `content.play_count == COUNT(*) FROM watch_history WHERE content_id = ? AND play_counted = 1` |
+| 不变量 | `content.play_count == COUNT(*) FROM content_play_dedup WHERE content_id = ?`（`R-26` 起**账本**是右侧；★ 只对 **V10 之后新建**的内容成立——存量内容有"历史余额"，因为账本不回填） |
 
 - **详情平铺**（`ContentDetailVO.playCount`）；GAP-01 起列表也带 `playCount`（按面，见
   [缓存与数据一致性 §5.3](../../tech/cache/缓存与数据一致性.md)），但**不进 `ContentCacheDTO`**。
 - 图文帖 `play_count` 恒 0（没有 `/play` 路径能通过类型校验）。
-- 内容删除：详情 404 在聚合之前短路；`play_count` 与历史行都**不动**（失效占位要它）；
+- ★ **账本三条口径**（`R-26`）：① **只增**（没有"取消播放"，所以仍不需要 `CAST` 下溢守卫）；
+  ② **不回填**旧数据 —— `watch_history.update_time` 是"最后上报时间"、不是"计数的那个自然日"，
+  拿它回填就是往账本写假日期 ⇒ 存量内容的 `play_count` 与账本行数之间允许存在历史余额；
+  ③ **不清理** —— 只有"今天"的行有约束力，更早的行按语义永远无用，所以清理是**纯容量优化**
+  （漏跑不改语义）。真要清走 `tools/devclean/` 运维脚本，**不引入常驻定时任务**。
+- 内容删除：详情 404 在聚合之前短路；`play_count`、历史行、**账本行**都**不动**（失效占位要它）；
   `content:playCount:{id}` 在 `ContentCache#removeContent` 里**一并失效**（同 `commentCount` 的孤儿键口径
   —— 键删了也不会再回填，因为详情 404 在聚合之前）。
 - 不新增 `content → history` 边：详情不反查历史，播放量走"列 + 自己的 key"。
@@ -343,6 +400,10 @@ filesort；新索引前三列即排序键（前向索引扫描）：
 **不缓存**：私有 + 写多读少 + 每次上报都变 ⇒ 缓存必然"写后就废"。这是**刻意不做**；
 推翻 = 出现真实读放大。
 
+★ **用户删除（`R-26`）之后**：`total` 与页内条数同步减；删空末页时服务端**照常返回空页**
+（不是 404、也不自动跳页）—— 回退一页是**前端**的决定（`historySelection#shouldStepBackPage`），
+因为"服务端替客户端改页码"会让 URL 与响应不一致。
+
 ### 7.2 续播位置
 
 一条 `uk_user_content` 点查；无行 ⇒ `progress=0`。不校验内容、不返回 404
@@ -369,11 +430,18 @@ filesort；新索引前三列即排序键（前向索引扫描）：
 |---|---|---|
 | 400 | `progress < 0` | 播放进度不能为负数 |
 | 400 | 图文帖上报 / 播放 | 只能记录视频的播放进度 |
+| 400 | 删除时 `contentIds` 与 `all=true` 同时给 | contentIds 与 all=true 不能同时指定 |
+| 400 | 删除时两者都没给（缺参） | 请指定要删除的记录（contentIds），或用 all=true 清空历史 |
+| 400 | 批量删除去重后 > 500 条 | 一次最多删除 500 条历史记录 |
 | 404 | 内容不存在 / 已软删 / 媒体损坏 | 内容不存在 |
 | 401 | 未登录 | （鉴权链兜底） |
 | 429 | 上报过密 | （限流，见 [限流](../../tech/rate-limit/限流.md)） |
 | 503 | Redis 不可用（`/report`） | 服务繁忙 + `Retry-After` |
-| 200 | `/play` 重复上报 | 幂等，不报错、不重复计数 |
+| 200 | `/play` 重复上报 | 幂等，不报错、不重复计数（自然日内） |
+| 204 | `DELETE` 命中 0 行 / 重复删除 / id 打错 | 无 body（幂等；**与缺参 400 是两件事**） |
+
+★ 删除**只有**三种 400（互斥 / 缺参 / 超上限），**没有** 404 —— "记录不存在"是成功，
+不是"找不到资源"。把 id 打错变成 404 会给"静默成功"开一个口子（同 §2.4 边界①）。
 
 ★ **"媒体损坏"只有一个判据**：`type=1` **视频媒体行缺失**（`ContentCache#buildContentMedia` 返回 false）。
 **不是** `durationSeconds == null`（解析失败仍可播），也**不是** `content_media.file_exists = 0`
@@ -401,17 +469,18 @@ filesort；新索引前三列即排序键（前向索引扫描）：
 | # | 代价 | 边界 / 推翻条件 |
 |---|---|---|
 | 1 | **重看从头会把进度改回 0**；客户端重试的旧包后到会倒退 | 拍板"先到即旧、后到即新"（LWW）。B站 不会丢更靠后的进度 ⇒ **刻意偏离**。推翻 = 客户端带单调序号，或服务端加"只增"守卫 |
-| 2 | **播放事件丢失 ⇒ 本次不计；只看一次且丢包 ⇒ 永久少计** | 一人一次口径下无法区分"没播过"与"事件丢了"。推翻 = 让 `/report` 在 `play_counted=0` 时补计（代价：每次上报多一条条件 UPDATE） |
+| 2 | **播放事件丢失 ⇒ 本次不计；只看一次且丢包 ⇒ 永久少计** | 按自然日去重的口径下无法区分"今天没播过"与"事件丢了"。推翻 = 让 `/report` 在账本没有今天那行时补计（代价：每次上报多一条条件插入） |
 | 3 | **`/play` 与 `/report` 解耦**：只发 play 不报进度 ⇒ 行停在 0 秒；只报进度不发 play ⇒ 不计播放量 | 前端必须两个都发；无前端期由测试与文档保证。推翻 = 合并端点为单入口 |
 | 4 | 换源后 `duration_seconds` 变化 ⇒ 旧进度可能大于新时长，比例失真 | 写入时 clamp；**读时不 clamp**（不改存储值）。下次上报即修正。推翻 = 出现大量换源 |
 | 5 | 老缓存条目在 TTL 内 `durationSeconds=null` | 部署后最长一个 `contentTtl`（15m）自愈；不刷缓存 |
 | 6 | 存量内容时长**曾**永不回填（null） | **2026-10-27 已推翻**：一次性工具回填 42/45，3 个文件缺失保持 NULL；进度按秒展示只剩这 3 条与解析失败。工具 = `tools/devclean/backfill_duration.py`（只填 NULL、默认 dry-run、文件缺失不写 0） |
-| 7 | 历史**不可删** ⇒ 行无界增长 | 一人一内容一行，增长上限 = 用户 × 看过的内容；无清理任务。推翻 = 需要删除时先重定播放量口径（B站 删历史不减播放量） |
+| 7 | 历史**行数仍无界**（可删了，但 `DELETE` 只标记、不回收空间；用户不删就一直长） | 一人一内容一行，增长上限 = 用户 × 看过的内容；无清理任务。推翻 = 出现真实规模 |
+| 7b | **删除与上报/落库并发时，那条可能"复活"**（窗口 = 一次心跳或一次 flush） | 顺序是"先删库、再清缓冲"，期间到达的 `/report` 会重新写入；正在播放的标签页本来也会把行带回来 —— 那是"最近看过"的真相。推翻 = 需要"删除后 N 分钟内禁止重建"（要按内容记墓碑，代价远大于收益） |
 | 8 | 失效占位保留 `progress`（页面仍显示"看到 X 秒"） | 历史数据是真实的；前端可选择不渲染。推翻 = 产品要求占位一律置空 |
-| 9 | 首播的理论 1213 死锁窗口（`INSERT IGNORE` → 条件 `UPDATE`） | 与 coin 同族，未复现；真实并发出现 ⇒ 改 ODKU 或重试 |
+| 9 | **账本行数 ∝ 用户 × 内容 × 有播放的天数**（比 `watch_history` 长得快），且**不清理** | 只有"今天"的行有约束力，旧行永远无用 ⇒ 清理是纯容量优化，漏跑不改语义。本仓无流量 ⇒ 目前只是理论成本；真要做走 `tools/devclean/` 脚本。★ 原 #9 的 `INSERT IGNORE` → 条件 `UPDATE` 1213 窗口已随 `R-26` 的单语句判定消失 |
 | 10 | 列表 offset 翻页在上报并发下会重复 / 漏 | 排序键 `update_time` 会被上报改写；B站 用游标。本仓沿用 `PageResult`。推翻 = 历史翻页成为主路径 |
 | 11 | 播放量在列表卡片上的口径 | **GAP-01（2026-10-26）起列表带播放量**（网格封面角标 / 动态嵌入块）；其余四维仍只在详情。见 [缓存与数据一致性 §5.3](../../tech/cache/缓存与数据一致性.md) |
-| 12 | ★ `INSERT IGNORE` 会把**非唯一键的错误**（列截断 / 未来的 CHECK 或第二条唯一键）也降级成 warning ⇒ `affected=0` 被一律读作"已计过"，那次播放量被**静默丢弃** | 前提：本表**只有 `uk_user_content` 一个唯一键**、`user_id` / `content_id` 是 `bigint`、`progress_seconds` 恒 0 ⇒ 当前不可能触发。推翻 = 给本表加约束 / 加第二个唯一键 / 改写入列宽 ⇒ 届时应改成"先查后插"或 ODKU + 显式判别，别再靠 `IGNORE` 的 0 |
+| 12 | ★ `INSERT IGNORE` 会把**非唯一键的错误**（列截断 / 未来的 CHECK 或第二条唯一键）也降级成 warning ⇒ `affected=0` 被一律读作"今天已计过"，那次播放量被**静默丢弃** | 前提：**账本只有主键一个唯一键**（`bigint`/`bigint`/`date`，无变长列）、`watch_history` 也只有 `uk_user_content` ⇒ 当前不可能触发。推翻 = 给这两张表加约束 / 加第二个唯一键 / 改写入列宽 ⇒ 届时应改成"先查后插"或 ODKU + 显式判别，别再靠 `IGNORE` 的 0 |
 
 ---
 
@@ -420,7 +489,9 @@ filesort；新索引前三列即排序键（前向索引扫描）：
 | 面 | 断言要点 | 落点 |
 |---|---|---|
 | 上报契约 | 建行 / 低进度覆盖高进度（LWW，不是"只增"）/ 超时长被 clamp / 重复上报**仍刷新 `update_time`** / 图文 400 / 已删 404 / 匿名 401 | `HistoryWriteTests` |
-| 播放契约 | 首播 `+1` / 重复不变 / **并发两次恰 +1** / 行不存在时建行 / **被拒请求一行都不落** | `HistoryWriteTests` |
+| 播放契约 | 当天首播 `+1` / 同日重复不变 / **并发两次恰 +1** / 行不存在时建行 / **昨天计过 ⇒ 今天再计** / **被拒请求一行都不落** | `HistoryWriteTests` |
+| 日界 | `2026-10-31T15:59:59Z → 10-31`、`T16:00:00Z → 11-01`（**UTC 口径必红**，这是时区缺陷的唯一确定性判别力） | `PlayDayTests` |
+| 删除 | 只删选中的 / 别人的不动 / 幂等 204（含 id 打错）/ 缺参与互斥与超 500 都是 400 / 清空 / **失效占位可删** / 401 / **删后同日再播不计、次日再计** / **删后 flush 不复活** | `HistoryDeleteTests` |
 | 缓冲与落库 | 上报不进库 / `/flush` 进库 / 轮询兜底 / 503 一次 DAO 都不调 / 落库失败留缓冲 / 毒批逐条降级 / 并发上报新值优先 | `HistoryFlushTests` · `HistoryReportBusyTests` · `HistoryReportBufferTests` · `HistoryBufferPropertiesTests` |
 | 读面 | 列表顺序与 `total`（**独立 oracle**）/ 占位三字段 + `progress` 保留 + 页内条数不缩水 / 续播"无记录 0 / 已删仍答" / 缓冲不参与续播 | `HistoryListTests` · `HistoryPositionTests` |
 | 时长 | 手搓 mp4（moov 前/后、v0/v1、`size==1`、`timescale=0`、截断、非 mp4）/ 落库 + 详情回显 / 换源刷新 / 换成坏文件回 null | `Mp4DurationReaderTests` · `UploadDurationTests` |
@@ -428,14 +499,15 @@ filesort；新索引前三列即排序键（前向索引扫描）：
 | 结构 | 唯一键**真插两行**看拦不拦 / 索引全集 / 版本行 | `HistorySchemaTests` · `WatchLaterSchemaTests` |
 | 鉴权 | **五条路由**（`/report` `/flush` `/play` `/list` `/position`）落到 `@Controller` 处理器上 | `SecurityContractTests#history写端点需登录` |
 
-**独立 oracle**：`content.play_count == SELECT COUNT(*) FROM watch_history WHERE content_id=? AND play_counted=1`；
-`(user_id, content_id)` 唯一。
+**独立 oracle**：`content.play_count == SELECT COUNT(*) FROM content_play_dedup WHERE content_id=?`（只对 V10 后新建内容绝对成立）；
+`(user_id, content_id)` 在 `watch_history` 唯一、`(user_id, content_id, play_date)` 在账本唯一。
 
 **迁移锚点（加迁移 / 加非 GET 端点时各改各的，同 commit）**：
-`InfrastructureConnectivityTests`（表数 **19**、版本 `1..9`）、
-`HistorySchemaTests#全部迁移版本都被应用`（`containsExactly 1..9`）、
-`WatchLaterSchemaTests#全部迁移版本都被应用`（`endsWith("9")`）、
-`RateLimitWeightTableTests.EXPECTED_NON_GET_AT_LEAST`（**42**）。
+`InfrastructureConnectivityTests`（表数 **20**、版本 `1..10`）、
+`HistorySchemaTests#全部迁移版本都被应用`（`containsExactly 1..10`）、
+`WatchLaterSchemaTests#全部迁移版本都被应用`（`endsWith("10")`）、
+`RateLimitWeightTableTests` / `IdempotencyScopeTableTests` 的 `EXPECTED_NON_GET_AT_LEAST`（**43**）、
+`OpenApiSpecExportTests#端点集与登记簿一致`（`hasSize(71)`）。
 
 **几条"看着全绿其实没测到"的边界**（写新用例前先读）：
 
@@ -452,6 +524,10 @@ filesort；新索引前三列即排序键（前向索引扫描）：
 - **反向验证**（改实现前先 commit 基线）：抽掉 `copyCommon` 的 `setDurationSeconds` ⇒ 回显 3 红而
   **DB 断言仍绿**（就地看到"只断 DB"的假绿）；抽走迁移文件必须**同时清 `target/classes/db/migration/`
   同名副本**，否则读到旧资源、假绿；`/report` 的 ODKU 改 `GREATEST` ⇒ LWW 红。
+- ★ **`R-26` 实测四条**（2026-10-31）：`PlayDay.ZONE` 改 UTC ⇒ `PlayDayTests` **2 红**；
+  删除 SQL 去掉 `user_id = ?` ⇒ `HistoryDeleteTests` **2 红**（作用域 + 幂等两条都看到别人的行被删）；
+  去掉 `forgetBuffered` 两处调用 ⇒ **2 红**（删完 flush 又写回来）；`/play` 改成"只在首播时建行"
+  ⇒ **1 红**（删后重看，历史行不重建）。
 
 ---
 
@@ -494,6 +570,10 @@ filesort；新索引前三列即排序键（前向索引扫描）：
 | T52 | `/position` 改回只点查 DB（`R-20`）；写路径一字未动；客户端 `resume()` 取 `max(服务端, 本地)` | 本篇 §7.2 · [上报缓冲](./history-上报缓冲.md) §六/§七 |
 | T53 | **文档收口**：四篇改为读者顺序（§〇 上手 + 术语先行）、删除正文里的任务号 / 交付状态记录（追溯收进本表）、新增 [history-术语表](./history-术语表.md) 作为域内术语试点 | 本篇 §〇 · [术语表](./history-术语表.md) |
 | R-25 | **「记录浏览历史」开关**（2026-10-31）：用户级（`users.history_recording`）/ **服务端不强制**（用户实测 B站 是强制的 ⇒ 刻意偏离）/ 关闭期**连 `/play` 都不发**（不计播放量）/ 只关写（续播仍读 `/position`）/ 状态只在整页装载随 `GET /users/me` 读一次 / 拨动**乐观、失败不提示** | 本篇 §一 §三 · [需求 §2.1](./history-需求.md) · [已知代价](./history-已知代价.md) |
+| R-26 | **历史可删 + 播放量改「每人·每内容·每自然日一次」**（2026-10-31，推翻 `R-18` 的"一人一次"与"历史不可删"）：去重标记搬进账本 `content_play_dedup`（日期进主键，业务时区 `Asia/Shanghai`、Java 算日期）/ **不回填**（存量有历史余额）/ **不清理**（真要走运维脚本）/ `DELETE /api/v1/history`（`contentIds` ≤500 或 `all=true`，204 幂等、不校验内容、不动 `play_count`）+ 清 Redis 缓冲 + 前端清 `history:pending` | §二 §四.2 §4.4 §五 · [已知代价](./history-已知代价.md) · `task/CURRENT_INTEGRATION.md` §2.3 |
+| T76 | 后端口径：`V10` 建账本 + 拆 `play_counted`/`idx_content_id`；`/play` 改由账本 `INSERT IGNORE` 判当天首播（语句 2→1） | §二 §四.2 · `HistoryWriteTests` · `PlayDayTests` · `HistorySchemaTests` |
+| T77 | 后端能力：`DELETE /api/v1/history` + 缓冲遗忘（两条 Lua）+ 契约产物 / 四处锚点 | §4.4 · `HistoryDeleteTests` |
+| T78 | 前端：管理态（全选=已加载）/ 卡片垃圾桶 / 确认框 / 删后清 pending / 末页回退 | [客户端契约](./history-客户端契约.md) §十二 · `historySelection.test.ts` |
 | T73 | 后端面：`V9` 加列 + `GET /users/me` 回带 + `PUT /users/me/history-recording`；**八处锚点**（限流权重 3 / `NATURAL` / 鉴权路由 / `endpoint-inventory.tsv` / `openapi.yaml` / 端点总数 70 / 两处迁移版本）；★ 契约测试把"服务端不强制"钉成**会红**（关掉后 `/progress` 仍走到内容校验） | §三 · `UserHistoryRecordingTests` |
 | T74 | 前端面：历史页标题行开关（关→确认框，遮罩/×/取消 = 取消；开→直接生效）+ 播放页闸门 `planTracking`（read-only 只读续播、清残留 pending）；顺带修"session 未落定就 return"的既有漏报 | [客户端契约](./history-客户端契约.md) §2.1 · `historyTracking.test.ts` |
 | I-23 | 验收口径矛盾：`T47` 只该钉写路径两段（`/report`、`/play`），却要求"四端点" ⇒ 本批只钉两路由 + 注释写明读面两段下一批必补；`T49` 补 `/list`、`/position`（四路由齐，核销）。★ 2026-10-30 从冻结登记台收编（原只在 `archive/backend-2026-10-30/CURRENT_ISSUES.md` 一行，而 `SecurityContractTests` 引用了它） | `SecurityContractTests` · §三 |
@@ -514,5 +594,5 @@ filesort；新索引前三列即排序键（前向索引扫描）：
 | 端点权重表（新增非 GET 端点必须登记） | [限流](../../tech/rate-limit/限流.md) |
 | 跨域边与 ArchUnit 规则 | [模块边界与依赖](../../tech/module-boundary/模块边界与依赖.md) |
 | schema 演进纪律（V1 冻结 / 迁移文件逐字节冻结） | [数据与Schema演进](../../tech/data-evolution/数据与Schema演进.md) |
-| 已拍板接受的代价（历史不可删 / 无容量上限） | [history-已知代价](./history-已知代价.md) |
+| 已拍板接受的代价（账本不回填 / 行数与账本无界 / 删除可复活 / 开关不强制） | [history-已知代价](./history-已知代价.md) |
 | 本期做哪些、任务怎么拆 | `task/CURRENT_INTEGRATION.md` |

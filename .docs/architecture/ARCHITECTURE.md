@@ -149,7 +149,7 @@ space/upload → 尚未建入口（灰态导航走占位路由）
 | [domain/history-上报缓冲](domain/history/history-上报缓冲.md) | `/report` 只写 Redis 的**缓冲机制**（两个 key / 三条写路径 / 落库与条件删 / 剪枝 / 失败姿态 / 已知代价） | 域结构 → history；客户端配合 → history-客户端契约 |
 | [domain/history-客户端契约](domain/history/history-客户端契约.md) | 播放器**必须怎么做**（上报节奏 / 退出信号 `fetch keepalive` / 503 退避 / 崩溃补偿 / 自测清单） | 服务端实现 → history-上报缓冲；用户可见 → history-需求 |
 | [domain/history-术语表](domain/history/history-术语表.md) | ★ **术语表试点**：页面 ↔ 端点矩阵、一物一名、**错→对**四句、三条写作硬规则、推广判据 | 本域机制 → history 各篇；不做概念全景 |
-| [domain/history-已知代价](domain/history/history-已知代价.md) | 播放记录域**已拍板接受**的代价台账（历史不可删 / 无容量上限，各带推翻前置） | 口径与"不做什么"全表 → history-需求 §六；未处置的问题 → `task/FURTHER_ISSUES.md` |
+| [domain/history-已知代价](domain/history/history-已知代价.md) | 播放记录域**已拍板接受**的代价台账（口径变更不可比 / 行数与账本无界 / 删除可复活 / 开关不强制，各带推翻前置；"历史不可删"已由 `R-26` 推翻） | 口径与"不做什么"全表 → history-需求 §六；未处置的问题 → `task/FURTHER_ISSUES.md` |
 | [frontend/前端](frontend/前端.md) | 前端应用形态（MPA 外壳 + 应用内 SPA）、入口与路由、类型三层、页面 × 端点矩阵、登录态、**降级约定** | 后端机制 → 上述各篇；视觉 / 请求层 / 代价 → 后续独立成篇 |
 
 ---

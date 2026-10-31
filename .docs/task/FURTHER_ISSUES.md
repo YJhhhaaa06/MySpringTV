@@ -6,7 +6,7 @@
 >
 > **膨胀控制**：每条必须有**明确去向**（下期 `T#` / 留池待评审 / 废弃）＋**推翻条件**；已消化的**从本文件退场** ——
 > **一行结论进稳定层**（该域速查附录 或 `*-已知代价.md`）、**全文进归档**。本文件只放"**还没做的事**"。
-> ★ **编号不回收、不复用**：`F-01`–`F-29` 已用，**下一编号 = `F-30`**。
+> ★ **编号不回收、不复用**：`F-01`–`F-30` 已用，**下一编号 = `F-31`**。
 > ⚠️ **`F-01`–`F-27` 已核销** —— 全文与逐条论证 → [归档的结转池全文](../archive/backend-2026-10-30/FURTHER_ISSUES.md)；
 > **一行结论的活落点** = 各自稳定层（号 → 文档的映射表见 [归档 README §五](../archive/backend-2026-10-30/README.md)）。
 > **本文件不建已核销表**（2026-10-30 定：那样等于在会重建的目录里养一份只增不减的字典）。
@@ -32,6 +32,7 @@
 | **F-26** | 详情读聚合讨论（T44 设计过程）/ 2026-10-20 | ★ **载荷读（`content:{id}`）并入详情计数聚合层**：把 `ContentCache.getContent` 的三态读也搬进 `ContentCountAggregate`，单飞跨载荷/计数合一（key=contentId），冷内容全 miss 从 3 条 SQL（列查 1 + 载荷 2）再降到 2 条（载荷行 + 媒体），Redis 载荷键读并入同一趟 pipeline | ① 需在聚合层**复刻 `CacheAside` 全套三态语义**（空标记守卫 / 脏 JSON / 写失败自愈 / 降级不写回）——两处实现漂移风险 > 省 1 条常数 SQL；② 载荷 miss 是低频冷事件（TTL 30m + 只被慢变字段失效），无热点证据；③ 单飞跨载合计数合一后，"计数 miss 但载荷命中"的读者也要共享载荷装载节奏，收益方向不明 | 留池待评审。★ **推翻条件**：实测出现详情载荷 miss 热点（载荷回源成瓶颈），或载荷键 TTL 语义需要与计数联动 | 待排期 |
 | **F-28** | ★ **原 `I-27`**（`CURRENT_ISSUES` 结转 —— `T57` 复核发现 2026-10-22 / 接口契约专项收口 2026-10-24）；2026-10-30 问题台（后端期）归档 ⇒ 结转项改号（编号不回收、原号留作追溯；`I-##` 归问题台，联调期从 `I-31` 续）。★ **2026-10-30 复核：仍未做** —— `ErrorCode` 里没有 413 码，`GlobalExceptionHandler` 也没有 `MultipartException` / `MaxUploadSizeExceededException` 的 handler（两者仍落 `handleUnexpected`） | **上传超限 / 畸形 multipart 仍是 500**：传超限额文件（`spring.servlet.multipart.max-file-size=50MB` / `max-request-size=100MB`）⇒ `MaxUploadSizeExceededException`；报文畸形 ⇒ `MultipartException` —— 两者都无专属 handler，落 `GlobalExceptionHandler#handleUnexpected` ⇒ **500 `SYSTEM_INTERNAL`「服务器内部错误」**。与 `T57` 修掉的"`@RequestParam` 约束 → 500"是同一类：**用户输入问题报成服务器事故**（手机拍的 4K 视频轻松过 50MB，监控会误判成故障） | 修它要给《接口契约》§2.1 **加一个新状态类别 413** —— 属规则变更，而该专项的红线是"规则不得在执行期顺手放宽" | **待裁决**（三选一）：① **413 + `UPLOAD_TOO_LARGE`**（语义最准；须同批改 §2.1 / §2.2 / 前端字典 / spec）；② 归入既有 400 + `PARAM_INVALID`（不加类别，代价是"文件太大"与"参数不合法"同状态）；③ 维持 500（**不推荐**：等于承认"用户输入可触发服务器错误"） | 待评审 |
 | **F-29** | ★ **原 `I-28`**（`CURRENT_ISSUES` 结转 —— `T58-10` 全量回归实测 2026-10-23 / 接口契约专项收口 2026-10-24）；2026-10-30 问题台（后端期）归档 ⇒ 结转项改号（编号不回收、原号留作追溯；`I-##` 归问题台，联调期从 `I-31` 续）。★ **2026-10-30 复核：仍未做** —— `CoinService` 仍是单个 `@Transactional`、无 `DeadlockLoser` 捕获/重试；且实测落点是 `GlobalExceptionHandler#handleDataAccess`（`DataAccessException`）⇒ **500 `SYSTEM_DATABASE`**，不是 catch-all 的 `SYSTEM_INTERNAL`（结论"并发可触发 500"不变，修法判据不变） | **并发投币撞封顶时偶发 500**：`CoinAddTests#并发各投一枚不突破封顶`（两线程同内容各投 1，期望恰一条 200、一条 409 封顶拦截）在 788 例全量回归中出现 `[200, 500]` —— `Deadlock found when trying to get lock`（`MySQLTransactionRollbackException`）被 catch-all 兜成 500。窗口极窄（同用户同内容毫秒级并发 + InnoDB 恰好选该事务做牺牲品）；隔离重跑 19/19 绿 ⇒ **既存竞态，非路由/载荷改造引入** | `T58`/`T59` 的红线是"不顺手改事务 / 服务语义"；选哪条解要看 `CoinService` 的事务边界，属独立小任务 | **下期小任务**（两条候选）：① Service 捕获 `DeadlockLoserDataAccessException` **重试一次**（Spring 对 MySQL 死锁的标准解法）；② **缩小事务持锁面**让两条并发天然串行化（`SELECT … FOR UPDATE` 先行锁用户行）。★ 判据：修完仍要能复现"恰一条 409"（不能靠"都成功"掩盖封顶守卫） | 待排期 |
+| **F-30** | `doc_stats` 实测 / 2026-10-31（`R-26` 收口后） | **`history.md` 体量超线**：**602 行 / 50.0 KB**（门槛 40 KB）。本轮新增了"账本 / 删除 / 日界"三块内容，加上既有的上报缓冲指针、写读路径、代价表、编号速查，已经接近"一份文档讲两台机制" | 拆它要动**章节号**，而 `src` 里有裸 `§x` 引用（`history.md` §四/§五/§七 被 `HistoryService`、`HistoryDao` 等直接引用）⇒ 必须先给这些引用加"文件"限定才能拆（拆篇 SOP 见 `INDEX.md` §五.5）。`R-26` 窗口内做这件事属于顺手改结构，收益是体量、风险是断链 | 留池待评审（拆分候选：**§十 已知代价**（已与台账重复）与 **§四 写路径**（可与《上报缓冲》并列成篇）） | 待排期 |
 
 ---
 

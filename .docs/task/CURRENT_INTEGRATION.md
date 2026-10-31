@@ -21,7 +21,7 @@
   决策 **`R-27`** 起（`R-25` = 记录开关、`R-26` = 历史可删 + per-day 口径）/ 问题 **`I-33`** 起（`I-31`/`I-32` 已终结）/ 结转 **`F-30`** 起。
   ⚠️ **编号不回收、不复用**：后端期已用的 `I-01`–`I-30` 随归档留在原地，联调期**从 `I-31` 继续**；
   `F-##` 同理（`F-01`–`F-29` 已用，见 [FURTHER_ISSUES](./FURTHER_ISSUES.md)）。
-* ★ **回归基线**：默认集 **907**（2026-10-31，`DB_POOL_MAX_SIZE=4`，`T71` 后全绿）+ 前端 **292**（`T72` 后）；
+* ★ **回归基线**：默认集 **928**（2026-10-31，`DB_POOL_MAX_SIZE=4`，`T79` 后全绿；上一档 907）+ 前端 **304**（`T78` 后）；
   `resilience` 组仍是旧登记 **41**（2026-10-25，本轮未复跑，需时另跑 `--group resilience`）。
   跑全量必须带 `DB_POOL_MAX_SIZE=4`，否则容器 MySQL `Too many connections`（**不是代码缺陷**）。
 * ★ **门禁**：文档三道 —— `python tools/docs/doc_links.py` · `python tools/docs/doc_refs.py` · `python tools/docs/doc_stats.py`；
@@ -91,18 +91,18 @@
 | `T73` | 补回 `GAP-21` 的后端面（`R-25`）：`V9` 加 `users.history_recording`、`GET /users/me` 回带、`PUT /users/me/history-recording` 写入 | **不在任何写端点校验开关**（刻意，见已知代价）；不建 `user_settings` 表；不加 JSON 设置列；不改 `/users/me` 的其它字段形状 | `UserHistoryRecordingTests` **7 例全绿**（默认开 / 关 / 再开 / 401 / 缺字段 400 / 非布尔 400 / **刻意不强制**，独立 oracle 直查 DB + 对照用户）+ `SecurityContractTests` 新路由 + 两处迁移锚点 + 端点总数 69→70；反向注入 2 条：① mapper 去掉 `where id=?` ⇒「关掉只影响自己」红（对照用户变 0）；② `/report` 加一道拒绝 ⇒「关闭后写端点仍放行」红（404→400） | **已完成（2026-10-31）** |
 | `T74` | 前端接 `R-25`：历史页标题行开关（关闭需确认）+ 播放页只关写 | 关闭时**不发** `/play`/`/progress`/`/flush`、不写本地 pending、不补报；`GET /progress` 的续播**保留**；不落 localStorage（第 3 个 key 仍然不许）；拨动不做失败提示 / 回弹 | `historyTracking.test.ts` **4 例**（匿名 skip / 关掉 read-only / 开着 track / 缺字段按开）+ `typecheck` / `test`（296）/ `build` 全绿；反向注入 2 条：`=== true` ⇒「缺字段按开」红；恒 `true` ⇒「关掉 read-only」红。★ **DOM 接线（真的一个请求都不发）无自动化覆盖**（不装 jsdom，E2E 也没造"关着播 5 分钟"）⇒ 只能靠 review，别当已验 | **已完成（2026-10-31）** |
 | `T75` | 文档收口：客户端契约 / 静默机制 / 接口契约 / `GAP-21` 销账 | 不新开编号空间；`history.md` 只增不改号（`src` 里有裸 `§x` 引用） | 三道门禁 0 违规；`grep -rn "GAP-21" src` 的交叉引用仍指向**已销账**行 | **已完成（2026-10-31）** |
-| `T76` | `R-26` 后端口径：`V10` 建 `content_play_dedup`（+ DROP `play_counted`/`idx_content_id`）、`/play` 改 `INSERT IGNORE` 账本判首播、oracle 改 `COUNT(账本)` | 账本**不回填**、**不清理**；`play_date` 必须 Java 算（业务时区）+ 传参，**不用 `CURDATE()`**；`play_count` 仍只增、仍不碰 content 域以外；迁移**新开 V10**（V1–V9 逐字节冻结） | `HistoryWriteTests` 改（首播/重复/并发/**日界**：昨天有行今天再计、今天有行不再计）+ 新增 `PlayDayTests`（`2026-10-31T16:30Z → 11-01`，UTC 口径必红）+ 三处迁移锚点（表数 19→20、版本 1..10） | **执行中** |
-| `T77` | `R-26` 后端能力：`DELETE /api/v1/history`（`contentIds` ≤500 / `all=true`，204 幂等）+ 清 Redis 缓冲 | 不校验内容存在性（失效占位要能删）；不动 `play_count`；缺参 400 与"没有这条记录"204 **必须分开**；缓冲清理失败只记 WARN（接受复活） | `HistoryDeleteTests`（批量/清空/幂等/上限/互斥/401/**删后同日再播不计**/**清空后 flush 不复活**）+ 四处锚点（端点 70→71、非 GET 42→43、`IdempotencyScope` 登记）+ `SearchContractTests` 不受影响 | **待执行** |
-| `T78` | `R-26` 前端：历史页工具栏「清空历史 / 批量管理」、管理态（全选=已加载、已选择 N 条、删除、退出管理）、单卡垃圾桶、确认框、删后清 `history:pending:{contentId}` | **不渲染** tabs / 搜索 / 更多筛选（`GAP-20` 仍不做）；管理态不落 localStorage；确认框归属入口（管理态删除、清空）而非条数；末页删空要回退一页 | `history.test.ts` + 端点透传 + `typecheck`/`test`/`build` 三道；反向注入：去掉 pending 清理 ⇒ "删后重看不回到旧位置" 红 | **待执行** |
-| `T79` | `R-26` 文档收口：`history.md`（§二/§四.2/§五/§十 + 端点表）、`history-需求`（§四口径、§六"不可删"）、`history-已知代价`（作废"不可删"、新增口径变更/账本增长）、`GAP-19` 销账、`接口契约` §2.4 计数 | 只增不改号；`doc_refs`/`doc_links`/`doc_stats` 三道 0 违规 | 三道门禁；`grep -rn "GAP-19" src` 的交叉引用指向**已销账**行 | **待执行** |
+| `T76` | `R-26` 后端口径：`V10` 建 `content_play_dedup`（+ DROP `play_counted`/`idx_content_id`）、`/play` 改 `INSERT IGNORE` 账本判首播、oracle 改 `COUNT(账本)` | 账本**不回填**、**不清理**；`play_date` 必须 Java 算（业务时区）+ 传参，**不用 `CURDATE()`**；`play_count` 仍只增；迁移**新开 V10**（V1–V9 逐字节冻结） | `HistoryWriteTests` **11 例**（首播/同日重复/并发/日界/不变量）+ `PlayDayTests` **2 例**（`2026-10-31T16:30Z → 11-01`）+ `HistorySchemaTests` **7 例**（账本 PK / 索引全集 / 列集 / 1..10）+ 三处迁移锚点。反向注入 2 条：`ZONE` 改 UTC ⇒ PlayDay 2 红；账本主键语义由结构用例守 | **已完成（2026-10-31）** |
+| `T77` | `R-26` 后端能力：`DELETE /api/v1/history`（`contentIds` ≤500 / `all=true`，204 幂等）+ 清 Redis 缓冲 | 不校验内容存在性（失效占位要能删）；不动 `play_count`；缺参 400 与"没有这条记录"204 **必须分开**；缓冲清理失败只记 WARN（接受复活） | `HistoryDeleteTests` **10 例**（作用域 / 幂等 / 三种 400 / 两种批量写法 / 清空 / 失效可删 / 401 / 删后同日不计次日再计 / 删后 flush 不复活）+ 四处锚点（端点 70→71、非 GET 42→43、`IdempotencyScope` 登记、表数 19→20）+ 契约产物重生成。★ 反向注入 3 条：删 SQL 去掉 `user_id` ⇒ 2 红；去掉 `forgetBuffered` ⇒ 2 红；`/play` 只在首播时建行 ⇒ 1 红 | **已完成（2026-10-31）** |
+| `T78` | `R-26` 前端：历史页工具栏「清空历史 / 批量管理」、管理态（全选=已加载、已选择 N 条、删除、退出管理）、单卡垃圾桶、确认框、删后清 `history:pending:{contentId}` | **不渲染** tabs / 搜索 / 更多筛选（`GAP-20` 仍不做）；管理态不落 localStorage；确认框归属入口（管理态删除、清空）而非条数；末页删空要回退一页 | `historySelection.test.ts` **4 例** + `api/history.test.ts` **3 例**；`typecheck` / `test`（**304**）/ `build` 全绿。★ 反向注入 2 条：`clearHistory` 不传 `all` ⇒ **2** 红；`isAllSelected` 改比数量 ⇒ 1 红 | **已完成（2026-10-31）** |
+| `T79` | `R-26` 文档收口：`history.md`（§〇/§一/§二/§三/§四/§五/§七/§八/§十/§十一/附录）、`history-需求`（§一/§二/§四/§六/§七）、`history-已知代价`（作废"不可删"、新增①②③④）、`history-客户端契约`（§二 + 新增 §十二）、`history-术语表`、`接口契约` §2.4、`前端.md`、`ARCHITECTURE`、`GAP-19` 销账 | 只增不改号；`doc_refs`/`doc_links` 0 违规；`doc_stats` 把 `history.md` 超 40KB 登记为 `F-30`（拆篇要动章节号 ⇒ 先给 `src` 的裸 `§x` 加文件限定） | 三道门禁（`doc_links` 悬空 0 / `doc_refs` 0 违规 / `doc_stats` 仅 1 条 advisory）；`grep -rn "GAP-19" src` 的交叉引用指向**已销账**行 | **已完成（2026-10-31）** |
 | — | *（本窗第一件事：跑基线 + 列联调清单，见 §一 / §2.1）* | — | — | — |
 
 ---
 
 ## 四、结转与留池
 
-* **反面清单的唯一事实源** = [FURTHER_ISSUES.md](./FURTHER_ISSUES.md)（现 7 行：`F-10` / `F-14` / `F-18` /
-  `F-21` / `F-26` / `F-28` / `F-29`），每行带**推翻条件**；开窗时逐行核销一次，不许静默跳过。
+* **反面清单的唯一事实源** = [FURTHER_ISSUES.md](./FURTHER_ISSUES.md)（现 8 行：`F-10` / `F-14` / `F-18` /
+  `F-21` / `F-26` / `F-28` / `F-29` / `F-30`），每行带**推翻条件**；开窗时逐行核销一次，不许静默跳过。
 * **已核销只留一行摘要**（含短版推翻条件）：旧池全文（`F-01`–`F-27`）已归档到 `archive/backend-2026-10-30/`，
   新池的「已核销」表只为"代码 / 文档引用的编号"保一条可解析的摘要（链：编号 → 摘要 → 已知代价台账）。
 * 需要拍板的 `R-##` → 本文件；**执行中发现的问题** → [CURRENT_ISSUES](./CURRENT_ISSUES.md)（`I-##`）；

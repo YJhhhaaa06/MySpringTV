@@ -73,7 +73,7 @@
 
 ⚠️ **不许用批量 `INSERT IGNORE` 绕过整批失败**：单条 `IGNORE` 已记过这个坑（把列截断 / CHECK 失败也
 降级成 warning ⇒ 静默丢弃，`history.md` §十 #12）—— 批量里用只是把坑放大 N 倍。
-⚠️ **flush 的 SQL 只能改 `progress_seconds` + `update_time`，绝对不碰 `play_counted`**（`/play` 的唯一职责）。
+⚠️ **flush 的 SQL 只能改 `progress_seconds` + `update_time`，绝对不碰播放量账本 `content_play_dedup`**（`/play` 的唯一职责；`V10` 起 `watch_history` 已没有 `play_counted` 列）。
 ⚠️ **解析不了的值也必须进确认清单**：只丢弃不确认 ⇒ 那个 field 永远留在 hash 里 ⇒ `HLEN > 0`
 ⇒ 脏成员永远摘不掉（与"僵尸成员"同族，一个是 hash 侧、一个是 field 侧）。
 
