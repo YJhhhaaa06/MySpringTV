@@ -14,7 +14,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        delete: operations["delete_2"];
+        delete: operations["delete_3"];
         options?: never;
         head?: never;
         patch?: never;
@@ -142,7 +142,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        delete: operations["delete_1"];
+        delete: operations["delete_2"];
         options?: never;
         head?: never;
         patch?: never;
@@ -590,7 +590,7 @@ export interface paths {
         get: operations["list_1"];
         put?: never;
         post?: never;
-        delete?: never;
+        delete: operations["delete_1"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1637,7 +1637,7 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    delete_2: {
+    delete_3: {
         parameters: {
             query?: never;
             header?: never;
@@ -1886,7 +1886,7 @@ export interface operations {
             500: components["responses"]["InternalError"];
         };
     };
-    delete_1: {
+    delete_2: {
         parameters: {
             query?: never;
             header?: never;
@@ -3167,6 +3167,34 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    delete_1: {
+        parameters: {
+            query?: {
+                contentIds?: number[];
+                all?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 已生效，无响应体 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["ParamInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             429: components["responses"]["RateLimited"];
             500: components["responses"]["InternalError"];
         };

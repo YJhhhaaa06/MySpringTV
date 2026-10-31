@@ -3,16 +3,24 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { HistoryItemVM } from '../types/ui'
 import { updateHistoryRecording } from '../api/account'
-import { groupHistoryByDay, loadHistory } from '../api/history'
+import { clearHistory, deleteHistory, groupHistoryByDay, loadHistory } from '../api/history'
 import { describeError } from '../api/http'
 import { applyHistoryRecording, restoreSession, sessionState } from '../auth/session'
 import { requireLogin } from '../auth/loginPrompt'
 import { isRecording } from '../player/historyTracking'
+import { clearAllPending, clearPending } from '../player/progressReporter'
 import AppIcon from '../components/common/AppIcon.vue'
 import EmptyState from '../components/common/EmptyState.vue'
 import Pagination from '../components/common/Pagination.vue'
+import DeleteHistoryConfirm from '../components/history/DeleteHistoryConfirm.vue'
 import HistoryCard from '../components/history/HistoryCard.vue'
 import RecordingStopConfirm from '../components/history/RecordingStopConfirm.vue'
+import {
+  isAllSelected,
+  shouldStepBackPage,
+  toggleSelectAll,
+  toggleSelection,
+} from '../components/history/historySelection'
 
 /**
  * 观看历史（`/history`）：B 站 2026-10 版式 —— **左侧日期时间轴 + 右侧多列卡片网格**。
@@ -26,9 +34,19 @@ import RecordingStopConfirm from '../components/history/RecordingStopConfirm.vue
  *
  * <h2>★ 不渲染的 B 站控件（后端没有对应能力，摆了就是撒谎）</h2>
  * - tabs「综合 / 视频 / 直播 / 专栏」+「更多筛选」+ 搜索框：`GET /history` 只有 `page/pageSize`
- *   （GAP-20，无 `type` / `keyword` 参数）；
- * - 「清空历史」「批量管理」与逐条删除：没有删除端点（GAP-19）。
- * 这两块**不是本窗口漏做**，台账里有记录；后端补了之后再加。
+ *   （GAP-20，无 `type` / `keyword` 参数）。
+ * 这块**不是本窗口漏做**，台账里有记录；后端补了之后再加。
+ *
+ * <h2>`R-26`（2026-10-31）：删除 / 清空 / 批量管理 —— 已渲染</h2>
+ * - **普通态**：工具栏「清空历史」「批量管理」；每张卡 meta 行右端一个垃圾桶（**直删不确认**）；
+ * - **管理态**：工具栏换成「全选 / 已选择 N 条历史记录 / 删除 / 退出管理」，
+ *   卡片封面左上出现勾选框、点整卡 = 勾选（**删除必过确认框**）；
+ * - **全选 = 已加载出来的条目**（B站 2026-10-31 实测：全选后显示"已选择 259 条历史记录"），
+ *   不是"整库" ⇒ 它永远走 `contentIds`；「清空历史」才走 `all=true`（刻意显式，见 `api/history.ts`）；
+ * - ★ 删除成功后**必须清本地 `history:pending:{contentId}`**（清空则清全部）：`/position` 已经答 0，
+ *   但播放页定位取 `max(服务端, 本地)` ⇒ 不清会从被删的那条旧位置续播，第一次上报还会把行重建；
+ * - ★ 删空末页要**回退一页**（否则停在空白页上，看起来像"历史全没了"）；
+ * - 管理态**不落 localStorage / 不进 URL**（前端只许两个 key，见 `客户端静默机制.md` §3.10）。
  *
  * <h2>「记录浏览历史」开关（`R-25`，2026-10-31 起已渲染）</h2>
  * 标题行右侧，**不吸顶**（随页面滚动移出视野，B站 2560 实测）。
@@ -66,6 +84,23 @@ const error = ref('')
 const recording = computed(() => isRecording(sessionState.user?.historyRecording))
 const confirmOpen = ref(false)
 
+// ==================== 删除 / 批量管理（`R-26`） ====================
+
+/** 管理态（页内状态：不落 localStorage、不进 URL —— 一次导航就该回到普通态） */
+const managing = ref(false)
+/** 已勾选的 contentId（只可能包含**当前已加载页**的条目，见 `historySelection.ts`） */
+const selected = ref<Set<number>>(new Set())
+/** 待确认的删除形态；`null` = 没有确认框 */
+const confirmMode = ref<'selected' | 'all' | null>(null)
+/** 删除类请求在途：防连点（两个 DELETE 并发本身无害，但 UI 会闪两次） */
+const busy = ref(false)
+/** 删除失败的行内提示（不占整页：列表还在，用户还能重试下一次点击） */
+const mutationError = ref('')
+
+const loadedIds = computed(() => items.value.map((item) => item.contentId))
+const allSelected = computed(() => isAllSelected(loadedIds.value, selected.value))
+const selectedCount = computed(() => selected.value.size)
+
 const groups = computed(() => groupHistoryByDay(items.value))
 
 onMounted(async () => {
@@ -90,6 +125,8 @@ watch(
 )
 
 watch(page, () => {
+  // 翻页 = 换了一批"已加载条目" ⇒ 旧的选择必须清掉（否则"全选"会在另一页上静默多选）
+  selected.value = new Set()
   if (sessionState.status === 'authenticated') void load()
 })
 
@@ -143,6 +180,86 @@ function cancelStop(): void {
 function goPage(nextPage: number): void {
   void router.push({ query: nextPage > 1 ? { page: String(nextPage) } : {} })
 }
+
+// ==================== 删除（`R-26`） ====================
+
+function enterManage(): void {
+  managing.value = true
+  selected.value = new Set()
+  mutationError.value = ''
+}
+
+function exitManage(): void {
+  managing.value = false
+  selected.value = new Set()
+  confirmMode.value = null
+}
+
+function onToggleSelect(contentId: number): void {
+  selected.value = toggleSelection(selected.value, contentId)
+}
+
+function onToggleAll(): void {
+  selected.value = toggleSelectAll(loadedIds.value, selected.value)
+}
+
+/**
+ * 单条直删（普通态的垃圾桶）：**不确认**（B站 实测口径）。
+ *
+ * <p>★ 删完清本地 pending：`/position` 已经答 0，但播放页定位取 `max(服务端, 本地)`
+ * ⇒ 不清就会从这条被删记录的旧位置续播，第一次上报还会把历史行重建出来。
+ */
+async function removeOne(contentId: number): Promise<void> {
+  if (busy.value) return
+  busy.value = true
+  mutationError.value = ''
+  try {
+    await deleteHistory([contentId])
+    clearPending(contentId)
+    await reloadAfterDelete()
+  } catch (exception) {
+    mutationError.value = describeError(exception)
+  } finally {
+    busy.value = false
+  }
+}
+
+/** 确认框点「确认」：批量删已勾选的，或清空全部（两种形态互斥，与端点契约一致） */
+async function confirmDelete(): Promise<void> {
+  const mode = confirmMode.value
+  if (mode === null || busy.value) return
+  confirmMode.value = null
+  busy.value = true
+  mutationError.value = ''
+  try {
+    if (mode === 'all') {
+      await clearHistory()
+      clearAllPending()
+    } else {
+      const ids = [...selected.value]
+      await deleteHistory(ids)
+      for (const id of ids) clearPending(id)
+    }
+    exitManage()
+    await reloadAfterDelete()
+  } catch (exception) {
+    mutationError.value = describeError(exception)
+  } finally {
+    busy.value = false
+  }
+}
+
+/**
+ * 删除后重新取当前页，并在"这一页被删空"时回退一页。
+ *
+ * <p>★ 不回退的话，末页删光后 `total > 0` 而本页 0 条 ⇒ 停在空白页上，看起来像"历史全没了"。
+ */
+async function reloadAfterDelete(): Promise<void> {
+  await load()
+  if (shouldStepBackPage(items.value.length, page.value)) {
+    goPage(page.value - 1)
+  }
+}
 </script>
 
 <template>
@@ -170,57 +287,95 @@ function goPage(nextPage: number): void {
 
       <p v-if="!sessionReady" class="history-state">正在恢复登录态…</p>
 
-      <EmptyState
-        v-else-if="!loggedIn"
-        icon="clock"
-        title="登录后查看观看历史"
-        description="历史只属于账号：登录后按最后观看时间倒序，看到哪儿也一起同步（Bearer token，不用 Cookie）。"
-      >
-        <button class="btn btn-primary" type="button" @click="signIn">立即登录</button>
-      </EmptyState>
-
       <template v-else>
-        <div v-if="loading && !items.length" class="history-skeleton">
-          <div v-for="n in 8" :key="n" class="history-skeleton__cell">
-            <div class="skeleton history-skeleton__cover" />
-            <div class="skeleton history-skeleton__line" />
-            <div class="skeleton history-skeleton__line history-skeleton__line--short" />
-          </div>
+        <!-- 工具栏（R-26）：普通态 = 清空 / 批量管理；管理态 = 全选 / 已选择 N 条 / 删除 / 退出管理。
+             ★ B站 管理态会用这一行**替换**筛选栏 —— 本仓本来就没有筛选栏（GAP-20），形状一致。 -->
+        <div v-if="loggedIn && total" class="history-toolbar" :class="{ 'is-managing': managing }">
+          <template v-if="managing">
+            <button class="history-toolbar__text" type="button" @click="onToggleAll">
+              {{ allSelected ? '取消全选' : '全选' }}
+            </button>
+            <span class="history-toolbar__count">已选择 {{ selectedCount }} 条历史记录</span>
+            <button
+              class="history-toolbar__action"
+              type="button"
+              :disabled="!selectedCount || busy"
+              @click="confirmMode = 'selected'"
+            >
+              <AppIcon name="trash" :size="14" />
+              删除
+            </button>
+            <button
+              class="history-toolbar__text history-toolbar__text--end"
+              type="button"
+              @click="exitManage"
+            >退出管理</button>
+          </template>
+          <template v-else>
+            <button class="history-toolbar__action" type="button" @click="confirmMode = 'all'">清空历史</button>
+            <button class="history-toolbar__action" type="button" @click="enterManage">批量管理</button>
+          </template>
         </div>
 
-        <EmptyState v-else-if="error" icon="clock" title="打不开观看历史" :description="error">
-          <button class="btn btn-blue" type="button" @click="load">重试</button>
-        </EmptyState>
+        <!-- 删除失败：行内提示（列表还在 ⇒ 不用整页错误态，用户直接再点一次即可） -->
+        <p v-if="mutationError" class="history-error">{{ mutationError }}</p>
 
         <EmptyState
-          v-else-if="!items.length"
+          v-if="!loggedIn"
           icon="clock"
-          title="还没有观看记录"
-          description="在播放页看过视频后，会按天出现在这里。"
+          title="登录后查看观看历史"
+          description="历史只属于账号：登录后按最后观看时间倒序，看到哪儿也一起同步（Bearer token，不用 Cookie）。"
         >
-          <a class="btn btn-ghost" href="/">去首页看看</a>
+          <button class="btn btn-primary" type="button" @click="signIn">立即登录</button>
         </EmptyState>
 
         <template v-else>
-          <!-- 时间轴的竖线画在**整段**上（不是每组自己的 border），组与组之间才连续 -->
-          <div class="history-timeline">
-            <section v-for="group in groups" :key="group.key" class="history-group">
-              <div class="history-group__rail">
-                <h2 class="history-group__label">{{ group.label }}</h2>
-              </div>
-              <div class="history-group__main">
-                <div class="history-grid">
-                  <HistoryCard
-                    v-for="item in group.items"
-                    :key="item.contentId"
-                    :item="item"
-                    :day-label="group.label"
-                  />
-                </div>
-              </div>
-            </section>
+          <div v-if="loading && !items.length" class="history-skeleton">
+            <div v-for="n in 8" :key="n" class="history-skeleton__cell">
+              <div class="skeleton history-skeleton__cover" />
+              <div class="skeleton history-skeleton__line" />
+              <div class="skeleton history-skeleton__line history-skeleton__line--short" />
+            </div>
           </div>
-          <Pagination :page="page" :total-pages="totalPages" @update:page="goPage" />
+
+          <EmptyState v-else-if="error" icon="clock" title="打不开观看历史" :description="error">
+            <button class="btn btn-blue" type="button" @click="load">重试</button>
+          </EmptyState>
+
+          <EmptyState
+            v-else-if="!items.length"
+            icon="clock"
+            title="还没有观看记录"
+            description="在播放页看过视频后，会按天出现在这里。"
+          >
+            <a class="btn btn-ghost" href="/">去首页看看</a>
+          </EmptyState>
+
+          <template v-else>
+            <!-- 时间轴的竖线画在**整段**上（不是每组自己的 border），组与组之间才连续 -->
+            <div class="history-timeline">
+              <section v-for="group in groups" :key="group.key" class="history-group">
+                <div class="history-group__rail">
+                  <h2 class="history-group__label">{{ group.label }}</h2>
+                </div>
+                <div class="history-group__main">
+                  <div class="history-grid">
+                    <HistoryCard
+                      v-for="item in group.items"
+                      :key="item.contentId"
+                      :item="item"
+                      :day-label="group.label"
+                      :selectable="managing"
+                      :selected="selected.has(item.contentId)"
+                      @remove="removeOne(item.contentId)"
+                      @toggle="onToggleSelect(item.contentId)"
+                    />
+                  </div>
+                </div>
+              </section>
+            </div>
+            <Pagination :page="page" :total-pages="totalPages" @update:page="goPage" />
+          </template>
         </template>
       </template>
     </div>
@@ -230,6 +385,14 @@ function goPage(nextPage: number): void {
       v-if="confirmOpen"
       @close="cancelStop"
       @confirm="confirmStop"
+    />
+
+    <!-- 删除确认（R-26）：管理态删除与清空都必过它；卡片上的垃圾桶是直删，不走这里 -->
+    <DeleteHistoryConfirm
+      v-if="confirmMode"
+      :mode="confirmMode"
+      @close="confirmMode = null"
+      @confirm="confirmDelete"
     />
   </main>
 </template>
@@ -281,6 +444,71 @@ function goPage(nextPage: number): void {
 .history-head__meta {
   font-size: 12px;
   color: var(--text-3);
+}
+
+/* 工具栏（R-26）：普通态贴右（清空 / 批量管理），管理态贴左（全选起手）+ 右侧「退出管理」 */
+.history-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  padding-top: 12px;
+}
+
+.history-toolbar.is-managing {
+  justify-content: flex-start;
+}
+
+.history-toolbar__text {
+  padding: 0;
+  border: 0;
+  font-size: 13px;
+  color: var(--text-2);
+  background: transparent;
+  cursor: pointer;
+}
+
+.history-toolbar__text:hover {
+  color: var(--brand-blue);
+}
+
+.history-toolbar__text--end {
+  margin-left: auto;
+}
+
+.history-toolbar__count {
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+.history-toolbar__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--text-2);
+  background: var(--bg-0);
+  cursor: pointer;
+}
+
+.history-toolbar__action:hover:not(:disabled) {
+  border-color: var(--brand-blue);
+  color: var(--brand-blue);
+}
+
+.history-toolbar__action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 删除失败的行内提示：列表还在，所以不用整页错误态 */
+.history-error {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--brand-pink);
 }
 
 /* 「记录浏览历史」开关（R-25）：文字 + 胶囊。★ 刻意**不吸顶** —— B站 实测它会随页面滚走 */
