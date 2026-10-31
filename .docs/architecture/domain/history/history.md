@@ -432,9 +432,9 @@ filesort；新索引前三列即排序键（前向索引扫描）：
 `(user_id, content_id)` 唯一。
 
 **迁移锚点（加迁移 / 加非 GET 端点时各改各的，同 commit）**：
-`InfrastructureConnectivityTests`（表数 **19**、版本 `1..8`）、
-`WatchLaterSchemaTests#全部迁移版本都被应用`（`endsWith("8")`）、
-`RateLimitWeightTableTests.EXPECTED_NON_GET_AT_LEAST`（**39**）。
+`InfrastructureConnectivityTests`（表数 **19**、版本 `1..9`）、
+`WatchLaterSchemaTests#全部迁移版本都被应用`（`endsWith("9")`）、
+`RateLimitWeightTableTests.EXPECTED_NON_GET_AT_LEAST`（**42**）。
 
 **几条"看着全绿其实没测到"的边界**（写新用例前先读）：
 
@@ -492,6 +492,9 @@ filesort；新索引前三列即排序键（前向索引扫描）：
 | T51-3 | 读路径（当时为读缓冲优先，已被 `T52` 推翻）+ 客户端契约**独立成篇**（本期只登记、不实现） | [客户端契约](./history-客户端契约.md) |
 | T52 | `/position` 改回只点查 DB（`R-20`）；写路径一字未动；客户端 `resume()` 取 `max(服务端, 本地)` | 本篇 §7.2 · [上报缓冲](./history-上报缓冲.md) §六/§七 |
 | T53 | **文档收口**：四篇改为读者顺序（§〇 上手 + 术语先行）、删除正文里的任务号 / 交付状态记录（追溯收进本表）、新增 [history-术语表](./history-术语表.md) 作为域内术语试点 | 本篇 §〇 · [术语表](./history-术语表.md) |
+| R-25 | **「记录浏览历史」开关**（2026-10-31）：用户级（`users.history_recording`）/ **服务端不强制**（用户实测 B站 是强制的 ⇒ 刻意偏离）/ 关闭期**连 `/play` 都不发**（不计播放量）/ 只关写（续播仍读 `/position`）/ 状态只在整页装载随 `GET /users/me` 读一次 / 拨动**乐观、失败不提示** | 本篇 §一 §三 · [需求 §2.1](./history-需求.md) · [已知代价](./history-已知代价.md) |
+| T73 | 后端面：`V9` 加列 + `GET /users/me` 回带 + `PUT /users/me/history-recording`；四处登记（权重 3 / `NATURAL` / 鉴权路由 / 端点总数 70）；★ 契约测试把"服务端不强制"钉成**会红**（关掉后 `/progress` 仍走到内容校验） | §三 · `UserHistoryRecordingTests` |
+| T74 | 前端面：历史页标题行开关（关→确认框，遮罩/×/取消 = 取消；开→直接生效）+ 播放页闸门 `planTracking`（read-only 只读续播、清残留 pending）；顺带修"session 未落定就 return"的既有漏报 | [客户端契约](./history-客户端契约.md) §2.1 · `historyTracking.test.ts` |
 | I-23 | 验收口径矛盾：`T47` 只该钉写路径两段（`/report`、`/play`），却要求"四端点" ⇒ 本批只钉两路由 + 注释写明读面两段下一批必补；`T49` 补 `/list`、`/position`（四路由齐，核销）。★ 2026-10-30 从冻结登记台收编（原只在 `archive/backend-2026-10-30/CURRENT_ISSUES.md` 一行，而 `SecurityContractTests` 引用了它） | `SecurityContractTests` · §三 |
 
 ---
