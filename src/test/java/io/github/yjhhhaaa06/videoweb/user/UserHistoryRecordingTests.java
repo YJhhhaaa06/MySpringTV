@@ -136,7 +136,7 @@ class UserHistoryRecordingTests extends AbstractHttpIntegrationTest {
         // ⚠️ 若有人给写路径加开关守卫（403 / 409 / 静默 200），这条会红：那是**改变决策**，必须走 R-##。
         ResponseEntity<String> resp = put("/api/v1/contents/987654/progress", Map.of("progress", 10), token);
         assertThat(resp.getStatusCode().value())
-                .as("关掉开关不影响写预端点的行为（R-25：服务端不强制；见 history-已知代价.md）")
+                .as("关掉开关不影响写端点的行为（R-25：服务端不强制；见 history-已知代价.md）")
                 .isEqualTo(404);
         assertThat(Envelope.code(resp)).isEqualTo("CONTENT_NOT_FOUND");
     }
