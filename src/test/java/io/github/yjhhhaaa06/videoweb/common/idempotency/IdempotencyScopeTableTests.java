@@ -45,10 +45,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 class IdempotencyScopeTableTests extends AbstractHttpIntegrationTest {
 
     /**
-     * 非 GET 端点的**实际总数**（当前 42：POST 15 / PUT 16 / DELETE 11）。
+     * 非 GET 端点的**实际总数**（当前 43：POST 15 / PUT 16 / DELETE 12）。
      * 新增端点后只增不减——它同时是"扫描真的看到了东西"的 sanity 下界。
      */
-    private static final int EXPECTED_NON_GET_AT_LEAST = 42;
+    private static final int EXPECTED_NON_GET_AT_LEAST = 43;
 
     /** ★ 必须指名标准 MVC 的那个：同为该类型的还有 actuator 的 {@code controllerEndpointHandlerMapping}。 */
     @Autowired

@@ -87,6 +87,50 @@ public class HistoryBufferRedisOps extends RedisOps {
     private static final DefaultRedisScript<Long> ACK_SCRIPT =
             new DefaultRedisScript<>(ACK_LUA, Long.class);
 
+    /**
+     * 用户删除历史时**遗忘**指定内容（`R-26`）：`HDEL` 若干 field，hash 空了顺带清 key 与脏成员。
+     *
+     * <p>KEYS = [bufferKey, dirtyKey]；ARGV = [userId, contentId1, contentId2, …]。
+     *
+     * <p>★ 为什么删除必须连带清缓冲：历史行删掉之后，缓冲里若还留着这条内容的脏进度，
+     * 一次 `/flush`（退出信号）或轮询兜底就会把它**原样写回来** —— 用户看到"删了又回来"。
+     * 这不是缓存一致性问题，而是"删除意图"没传达给第二条写入路径。
+     *
+     * <p>★ 与 {@link #ACK_LUA} 的差别：确认是"值没变才删"（防覆盖新值）；遗忘是"无论值是什么都删"
+     * （用户意图优先于并发上报）。并发窗口仍在：删除之后才到达的上报会重新写入 —— 那是"正在看"的真相，
+     * 属于已登记的代价。
+     */
+    private static final String FORGET_LUA = """
+            local removed = 0
+            for i = 2, #ARGV do
+              removed = removed + redis.call('HDEL', KEYS[1], ARGV[i])
+            end
+            if redis.call('HLEN', KEYS[1]) == 0 then
+              redis.call('DEL', KEYS[1])
+              redis.call('ZREM', KEYS[2], ARGV[1])
+            end
+            return removed
+            """;
+
+    /**
+     * 清空历史时**整键遗忘**（`R-26`）：`DEL` + `ZREM` 一条 Lua。
+     *
+     * <p>★ 必须原子：先 `DEL` 后 `ZREM` 若中间断连，会留下"hash 没了、脏成员还在"的僵尸成员 ——
+     * 它每轮都占名额（见 {@link #removeIfUnchanged} 的说明），兜底会一直空转。
+     *
+     * <p>KEYS = [bufferKey, dirtyKey]；ARGV = [userId]。
+     */
+    private static final String FORGET_ALL_LUA = """
+            redis.call('DEL', KEYS[1])
+            redis.call('ZREM', KEYS[2], ARGV[1])
+            return 1
+            """;
+
+    private static final DefaultRedisScript<Long> FORGET_SCRIPT =
+            new DefaultRedisScript<>(FORGET_LUA, Long.class);
+    private static final DefaultRedisScript<Long> FORGET_ALL_SCRIPT =
+            new DefaultRedisScript<>(FORGET_ALL_LUA, Long.class);
+
     public HistoryBufferRedisOps(StringRedisTemplate redis, RedisCircuitBreaker breaker) {
         super(redis, breaker);
     }
@@ -235,6 +279,30 @@ public class HistoryBufferRedisOps extends RedisOps {
     /** 把用户从脏集合里摘掉（仅在缓冲已空时被 {@link #removeIfUnchanged} 调用；也可供运维用）。 */
     public void removeDirty(long userId) {
         guarded(() -> redis.opsForZSet().remove(CacheKeys.HISTORY_DIRTY, String.valueOf(userId)));
+    }
+
+    /**
+     * 遗忘若干内容的缓冲（用户删除历史，`R-26`；见 {@link #FORGET_LUA}）。
+     *
+     * @param contentIds 要遗忘的内容 id（调用方保证非空；空列表会让 {@code ARGV} 只剩 userId，
+     *                   脚本退化成"只清僵尸成员"，虽无害但会掩盖调用方的 bug）
+     * @return 实际删掉的 field 数（诊断 / 测试断言用）
+     */
+    public long forget(long userId, List<Long> contentIds) {
+        Object[] args = new Object[1 + contentIds.size()];
+        args[0] = String.valueOf(userId);
+        int i = 1;
+        for (Long contentId : contentIds) {
+            args[i++] = String.valueOf(contentId);
+        }
+        Long removed = eval(FORGET_SCRIPT, List.of(CacheKeys.historyReport(userId), CacheKeys.HISTORY_DIRTY), args);
+        return removed == null ? 0L : removed;
+    }
+
+    /** 整键遗忘（清空历史，`R-26`；见 {@link #FORGET_ALL_LUA}）。 */
+    public void forgetAll(long userId) {
+        eval(FORGET_ALL_SCRIPT, List.of(CacheKeys.historyReport(userId), CacheKeys.HISTORY_DIRTY),
+                String.valueOf(userId));
     }
 
     /**

@@ -23,7 +23,7 @@ servers:
 paths:
   /api/v1/admin/comments/{id}:
     delete:
-      operationId: delete_2
+      operationId: delete_3
       parameters:
       - in: path
         name: id
@@ -275,7 +275,7 @@ paths:
       - comment-controller
   /api/v1/comments/{id}:
     delete:
-      operationId: delete_1
+      operationId: delete_2
       parameters:
       - in: path
         name: id
@@ -1747,6 +1747,41 @@ paths:
       tags:
       - follow-controller
   /api/v1/history:
+    delete:
+      operationId: delete_1
+      parameters:
+      - in: query
+        name: contentIds
+        required: false
+        schema:
+          type: array
+          items:
+            type: integer
+            format: int64
+      - in: query
+        name: all
+        required: false
+        schema:
+          type: boolean
+      responses:
+        "204":
+          description: 已生效，无响应体
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - history-controller
     get:
       operationId: list_1
       parameters:

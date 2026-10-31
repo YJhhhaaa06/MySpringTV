@@ -69,7 +69,7 @@ class RateLimitWeightTableTests extends AbstractHttpIntegrationTest {
     private static final double SEED = 50;
 
     /** 非 GET 端点的**实际总数**（本类扫描面的 sanity 下界；新增端点后只增不减）。 */
-    private static final int EXPECTED_NON_GET_AT_LEAST = 42;
+    private static final int EXPECTED_NON_GET_AT_LEAST = 43;
 
     @Autowired
     private StringRedisTemplate redis;

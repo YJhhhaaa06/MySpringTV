@@ -159,4 +159,24 @@ public class HistoryReportBuffer {
         Optional<HistoryBufferRedisOps.Entry> entry = ops.readOne(userId, contentId);
         return entry.isPresent() ? OptionalInt.of(entry.get().progress()) : OptionalInt.empty();
     }
+
+    /**
+     * 遗忘若干内容的缓冲（用户删除历史，`R-26`）。
+     *
+     * <p>★ 删除**必须**连带清缓冲：否则一次 `/flush`（退出信号）或轮询兜底会把这批脏进度
+     * 原样写回 `watch_history` —— 用户看到"删了又回来"。
+     *
+     * <p>⚠️ 失败不吞（抛 {@code CacheUnavailableException}）：是否降级是**调用方**的决定
+     * （删除场景是"记 WARN 继续"，与读路径"降级查库"是两种不同的姿态）。
+     *
+     * @return 实际清掉的缓冲条数（诊断 / 测试断言用）
+     */
+    public long forget(long userId, List<Long> contentIds) {
+        return ops.forget(userId, contentIds);
+    }
+
+    /** 整键遗忘（清空历史，`R-26`）：一条 Lua 同时 `DEL` hash 与摘掉脏成员。 */
+    public void forgetAll(long userId) {
+        ops.forgetAll(userId);
+    }
 }

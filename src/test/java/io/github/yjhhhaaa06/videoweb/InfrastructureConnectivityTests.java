@@ -55,18 +55,19 @@ class InfrastructureConnectivityTests extends AbstractIntegrationTest {
     }
 
     @Test
-    void Flyway_在空库上跑V1至V9建出全部18张业务表() throws Exception {
+    void Flyway_在空库上跑V1至V10建出全部19张业务表() throws Exception {
         try (var conn = dataSource.getConnection();
              var st = conn.createStatement();
              var rs = st.executeQuery(
                      "SELECT COUNT(*) FROM information_schema.tables "
                              + "WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE'")) {
             assertThat(rs.next()).isTrue();
-            // 18 张业务表（V1 的 15 张 + V2 的 favorite_folder / favorite_item + V4 的 watch_later
-            // + V5 的 content_coin + V6 的 watch_history − V7 删掉的 video / videoinfo；
-            // V8 只换 watch_history 的索引、V9 只给 users 加一列 —— 后两者都不动表计数）
+            // 19 张业务表（V1 的 15 张 + V2 的 favorite_folder / favorite_item + V4 的 watch_later
+            // + V5 的 content_coin + V6 的 watch_history − V7 删掉的 video / videoinfo
+            // + V10 的 content_play_dedup；
+            // V8 只换 watch_history 的索引、V9 只给 users 加一列、V10 的 DROP COLUMN 也不动表计数）
             // + flyway_schema_history
-            assertThat(rs.getInt(1)).isEqualTo(19);
+            assertThat(rs.getInt(1)).isEqualTo(20);
         }
         // Flyway 元数据：空库路径按版本号顺序应用**全部**脚本（baseline-on-migrate 只对非空 schema 生效）。
         // ⚠️ 断言全部版本而非只看首行：只看首行时，"新增的 V2/V3/V4/V5/V6/V7/V8/V9 没被应用"是**察觉不到的**
@@ -77,7 +78,8 @@ class InfrastructureConnectivityTests extends AbstractIntegrationTest {
         // V6 = 播放记录专项 T45 的两条 ALTER + watch_history 建表（结构性 ⇒ 表计数 +1）；
         // V7 = 播放记录专项 T45 删遗留 video / videoinfo（结构性 ⇒ 表计数 −2）；
         // V8 = 播放记录列表索引替换（非结构性 ⇒ 表计数不变）；
-        // V9 = 记录开关 R-25 给 users 加一列（非结构性 ⇒ 表计数不变）。
+        // V9 = 记录开关 R-25 给 users 加一列（非结构性 ⇒ 表计数不变）；
+        // V10 = R-26 建播放量去重账本 content_play_dedup（结构性 ⇒ 表计数 +1）+ 拆掉 watch_history 的死列/死索引。
         try (var conn = dataSource.getConnection();
              var st = conn.createStatement();
              var rs = st.executeQuery(
@@ -91,7 +93,7 @@ class InfrastructureConnectivityTests extends AbstractIntegrationTest {
                 successes.add(rs.getBoolean("success"));
             }
             assertThat(versions).as("脚本清单（每加一个 V<n> 都要在这里显式认账）")
-                    .containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9");
+                    .containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10");
             assertThat(types).containsOnly("SQL");
             assertThat(successes).containsOnly(true);
         }

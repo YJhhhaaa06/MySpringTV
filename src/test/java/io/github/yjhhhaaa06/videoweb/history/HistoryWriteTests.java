@@ -8,6 +8,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.TestPropertySource;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -31,18 +33,25 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <tr><th>端点</th><th>本类钉住的口径</th></tr>
  *   <tr><td>{@code /report}</td><td><b>只写缓冲、不落库</b>（`R-19` 起的契约变更）；落库后仍是
  *       <b>后到即新（LWW）</b>、按时长 clamp、<b>不写 play_count</b></td></tr>
- *   <tr><td>{@code /play}</td><td>首播 {@code +1}；重复 play 不 +；**并发两次恰 +1**；
- *       行不存在时建行（{@code progress=0}）；DB 不变量 {@code play_count == COUNT(play_counted=1)}</td></tr>
+ *   <tr><td>{@code /play}</td><td>**当天**首播 {@code +1}；同一天重复 play 不 +；**并发两次恰 +1**；
+ *       行不存在时建行（{@code progress=0}）；DB 不变量 {@code play_count == COUNT(content_play_dedup)}</td></tr>
  * </table>
  *
  * <h2>期望值怎么来（独立 oracle）</h2>
  * <ul>
  *   <li>进度 / 播放量一律**直查 DB**（{@code jdbcTemplate}），不信接口回显；</li>
- *   <li>播放量不变量用**独立语句**复算（{@code SELECT COUNT(*) … play_counted = 1}），
+ *   <li>播放量不变量用**独立语句**复算（{@code SELECT COUNT(*) FROM content_play_dedup}），
  *       与被测实现走的不是同一条路径；</li>
  *   <li>LWW 的期望值来自用户拍板的口径（{@code history-需求.md} §六"后到即新"），
  *       不是"看到实现这么写就这么断"。</li>
  * </ul>
+ *
+ * <h2>★ `R-26`（2026-10-31）：口径从"一人一次（永久）"改成"一人·一内容·一自然日一次"</h2>
+ * 去重标记从 {@code watch_history.play_counted} 搬进账本 {@code content_play_dedup}
+ * （日期进主键）。因此本类：① 原来的 {@code play_counted} 断言全部改成"账本行";
+ * ② 新增**日界**用例（昨天计过 ⇒ 今天再计一次）。这是**契约跟随**（G8 例外条），不是迎合实现。
+ * <p>★ 日界用例**杀不掉"用 UTC 算日期"这个缺陷**（本机 +08:00 下每天只有 0:00–8:00 才错开一天）——
+ * 那条的唯一确定性判别力在 {@code PlayDayTests}（固定时刻断言），别把这条当成时区防线。
  *
  * <h2>夹具</h2>
  * 复用内容域的 {@link AbstractContentIntegrationTest}（作者 / 内容 / 媒体行三条直插语句，
@@ -52,8 +61,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * ① 去掉 clamp ⇒ "超过时长被截断"红；
  * ② 把 {@code report} 改成"进度只能增"（{@code GREATEST}）⇒ LWW 用例红；
  * ③ ODKU 不显式 SET {@code update_time} ⇒ "重复上报仍刷新时间"红（值没变时列上的 ON UPDATE 不触发）；
- * ④ 去掉 {@code play_counted = 0} 条件 ⇒ 重复 play / 并发用例红；
- * ⑤ 首播判定换回 ODKU 的 affected rows ⇒ 重复 play 用例红（{@code useAffectedRows=false} 的歧义）。
+ * ④ 把账本 {@code INSERT IGNORE} 改成无条件 {@code INSERT} + 忽略异常 ⇒ 重复 play / 并发用例红；
+ * ⑤ 首播判定换回 ODKU 的 affected rows ⇒ 重复 play 用例红（{@code useAffectedRows=false} 的歧义）；
+ * ⑥ 账本主键去掉 {@code play_date}（改成 {@code (user_id, content_id)}）⇒ 日界用例红
+ *    （"昨天计过 ⇒ 今天还能再计"变成插不进去）。
  *
  * <h2>★ `R-19`（T51-2）的契约变更，以及为什么改这些断言</h2>
  * {@code /report} 从"同步落库"改成"写 Redis 缓冲"，落库由 {@code /flush} 触发。因此凡"上报后直查 DB"
@@ -88,6 +99,7 @@ class HistoryWriteTests extends AbstractContentIntegrationTest {
         registerAndGetToken(AUTHOR_PHONE, AUTHOR);
         authorId = userIdOf(AUTHOR_PHONE);
         jdbcTemplate.update("DELETE FROM watch_history");
+        jdbcTemplate.update("DELETE FROM content_play_dedup");
     }
 
     // ==================== PUT /api/v1/contents/{id}/progress ====================
@@ -108,7 +120,8 @@ class HistoryWriteTests extends AbstractContentIntegrationTest {
         flush();
 
         assertThat(进度(contentId)).isEqualTo(42);
-        assertThat(playCounted(contentId)).as("上报不判首播、不置标记").isZero();
+        assertThat(账本行数())
+                .as("★ /report 不进账本：它不是计数入口（`R-26` 后判据搬去账本，同样不碰）").isZero();
         assertThat(播放量(contentId)).as("★ /report 不写 play_count（唯一计数入口是 /play）").isZero();
     }
 
@@ -202,7 +215,7 @@ class HistoryWriteTests extends AbstractContentIntegrationTest {
     // ==================== POST /api/v1/contents/{id}/play ====================
 
     @Test
-    @DisplayName("播放：首播 +1，且行被建出来（progress=0、play_counted=1）")
+    @DisplayName("播放：今天首播 +1，账本记一笔「今天」，历史行被建出来（progress=0）")
     void 播放首播计数() {
         long contentId = insertVideoContent(authorId, "播放首播");
 
@@ -210,7 +223,9 @@ class HistoryWriteTests extends AbstractContentIntegrationTest {
 
         assertThat(resp.getStatusCode().value()).as("首播应 200：%s", resp.getBody()).isEqualTo(200);
         assertThat(播放量(contentId)).isEqualTo(1);
-        assertThat(playCounted(contentId)).isEqualTo(1);
+        assertThat(账本日期(contentId))
+                .as("★ 账本落的必须是**业务日**（Asia/Shanghai），不是 SQL 的 CURDATE()")
+                .containsExactly(LocalDate.now(ZoneId.of("Asia/Shanghai")));
         assertThat(进度(contentId))
                 .as("★ 行不存在时建行（progress=0）：否则'先 play 后 report'会丢播放量")
                 .isZero();
@@ -255,16 +270,41 @@ class HistoryWriteTests extends AbstractContentIntegrationTest {
         }
 
         assertThat(播放量(contentId))
-                .as("★ 两个首播请求里只有一个能把标记位 0 改成 1 ⇒ 播放量恰 +1")
+                .as("★ 两个首播请求里只有一个能把账本那一行插进去 ⇒ 播放量恰 +1")
                 .isEqualTo(1);
-        assertThat(jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM watch_history WHERE user_id = ? AND content_id = ? AND play_counted = 1",
-                Long.class, viewerId, contentId)).isEqualTo(1L);
+        assertThat(计数("SELECT COUNT(*) FROM content_play_dedup WHERE user_id = ? AND content_id = ?",
+                viewerId, contentId))
+                .as("并发只留一笔账（账本主键 (user_id, content_id, play_date) 是唯一的互斥点）")
+                .isEqualTo(1L);
     }
 
     @Test
-    @DisplayName("★不变量：play_count == COUNT(play_counted=1)（两个用户各播一次 ⇒ 2）")
-    void 播放量与标记位不变量() {
+    @DisplayName("★日界：昨天计过 ⇒ 今天再播**再计一次**（per-day 的全部意义）；今天已计 ⇒ 不再计")
+    void 播放按自然日去重() {
+        long contentId = insertVideoContent(authorId, "播放日界");
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Shanghai"));
+
+        // 账本里预置"昨天计过"——注意**不是**走接口造出来的（直插账本是独立 oracle 的造数方式）
+        jdbcTemplate.update("INSERT INTO content_play_dedup (user_id, content_id, play_date) VALUES (?, ?, ?)",
+                viewerId, contentId, today.minusDays(1));
+
+        post("/api/v1/contents/" + contentId + "/play", null, viewerToken);
+
+        assertThat(播放量(contentId))
+                .as("★ 昨天那笔账**不拦**今天：把 play_date 从主键里去掉（退化成永久一次）⇒ 本断言红")
+                .isEqualTo(1);
+        assertThat(账本日期(contentId))
+                .as("账本应有两笔：昨天 + 今天").containsExactly(today.minusDays(1), today);
+
+        post("/api/v1/contents/" + contentId + "/play", null, viewerToken);
+        assertThat(播放量(contentId)).as("同一天第二次播放不再计").isEqualTo(1);
+        assertThat(账本日期(contentId))
+                .as("★ 账本仍然是两笔（昨天 + 今天）：今天那笔不会被重复插入").hasSize(2);
+    }
+
+    @Test
+    @DisplayName("★不变量：play_count == COUNT(账本)（两个用户各播一次 ⇒ 2；同一人重复播不加账）")
+    void 播放量与账本不变量() {
         String otherToken = registerAndGetToken(OTHER_VIEWER_PHONE, OTHER_VIEWER);
         long contentId = insertVideoContent(authorId, "播放不变量");
 
@@ -274,7 +314,7 @@ class HistoryWriteTests extends AbstractContentIntegrationTest {
 
         assertThat(播放量(contentId)).isEqualTo(2);
         assertThat(oracle播放量(contentId))
-                .as("★ 独立 oracle：content.play_count 必须等于 play_counted=1 的行数")
+                .as("★ 独立 oracle：content.play_count 必须等于账本行数（`R-26` 起'计过数的人次'= 账本行）")
                 .isEqualTo(2L);
     }
 
@@ -321,10 +361,27 @@ class HistoryWriteTests extends AbstractContentIntegrationTest {
         return rows.get(0);
     }
 
-    private Integer playCounted(long contentId) {
-        return jdbcTemplate.queryForObject(
-                "SELECT play_counted FROM watch_history WHERE user_id = ? AND content_id = ?",
-                Integer.class, viewerId, contentId);
+    /**
+     * 账本里该内容的全部计入日期（升序）。
+     *
+     * <p>`R-26` 起"计过数的人次"= 账本行；同一对 (user, content) 可以有**多天**各一行，
+     * 所以这里返回列表而不是单个值 —— 用 {@code hasSize} 判"有没有重复记账"最直接。
+     */
+    private List<LocalDate> 账本日期(long contentId) {
+        return jdbcTemplate.queryForList(
+                "SELECT play_date FROM content_play_dedup WHERE user_id = ? AND content_id = ? ORDER BY play_date",
+                LocalDate.class, viewerId, contentId);
+    }
+
+    private long 账本行数() {
+        Long n = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM content_play_dedup", Long.class);
+        return n == null ? 0L : n;
+    }
+
+    /** 计数类 oracle 的通用入口（SQL 里只有一个 {@code ?} 时最省事）。 */
+    private long 计数(String sql, Object... args) {
+        Long n = jdbcTemplate.queryForObject(sql, Long.class, args);
+        return n == null ? 0L : n;
     }
 
     /** {@code content.play_count} 列（写路径的终态）。 */
@@ -336,7 +393,7 @@ class HistoryWriteTests extends AbstractContentIntegrationTest {
     /** 独立 oracle：不变量右侧（完全不同的一条语句，不复用被测实现）。 */
     private Long oracle播放量(long contentId) {
         return jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM watch_history WHERE content_id = ? AND play_counted = 1",
+                "SELECT COUNT(*) FROM content_play_dedup WHERE content_id = ?",
                 Long.class, contentId);
     }
 

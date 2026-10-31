@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  content_play_dedup Mapper（R-26）。
+  语义与论证见 architecture/domain/history/history.md §五 —— 尤其"日期进主键判首播"与
+  "不用 CURDATE()"两条，改动前先读那份文档。
+-->
+<mapper namespace="io.github.yjhhhaaa06.videoweb.history.dao.PlayDedupDao">
+
+    <!-- /play 的唯一判定：今天这一行插得进去 ⇒ 首播；撞 (user_id, content_id, play_date) ⇒ 今天已计。
+         ★ play_date 由 Java 按业务时区算好传参（不用 CURDATE()：它取 MySQL 时区，容器常是 UTC）。
+         ★ 不用 ODKU：useAffectedRows=false 下"插入"与"值没变的更新"都返回 1（history.md §四.2）。 -->
+    <insert id="insertIgnore">
+        INSERT IGNORE INTO content_play_dedup (user_id, content_id, play_date)
+        VALUES (#{userId}, #{contentId}, #{playDate})
+    </insert>
+
+</mapper>

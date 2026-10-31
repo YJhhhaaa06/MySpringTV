@@ -58,6 +58,7 @@ PUT	/api/v1/favorites/{id}	LOGIN	ApiResponse<Void>
 GET	/api/v1/feed	LOGIN	ApiResponse<PageResult<ContentVO>>
 DELETE	/api/v1/follows/{id}	LOGIN	ResponseEntity<Void>
 PUT	/api/v1/follows/{id}	LOGIN	ApiResponse<Void>
+DELETE	/api/v1/history	LOGIN	ResponseEntity<Void>
 GET	/api/v1/history	LOGIN	ApiResponse<PageResult<HistoryItemVO>>
 POST	/api/v1/history/flush	LOGIN	ApiResponse<Void>
 POST	/api/v1/sessions	PUBLIC	ApiResponse<LoginVO>

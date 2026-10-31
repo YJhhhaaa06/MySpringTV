@@ -348,7 +348,7 @@ class SecurityContractTests extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("★播放记录 T47/T49/T51-2：history 五端点判为需登录（钉路由；**不**证明类级注解在不在）")
+    @DisplayName("★播放记录 T47/T49/T51-2/R-26：history 六端点判为需登录（钉路由；**不**证明类级注解在不在）")
     void history写端点需登录() {
         // 本域五个端点都只对当前登录用户有意义（历史是"我的"私有记录）⇒ 类级 @RequiresLogin。
         // ★ 判别力边界（如实声明，同 coin）：本仓是**默认拒绝** ⇒ 去掉类级注解后 requiresLogin
@@ -365,6 +365,8 @@ class SecurityContractTests extends AbstractIntegrationTest {
         assertThat(requiresLogin("POST", "/api/v1/contents/1/play")).isTrue();
         assertThat(requiresLogin("GET", "/api/v1/history")).isTrue();
         assertThat(requiresLogin("GET", "/api/v1/contents/1/progress")).isTrue();
+        // R-26（T77）：删除 / 清空是同一条路由（形态由 query 区分），路由必须落到本域处理器上。
+        assertThat(requiresLogin("DELETE", "/api/v1/history")).isTrue();
     }
 
     @Test

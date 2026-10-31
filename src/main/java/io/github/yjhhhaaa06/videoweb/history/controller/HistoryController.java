@@ -10,6 +10,8 @@ import io.github.yjhhhaaa06.videoweb.history.model.vo.HistoryItemVO;
 import io.github.yjhhhaaa06.videoweb.history.model.vo.HistoryPositionVO;
 import io.github.yjhhhaaa06.videoweb.history.service.HistoryService;
 import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -18,14 +20,18 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 /**
  * 播放记录接口入口（`T58` 起路径资源化，播放记录专项 T47）。
  *
  * <h2>路径（`T58` 契约变更，依据《接口契约.md》§2.3/§2.4）</h2>
  * <ul>
  *   <li>历史列表：{@code GET /api/v1/history}；</li>
+ *   <li>删除 / 清空历史：{@code DELETE /api/v1/history}
+ *       （`R-26`；批量 id 走 query、清空走 {@code all=true}）；</li>
  *   <li>续播位置 / 进度上报：{@code GET|PUT /api/v1/contents/{id}/progress}
- *       （{@code contentId} 进路径，{@code progress} 留 form/query）；</li>
+ *       （{@code contentId} 进路径，{@code progress} 留 JSON body）；</li>
  *   <li>播放事件：{@code POST /api/v1/contents/{id}/play} —— §2.4 例外清单：
  *       播放事件非幂等、无自然键，保持 POST；</li>
  *   <li>退出信号：{@code POST /api/v1/history/flush} —— 同例外清单：
@@ -33,22 +39,23 @@ import org.springframework.web.bind.annotation.RestController;
  * </ul>
  *
  * <h2>★ 鉴权：**类级** {@code @RequiresLogin}</h2>
- * 本域**全部五个端点**都只对"当前登录用户"有意义：没有公开面可言。类级注解的语义因此是准确的，也是**面向未来端点**的保护——
+ * 本域**全部六个端点**都只对"当前登录用户"有意义：没有公开面可言。类级注解的语义因此是准确的，也是**面向未来端点**的保护——
  * 将来往本域加端点会被自动保护。判别力由
  * {@code SecurityContractTests#history写端点需登录} 直接对 {@code RequestMappingLookup} 求值守着
  * （HTTP 侧 401 是假绿：{@code @CurrentUserId} 解析器自己会抛 401）。
  *
- * <h2>请求形态：写 {@code POST|PUT} + JSON body（进度字段）、读 {@code GET} + query</h2>
+ * <h2>请求形态：写 {@code POST|PUT|DELETE} + JSON body（进度字段）/ query（批量 id）、读 {@code GET} + query</h2>
  * `T59` 起进度覆盖走 JSON body（{@code ReportProgressRequest}）；{@code play} / {@code flush} 无入参；
- * report 是 **PUT**（幂等覆盖 / LWW，§2.4）。
+ * report 是 **PUT**（幂等覆盖 / LWW，§2.4）；删除是 **DELETE**（幂等，重复删 = 204）。
  *
  * <h2>成功信封</h2>
- * 写端点返回 {@code ApiResponse<Void>}（{@code {"code":"OK","msg":"success"}}，无 {@code data}）；历史列表返回分页信封，
- * 续播位置返回 {@code {"progress":N}}。错误码见 {@code history.md} §八
- * （400 负进度 / 图文、404 内容不存在、401 未登录）。
+ * 写端点返回 {@code ApiResponse<Void>}（{@code {"code":"OK","msg":"success"}}，无 {@code data}）；
+ * ★ 删除返回 **204 无 body**（§2.4 的"重复 DELETE = 204"，与 {@code DELETE /favorites} 同形，
+ * 访问日志记 {@code code=OK}）；历史列表返回分页信封，续播位置返回 {@code {"progress":N}}。
+ * 错误码见 {@code history.md} §八（400 负进度 / 图文 / 删除参数、404 内容不存在、401 未登录）。
  *
  * <h2>端点全集</h2>
- * 写路径两段（T47）+ 列表 + 续播位置构成五端点全集；
+ * 写路径两段（T47）+ 列表 + 续播位置 + 删除构成六端点全集；
  * 读端点用 {@code GET} ⇒ **不登记限流权重**（权重表只覆盖非 GET）。
  */
 @RestController
@@ -120,8 +127,40 @@ public class HistoryController {
         return ApiResponse.success();
     }
 
-    // ==================== 写：progress / play ====================
+    // ==================== 写：删除 / 清空 ====================
 
+    /**
+     * 删除历史（`R-26`）：{@code DELETE /api/v1/history}，两种形态**互斥**。
+     *
+     * <ul>
+     *   <li>批量：{@code ?contentIds=1,2,3}（逗号分隔或重复参数，Spring 都绑定；去重后 ≤ 500）；</li>
+     *   <li>清空：{@code ?all=true}（无 id）。</li>
+     * </ul>
+     *
+     * <h2>★ 为什么"清空"必须显式 {@code all=true}，而不是"不传 contentIds"</h2>
+     * 删除是**不可逆**的。让"少传一个参数"表达"删掉全部"，等于把一次前端 bug 变成一次数据事故；
+     * 显式开关把这种 bug 退化成 **400**（"请指定要删除的记录，或用 all=true 清空历史"）。
+     *
+     * <h2>★ 为什么批量 id 走 query（而不是 body）</h2>
+     * §2.5 定稿：DELETE 一律无 body。批量 id 是"选择参数"而非实体内容，与
+     * {@code DELETE /api/v1/favorites?folderId=&contentIds=} 同形。
+     *
+     * <h2>为什么是 204 而不是 200 + 信封</h2>
+     * §2.4：**重复 DELETE = 204**（不报 409 / 404）。"没有这条记录"与"删成功"在用户视角没有区别，
+     * 而 404 会给"id 打错"开一个静默成功口。★ 但**缺参仍是 400** —— 那是调用方没说要删什么。
+     *
+     * @param contentIds 要删除的内容 id（`all=false` 时必填）
+     * @param all        `true` = 清空该用户全部历史；与 `contentIds` 互斥
+     */
+    @DeleteMapping("/api/v1/history")
+    public ResponseEntity<Void> delete(@CurrentUserId long userId,
+                                       @RequestParam(required = false) List<Long> contentIds,
+                                       @RequestParam(required = false) Boolean all) {
+        historyService.delete(userId, contentIds, Boolean.TRUE.equals(all));
+        return ResponseEntity.noContent().build();
+    }
+
+    // ==================== 写：progress / play ====================
     /**
      * 上报播放进度：{@code PUT /api/v1/contents/{id}/progress}（`T58` 起 {@code contentId} 进路径；
      * `T59` 载荷面：{@code progress} 改为 JSON body {@code {"progress": N}}，单位**秒**）。

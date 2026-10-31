@@ -10,11 +10,13 @@ import java.util.List;
 /**
  * 播放记录数据访问（{@code watch_history}，本域自有表）。
  *
- * <h2>写路径三个方法</h2>
+ * <h2>写路径</h2>
  * <ul>
  *   <li>{@link #upsertProgress}：进度上报（{@code PUT /api/v1/contents/{id}/progress}）的**一条** ODKU（不判首播、不读后写）；</li>
- *   <li>{@link #insertIgnoreCounted} / {@link #markCountedIfNotCounted}：播放事件（{@code POST /api/v1/contents/{id}/play}）
- *       的**首播判定**两步，靠 affected-rows 的 1/0 判别。</li>
+ *   <li>{@link #insertIgnoreEmpty}：播放事件（{@code POST /api/v1/contents/{id}/play}）**只建行**
+ *       （{@code progress=0}），不判首播 —— 判首播是 {@link PlayDedupDao} 的职责（`R-26`）；</li>
+ *   <li>{@link #deleteByUserIdAndContentIds} / {@link #deleteAllByUserId}：历史删除
+ *       （{@code DELETE /api/v1/history}，`R-26`）。★ 删行**不影响播放量**：计数证据在账本里。</li>
  * </ul>
  *
  * <h2>读路径（历史列表 {@code GET /api/v1/history} 与续播位置 {@code GET /api/v1/contents/{id}/progress}）</h2>
@@ -56,8 +58,8 @@ public interface WatchHistoryDao {
      * ① 批量；② 时间由参数给，而不是 `CURRENT_TIMESTAMP`（一批里各条时刻不同，用数据库当前时间会把
      * 它们压成同一秒 ⇒ 列表倒序退化）。
      *
-     * <p>⚠️ 本方法**绝不写** {@code play_counted}（那是 `insertIgnoreCounted` /
-     * {@code markCountedIfNotCounted` 的唯一职责）。
+     * <p>⚠️ 本方法**绝不写**去重账本 {@code content_play_dedup}（那是
+     * {@link PlayDedupDao#insertIgnore} 的唯一职责）。
      *
      * <p>⚠️ 一条语句 = 一个隐式事务：**任一行失败整批回滚**（如唯一键之外的约束、列截断）。
      * 调用方必须能降级到逐条重试，把坏行摘出去（{@code HistoryFlushService}）。
@@ -68,28 +70,47 @@ public interface WatchHistoryDao {
                             @Param("items") List<HistoryProgressRow> items);
 
     /**
-     * 首次播放建行并**直接**标记已计（{@code progress_seconds = 0}）。
+     * 播放事件**只建行**（{@code progress_seconds = 0}）：行不存在 ⇒ 插 1 行，已存在 ⇒ 唯一键冲突被
+     * {@code IGNORE}、返回 0。
      *
-     * <p>行不存在 ⇒ 插入 1 行（{@code play_counted=1}）并返回 1；行已存在 ⇒ 唯一键冲突被
-     * {@code IGNORE}、返回 0。★ 两种结果**无歧义**，这正是本方法存在的理由。
+     * <p>★ 这里**不再判首播**（`R-26` 起判据在 {@link PlayDedupDao#insertIgnore}）：本方法只负责
+     * "只 play 不 report 的视频也要出现在历史里"。**必须无条件调用**（不能只在首播时调）——
+     * 用户删掉历史后重看，同一个"今天"不会再计播放量，但历史行**应该重新出现**
+     * （否则页面在播、列表里却没有它）。
      *
-     * <p>为什么在这里建行（而不是等 {@code /report}）：否则"先 play 后 report"会丢播放量；
+     * <p>为什么在 `/play` 建行（而不是等 {@code /report}）：否则"先 play 后 report"会丢播放量；
      * 历史里出现一条 00:00 的记录是预期行为（口径见 {@code history.md} §四.2）。
      */
-    int insertIgnoreCounted(@Param("userId") long userId, @Param("contentId") long contentId);
+    int insertIgnoreEmpty(@Param("userId") long userId, @Param("contentId") long contentId);
 
     /**
-     * 行已存在时的**条件抢占**：只在 {@code play_counted = 0} 时置 1。
+     * 批量删除历史（{@code DELETE /api/v1/history?contentIds=}，`R-26`）。
      *
-     * @return 1 = 本次抢占成功（首播）；0 = 别人已经计过（幂等返回）
+     * <p>★ {@code userId} 必须在 WHERE 里（作用域 = 当前登录用户，天然无越权面）；
+     * ★ 命中 0 行**不是错误**（幂等 204）：陈旧页面、别的标签页已经删过、id 打错都走这条路。
+     *
+     * <p>★ 本方法**不碰** {@code content.play_count}、也不碰 {@code content_play_dedup}：
+     * 删历史不减播放量（B站 同口径），而"今天计过数"的证据在账本里，删行删不到它。
+     *
+     * @param contentIds 去重后的内容 id（调用方保证非空；空 IN 是 SQL 语法错）
      */
-    int markCountedIfNotCounted(@Param("userId") long userId, @Param("contentId") long contentId);
+    int deleteByUserIdAndContentIds(@Param("userId") long userId,
+                                    @Param("contentIds") List<Long> contentIds);
+
+    /**
+     * 清空该用户的全部历史（{@code DELETE /api/v1/history?all=true}，`R-26`）。
+     *
+     * <p>★ 与 {@link #deleteByUserIdAndContentIds} 同口径：幂等（空历史也成功）、不动播放量、不动账本。
+     * 没有上限是因为作用域天然收窄到一个人（{@code user_id} 是主键前缀，走 {@code uk_user_content}）。
+     */
+    int deleteAllByUserId(@Param("userId") long userId);
 
     /**
      * 该用户的历史行数（列表 {@code total}）。
      *
-     * <p>★ <b>包含失效条目</b>：失效内容的历史行不删（历史不可删）、也照样占一条 ——
-     * 否则 {@code total} 与页内条数会打架（{@code architecture/domain/history/history.md} §七.1）。
+     * <p>★ <b>包含失效条目</b>：失效内容的历史行不随内容删除而消失（`R-18` 的失效占位口径），
+     * 也照样占一条 —— 否则 {@code total} 与页内条数会打架（{@code architecture/domain/history/history.md} §七.1）。
+     * ★ 用户主动删除（`R-26`）之后当然不再计入 —— 那是"用户要它消失"，与"内容失效"是两回事。
      *
      * @param userId 当前登录用户
      */

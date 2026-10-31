@@ -52,9 +52,9 @@ class WatchLaterSchemaTests extends AbstractIntegrationTest {
         assertThat(appliedVersions.get(0)).as("首版本必须是 V1（baseline）").isEqualTo("1");
         // ★ "末版本认账"锚点：每加一版迁移都要显式改这一行（T36 的 V5 = 投币专项；
         //   T45 的 V6 = 播放记录、V7 = 删遗留表；V8 = 播放记录列表覆盖索引；
-        //   V9 = 记录开关 R-25 给 users 加一列）。
+        //   V9 = 记录开关 R-25 给 users 加一列；V10 = R-26 建播放量去重账本）。
         //   它不是"跟着实现改断言"，而是把"新增的版本有没有真的被应用"变成一次人工确认。
-        assertThat(appliedVersions).as("V9 必须是最后一个已应用版本（V9 = users.history_recording）").endsWith("9");
+        assertThat(appliedVersions).as("V10 必须是最后一个已应用版本（V10 = content_play_dedup）").endsWith("10");
     }
 
     @Test

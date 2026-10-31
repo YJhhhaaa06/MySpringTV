@@ -140,6 +140,9 @@ public final class IdempotencyScope {
             entry("DELETE /api/v1/favorite-folders/{id}", natural()),
             entry("DELETE /api/v1/favorites", natural()),
             entry("DELETE /api/v1/follows/{id}", natural()),
+            // 删除历史（R-26）：DELETE 天然幂等（重复删 / 行不存在都 204），重试不改变 DB 终态。
+            // ★ 它同时承担"清空"（all=true），也是同一条路由 ⇒ 一条登记覆盖两种形态。
+            entry("DELETE /api/v1/history", natural()),
             entry("DELETE /api/v1/watch-later", natural())
     );
 

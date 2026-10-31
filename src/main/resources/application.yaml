@@ -507,6 +507,9 @@ video:
         "[PUT /api/v1/contents/{id}/progress]": 1
         "[POST /api/v1/history/flush]": 3
         "[POST /api/v1/contents/{id}/play]": 1
+        #    删除 / 清空历史（R-26）：一次最多 500 条、要动 DB + 清缓冲 ⇒ 按"其余写 3"计；
+        #    清空是同一条路由（all=true），权重按请求计、不按影响行数计。
+        "[DELETE /api/v1/history]": 3
         # —— admin（人工操作、流量极小，但**无白名单** ⇒ 同样过闸计费；`T58` 起资源化：
         #    删评论 = DELETE /comments/{id}、下架/恢复 = PUT|DELETE /contents/{id}/hidden，
         #    权重值逐字保持）——
