@@ -64,7 +64,9 @@ class UserHistoryRecordingTests extends AbstractHttpIntegrationTest {
         ResponseEntity<String> resp = put("/api/v1/users/me/history-recording",
                 Map.of("historyRecording", false), tokenA);
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
-        assertThat(Envelope.data(resp).path("historyRecording").asBoolean()).as("回执 = 已落库的值").isFalse();
+        assertThat(Envelope.data(resp).path("historyRecording").asBoolean())
+                .as("回执 = 本次写入的值（服务端**不二次读库**，落库判据由下面的 DB oracle 提供）")
+                .isFalse();
 
         // 独立 oracle：不读接口回显，直接查 DB 两行（对照行 B 是这条用例的判别力所在）
         assertThat(recordedFlagOf(userIdOf(PHONE_A))).as("A 被关掉").isEqualTo(0);
@@ -125,19 +127,64 @@ class UserHistoryRecordingTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("★关闭后写端点仍放行 —— 服务端刻意不强制（谁给 /progress 加校验，这条必红）")
+    @DisplayName("★关闭后写端点仍放行 —— 服务端刻意不强制（谁给写路径加校验，这条必红）")
     void 关闭后写端点仍放行_服务端刻意不强制() {
         String token = registerAndGetToken(PHONE_A, "r25noenforce", "Password123");
+        long userId = userIdOf(PHONE_A);
         assertThat(put("/api/v1/users/me/history-recording", Map.of("historyRecording", false), token)
                 .getStatusCode().value()).isEqualTo(200);
 
-        // 关掉之后照样能上报：这里用**不存在的 contentId**（987654）⇒ 期望 404「内容不存在」。
-        // 关键不在 404 本身，而在于"请求走到了内容存在性校验"——说明没有任何一层去读开关。
-        // ⚠️ 若有人给写路径加开关守卫（403 / 409 / 静默 200），这条会红：那是**改变决策**，必须走 R-##。
-        ResponseEntity<String> resp = put("/api/v1/contents/987654/progress", Map.of("progress", 10), token);
-        assertThat(resp.getStatusCode().value())
-                .as("关掉开关不影响写端点的行为（R-25：服务端不强制；见 history-已知代价.md）")
-                .isEqualTo(404);
-        assertThat(Envelope.code(resp)).isEqualTo("CONTENT_NOT_FOUND");
+        long contentId = insertVideoContent(userId, TITLE_NO_ENFORCE);
+        try {
+            // ① 播放事件：关掉开关后服务端**仍然计数** —— 这是刻意偏离最尖锐的一面
+            //    （⚠️ 用"不存在的 id"测不出这条：那种请求在内容校验处就 404 了，
+            //      加在校验之后的守卫照样拦。必须用**可播的真内容**才覆盖得到。）
+            assertThat(post("/api/v1/contents/" + contentId + "/play", null, token).getStatusCode().value())
+                    .isEqualTo(200);
+            assertThat(playCountOf(contentId))
+                    .as("服务端不读开关 ⇒ 关着也照计（与实测的 B站 相反；见 history-已知代价.md）")
+                    .isEqualTo(1);
+
+            // ② 进度上报：仍 200 且进缓冲（落库由 /flush 与轮询兜底负责）
+            assertThat(put("/api/v1/contents/" + contentId + "/progress", Map.of("progress", 10), token)
+                    .getStatusCode().value()).as("关掉开关不影响写端点的行为（R-25：服务端不强制）")
+                    .isEqualTo(200);
+        } finally {
+            // 本类不继承内容域基类 ⇒ 自己收尾，别把内容行留给后面的测试类
+            jdbcTemplate.update("DELETE FROM watch_history WHERE content_id = ?", contentId);
+            jdbcTemplate.update("DELETE FROM content_media WHERE content_id = ?", contentId);
+            jdbcTemplate.update("DELETE FROM content WHERE id = ?", contentId);
+        }
+    }
+
+    // ==================== 内容夹具（只为"刻意的非强制"那条用例服务） ====================
+
+    private static final String TITLE_NO_ENFORCE = "R25-不强制契约";
+
+    /**
+     * 造一条**可播**的视频内容（content 行 + 视频媒体行 + 封面行）。
+     *
+     * <p>为什么不复用 coin 域的 {@code insertVideoContent}：那在
+     * {@code AbstractCoinIntegrationTest} 上（本类继承 HTTP 基类，不跨域继承）。
+     * SQL 与该实现逐字一致（少了媒体行，详情 / 写路径都按"媒体损坏"404）。
+     */
+    private long insertVideoContent(long authorId, String title) {
+        jdbcTemplate.update(
+                "INSERT INTO content (user_id, type, title, description, category_id) VALUES (?, 1, ?, ?, 1)",
+                authorId, title, title + " 的简介");
+        Long contentId = jdbcTemplate.queryForObject("SELECT id FROM content WHERE title = ?", Long.class, title);
+        assertThat(contentId).as("content 插入必须能按标题取回 id").isNotNull();
+        jdbcTemplate.update("INSERT INTO content_media (content_id, url, type, sort) VALUES (?, ?, 1, 1)",
+                contentId, "/upload/video/" + contentId + ".mp4");
+        jdbcTemplate.update("INSERT INTO content_media (content_id, url, type, sort) VALUES (?, ?, 3, 1)",
+                contentId, "/upload/cover/" + contentId + ".png");
+        return contentId;
+    }
+
+    private int playCountOf(long contentId) {
+        Integer value = jdbcTemplate.queryForObject(
+                "SELECT play_count FROM content WHERE id = ?", Integer.class, contentId);
+        assertThat(value).as("内容行必须还在（否则下面读的是空气）").isNotNull();
+        return value;
     }
 }
