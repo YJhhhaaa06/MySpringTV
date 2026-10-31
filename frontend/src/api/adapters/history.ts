@@ -15,7 +15,8 @@
  */
 import type { components } from '../../types/api'
 import type { HistoryGroupVM, HistoryItemVM } from '../../types/ui'
-import { formatDuration, parseDate } from './format'
+import { serverNow } from '../serverClock'
+import { formatClockTime, formatDayLabel, formatDuration } from './format'
 import { videoHref } from './links'
 
 /**
@@ -23,8 +24,13 @@ import { videoHref } from './links'
  *
  * <p>角标口径对齐 B 站历史页：有总时长 ⇒ `已看/总长`（`18:09/49:45`）；已看完 ⇒ `已看完`；
  * 没有总时长（本仓存量内容常见）⇒ 只给 `看到 mm:ss`，**不猜比例**；没进度 ⇒ 空串（不渲染角标）。
+ *
+ * <p>观看时刻按**用户本地时区**呈现（解析按契约 §2.7）；`offsetMinutes` 只给用例钉时区。
  */
-export function toHistoryItem(item: components['schemas']['HistoryItemVO']): HistoryItemVM {
+export function toHistoryItem(
+  item: components['schemas']['HistoryItemVO'],
+  offsetMinutes?: number,
+): HistoryItemVM {
   const invalid = item.invalid === true
   const progress = typeof item.progress === 'number' && item.progress > 0 ? item.progress : 0
   const duration = typeof item.durationSeconds === 'number' && item.durationSeconds > 0 ? item.durationSeconds : 0
@@ -53,54 +59,26 @@ export function toHistoryItem(item: components['schemas']['HistoryItemVO']): His
     invalid,
     badgeText,
     progressPercent,
-    watchedTimeText: formatClock(watchedAt),
+    watchedTimeText: formatClockTime(watchedAt, offsetMinutes),
     watchedAt,
   }
-}
-
-/** `HH:mm`（观看时刻）；非法 / 空 ⇒ 空串 */
-export function formatClock(iso: string | null | undefined): string {
-  const date = parseDate(iso)
-  if (!date) return ''
-  const pad = (value: number) => String(value).padStart(2, '0')
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}`
-}
-
-/**
- * 观看时间 → 分组（B 站口径：今天 / 昨天 / 同年 `MM-DD` / 跨年 `YYYY-MM-DD`）。
- *
- * <p>按**本地日历日**比较（不是"距今多少小时"）：23:59 与次日 00:01 必须是两组。
- * `null` / 非法时间归「时间未知」——不消失、也不塞进今天。
- */
-export function historyDayLabel(
-  iso: string | null | undefined,
-  now: Date,
-): { key: string; label: string } {
-  const date = parseDate(iso)
-  if (!date) return { key: 'unknown', label: '时间未知' }
-  const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
-  const nowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-  // 用 round 而不是 floor：夏令时地区的一天不是精确 24h（本仓部署在 Asia/Shanghai，无 DST，但口径写死更安全）
-  const days = Math.round((nowStart - dayStart) / 86_400_000)
-  if (days === 0) return { key: 'today', label: '今天' }
-  if (days === 1) return { key: 'yesterday', label: '昨天' }
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  if (date.getFullYear() === now.getFullYear()) {
-    return { key: `${date.getFullYear()}-${month}-${day}`, label: `${month}-${day}` }
-  }
-  return { key: `${date.getFullYear()}-${month}-${day}`, label: `${date.getFullYear()}-${month}-${day}` }
 }
 
 /**
  * 按天分组：**保持服务端顺序**（最后观看倒序），只在首次出现某天时建组。
  *
  * <p>用 Map 而不是"和上一组比"：后者在脏数据（跨天交错）下会产出两个同名分组。
+ * <p>`now` 默认取**服务器时钟**（与卡片 / 评论同源）；"今天/昨天"按用户本地日历日判
+ * （{@link formatDayLabel}）。
  */
-export function groupHistory(items: HistoryItemVM[], now: Date = new Date()): HistoryGroupVM[] {
+export function groupHistory(
+  items: HistoryItemVM[],
+  now: Date = serverNow(),
+  offsetMinutes?: number,
+): HistoryGroupVM[] {
   const groups = new Map<string, HistoryGroupVM>()
   for (const item of items) {
-    const { key, label } = historyDayLabel(item.watchedAt, now)
+    const { key, label } = formatDayLabel(item.watchedAt, now, offsetMinutes)
     let group = groups.get(key)
     if (!group) {
       group = { key, label, items: [] }

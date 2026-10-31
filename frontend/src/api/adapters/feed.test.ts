@@ -27,7 +27,8 @@ function content(overrides: Partial<Record<keyof ContentVO, unknown>> = {}): Con
   } as ContentVO
 }
 
-const now = new Date('2026-05-09T20:00:00')
+/** 上海 20:00（**带偏移**：`createTime` 按 +08:00 解释，夹具必须同源） */
+const now = new Date('2026-05-09T20:00:00+08:00')
 
 describe('toDynamicCard', () => {
   it('视频卡：动作文案「投稿了视频」+ 播放量 / 点赞 / 评论三个真计数', () => {

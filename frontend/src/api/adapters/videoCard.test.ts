@@ -25,7 +25,8 @@ function content(overrides: Partial<Record<keyof ContentVO, unknown>> = {}): Con
   } as ContentVO
 }
 
-const now = new Date('2026-10-25T12:00:00')
+/** 上海正午（**带偏移**：`createTime` 按 +08:00 解释，夹具必须同源） */
+const now = new Date('2026-10-25T12:00:00+08:00')
 
 describe('toVideoCard', () => {
   it('从 ContentVO 映射出卡片：id / 标题 / 跨应用链接 / 作者占位链接', () => {

@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { components } from '../../types/api'
 import type { HistoryItemVM } from '../../types/ui'
-import { groupHistory, historyDayLabel, toHistoryItem } from './history'
+import { groupHistory, toHistoryItem } from './history'
 
 type HistoryItemVO = components['schemas']['HistoryItemVO']
+
+/** +08:00（契约语义时区）：`watchedTime` 是服务端串，呈现要按用户本地时区。 */
+const SH = 8 * 60
 
 function history(fields: Partial<Record<keyof HistoryItemVO, unknown>> = {}): HistoryItemVO {
   return {
@@ -21,13 +24,19 @@ function history(fields: Partial<Record<keyof HistoryItemVO, unknown>> = {}): Hi
 
 describe('toHistoryItem', () => {
   it('正常条目：角标 = 已看/总长（B 站口径），进度按 progress / durationSeconds 真算', () => {
-    const item = toHistoryItem(history())
+    const item = toHistoryItem(history(), SH)
     expect(item.contentId).toBe(7)
     expect(item.href).toBe('/video/7')
     expect(item.badgeText).toBe('02:00/10:00')
     expect(item.progressPercent).toBe(20) // 120 / 600
+    // 服务端串 09:05（上海）⇒ +08:00 用户看到 09:05
     expect(item.watchedTimeText).toBe('09:05')
     expect(item.watchedAt).toBe('2026-10-26T09:05:00')
+  })
+
+  it('★ 观看时刻按用户本地时区呈现（同一串在 UTC 下是 01:05）', () => {
+    // TZ=UTC 且不传偏移 ⇒ 本地就是 UTC。旧实现把上海墙上时间当本地时间抄 ⇒ 会错误地给 09:05。
+    expect(toHistoryItem(history()).watchedTimeText).toBe('01:05')
   })
 
   it('★ 角标格式与 B 站一致：`18:09/49:45`（截图里的真实写法）', () => {
@@ -57,6 +66,7 @@ describe('toHistoryItem', () => {
   it('失效条目：不显示进度 / 作者，但**保留观看时间**（历史数据是真的）', () => {
     const item = toHistoryItem(
       history({ invalid: true, title: '内容已失效', coverUrl: null, authorName: null, durationSeconds: null }),
+      SH,
     )
     expect(item.invalid).toBe(true)
     expect(item.title).toBe('内容已失效')
@@ -68,30 +78,16 @@ describe('toHistoryItem', () => {
   })
 })
 
-describe('historyDayLabel', () => {
-  const now = new Date('2026-10-26T12:00:00')
-
-  it('按本地日历日分组：今天 / 昨天 / 同年 MM-DD / 跨年 YYYY-MM-DD', () => {
-    expect(historyDayLabel('2026-10-26T00:01:00', now).label).toBe('今天')
-    expect(historyDayLabel('2026-10-25T23:59:00', now).label).toBe('昨天')
-    expect(historyDayLabel('2026-10-24T18:00:00', now).label).toBe('10-24')
-    expect(historyDayLabel('2025-12-31T18:00:00', now).label).toBe('2025-12-31')
-  })
-
-  it('时间缺失/非法归「时间未知」，不塞进今天', () => {
-    expect(historyDayLabel(null, now).label).toBe('时间未知')
-    expect(historyDayLabel('not-a-date', now).label).toBe('时间未知')
-  })
-})
-
 describe('groupHistory', () => {
-  const now = new Date('2026-10-26T12:00:00')
+  /** 上海正午（带偏移：不带的裸串在 TZ=UTC 下是 12:00Z，等于上海 20:00，夹具意图就漂了）。 */
+  const now = new Date('2026-10-26T12:00:00+08:00')
   const at = (watchedAt: string): HistoryItemVM => toHistoryItem(history({ watchedTime: watchedAt }))
 
   it('保持服务端顺序、按天聚合（今天 2 条 / 昨天 1 条 / 10-24 1 条）', () => {
     const groups = groupHistory(
       [at('2026-10-26T11:00:00'), at('2026-10-26T09:00:00'), at('2026-10-25T22:00:00'), at('2026-10-24T08:00:00')],
       now,
+      SH,
     )
     expect(groups.map((group) => group.label)).toEqual(['今天', '昨天', '10-24'])
     expect(groups.map((group) => group.items.length)).toEqual([2, 1, 1])
@@ -101,8 +97,16 @@ describe('groupHistory', () => {
     const groups = groupHistory(
       [at('2026-10-26T11:00:00'), at('2026-10-25T22:00:00'), at('2026-10-26T09:00:00')],
       now,
+      SH,
     )
     expect(groups.map((group) => group.label)).toEqual(['今天', '昨天'])
     expect(groups[0]?.items.length).toBe(2)
+  })
+
+  it('★ 分组日界绑用户时区：同一天的战绩在 UTC 视角下被拆成两天', () => {
+    const items = [at('2026-10-26T00:30:00'), at('2026-10-25T23:30:00')]
+    // 上海：两条都在 10-26 与 10-25 —— 仍是两天；UTC：00:30 那条落到 10-25 16:30
+    expect(groupHistory(items, now, SH).map((group) => group.key)).toEqual(['today', 'yesterday'])
+    expect(groupHistory(items, now, 0).map((group) => group.key)).toEqual(['yesterday'])
   })
 })

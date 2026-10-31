@@ -5,7 +5,8 @@ import { toFavoriteItemCard, toPublicFolder, toSpaceHeader, toSpaceWorks } from 
 type ProfileVO = components['schemas']['ProfileVO']
 type PageResultContentVO = components['schemas']['PageResultContentVO']
 
-const now = new Date('2026-10-25T12:00:00')
+/** 上海正午（**带偏移**：`createTime` 按 +08:00 解释，夹具必须同源） */
+const now = new Date('2026-10-25T12:00:00+08:00')
 
 function profile(fields: Partial<Record<keyof ProfileVO, unknown>> = {}): ProfileVO {
   return {
