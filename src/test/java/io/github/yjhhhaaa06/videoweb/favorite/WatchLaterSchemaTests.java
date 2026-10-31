@@ -40,7 +40,7 @@ class WatchLaterSchemaTests extends AbstractIntegrationTest {
     private JdbcTemplate jdbcTemplate;
 
     @Test
-    @DisplayName("★全部迁移版本都被应用（V1~V8 且 success）—— 不止最新一版，防 I-02 的'只断首行'假绿")
+    @DisplayName("★全部迁移版本都被应用（V1~V9 且 success）—— 不止最新一版，防 I-02 的'只断首行'假绿")
     void 全部迁移版本都被应用() {
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
                 "SELECT version, success FROM flyway_schema_history WHERE success = 1 ORDER BY installed_rank");
@@ -51,9 +51,10 @@ class WatchLaterSchemaTests extends AbstractIntegrationTest {
                 .contains("4");
         assertThat(appliedVersions.get(0)).as("首版本必须是 V1（baseline）").isEqualTo("1");
         // ★ "末版本认账"锚点：每加一版迁移都要显式改这一行（T36 的 V5 = 投币专项；
-        //   T45 的 V6 = 播放记录、V7 = 删遗留表；V8 = 播放记录列表覆盖索引）。
+        //   T45 的 V6 = 播放记录、V7 = 删遗留表；V8 = 播放记录列表覆盖索引；
+        //   V9 = 记录开关 R-25 给 users 加一列）。
         //   它不是"跟着实现改断言"，而是把"新增的版本有没有真的被应用"变成一次人工确认。
-        assertThat(appliedVersions).as("V8 必须是最后一个已应用版本（V8 = 播放记录列表覆盖索引）").endsWith("8");
+        assertThat(appliedVersions).as("V9 必须是最后一个已应用版本（V9 = users.history_recording）").endsWith("9");
     }
 
     @Test
