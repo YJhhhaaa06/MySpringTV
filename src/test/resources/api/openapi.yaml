@@ -1970,6 +1970,40 @@ paths:
           $ref: "#/components/responses/InternalError"
       tags:
       - coupon-controller
+  /api/v1/users/me/history-recording:
+    put:
+      operationId: updateHistoryRecording
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateHistoryRecordingRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseHistoryRecordingVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - user-controller
   /api/v1/users/me/password:
     put:
       operationId: changePassword
@@ -2585,6 +2619,19 @@ components:
           type: string
         data:
           $ref: "#/components/schemas/HistoryPositionVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponseHistoryRecordingVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          $ref: "#/components/schemas/HistoryRecordingVO"
         errors:
           type: array
           items:
@@ -3397,6 +3444,11 @@ components:
         progress:
           type: integer
           format: int32
+    HistoryRecordingVO:
+      type: object
+      properties:
+        historyRecording:
+          type: boolean
     InteractionStatusVO:
       type: object
       properties:
@@ -3746,6 +3798,13 @@ components:
           type: boolean
         name:
           type: string
+    UpdateHistoryRecordingRequest:
+      type: object
+      properties:
+        historyRecording:
+          type: boolean
+      required:
+      - historyRecording
     UploadedAssetVO:
       type: object
       properties:
@@ -3763,6 +3822,8 @@ components:
           type: boolean
         coin:
           type: number
+        historyRecording:
+          type: boolean
         id:
           type: integer
           format: int64

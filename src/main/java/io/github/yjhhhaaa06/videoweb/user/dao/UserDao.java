@@ -278,4 +278,33 @@ public interface UserDao {
      * 把签到日暴露成 VO 字段。
      */
     LocalDate findLastSignDate(@Param("userId") long userId);
+
+    // ========================================================================
+    // 以下 2 个方法由「记录浏览历史」开关（`R-25` / `T73`）补入：
+    // `users.history_recording` 由 user 域维护（先例 = 上面的 coin_deci / last_sign_date）。
+    // ★ history 域**不读**这一列 —— 服务端不强制该开关，见
+    //   architecture/domain/history/history-已知代价.md。
+    // ========================================================================
+
+    /**
+     * 「记录浏览历史」开关（单列窄查询，{@code tinyint(1)} ⇒ {@link Boolean}）。
+     *
+     * <p>刻意返回包装类型：无行 ⇒ {@code null}。写成 {@code boolean} 会在 MyBatis 返回 null 时拆箱 NPE，
+     * 而"用户刚被删"是**可能发生**的读结果（同 {@link #findCoinDeci} 的口径）。
+     * 调用方口径：{@code null} 按 {@code true}（开）处理 —— DB 默认就是开，不能因为一次读空把开关误关。
+     */
+    Boolean findHistoryRecording(@Param("userId") long userId);
+
+    /**
+     * 写「记录浏览历史」开关。
+     *
+     * <p>{@code update users set history_recording = ? where id = ?}：单条 UPDATE，
+     * <b>天然幂等</b>（同一个值写两遍结果一样）⇒ 重试安全，不需要幂等键。
+     *
+     * <p>⚠️ 只改一个**偏好**，不承担"关掉之后不会再记录"的保证 —— 那是客户端义务
+     * （{@code R-25}）。服务端的任何 history 写端点都**不**读这一列。
+     *
+     * @return 影响行数（0 = 用户不存在）
+     */
+    int updateHistoryRecording(@Param("userId") long userId, @Param("recording") boolean recording);
 }

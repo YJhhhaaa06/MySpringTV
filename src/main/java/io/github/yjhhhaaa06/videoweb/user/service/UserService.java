@@ -17,6 +17,7 @@ import io.github.yjhhhaaa06.videoweb.user.event.UserRenamedEvent;
 import io.github.yjhhhaaa06.videoweb.user.model.dto.ChangePasswordRequest;
 import io.github.yjhhhaaa06.videoweb.user.model.dto.RegisterRequest;
 import io.github.yjhhhaaa06.videoweb.user.model.entity.User;
+import io.github.yjhhhaaa06.videoweb.user.model.vo.HistoryRecordingVO;
 import io.github.yjhhhaaa06.videoweb.user.model.vo.LoginVO;
 import io.github.yjhhhaaa06.videoweb.user.model.vo.UserInfoVO;
 import lombok.extern.slf4j.Slf4j;
@@ -199,11 +200,14 @@ public class UserService implements AdminChecker {
      *   <li>{@code signedToday}：{@code last_sign_date == SiteTime.today()}。签到按钮靠它
      *       **进页就置灰**，否则只能"点了才知道已签"。日期口径必须走 {@code SiteTime}
      *       （上海自然日），不能用 JVM 默认时区或 DB 时钟——否则跨时区部署时按钮会指错一天。</li>
+     *   <li>{@code historyRecording}（{@code R-25}）：{@code users.history_recording}。
+     *       它是「记录浏览历史」开关的**唯一读入口**（客户端每次整页装载读一次）——
+     *       同 {@code signedToday} 的形态：不新增"设置"端点族，也不把用户偏好塞进内容载荷。</li>
      * </ul>
      *
-     * <p>多两次**单列窄查询**（而不是把两列塞进 {@code findByIdForProfile}）：那个方法返回的是
-     * {@link User} 实体，加列会改实体与既有的列集契约；而这里只关心两个标量，
-     * 窄查询让"资料端点不需要知道签到日"这件事保持在实现里，不扩散到 VO。
+     * <p>多三次**单列窄查询**（而不是把三列塞进 {@code findByIdForProfile}）：那个方法返回的是
+     * {@link User} 实体，加列会改实体与既有的列集契约；而这里只关心三个标量，
+     * 窄查询让"资料端点不需要知道签到日 / 开关"这件事保持在实现里，不扩散到 VO。
      */
     @Transactional(readOnly = true)
     public UserInfoVO getProfile(long userId) {
@@ -218,8 +222,33 @@ public class UserService implements AdminChecker {
                 .movePointLeft(1)
                 .setScale(1);
         boolean signedToday = SiteTime.today().equals(userDao.findLastSignDate(userId));
+        Boolean recording = userDao.findHistoryRecording(userId);
+        // null = "同一行在两次查询之间被删"的窗口（列 NOT NULL ⇒ 不会读到空值）。
+        // 按**开**处理：DB 默认就是开，"误开"只是多记一次观看，"误关"要用户自己发现记录少了。
+        boolean historyRecording = recording == null || recording;
         return new UserInfoVO(user.getId(), user.getUsername(), user.getPhone(), user.isAdmin(),
-                coin, signedToday);
+                coin, signedToday, historyRecording);
+    }
+
+    /**
+     * 写「记录浏览历史」开关（{@code PUT /api/v1/users/me/history-recording}，{@code R-25}）。
+     *
+     * <p>单条 UPDATE ⇒ <b>不开事务</b>（同 coin 的单语句写）；同值重写结果不变 ⇒ <b>天然幂等</b>，
+     * 重试安全，不需要幂等键（登记见 {@code IdempotencyScope} 的 {@code NATURAL}）。
+     *
+     * <p>★ 只改一个**偏好**，不做任何"关掉之后不会再记录"的保证 —— 那是客户端义务：
+     * 本仓**不**在 {@code /play} / {@code /report} / {@code /flush} / 轮询兜底里校验这一列。
+     * 这是 {@code R-25} 的刻意取舍（B站 实测是服务端强制），代价与推翻条件见
+     * {@code architecture/domain/history/history-已知代价.md}。
+     *
+     * @param recording {@code false} = 停用记录
+     * @throws UserNotFoundException 影响 0 行（token 有效但用户行已不在）
+     */
+    public HistoryRecordingVO updateHistoryRecording(long userId, boolean recording) {
+        if (userDao.updateHistoryRecording(userId, recording) == 0) {
+            throw new UserNotFoundException();
+        }
+        return new HistoryRecordingVO(recording);
     }
 
     /**

@@ -157,8 +157,8 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
                 .as("登记簿里有、spec 里没有 —— springdoc 没能表达该端点（多为映射写法超出它识别的范围）")
                 .isEmpty();
         assertThat(fromSpec)
-                .as("端点总数应与 T54 的 69 条一致（T58/T59 后 + 上传清单批次）")
-                .hasSize(69);
+                .as("端点总数应与登记簿一致（T54 起逐批递增；70 = 69 + 记录开关 R-25）")
+                .hasSize(70);
     }
 
     // ==================== 用例 3：假参数 ====================

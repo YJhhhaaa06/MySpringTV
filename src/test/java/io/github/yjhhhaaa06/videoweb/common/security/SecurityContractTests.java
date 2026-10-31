@@ -136,6 +136,8 @@ class SecurityContractTests extends AbstractIntegrationTest {
         assertThat(requiresLogin("GET", "/api/v1/users/me")).isTrue();
         assertThat(requiresLogin("PUT", "/api/v1/users/me/password")).isTrue();
         assertThat(requiresLogin("PUT", "/api/v1/users/me/username")).isTrue();
+        // 记录开关（R-25 / T73）：路由必须落到 @Controller 处理器上（写错路径 ⇒ 未映射 ⇒ false）。
+        assertThat(requiresLogin("PUT", "/api/v1/users/me/history-recording")).isTrue();
         assertThat(requiresLogin("POST", "/api/v1/coupons/1/claims")).isTrue();
         assertThat(requiresLogin("GET", "/api/v1/users/me/coupons")).isTrue();
         assertThat(requiresLogin("POST", "/api/v1/comments")).isTrue();

@@ -9,6 +9,8 @@ import io.github.yjhhhaaa06.videoweb.user.model.dto.ChangePasswordRequest;
 import io.github.yjhhhaaa06.videoweb.user.model.dto.ChangeUserNameRequest;
 import io.github.yjhhhaaa06.videoweb.user.model.dto.LoginRequest;
 import io.github.yjhhhaaa06.videoweb.user.model.dto.RegisterRequest;
+import io.github.yjhhhaaa06.videoweb.user.model.dto.UpdateHistoryRecordingRequest;
+import io.github.yjhhhaaa06.videoweb.user.model.vo.HistoryRecordingVO;
 import io.github.yjhhhaaa06.videoweb.user.model.vo.LoginVO;
 import io.github.yjhhhaaa06.videoweb.user.model.vo.UserInfoVO;
 import io.github.yjhhhaaa06.videoweb.user.service.UserService;
@@ -41,7 +43,8 @@ import org.springframework.web.bind.annotation.RestController;
  * {@code 接口契约.md} §2.3 改为「资源 + 方法」——
  * 注册 {@code POST /api/v1/users}（创建用户）、登录 {@code POST /api/v1/sessions}（创建会话）、
  * 改密 {@code PUT /api/v1/users/me/password}、改名 {@code PUT /api/v1/users/me/username}、
- * 当前用户 {@code GET /api/v1/users/me}。TV 的 {@code /user/{login,register,...}} 形态退役
+ * 当前用户 {@code GET /api/v1/users/me}、记录开关 {@code PUT /api/v1/users/me/history-recording}（{@code R-25}）。
+ * TV 的 {@code /user/{login,register,...}} 形态退役
  * （硬切，见 §1.2）。
  *
  * <p>★ <b>登录为什么叫 sessions</b>：登录的产物是**会话凭据**（token），不是"用户"这个资源；
@@ -114,5 +117,27 @@ public class UserController {
     @GetMapping("/api/v1/users/me")
     public ApiResponse<UserInfoVO> me(@CurrentUserId long userId) {
         return ApiResponse.success(userService.getProfile(userId));
+    }
+
+    /**
+     * 停用 / 恢复「记录浏览历史」（{@code R-25}，2026-10-31）。
+     *
+     * <p>为什么是 {@code PUT} 而不是 {@code POST .../pause}：它是**对子资源的替换**
+     * （{@code history-recording} 这个开关的取值），同值重写结果不变 ⇒ 天然幂等；
+     * 而 {@code pause} 是动词，违反《接口契约.md》§2.3「路径里禁止动词」。
+     *
+     * <p>⚠️ 服务端**不**拿这个值去校验 history 的写端点：本端点只落一个偏好，
+     * "停用后不再记录"由客户端**不发**那三个写请求保证。这是刻意取舍（B站 实测是服务端强制），
+     * 代价与推翻条件见 {@code architecture/domain/history/history-已知代价.md}。
+     *
+     * <p>不写 {@code AuditLog}：它不是身份 / 凭据变更，且开关状态本身在 {@code users} 行里可查
+     * （改密 / 改名要审计，是因为那两个动作会改变"对外可见的身份"）。
+     */
+    @RequiresLogin
+    @PutMapping("/api/v1/users/me/history-recording")
+    public ApiResponse<HistoryRecordingVO> updateHistoryRecording(
+            @CurrentUserId long userId,
+            @RequestBody @Valid UpdateHistoryRecordingRequest request) {
+        return ApiResponse.success(userService.updateHistoryRecording(userId, request.historyRecording()));
     }
 }

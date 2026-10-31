@@ -75,7 +75,7 @@ public final class IdempotencyScope {
     }
 
     /**
-     * 全部非 GET 端点（当前 41 条：POST 15 / PUT 15 / DELETE 11）。
+     * 全部非 GET 端点（当前 42 条：POST 15 / PUT 16 / DELETE 11）。
      *
      * <p>⚠️ 增删端点必须同步改这里，否则 {@code IdempotencyScopeTableTests} 红。
      * {@code Map.of} 只到 10 对 ⇒ 用 {@link Map#ofEntries}。
@@ -125,6 +125,8 @@ public final class IdempotencyScope {
             // 灰色地带：重试时"原密码"已不再是原密码 ⇒ 401；效果层幂等、响应层不可判（前端不得自动重试）。
             entry("PUT /api/v1/users/me/password", natural()),
             entry("PUT /api/v1/users/me/username", natural()),
+            // 记录开关（R-25）：单列整体替换，同值重写结果不变 ⇒ 天然幂等（重试安全）。
+            entry("PUT /api/v1/users/me/history-recording", natural()),
             entry("PUT /api/v1/watch-later/{id}", natural()),
             entry("PUT /api/v1/watch-later/{id}/folder", natural()),
 

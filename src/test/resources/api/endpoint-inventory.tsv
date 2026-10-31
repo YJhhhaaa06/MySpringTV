@@ -66,6 +66,7 @@ POST	/api/v1/users	PUBLIC	ApiResponse<LoginVO>
 GET	/api/v1/users/me	LOGIN	ApiResponse<UserInfoVO>
 POST	/api/v1/users/me/check-ins	LOGIN	ApiResponse<SignInVO>
 GET	/api/v1/users/me/coupons	LOGIN	ApiResponse<List<CouponOrderVO>>
+PUT	/api/v1/users/me/history-recording	LOGIN	ApiResponse<HistoryRecordingVO>
 PUT	/api/v1/users/me/password	LOGIN	ApiResponse<Void>
 PUT	/api/v1/users/me/username	LOGIN	ApiResponse<Void>
 GET	/api/v1/users/{id}	PUBLIC	ApiResponse<ProfileVO>

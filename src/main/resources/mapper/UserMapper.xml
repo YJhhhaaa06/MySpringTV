@@ -201,4 +201,15 @@
         select last_sign_date from users where id = #{userId}
     </select>
 
+    <!-- 记录浏览历史开关（R-25；V9 的列）。包装 Boolean：无行 ⇒ null ⇒ 调用方按"开"处理。
+         ★ history 域**不读**这一列 —— 服务端不强制该开关（刻意，见 history-已知代价.md）。 -->
+    <select id="findHistoryRecording" resultType="java.lang.Boolean">
+        select history_recording from users where id = #{userId}
+    </select>
+
+    <!-- 写开关：单条 UPDATE ⇒ 天然幂等（同值重写结果一样），重试安全。 -->
+    <update id="updateHistoryRecording">
+        update users set history_recording = #{recording} where id = #{userId}
+    </update>
+
 </mapper>

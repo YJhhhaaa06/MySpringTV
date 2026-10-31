@@ -19,7 +19,13 @@ import java.math.BigDecimal;
  *                   ★ 它是给签到按钮**进页就置灰**用的：只看余额无法判断"今天签过没"，
  *                   否则用户只能点一下、拿到「今日已签到」才知道（{@code coin.md} §二）。
  *                   这只是同一次资料查询多带一列，不新增"签到状态"端点。
+ * @param historyRecording 是否**记录**观看历史（{@code users.history_recording}，{@code R-25}）。
+ *                   ★ 它是「记录浏览历史」开关的**唯一读入口**：客户端每次整页装载随本端点读一次，
+ *                   拨动开关只写 {@code PUT /users/me/history-recording}。**不**新增"设置"端点族，
+ *                   也**不**把用户偏好塞进内容载荷（那是跨用户共享的缓存）。
+ *                   ⚠️ 服务端**不**据此校验 history 写端点 —— "不记录"由客户端不发写请求保证，
+ *                   代价见 {@code architecture/domain/history/history-已知代价.md}。
  */
 public record UserInfoVO(long id, String username, String phone, boolean admin,
-                         BigDecimal coin, boolean signedToday) {
+                         BigDecimal coin, boolean signedToday, boolean historyRecording) {
 }
