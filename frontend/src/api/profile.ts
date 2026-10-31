@@ -27,7 +27,8 @@ export async function loadSpace(userId: number, page = 1, pageSize = 10): Promis
     path: { id: userId }, // 注意：spec 里 {id} 声明成 string，按数字传也能命中
     query: { page, pageSize },
   })
-  const works = toSpaceWorks(profile.contentPage, new Date())
+  // 不传 now ⇒ 卡片适配器取 serverNow()（"现在"只有一个来源，见 endpoints.ts#loadHome 说明）
+  const works = toSpaceWorks(profile.contentPage)
   return {
     header: toSpaceHeader(profile, currentUserId()),
     works,

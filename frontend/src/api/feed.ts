@@ -14,10 +14,14 @@ import { getJson } from './http'
 /** B 站动态流一屏大约 10–12 条；本仓按 12 条/页（与首页一屏一致） */
 export const FEED_PAGE_SIZE = 12
 
+/**
+ * `now` **不在这里给默认值**：`undefined` 落到 `toDynamicPage` 的 `serverNow()`。
+ * 端点层再写一个 `new Date()` 就有两个"现在"来源（见 `endpoints.ts#loadHome` 的说明）。
+ */
 export async function loadFeed(
   page = 1,
   pageSize = FEED_PAGE_SIZE,
-  now: Date = new Date(),
+  now?: Date,
 ): Promise<DynamicPageVM> {
   const result = await getJson('/api/v1/feed', { query: { page, pageSize } })
   return toDynamicPage(result, now)

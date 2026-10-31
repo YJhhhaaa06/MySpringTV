@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { components } from '../../types/api'
+import { resetServerClock, syncServerClock } from '../serverClock'
+import { toDynamicCard } from './feed'
+import { toSearchResult } from './search'
+import { toSpaceWorks } from './space'
 import { toVideoCard } from './videoCard'
 
 type ContentVO = components['schemas']['ContentVO']
@@ -114,3 +118,50 @@ describe('toVideoCard', () => {
   })
 })
 
+
+/**
+ * ★ 「现在」的来源：**跨适配器**的接线测试（漏改一个就红）。
+ *
+ * <p>四个适配器各自有一个 `now` 默认值，端点层（`loadHome` / `loadFeed` / `loadSpace` /
+ * `searchContents`）只是把它透传下去。只要有一个还写着 `new Date()`，那条链路就会
+ * 退回浏览器时钟 —— 而只看单适配器的用例仍全绿。所以这里在同一次锚定下把四条都点一遍。
+ */
+describe('「现在」的来源（跨适配器接线）', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+    resetServerClock()
+  })
+
+  /** 锚点 = 上海 2026-10-25 12:00；再把系统时间改到 2020（用浏览器钟会算出"未来"）。 */
+  function anchorToShanghaiNoon(): void {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.spyOn(performance, 'now').mockReturnValue(1_000)
+    syncServerClock('Sun, 25 Oct 2026 04:00:00 GMT')
+    vi.setSystemTime(new Date('2020-01-01T00:00:00Z'))
+  }
+
+  /** 上海 09:00 ⇒ 距锚点 3 小时。 */
+  const createdAt = '2026-10-25T09:00:00'
+  const pageOf = (iso: string) => ({
+    list: [content({ createTime: iso })],
+    page: 1,
+    pageSize: 10,
+    total: 1,
+    totalPages: 1,
+  }) as unknown as components['schemas']['PageResultContentVO']
+
+  it('★ 不传 now ⇒ 四条链路都按 Date 头算，而不是按被改过的系统时间', () => {
+    anchorToShanghaiNoon()
+    expect(toVideoCard(content({ createTime: createdAt })).dateText).toBe('3小时前')
+    expect(toDynamicCard(content({ createTime: createdAt })).timeText).toBe('3小时前')
+    expect(toSpaceWorks(pageOf(createdAt)).items[0]?.dateText).toBe('3小时前')
+    expect(toSearchResult(pageOf(createdAt), '关键词').items[0]?.dateText).toBe('3小时前')
+  })
+
+  it('显式传 now ⇒ 以传入值为准（用例可复算，不受锚点影响）', () => {
+    anchorToShanghaiNoon()
+    expect(toVideoCard(content({ createTime: createdAt }), new Date('2026-10-25T10:00:00+08:00')).dateText)
+      .toBe('1小时前')
+  })
+})

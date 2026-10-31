@@ -1,12 +1,13 @@
 import type { components } from '../../types/api'
 import type { SearchResultVM } from '../../types/ui'
+import { serverNow } from '../serverClock'
 import { toVideoCard } from './videoCard'
 
 /** `PageResultContentVO` → 搜索结果页（Page 分页，**不是** cursor —— 两种分页在本仓并存） */
 export function toSearchResult(
   result: components['schemas']['PageResultContentVO'],
   keyword: string,
-  now: Date = new Date(),
+  now: Date = serverNow(),
 ): SearchResultVM {
   const list = result.list ?? []
   return {

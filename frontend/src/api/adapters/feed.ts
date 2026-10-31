@@ -1,6 +1,7 @@
 import type { components } from '../../types/api'
 import type { Count, DynamicCardVM, DynamicPageVM } from '../../types/ui'
 import { CONTENT_TYPE_POST } from '../contentTypes'
+import { serverNow } from '../serverClock'
 import { cleanDescription, formatCount, formatDuration, formatRelativeDate, initialOf } from './format'
 import { likedOf } from './interaction'
 import { contentHref, spaceHref } from './links'
@@ -18,10 +19,12 @@ import { contentHref, spaceHref } from './links'
  * - 三个计数都可能是 `null`（本面没给）⇒ 保持 `null`，组件不渲染该数字（≠ 0）；
  * - `interaction` 只回「赞」一维 ⇒ `liked` 是三态，`null` 不归一成 `false`（否则「没查」会画成「没点过」）；
  * - 弹幕数**根本不在这里**：动态卡没有弹幕位，本仓也没有弹幕域。
+ *
+ * <p>`now` 默认取**服务器时钟**（与卡片 / 评论同源），见 `serverClock.ts`。
  */
 export function toDynamicCard(
   item: components['schemas']['ContentVO'],
-  now: Date = new Date(),
+  now: Date = serverNow(),
 ): DynamicCardVM {
   const isPost = item.type === CONTENT_TYPE_POST
   const authorName = item.authorName?.trim() || '未知UP主'
@@ -56,7 +59,7 @@ export function toDynamicCard(
 /** `PageResult<ContentVO>` → 动态流一页（形状与搜索 / 空间作品同一套 Page 口径） */
 export function toDynamicPage(
   page: components['schemas']['PageResultContentVO'] | undefined,
-  now: Date = new Date(),
+  now: Date = serverNow(),
 ): DynamicPageVM {
   const list = page?.list ?? []
   return {

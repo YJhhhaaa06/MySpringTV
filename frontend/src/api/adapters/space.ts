@@ -9,6 +9,7 @@ import type {
 import { initialOf } from './format'
 import { videoHref } from './links'
 import { toVideoCard } from './videoCard'
+import { serverNow } from '../serverClock'
 
 /** 计数：非数字 ⇒ null（渲染成 `-`） */
 function count(value: number | null | undefined): Count {
@@ -43,10 +44,10 @@ export function toSpaceHeader(
   }
 }
 
-/** `PageResult<ContentVO>` → 空间作品分页（与搜索页同一个卡片口径） */
+/** `PageResult<ContentVO>` → 空间作品分页（与搜索页同一个卡片口径，`now` 同源取服务器时钟） */
 export function toSpaceWorks(
   page: components['schemas']['PageResultContentVO'] | undefined,
-  now: Date = new Date(),
+  now: Date = serverNow(),
 ): SpaceWorksVM {
   const list = page?.list ?? []
   return {

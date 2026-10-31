@@ -1,6 +1,7 @@
 import { CONTENT_TYPE_POST, CONTENT_TYPE_VIDEO } from '../contentTypes'
 import type { components } from '../../types/api'
 import type { VideoCardVM } from '../../types/ui'
+import { serverNow } from '../serverClock'
 import { cleanDescription, formatCount, formatDuration, formatRelativeDate } from './format'
 import { likedOf } from './interaction'
 import { contentHref, spaceHref } from './links'
@@ -17,10 +18,13 @@ import { contentHref, spaceHref } from './links'
  * - `durationSeconds` 可能是 `null`（存量文件缺失 / 解析失败）⇒ 不渲染时长角标；绝不补 0。
  * - `coverUrl` 可能是 `null`（图文无封面）⇒ 图文走**纯文字卡面**（真简介；没有简介就写中性的
  *   「图文动态」，不编内容），视频仍走占位块。
+ *
+ * <p>★ `now` 默认取**服务器时钟**（{@link serverNow}），不是浏览器时钟：用户改系统时间时
+ * 卡片不该全变成"刚刚"。端到端说明见 `serverClock.ts`。
  */
 export function toVideoCard(
   item: components['schemas']['ContentVO'],
-  now: Date = new Date(),
+  now: Date = serverNow(),
 ): VideoCardVM {
   const isVideo = item.type === CONTENT_TYPE_VIDEO
   const isPost = item.type === CONTENT_TYPE_POST

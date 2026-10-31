@@ -19,8 +19,14 @@ export interface HomeData {
   cards: VideoCardVM[]
 }
 
-/** `GET /contents/recommended`（固定 12 条、**无 page 参数** ⇒ 只渲染一页，不做无限滚动） */
-export async function loadHome(now: Date = new Date()): Promise<HomeData> {
+/**
+ * `GET /contents/recommended`（固定 12 条、**无 page 参数** ⇒ 只渲染一页，不做无限滚动）
+ *
+ * <p>★ `now` **不在这里给默认值**：`undefined` 会落到卡片适配器的 `serverNow()`。
+ * 端点层若自己也写一个 `new Date()`，"现在"就有了两个来源 —— 漏改一处就退回浏览器时钟，
+ * 而用例只断言适配器时还是绿的（假绿）。同理见 {@link searchContents} / {@link loadVideoPage}。
+ */
+export async function loadHome(now?: Date): Promise<HomeData> {
   const items = await getJson('/api/v1/contents/recommended')
   const { slides, rest } = splitHero(items, 3)
   return { slides, cards: rest.map((item) => toVideoCard(item, now)) }
@@ -37,7 +43,7 @@ export async function searchContents(
   page: number,
   filters: SearchFilters = {},
   pageSize = 20,
-  now: Date = new Date(),
+  now?: Date,
 ): Promise<SearchResultVM> {
   const result = await getJson('/api/v1/contents', {
     query: { keyword, page, pageSize, ...filters },
@@ -76,7 +82,7 @@ export async function loadAuthorCard(userId: number): Promise<AuthorCardVM | nul
  * <p>★ 相关推荐**只放视频**（B 站视频页也是视频推荐）：本仓 `/contents/recommended`
  * 含图文 ⇒ 过滤掉图文，同时保证「相关推荐同标签 SPA 路由」只会 push `/video/{id}`。
  */
-export async function loadVideoPage(id: number, now: Date = new Date()): Promise<VideoPageData> {
+export async function loadVideoPage(id: number, now?: Date): Promise<VideoPageData> {
   const detail = toVideoDetail(await getJson('/api/v1/contents/{id}', { path: { id } }))
   if (detail.isPost) {
     return { detail, author: null, related: [] }
