@@ -24,8 +24,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <ul>
  *   <li>播放量一律**直查 DB** {@code content.play_count} 列复算（{@code playCountColumn}），
  *       不信接口回显；</li>
- *   <li>"一人一次"的口径来自 {@code history-需求.md} §四（重复 play 不 +、图文没有播放量），
- *       不是从实现里读出来的；</li>
+ *   <li>"按人 + 按自然日去重"的口径来自 {@code history-需求.md} §四（同一自然日重复 play 不 +、图文没有播放量），
+ *       不是从实现里读出来的；`R-26` 起去重粒度是自然日（`content_play_dedup`）；</li>
  *   <li>缓存侧直接读 {@link org.springframework.data.redis.core.StringRedisTemplate} 的键值
  *       ——"冷 key 不建"只能用缓存 oracle 观测（DB 与接口都看不出"写没写半套"）。</li>
  * </ul>
@@ -63,6 +63,7 @@ class ContentPlayCountTests extends AbstractContentIntegrationTest {
         viewerToken = registerAndGetToken(VIEWER_PHONE, VIEWER);
         viewerId = userIdOf(VIEWER_PHONE);
         jdbcTemplate.update("DELETE FROM watch_history");
+        jdbcTemplate.update("DELETE FROM content_play_dedup");
     }
 
     // ==================== 端到端 ====================
@@ -156,6 +157,14 @@ class ContentPlayCountTests extends AbstractContentIntegrationTest {
         assertThat(playCountColumn(contentId)).as("DB 回滚：列仍是 5").isEqualTo(5);
         assertThat(redis.opsForValue().get(CacheKeys.contentPlayCount(contentId)))
                 .as("★ 回滚后缓存必须没动过（改成普通 @EventListener ⇒ 这里会变 6）").isEqualTo("5");
+        // ★ `R-26`：去重账本必须与 play_count **同进同退**。这是 §4.3 那句"必须同进同退"的
+        //   可执行证据之一。⚠️ 判别力边界（如实声明）：把 `play` 的传播改成 `REQUIRES_NEW` 时，
+        //   上面那条 `play_count == 5` 会**先**红 ⇒ 本条自己"没有被注入证明过"；
+        //   它真正挡的是"只把账本那一句挪到事务外"（那种改法不动 play_count，只让账本多一行）。
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM content_play_dedup WHERE user_id = ? AND content_id = ?",
+                Long.class, viewerId, contentId))
+                .as("★ 账本行必须随事务一起回滚").isZero();
     }
 
     // ==================== 删除 ====================

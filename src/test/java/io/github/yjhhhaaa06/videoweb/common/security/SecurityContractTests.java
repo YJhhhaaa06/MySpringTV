@@ -350,14 +350,14 @@ class SecurityContractTests extends AbstractIntegrationTest {
     @Test
     @DisplayName("★播放记录 T47/T49/T51-2/R-26：history 六端点判为需登录（钉路由；**不**证明类级注解在不在）")
     void history写端点需登录() {
-        // 本域五个端点都只对当前登录用户有意义（历史是"我的"私有记录）⇒ 类级 @RequiresLogin。
+        // 本域六个端点都只对当前登录用户有意义（历史是"我的"私有记录）⇒ 类级 @RequiresLogin。
         // ★ 判别力边界（如实声明，同 coin）：本仓是**默认拒绝** ⇒ 去掉类级注解后 requiresLogin
         //   仍然是 true ⇒ 这条用例**测不到"注解在不在"**。它真正钉的是"路由落到了一个
         //   @Controller 处理器上"（路径写错 / 控制器没被扫到 ⇒ 未映射 ⇒ false）。
         // ⚠️ HTTP 侧对 @RequiresLogin 同样是假绿（401 由 @CurrentUserId 参数解析器兜出）。
-        // 📌 T47 落了写路径两段；T49 读面两段已补进本方法（核销 I-23）；T51-2 补 /flush
-        //    ——五个端点都有至少"路由可达"的机制级证据。方法名里的"写端点"是 T47 的引用锚点
-        //   （多处文档按名引用），语义已扩展为五端点，改名会带来静默断链。
+        // 📌 T47 落了写路径两段；T49 读面两段已补进本方法（核销 I-23）；T51-2 补 /flush；
+        //   R-26 补 DELETE /history —— 六个端点都有至少"路由可达"的机制级证据。方法名里的
+        //   "写端点"是 T47 的引用锚点（多处文档按名引用），语义已扩展为六端点，改名会带来静默断链。
         // `T58` 契约变更（接口契约.md §2.3/§2.4）：资源化 /api/v1/history、
         //   /api/v1/contents/{id}/progress（report=PUT）、/api/v1/contents/{id}/play（{id} 取样成 1）。
         assertThat(requiresLogin("PUT", "/api/v1/contents/1/progress")).isTrue();

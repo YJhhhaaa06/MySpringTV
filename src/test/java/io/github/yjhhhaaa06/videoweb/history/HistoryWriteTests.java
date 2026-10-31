@@ -282,6 +282,8 @@ class HistoryWriteTests extends AbstractContentIntegrationTest {
     @DisplayName("★日界：昨天计过 ⇒ 今天再播**再计一次**（per-day 的全部意义）；今天已计 ⇒ 不再计")
     void 播放按自然日去重() {
         long contentId = insertVideoContent(authorId, "播放日界");
+        // ⚠️ "今天"由用例自己算 ⇒ 恰好跨 23:59:59 跑会偶发红（一个用例失败、另一个也失败，签名很好认）。
+        //    日界本身的判别力在 `PlayDayTests`（固定时刻、任何时间跑都确定）；这里钉的是"日期进主键"。
         LocalDate today = LocalDate.now(ZoneId.of("Asia/Shanghai"));
 
         // 账本里预置"昨天计过"——注意**不是**走接口造出来的（直插账本是独立 oracle 的造数方式）

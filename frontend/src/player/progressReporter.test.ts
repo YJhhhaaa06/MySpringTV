@@ -4,6 +4,7 @@ import {
   MIN_DEGRADED_INTERVAL_MS,
   NORMAL_INTERVAL_MS,
   PENDING_TTL_MS,
+  clearAllPending,
   clearPending,
   createProgressReporter,
   planBackoff,
@@ -24,18 +25,24 @@ import {
 const NOW = new Date('2026-10-25T12:00:00Z').getTime()
 
 beforeEach(() => {
-  vi.stubGlobal('localStorage', {
-    store: new Map<string, string>(),
-    getItem(key: string) {
-      return (this.store as Map<string, string>).get(key) ?? null
-    },
-    setItem(key: string, value: string) {
-      ;(this.store as Map<string, string>).set(key, value)
-    },
-    removeItem(key: string) {
-      ;(this.store as Map<string, string>).delete(key)
-    },
-  } satisfies Partial<Storage>)
+  // 假 localStorage：必须带 `length` + `key(i)` —— `clearAllPending()` 是按前缀遍历删除的，
+  // 少了这两个成员它会"跑一遍什么都不做"（循环进不去），而用例照样全绿。
+  vi.stubGlobal('localStorage', (() => {
+    const store = new Map<string, string>()
+    return {
+      get length() {
+        return store.size
+      },
+      key: (index: number) => [...store.keys()][index] ?? null,
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        store.set(key, value)
+      },
+      removeItem: (key: string) => {
+        store.delete(key)
+      },
+    } satisfies Partial<Storage>
+  })())
 })
 
 afterEach(() => {
@@ -93,6 +100,33 @@ describe('本地崩溃补偿标记', () => {
     writePending(65, 100, NOW)
     clearPending(65)
     expect(readPending(65, NOW)).toBeNull()
+  })
+})
+
+describe('clearAllPending（清空历史时清全部，R-26）', () => {
+  it('★ 按前缀清光，且**不碰同栈的其它 key**', () => {
+    writePending(11, 100, NOW)
+    writePending(22, 200, NOW)
+    localStorage.setItem('myspringtv.token', 'jwt')
+
+    clearAllPending()
+
+    expect(readPending(11, NOW)).toBeNull()
+    expect(readPending(22, NOW)).toBeNull()
+    // 前缀判据写成 includes / startsWith('history') 会连带删掉别的 key（前端只许两个 key）
+    expect(localStorage.getItem('myspringtv.token')).toBe('jwt')
+  })
+
+  it('★ 边遍历边删也不漏（单趟遍历会因下标错位删一半）', () => {
+    for (const id of [1, 2, 3, 4, 5]) writePending(id, id * 10, NOW)
+
+    clearAllPending()
+
+    for (const id of [1, 2, 3, 4, 5]) expect(readPending(id, NOW)).toBeNull()
+  })
+
+  it('没有 pending 时什么都不做（不抛错）', () => {
+    expect(() => clearAllPending()).not.toThrow()
   })
 })
 

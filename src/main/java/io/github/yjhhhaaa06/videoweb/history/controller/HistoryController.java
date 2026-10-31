@@ -187,7 +187,8 @@ public class HistoryController {
      * 播放事件：{@code POST /api/v1/contents/{id}/play}（`T58` 起 {@code contentId} 进路径）。
      * §2.4 例外清单：播放事件非幂等、无自然键，保持 POST。
      *
-     * <p>同一用户对该内容**永远只计一次**（一人一次口径）⇒ 重复调用幂等 200、播放量不变。
+     * <p>`R-26` 起：同一用户对该内容**当天**（业务时区 `Asia/Shanghai` 的自然日）只计一次
+     * ⇒ 同一天重复调用幂等 200、播放量不变；**跨日再播会再计一次**，删历史不影响这个判定。
      * 行不存在时会建行（{@code progress=0}）—— 否则"先 play 后 report"会丢播放量。
      */
     @PostMapping("/api/v1/contents/{id}/play")

@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS `content_play_dedup` (
   `user_id`    bigint   NOT NULL COMMENT '计过数的用户',
   `content_id` bigint   NOT NULL COMMENT '被计数的内容',
   `play_date`  date     NOT NULL COMMENT '计过数的自然日（业务时区 Asia/Shanghai）',
-  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '服务端记账时刻（审计用；日界看 play_date）',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记账时刻（审计用；★ 取 DB 会话时区 ⇒ 与 play_date 可能不同日，勿用它判日）',
   PRIMARY KEY (`user_id`,`content_id`,`play_date`),
   KEY `idx_date` (`play_date`) COMMENT '只服务将来的运维清理脚本（WHERE play_date < ?），不在运行时读路径上'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci

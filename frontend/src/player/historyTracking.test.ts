@@ -9,7 +9,7 @@ import { planTracking } from './historyTracking'
  * 而这两种写错在实际界面上**看不出来**（只会表现为"记录莫名少了"或"关不掉"）。
  */
 describe('planTracking（开关 → 上报计划）', () => {
-  it('未登录 ⇒ skip（既有行为：五个端点全要登录，打了也是 401）', () => {
+  it('未登录 ⇒ skip（既有行为：六个端点全要登录，打了也是 401）', () => {
     expect(planTracking(false, true)).toBe('skip')
     expect(planTracking(false, false)).toBe('skip')
   })

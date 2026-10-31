@@ -324,8 +324,8 @@ public interface ContentDao {
     int resetLikeCount(@Param("contentId") long contentId);
 
     /**
-     * 播放量 {@code +1}（T47）：{@code history} 域在**判首播成功后**、与 {@code watch_history}
-     * 的标记位**同一事务**调用。
+     * 播放量 {@code +1}（T47）：{@code history} 域在**判当天首播成功后**、与账本
+     * {@code content_play_dedup} 的当日行**同一事务**调用（`R-26`：判定依据已从历史的标记位搬到账本）。
      *
      * <p>★ <b>没有防负守卫</b>：{@code content.play_count} 是 {@code int unsigned} 且**只增**
      * （没有"取消播放"）⇒ 不需要 {@link #updateLikeCount} / {@link #updateCommentCount} 那套

@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.history;
 
+import io.github.yjhhhaaa06.videoweb.common.cache.CacheKeys;
 import io.github.yjhhhaaa06.videoweb.content.AbstractContentIntegrationTest;
 import io.github.yjhhhaaa06.videoweb.support.Envelope;
 import org.junit.jupiter.api.BeforeEach;
@@ -138,6 +139,14 @@ class HistoryDeleteTests extends AbstractContentIntegrationTest {
         assertThat(both.getStatusCode().value()).as("两种形态互斥").isEqualTo(400);
         assertThat(Envelope.msg(both)).contains("不能同时");
 
+        // ★ 空值也算缺参：`?contentIds=` 会被 Spring 绑成 `[null]`（空串转数字 ⇒ null），
+        //   若不拦，SQL 会变成 `content_id IN (null)` ⇒ 删 0 行 ⇒ **静默 204**，
+        //   正是"id 打错就给静默成功"的那个口子。
+        ResponseEntity<String> blank = delete("/api/v1/history?contentIds=", viewerToken);
+        assertThat(blank.getStatusCode().value())
+                .as("★ `contentIds=` 是空值，不是'删了一条'：必须与缺参同判 400").isEqualTo(400);
+        assertThat(Envelope.msg(blank)).contains("all=true");
+
         String tooMany = LongStream.rangeClosed(1, 501).mapToObj(String::valueOf)
                 .collect(Collectors.joining(","));
         ResponseEntity<String> overLimit = delete("/api/v1/history?contentIds=" + tooMany, viewerToken);
@@ -254,6 +263,14 @@ class HistoryDeleteTests extends AbstractContentIntegrationTest {
         assertThat(历史内容Ids(viewerId)).as("上报不落库").isEmpty();
 
         delete("/api/v1/history?contentIds=" + c1, viewerToken);
+
+        // ★ 直接看缓冲：只看 flush 结果的话，"HDEL 删错了 field"要靠后续流程才暴露；
+        //   这里把"删的是 c1、没动 c2"钉在 Redis 状态上（c2 仍在 ⇒ HLEN>0 ⇒ 脏成员仍留着，符合预期）
+        assertThat(redis.opsForHash().hasKey(CacheKeys.historyReport(viewerId), String.valueOf(c1)))
+                .as("★ c1 的缓冲 field 必须被 HDEL 掉").isFalse();
+        assertThat(redis.opsForHash().hasKey(CacheKeys.historyReport(viewerId), String.valueOf(c2)))
+                .as("c2 的缓冲不能被误删").isTrue();
+
         flush();
 
         assertThat(历史内容Ids(viewerId))
@@ -271,6 +288,14 @@ class HistoryDeleteTests extends AbstractContentIntegrationTest {
         put("/api/v1/contents/" + c2 + "/progress", Map.of("progress", 200), viewerToken);
 
         delete("/api/v1/history?all=true", viewerToken);
+
+        // ★ 两条状态断言必须在 flush **之前**做：flush 的 ACK 脚本在 HLEN==0 时会顺手摘脏成员，
+        //   只看 flush 结果的话，"ZREM 摘错 member（写成 contentId）"这个缺陷永远抓不到。
+        assertThat(redis.hasKey(CacheKeys.historyReport(viewerId)))
+                .as("★ 清空要整键 DEL（清掉 hash）").isFalse();
+        assertThat(redis.opsForZSet().score(CacheKeys.HISTORY_DIRTY, String.valueOf(viewerId)))
+                .as("★ 脏成员必须按 **userId** 摘掉").isNull();
+
         flush();
 
         assertThat(历史内容Ids(viewerId))

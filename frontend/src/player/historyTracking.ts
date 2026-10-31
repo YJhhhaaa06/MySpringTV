@@ -8,7 +8,7 @@
  *
  * <h2>三态，不是一个 boolean</h2>
  * <ul>
- *   <li><b>skip</b>：未登录 ⇒ 什么都不做（五个端点全要登录，打了也是一串 401）。
+ *   <li><b>skip</b>：未登录 ⇒ 什么都不做（六个端点全要登录，打了也是一串 401）。
  *       这是既有行为（`usePlaybackProgress` 的"未登录整段不接"）。</li>
  *   <li><b>read-only</b>：登录了但关掉了记录 ⇒ **只读**一条 `GET /progress` 用于续播，
  *       `POST /play` / `PUT /progress` / `POST /flush` / 本地 pending **一个都不写**。

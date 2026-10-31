@@ -294,8 +294,9 @@ DELETE FROM watch_history WHERE user_id = ?;
 - ★ **必须清缓冲**：`/report` 只写 Redis，那批脏进度留着的话，下一次 `/flush` 或轮询兜底会把行
   **原样写回来**（"删了又回来"）。按内容清 = `HDEL` + "hash 空了就 `DEL` 并摘脏成员"（一条 Lua）；
   清空 = `DEL` + `ZREM`（一条 Lua，原子，避免僵尸成员）。
-- ★ **缓冲清理失败不阻断删除**（只记 WARN）：删除是用户意图，不该因缓存抖动而失败；代价 = 极窄窗口内
-  可能复活一条（§十 #7b）。★ **不校验内容存在性**：失效占位必须删得掉（同收藏域 G11 红线）。
+- ★ **缓冲清理失败不阻断删除**（只记 WARN）：删除是用户意图，不该因缓存抖动而失败；代价 = 该用户
+  缓冲里**全部**待落库条目可能复活（熔断打开时 `forgetAll` 必然整条失败，不是"最多一条"，§十 #7b）。
+  ★ **不校验内容存在性**：失效占位必须删得掉（同收藏域 G11 红线）。
 - ★ **不动 `content.play_count`**、不产生跨域写、不发事件 —— 删历史不减播放量（B站 同口径）。
   客户端还要清 `history:pending:{contentId}`（`/position` 已答 0，但播放页取 `max(服务端, 本地)`
   ⇒ 不清会从旧位置续播并把行重建）；只做后端不够（见 [客户端契约](./history-客户端契约.md) §十二）。
@@ -442,6 +443,8 @@ filesort；新索引前三列即排序键（前向索引扫描）：
 
 ★ 删除**只有**三种 400（互斥 / 缺参 / 超上限），**没有** 404 —— "记录不存在"是成功，
 不是"找不到资源"。把 id 打错变成 404 会给"静默成功"开一个口子（同 §2.4 边界①）。
+⚠️ 契约快照（`openapi.yaml`）里本端点仍声明了 404 / 409：那是**全站类别可能域**的样板
+（由 `OperationCustomizer` 统一铺），不代表本端点会返回它们 —— 两者并读时以本节为准。
 
 ★ **"媒体损坏"只有一个判据**：`type=1` **视频媒体行缺失**（`ContentCache#buildContentMedia` 返回 false）。
 **不是** `durationSeconds == null`（解析失败仍可播），也**不是** `content_media.file_exists = 0`
@@ -497,7 +500,7 @@ filesort；新索引前三列即排序键（前向索引扫描）：
 | 时长 | 手搓 mp4（moov 前/后、v0/v1、`size==1`、`timescale=0`、截断、非 mp4）/ 落库 + 详情回显 / 换源刷新 / 换成坏文件回 null | `Mp4DurationReaderTests` · `UploadDurationTests` |
 | 存量回填 | 只填 `NULL` / 媒体根下 44 个真实 mp4 的 Python 与 Java 解析逐一相等 / 3 个文件缺失保持 NULL | `tools/devclean/backfill_duration.py`（一次性） |
 | 结构 | 唯一键**真插两行**看拦不拦 / 索引全集 / 版本行 | `HistorySchemaTests` · `WatchLaterSchemaTests` |
-| 鉴权 | **五条路由**（`/report` `/flush` `/play` `/list` `/position`）落到 `@Controller` 处理器上 | `SecurityContractTests#history写端点需登录` |
+| 鉴权 | **六条路由**（`/report` `/flush` `/play` `/list` `/position` / `DELETE /history`）落到 `@Controller` 处理器上 | `SecurityContractTests#history写端点需登录` |
 
 **独立 oracle**：`content.play_count == SELECT COUNT(*) FROM content_play_dedup WHERE content_id=?`（只对 V10 后新建内容绝对成立）；
 `(user_id, content_id)` 在 `watch_history` 唯一、`(user_id, content_id, play_date)` 在账本唯一。
@@ -540,7 +543,7 @@ filesort；新索引前三列即排序键（前向索引扫描）：
 > ★ **为什么独立**：它自成一套机制（缓冲 / 落库 / 剪枝 / 故障姿态），与域的静态结构（表、端点、时长）
 > 耦合很松，却又是**被代码引用最密**的一节 —— 独立后引用能一指到底。
 > ⚠️ 本节只保留**域文档必须记住**的两条：① `/report` **不再同步落库**（§4.1 那条 ODKU 现在只在 flush 时执行）；
-> ② `/flush` 是本域**第五个端点**、限流权重 3（§三）。
+> ② `/flush` 是本域**六个端点之一**、限流权重 3（§三）。
 
 ---
 

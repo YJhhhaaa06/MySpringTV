@@ -256,7 +256,9 @@ async function confirmDelete(): Promise<void> {
  */
 async function reloadAfterDelete(): Promise<void> {
   await load()
-  if (shouldStepBackPage(items.value.length, page.value)) {
+  // ★ 只在"重读成功且本页为空"时回退：读失败时 items 也是空的（error 已置位），
+  //   无条件回退会把用户从第 N 页"踢"到 N-1 页 —— 删除明明成功了，却像丢了位置。
+  if (!error.value && shouldStepBackPage(items.value.length, page.value)) {
     goPage(page.value - 1)
   }
 }
