@@ -128,6 +128,12 @@ describe('formatRelativeDate', () => {
     expect(formatRelativeDate('2027-01-03T00:00:00', now, SH)).toBe('2027-01-03')
   })
 
+  it('同日未来也走绝对日期（列表卡只有"日期"粒度，所以是当天日期）', () => {
+    // 这是**刻意**的：卡片不渲染时刻，硬造一个 HH:mm 会破坏卡片版式；
+    // 显示当天日期至少不撒谎（评论链路是 YYYY-MM-DD HH:MM，粒度本就不同）。
+    expect(formatRelativeDate('2026-10-25T18:00:00', now, SH)).toBe('10-25')
+  })
+
   it('1 分钟内的"未来"仍算刚刚（Date 头与 create_time 只有秒级精度）', () => {
     expect(formatRelativeDate('2026-10-25T12:00:30', now)).toBe('刚刚')
   })
