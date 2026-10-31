@@ -24,7 +24,7 @@
   `resilience` 组仍是旧登记 **41**（2026-10-25，本轮未复跑，需时另跑 `--group resilience`）。
   跑全量必须带 `DB_POOL_MAX_SIZE=4`，否则容器 MySQL `Too many connections`（**不是代码缺陷**）。
 * ★ **门禁**：文档三道 —— `python tools/docs/doc_links.py` · `python tools/docs/doc_refs.py` · `python tools/docs/doc_stats.py`；
-  前端 `npm run typecheck` / `npm run test` / `npm run build`（跑起来与截图规矩见 `frontend/README.md`）。
+  前端 `npm run typecheck` / `npm run test` / `npm run build`（★ **先 `cd frontend`** —— 仓库根**没有** `package.json`，在根目录跑 `npm run build` 会 `ENOENT`，不是编译失败；跑起来与截图规矩见 `frontend/README.md`）。
 * ★ **执行约定**：**commit 级不变式**（`G1`：可编译 / 可回滚 / 一事一 commit / 可回溯；**切分由执行者定**，
   不必与任务边界对齐）、验收用例 + 反向验证（`G5`）；
   `G#` / `C#` 的**定义**在 [`AGENTS.md`「跨期元约定」](../../AGENTS.md)，本文件不复述。
