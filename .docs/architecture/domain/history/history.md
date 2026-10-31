@@ -63,6 +63,7 @@
 | 历史列表（`GET /api/v1/history`，失效占位；**不合并缓冲**） | 历史列表缓存 |
 | 续播位置（`GET /api/v1/contents/{id}/progress`，**只读已落库的值**） | 服务端**降频**（节流由客户端负责；缓冲只挡写库，不挡请求） |
 | 退出 flush（`POST /api/v1/history/flush`）+ 空闲轮询兜底（[上报缓冲](./history-上报缓冲.md)） | 客户端节流（服务端不做；**已由新前端实现**，见 [客户端契约](./history-客户端契约.md) §三） |
+| 「记录浏览历史」开关（`R-25`：用户级列 + `users/me` 端点，**本域不持端不长边**） | 服务端**强制**这个开关（四个写口一律不校验；代价与推翻条件见 [已知代价](./history-已知代价.md)） |
 | mp4 时长解析（发布 / 换源） | 「已看完」标记（由前端按 `progress / duration` 推导） |
 | 详情播放量（第 5 个公共计数） | 历史容量上限 / 旧行清理 |
 | 失效内容占位（抄收藏域形态） | ~~存量内容时长回填~~（2026-10-27 已一次性完成，见 §六.2） |
@@ -148,6 +149,11 @@ filesort。新索引**前三列就是排序键**，第四列 `progress_seconds` 
 | `POST /api/v1/contents/{id}/play` | `contentId`（进路径） | 无（`msg="success"`） | 首播去重后 `play_count + 1`；行不存在则建行（progress=0） |
 | `GET /api/v1/history` | `page`、`pageSize` | `PageResult<HistoryItemVO>` | 按 `update_time DESC, content_id DESC`；缺省 20 / 上限 100 |
 | `GET /api/v1/contents/{id}/progress` | `contentId`（进路径） | `{ "progress": 123 }` | 无记录 ⇒ `0`；**不校验内容、不返回 404** |
+
+> ★ **「记录浏览历史」开关不在本表**：它是 user 域的 `V9`（`users.history_recording`）+
+> `PUT /api/v1/users/me/history-recording`。本域**不读**这一列（`R-25`：服务端不强制）——
+> 五条端点都不因开关拒绝或跳过，"不记录"由客户端**不发**那三个写请求来保证。
+> 开关状态随 `GET /users/me` 回带（同 `signedToday` 的形态），本域没有新增读边。
 
 **`HistoryItemVO`**（JSON 形状，扁平，同 `WatchLaterItemVO` 的形态）：
 
