@@ -2,8 +2,9 @@ import { onBeforeUnmount, ref, watch, type Ref } from 'vue'
 import type { VideoDetailVM } from '../types/ui'
 import { fetchProgress, flushHistory, flushHistoryOnExit, reportPlay, reportProgress } from '../api/history'
 import { formatDuration } from '../api/adapters/format'
-import { isAuthenticated } from '../auth/session'
+import { isAuthenticated, restoreSession, sessionState } from '../auth/session'
 import { showToast } from '../common/toast'
+import { planTracking } from '../player/historyTracking'
 import {
   MIN_RESUME_SECONDS,
   clearPending,
@@ -23,6 +24,15 @@ import {
  * 播放历史的五个端点全部 `@RequiresLogin` ⇒ 匿名上报必然 401。与其打一串 401，
  * 不如一开始就不接（也省下每次装载 2 枚限流令牌）。代价：**匿名观看不计播放量**
  * —— 这是本仓契约的真实边界，不是前端漏做。
+ *
+ * <h2>★ 关掉「记录浏览历史」时**只关写**（`R-25` / D2）</h2>
+ * 判据在 {@link planTracking}：`read-only` ⇒ 仍然读一条 `GET /progress`（读不是记录，
+ * "从上次看到的地方继续"不该因开关而失去），但 **`/play`、`/progress`、`/flush`、
+ * `visibilitychange`、每秒 pending 一个都不写**，并清掉上一段遗留的本地 pending
+ * （否则下次打开会因 `needsCatchUp` 补报，等于开关没关住）。
+ * 连 `/play` 也不发是 D1 的直接后果：它的去重标记就长在历史行上，发它必然留一行 0 秒记录。
+ * ⚠️ **服务端不校验这个开关**（`R-25` 的刻意取舍）：直接调接口仍会记录，见
+ * `architecture/domain/history/history-已知代价.md`。
  *
  * <h2>★ 事件分工（契约 §三 的红线）</h2>
  * - `timeupdate`（每秒多次）：**只**写本地 pending + 不碰网络；
@@ -77,12 +87,24 @@ export function usePlaybackProgress(
     const el = video.value
     if (!el || entity.isPost || !entity.videoUrl) return
     teardown(true)
-    if (!isAuthenticated()) return
 
     const token = generation
     const contentId = entity.id
 
+    // ★ 先把「我是谁 + 开关开没开」落定再决定接不接：
+    //   `video.main.ts` 是 **mount 之后** 才 `void restoreSession()` ⇒ 详情可能比 `/users/me`
+    //   先回来，此刻 `isAuthenticated()` 还是 false，而本函数只跑一次、**不重试**
+    //   ⇒ 整段不上报（既有的潜在漏报，顺手在这里修掉）。
+    //   `restoreSession()` 是单飞（见 `auth/session.ts`）⇒ 不会多打请求。
+    await restoreSession()
+    if (token !== generation) return
+
+    const plan = planTracking(isAuthenticated(), sessionState.user?.historyRecording)
+    if (plan === 'skip') return
+
     // ── 续播基线：已落库 vs 本地最新（§6.2）────────────────────────────
+    // ★ 这段在 `read-only` 下**仍然执行**：读 `/progress` 不是"记录"，
+    //   关掉开关不该连"从上次看到的地方继续"都失去（D2：只关写）。
     let serverProgress: number | null = null
     try {
       serverProgress = (await fetchProgress(contentId))?.progress ?? 0
@@ -93,8 +115,16 @@ export function usePlaybackProgress(
     if (token !== generation) return
 
     const pending = readPending(contentId)
-    const plan = planResume(serverProgress, pending)
-    resumeSeconds.value = plan.start
+    const resumePlan = planResume(serverProgress, pending)
+    resumeSeconds.value = resumePlan.start
+
+    if (plan === 'read-only') {
+      // 关掉记录 ⇒ 到这儿为止：不建 reporter、不挂任何写监听（`/play`、`/progress`、`/flush`、
+      // `visibilitychange`、每秒 pending 全都没有），并把**上一段遗留的本地 pending 清掉** ——
+      // 否则下次打开会因 `needsCatchUp` 补报一次，等于开关没关住。
+      clearPending(contentId)
+      return
+    }
 
     const reporter = createProgressReporter({
       getPosition: () => el.currentTime,
@@ -119,7 +149,7 @@ export function usePlaybackProgress(
         () => {
           // 服务端可能给了超过时长的旧值：别 seek 到片尾之外
           const duration = Number.isFinite(el.duration) ? el.duration : Infinity
-          const target = plan.start
+          const target = resumePlan.start
           if (target >= MIN_RESUME_SECONDS && target < duration - 1) {
             el.currentTime = target
             const text = formatDuration(target)
@@ -188,9 +218,9 @@ export function usePlaybackProgress(
     document.addEventListener('visibilitychange', onVisibility)
 
     // 本地比服务端新 ⇒ 先补报落库（补的是本地最新，不是上次上报值）
-    if (plan.needsCatchUp) {
+    if (resumePlan.needsCatchUp) {
       try {
-        await reportProgress(contentId, plan.start)
+        await reportProgress(contentId, resumePlan.start)
         await flushHistory()
         clearPending(contentId)
       } catch {

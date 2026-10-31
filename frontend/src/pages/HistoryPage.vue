@@ -2,14 +2,17 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { HistoryItemVM } from '../types/ui'
+import { updateHistoryRecording } from '../api/account'
 import { groupHistoryByDay, loadHistory } from '../api/history'
 import { describeError } from '../api/http'
-import { restoreSession, sessionState } from '../auth/session'
+import { applyHistoryRecording, restoreSession, sessionState } from '../auth/session'
 import { requireLogin } from '../auth/loginPrompt'
+import { isRecording } from '../player/historyTracking'
 import AppIcon from '../components/common/AppIcon.vue'
 import EmptyState from '../components/common/EmptyState.vue'
 import Pagination from '../components/common/Pagination.vue'
 import HistoryCard from '../components/history/HistoryCard.vue'
+import RecordingStopConfirm from '../components/history/RecordingStopConfirm.vue'
 
 /**
  * 观看历史（`/history`）：B 站 2026-10 版式 —— **左侧日期时间轴 + 右侧多列卡片网格**。
@@ -24,9 +27,18 @@ import HistoryCard from '../components/history/HistoryCard.vue'
  * <h2>★ 不渲染的 B 站控件（后端没有对应能力，摆了就是撒谎）</h2>
  * - tabs「综合 / 视频 / 直播 / 专栏」+「更多筛选」+ 搜索框：`GET /history` 只有 `page/pageSize`
  *   （GAP-20，无 `type` / `keyword` 参数）；
- * - 「清空历史」「批量管理」与逐条删除：没有删除端点（GAP-19）；
- * - 「记录浏览历史」开关：没有用户级开关端点（GAP-21）。
- * 这三块**不是本窗口漏做**，台账里有记录；后端补了之后再加。
+ * - 「清空历史」「批量管理」与逐条删除：没有删除端点（GAP-19）。
+ * 这两块**不是本窗口漏做**，台账里有记录；后端补了之后再加。
+ *
+ * <h2>「记录浏览历史」开关（`R-25`，2026-10-31 起已渲染）</h2>
+ * 标题行右侧，**不吸顶**（随页面滚动移出视野，B站 2560 实测）。
+ * - **关闭要确认**（`RecordingStopConfirm`），**打开不确认**；
+ * - 拨动**乐观生效**：不等接口、失败不提示、不回弹。断网时的切换服务端收不到 ⇒
+ *   刷新后变回原值（"断网期间的关闭不算数"）——B站 实测口径，不是漏做错误处理；
+ * - 状态来源只有 `GET /users/me` 的 `historyRecording`（每次整页装载读一次），
+ *   **不落 localStorage**（前端只许两个 key，见 `客户端静默机制.md` §3.10）；
+ * - 关闭后播放页连 `/play` 都不发 ⇒ 该期间的观看不计播放量（D1，见
+ *   `architecture/domain/history/history-已知代价.md`）。
  *
  * <h2>页面级身份态</h2>
  * 整个列表都属于"我" ⇒ 先 `await restoreSession()`，匿名渲染「登录后查看」+ 登录按钮
@@ -49,6 +61,10 @@ const total = ref(0)
 const totalPages = ref(0)
 const loading = ref(false)
 const error = ref('')
+
+/** 开关的当前值（极性判据只有一处：`player/historyTracking.ts#isRecording`） */
+const recording = computed(() => isRecording(sessionState.user?.historyRecording))
+const confirmOpen = ref(false)
 
 const groups = computed(() => groupHistoryByDay(items.value))
 
@@ -97,6 +113,33 @@ async function signIn(): Promise<void> {
   await requireLogin()
 }
 
+/**
+ * 拨开关：**关 → 弹确认；开 → 直接生效**（B站 实测口径）。
+ *
+ * <p>★ 乐观生效：先改本地（界面立刻变），再 fire-and-forget 写服务端。
+ * **不**等回执、**不**提示、**不**回弹 —— 断网时的切换服务端没收到，
+ * 下一次整页装载 `restoreSession()` 会把它读回原值（"断网期间的关闭不算数"）。
+ * 这不是漏写错误处理：错误处理会造出 B站 没有的第二套行为。
+ */
+function onToggle(): void {
+  if (recording.value) {
+    confirmOpen.value = true
+    return
+  }
+  applyHistoryRecording(true)
+  void updateHistoryRecording(true).catch(() => {})
+}
+
+function confirmStop(): void {
+  confirmOpen.value = false
+  applyHistoryRecording(false)
+  void updateHistoryRecording(false).catch(() => {})
+}
+
+function cancelStop(): void {
+  confirmOpen.value = false
+}
+
 function goPage(nextPage: number): void {
   void router.push({ query: nextPage > 1 ? { page: String(nextPage) } : {} })
 }
@@ -108,7 +151,21 @@ function goPage(nextPage: number): void {
       <header class="history-head">
         <span class="history-head__icon"><AppIcon name="clock" :size="22" /></span>
         <h1 class="history-head__title">历史记录</h1>
-        <span v-if="loggedIn && total" class="history-head__meta">共 {{ total }} 条</span>
+        <div class="history-head__right">
+          <span v-if="loggedIn && total" class="history-head__meta">共 {{ total }} 条</span>
+          <!-- 记录开关（R-25）：关 → 弹确认；开 → 直接生效。不吸顶，随页面滚动移出视野 -->
+          <button
+            v-if="loggedIn"
+            class="history-switch"
+            type="button"
+            role="switch"
+            :aria-checked="recording"
+            @click="onToggle"
+          >
+            <span class="history-switch__label">记录浏览历史</span>
+            <span class="history-switch__track"><span class="history-switch__knob" /></span>
+          </button>
+        </div>
       </header>
 
       <p v-if="!sessionReady" class="history-state">正在恢复登录态…</p>
@@ -167,6 +224,13 @@ function goPage(nextPage: number): void {
         </template>
       </template>
     </div>
+
+    <!-- 停用确认：只有"关"这一步要它（打开不确认）；点遮罩 / 关闭 = 取消 -->
+    <RecordingStopConfirm
+      v-if="confirmOpen"
+      @close="cancelStop"
+      @confirm="confirmStop"
+    />
   </main>
 </template>
 
@@ -207,10 +271,61 @@ function goPage(nextPage: number): void {
   color: var(--text-1);
 }
 
-.history-head__meta {
+.history-head__right {
+  display: flex;
+  align-items: center;
+  gap: 18px;
   margin-left: auto;
+}
+
+.history-head__meta {
   font-size: 12px;
   color: var(--text-3);
+}
+
+/* 「记录浏览历史」开关（R-25）：文字 + 胶囊。★ 刻意**不吸顶** —— B站 实测它会随页面滚走 */
+.history-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  font-size: 13px;
+  color: var(--text-2);
+  background: transparent;
+  cursor: pointer;
+}
+
+.history-switch__label {
+  white-space: nowrap;
+}
+
+.history-switch__track {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--line-1);
+  transition: background 0.2s;
+}
+
+.history-switch[aria-checked='true'] .history-switch__track {
+  background: var(--brand-blue);
+}
+
+.history-switch__knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s;
+}
+
+.history-switch[aria-checked='true'] .history-switch__knob {
+  transform: translateX(16px);
 }
 
 .history-state {

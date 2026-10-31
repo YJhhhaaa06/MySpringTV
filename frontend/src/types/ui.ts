@@ -78,6 +78,15 @@ export interface CurrentUserVM {
    * （理由见 `architecture/frontend/前端.md` §五「签到状态不落本地」）。
    */
   signedToday: boolean
+  /**
+   * 是否**记录**观看历史（「记录浏览历史」开关，`users.history_recording`）。
+   *
+   * ★ 它是开关的**唯一读入口**：每次整页装载随 `GET /users/me` 读一次；
+   * 拨动开关只写 `PUT /users/me/history-recording` 并就地改这里（乐观，不回弹）。
+   * ⚠️ 判"要不要上报"请用 `player/historyTracking.ts#isRecording` / `#planTracking`，
+   * 别在组件里写 `=== false` —— 极性口径只允许有一处（见该文件注释）。
+   */
+  historyRecording: boolean
   /** 个人空间跨应用链接 */
   spaceHref: string
 }

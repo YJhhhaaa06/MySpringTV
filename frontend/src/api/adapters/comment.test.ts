@@ -124,7 +124,10 @@ describe('toPublishedComment', () => {
       id: 501,
       parentId: null,
       content: '好活',
-      viewer: { id: 233, name: 'frontend_demo', initial: 'F', admin: false, coin: 0, signedToday: false, spaceHref: '/space/233' },
+      viewer: {
+        id: 233, name: 'frontend_demo', initial: 'F', admin: false, coin: 0,
+        signedToday: false, historyRecording: true, spaceHref: '/space/233',
+      },
     })
     expect(vm.id).toBe(501)
     expect(vm.authorName).toBe('frontend_demo')

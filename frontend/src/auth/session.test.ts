@@ -16,6 +16,7 @@ const user: CurrentUserVM = {
   admin: false,
   coin: 0.5,
   signedToday: false,
+  historyRecording: true,
   spaceHref: '/space/7',
 }
 

@@ -15,7 +15,7 @@ function firstChar(name: string): string {
 /**
  * `UserInfoVO` → 顶栏用户。
  *
- * <p>★ 后端**没有头像字段**（`UserInfoVO` 只有 id/username/phone/admin/coin/signedToday）
+ * <p>★ 后端**没有头像字段**（`UserInfoVO` 只有 id/username/phone/admin/coin/signedToday/historyRecording）
  * ⇒ 头像用昵称首字占位（`initial`）。这是 GAP 台账里的一条「M1 字段缺 / 前端适配」。
  *
  * <p>★ `signedToday` 必须原样带出：它是签到按钮「进页就置灰」的唯一判据
@@ -33,6 +33,9 @@ export function toCurrentUser(me: components['schemas']['UserInfoVO']): CurrentU
     coin: me.coin ?? 0,
     // 只认 true：缺字段 = 不知道，但签到按钮宁可"先别亮"（同 `admin` 的口径）
     signedToday: me.signedToday === true,
+    // ★ 与上面两条**反向**口径（只认 false）：这是隐私开关，缺字段 = 老后端没有这个能力 ⇒
+    //   按"开"处理（与 DB 默认值 1 一致）。写成 `=== true` 会让一次字段缺失把所有人的记录静默关掉。
+    historyRecording: me.historyRecording !== false,
     spaceHref: spaceHref(me.id),
   }
 }

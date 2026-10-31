@@ -708,6 +708,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/users/me/history-recording": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["updateHistoryRecording"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/me/password": {
         parameters: {
             query?: never;
@@ -949,6 +965,12 @@ export interface components {
         ApiResponseHistoryPositionVO: {
             code?: string;
             data?: components["schemas"]["HistoryPositionVO"];
+            errors?: components["schemas"]["ApiFieldError"][];
+            msg?: string;
+        };
+        ApiResponseHistoryRecordingVO: {
+            code?: string;
+            data?: components["schemas"]["HistoryRecordingVO"];
             errors?: components["schemas"]["ApiFieldError"][];
             msg?: string;
         };
@@ -1307,6 +1329,9 @@ export interface components {
             /** Format: int32 */
             progress?: number;
         };
+        HistoryRecordingVO: {
+            historyRecording?: boolean;
+        };
         InteractionStatusVO: {
             coin?: number | null;
             isFavorited?: boolean | null;
@@ -1490,6 +1515,9 @@ export interface components {
             isPrivate?: boolean;
             name?: string;
         };
+        UpdateHistoryRecordingRequest: {
+            historyRecording: boolean;
+        };
         UploadedAssetVO: {
             durationSeconds?: number | null;
             url?: string;
@@ -1497,6 +1525,7 @@ export interface components {
         UserInfoVO: {
             admin?: boolean;
             coin?: number;
+            historyRecording?: boolean;
             /** Format: int64 */
             id?: number;
             phone?: string;
@@ -3333,6 +3362,38 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    updateHistoryRecording: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateHistoryRecordingRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponseHistoryRecordingVO"];
+                };
+            };
+            400: components["responses"]["ParamInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["RateLimited"];
             500: components["responses"]["InternalError"];
         };
