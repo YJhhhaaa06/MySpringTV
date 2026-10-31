@@ -24,8 +24,8 @@ import {
 
 /** +08:00（契约语义时区）。需要钉时区的函数显式传它 ⇒ 用例不依赖跑测试那台机器的时区。 */
 const SH = 8 * 60
-/** UTC-5（对照：同一时刻在不同时区下的"今天"不同）。 */
-const NY = -5 * 60
+/** 固定 -05:00（**不是** America/New_York：那是会变的政治时区，这里只要一个"西边的对照"）。 */
+const UTC5 = -5 * 60
 
 describe('formatDuration', () => {
   it('不足一小时按 mm:ss', () => {
@@ -131,7 +131,8 @@ describe('formatRelativeDate', () => {
   it('同日未来也走绝对日期（列表卡只有"日期"粒度，所以是当天日期）', () => {
     // 这是**刻意**的：卡片不渲染时刻，硬造一个 HH:mm 会破坏卡片版式；
     // 显示当天日期至少不撒谎（评论链路是 YYYY-MM-DD HH:MM，粒度本就不同）。
-    expect(formatRelativeDate('2026-10-25T18:00:00', now, SH)).toBe('10-25')
+    // ⚠️ 偏移在此不影响结果（同日 / 同年两条路径都会给 10-25）⇒ 不传，别让它看起来像"钉了时区"。
+    expect(formatRelativeDate('2026-10-25T18:00:00', now)).toBe('10-25')
   })
 
   it('1 分钟内的"未来"仍算刚刚（Date 头与 create_time 只有秒级精度）', () => {
@@ -205,7 +206,7 @@ describe('formatCommentTime（评论区：自然日 + 分钟/小时）', () => {
     // 上海 10-30 23:24 = UTC-5 的 10-30 10:24；上海 10-31 01:00 = UTC-5 的 10-30 12:00
     const now = new Date('2026-10-31T01:00:00+08:00')
     expect(formatCommentTime('2026-10-30T23:24:00', now, SH)).toBe('2026-10-30 23:24')
-    expect(formatCommentTime('2026-10-30T23:24:00', now, NY)).toBe('1小时前')
+    expect(formatCommentTime('2026-10-30T23:24:00', now, UTC5)).toBe('1小时前')
   })
 
   it('跨年也恒带年（不做"当年省年"）', () => {
@@ -213,7 +214,9 @@ describe('formatCommentTime（评论区：自然日 + 分钟/小时）', () => {
     expect(formatCommentTime('2021-01-07T06:31:00', now, SH)).toBe('2021-01-07 06:31')
   })
 
-  it('★ 迟于 now 超过 1 分钟 ⇒ 绝对时间（旧实现把负差值算成"刚刚"，这是明确的错误分支）', () => {
+  it('迟于 now 很久 ⇒ 绝对时间（⚠️ 这条**没有**未来分支的判别力：跨自然日先被日界捕获）', () => {
+    // 删掉 `diff < -FUTURE_TOLERANCE_MS` 这行，本用例仍绿（日界分支给同一个答案）。
+    // 真正的判别力在下一条"同一自然日 + 未来 > 60s"—— 保留这条只为记录"旧实现把负差值算成刚刚"。
     const now = new Date('2020-01-01T00:00:00+08:00')
     expect(formatCommentTime('2026-10-30T14:00:00', now, SH)).toBe('2026-10-30 14:00')
   })
@@ -240,7 +243,7 @@ describe('formatClockTime（历史页「观看时刻」）', () => {
     expect(formatClockTime('2026-10-26T09:05:00', SH)).toBe('09:05')
     // TZ=UTC 下不传偏移 ⇒ 本地就是 UTC ⇒ 01:05（旧实现会原样抄出 09:05）
     expect(formatClockTime('2026-10-26T09:05:00')).toBe('01:05')
-    expect(formatClockTime('2026-10-26T09:05:00', NY)).toBe('20:05') // 前一天 20:05
+    expect(formatClockTime('2026-10-26T09:05:00', UTC5)).toBe('20:05') // 前一天 20:05
   })
 
   it('空 / 非法 ⇒ 空串', () => {
@@ -265,8 +268,11 @@ describe('formatDayLabel（历史页日组：今天 / 昨天 / 日期）', () =>
     expect(formatDayLabel('2026-10-26T00:01:00', now, 0).key).toBe('yesterday')
   })
 
-  it('分组键不随展示文案变：跨年用例的 key 必须含年', () => {
-    expect(formatDayLabel('2025-12-31T18:00:00', now, SH).key).toBe('2025-12-31')
+  it('分组键不随展示文案变：key 必须含年（且按传入时区判年）', () => {
+    // 上海 2026-01-01 00:30 = 2025-12-31 16:30Z：同一条记录在 +08:00 属下一年、在 UTC 下属上一年。
+    // 这条同时钉住"key 恒带年"与"年份判断走传入偏移"，不传偏移就只是装饰。
+    expect(formatDayLabel('2026-01-01T00:30:00', now, SH).key).toBe('2026-01-01')
+    expect(formatDayLabel('2026-01-01T00:30:00', now, 0).key).toBe('2025-12-31')
     expect(formatDayLabel('2026-10-24T18:00:00', now, SH).key).toBe('2026-10-24')
   })
 

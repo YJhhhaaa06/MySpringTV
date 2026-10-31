@@ -1,34 +1,35 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { components } from '../types/api'
-import { loadHome, searchContents } from './endpoints'
+import { loadHome, loadVideoPage, searchContents } from './endpoints'
+import { loadFeed } from './feed'
 import { getJson } from './http'
 import { resetServerClock, syncServerClock } from './serverClock'
 
 /**
- * 端点层的**时钟透传**契约（`T72`）。
+ * 端点层的**时钟契约**（`T72`）：端点一个时钟都不许有。
  *
- * <p>为什么单列一个文件：`loadHome` / `searchContents` 等端点只是"取数据 → 交给适配器"，
- * 它们的 `now` 参数**必须保持可选且不给默认值** —— 一旦有人在这里补一个 `new Date()`，
- * 浏览器时钟就又回到了适配器手上，而只测适配器的用例仍然全绿（假绿）。
- * 这里用假网络层把两个方向都钉住：不传 ⇒ 服务器锚点；传了 ⇒ 以传入值为准。
+ * <p>为什么单列一个文件：`loadHome` / `loadFeed` / `searchContents` / `loadVideoPage`
+ * 只是"取数据 → 交给适配器"，"现在"完全由适配器的 `serverNow()` 决定。
+ * 这些函数曾经带 `now: Date = new Date()` —— 那等于给"现在"开第二个来源：端点自己赢一次，
+ * 浏览器时钟就回到了适配器手上，而**只测适配器的用例仍然全绿**（假绿）。
+ * 这里用假网络层把四条链路都点一遍：不传时钟 + 系统时间被改到 2020 ⇒ 仍按 `Date` 头算。
  */
 vi.mock('./http', () => ({ getJson: vi.fn() }))
 
-/**
- * `getJson` 是泛型函数，`vi.mocked` 推不出 `mockResolvedValue` 的参数类型（会退化成 `never`）
- * ⇒ 这里只要它"能被喂任意响应"的最小形状，不用库的完整 Mock 类型。
- */
-const mockedGetJson = vi.mocked(getJson) as unknown as {
-  mockResolvedValue: (value: unknown) => void
+interface GetJsonMock {
+  /** 返回自身以便链式排多次响应（`getJson` 是泛型，`vi.mocked` 推不出参数类型）。 */
+  mockResolvedValueOnce: (value: unknown) => GetJsonMock
   mockReset: () => void
 }
+
+const mockedGetJson = vi.mocked(getJson) as unknown as GetJsonMock
 
 type ContentVO = components['schemas']['ContentVO']
 
 /** 无封面 ⇒ 不进轮播位，直接落在 `cards` 里（`splitHero` 的规则）。 */
-function content(createTime: string): ContentVO {
+function content(createTime: string, id = 92): ContentVO {
   return {
-    id: 92,
+    id,
     title: '标题',
     authorId: 1,
     authorName: '一号员工',
@@ -48,7 +49,7 @@ const pageOf = (iso: string): components['schemas']['PageResultContentVO'] =>
   ({ list: [content(iso)], page: 1, pageSize: 20, total: 1, totalPages: 1 }) as unknown as
     components['schemas']['PageResultContentVO']
 
-describe('端点层的"现在"（loadHome / searchContents）', () => {
+describe('端点层没有自己的时钟（四条链路）', () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.restoreAllMocks()
@@ -56,7 +57,7 @@ describe('端点层的"现在"（loadHome / searchContents）', () => {
     mockedGetJson.mockReset()
   })
 
-  /** 锚点 = 上海 2026-10-25 12:00；系统时间改到 2020（退回浏览器钟就会算成"未来"）。 */
+  /** 锚点 = 上海 2026-10-25 12:00；再把系统时间改到 2020（端点若自带 `new Date()` 就会暴露）。 */
   function anchorToShanghaiNoon(): void {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.spyOn(performance, 'now').mockReturnValue(1_000)
@@ -67,24 +68,51 @@ describe('端点层的"现在"（loadHome / searchContents）', () => {
   /** 上海 09:00 ⇒ 距锚点 3 小时。 */
   const createdAt = '2026-10-25T09:00:00'
 
-  it('★ 不传 now ⇒ 用 Date 头算（端点层不许自己补 new Date()）', async () => {
+  it('★ loadHome：不传时钟 ⇒ 用 Date 头', async () => {
     anchorToShanghaiNoon()
-    mockedGetJson.mockResolvedValue([content(createdAt)])
+    mockedGetJson.mockResolvedValueOnce([content(createdAt)])
     const home = await loadHome()
     expect(home.cards[0]?.dateText).toBe('3小时前')
   })
 
-  it('★ 搜索链路同样透传：不传 ⇒ 服务器锚点', async () => {
+  it('★ searchContents：不传时钟 ⇒ 用 Date 头', async () => {
     anchorToShanghaiNoon()
-    mockedGetJson.mockResolvedValue(pageOf(createdAt))
+    mockedGetJson.mockResolvedValueOnce(pageOf(createdAt))
     const result = await searchContents('关键词', 1)
     expect(result.items[0]?.dateText).toBe('3小时前')
   })
 
-  it('显式传 now ⇒ 以传入值为准（透传没被吞掉）', async () => {
+  it('★ loadFeed：不传时钟 ⇒ 用 Date 头', async () => {
     anchorToShanghaiNoon()
-    mockedGetJson.mockResolvedValue([content(createdAt)])
-    const home = await loadHome(new Date('2026-10-25T10:00:00+08:00'))
-    expect(home.cards[0]?.dateText).toBe('1小时前')
+    mockedGetJson.mockResolvedValueOnce(pageOf(createdAt))
+    const feed = await loadFeed()
+    expect(feed.items[0]?.timeText).toBe('3小时前')
+  })
+
+  it('★ loadVideoPage 的相关推荐：不传时钟 ⇒ 用 Date 头', async () => {
+    anchorToShanghaiNoon()
+    mockedGetJson
+      .mockResolvedValueOnce({
+        id: 92,
+        title: '详情',
+        authorId: 1,
+        authorName: '一号员工',
+        createTime: createdAt,
+        type: 1,
+        commentEnabled: true,
+        durationSeconds: 100,
+        videoUrl: '/upload/video/a.mp4',
+        coverUrl: '/upload/cover/a.png',
+        playCount: 0,
+        likeCount: 0,
+        coinCount: 0,
+        favoriteCount: 0,
+        commentCount: 0,
+        interaction: null,
+      })
+      .mockResolvedValueOnce({ userId: 1, username: '一号员工' })
+      .mockResolvedValueOnce([content(createdAt, 93)])
+    const page = await loadVideoPage(92)
+    expect(page.related[0]?.dateText).toBe('3小时前')
   })
 })
