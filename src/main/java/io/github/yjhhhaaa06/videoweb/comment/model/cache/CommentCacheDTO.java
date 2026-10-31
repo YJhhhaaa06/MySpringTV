@@ -82,8 +82,9 @@ public class CommentCacheDTO {
      * 没有这个键**（缓存 key 无版本前缀）⇒ 前端必须容忍 {@code null}（不显示时间）。
      *
      * <p>⚠️ 别以为"等 10 分钟就好"：命中路径会 {@code EXPIRE} 续期
-     * （{@code CommentRedisOps#readRootsInterval}）⇒ 持续有读的内容页里，老元素可能**长期**
-     * 返回 {@code null}，直到该 key 被失效或重写（`I-32`）。这是已登记的降级，不是 bug。
+     * （{@code CommentRedisOps#readRootsInterval}）⇒ 若真有跨部署保留的 Redis 数据，
+     * 老元素会**长期**返回 {@code null}，直到该 key 被失效或重写。
+     * 本项目 Redis 每次起服务都是空的（`I-32` 已按此核销）⇒ 该场景不可达，降级路径保留为防御。
      */
     private LocalDateTime createTime;
 
