@@ -551,11 +551,6 @@ onBeforeUnmount(() => {
     width: 220px;
   }
 
-  .avatar-crop__preview-circle {
-    width: 90px;
-    height: 90px;
-  }
-
   .avatar-crop__controls,
   .avatar-crop__foot {
     flex-direction: column;

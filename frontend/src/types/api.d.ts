@@ -3394,8 +3394,8 @@ export interface operations {
     };
     batch: {
         parameters: {
-            query?: {
-                userIds?: string;
+            query: {
+                userIds: string;
             };
             header?: never;
             path?: never;

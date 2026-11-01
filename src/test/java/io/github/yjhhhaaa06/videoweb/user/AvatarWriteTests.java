@@ -204,6 +204,11 @@ class AvatarWriteTests extends AbstractHttpIntegrationTest {
         assertThat(badSuffix.getStatusCode().value()).isEqualTo(400);
         assertThat(Envelope.msg(badSuffix)).isEqualTo("文件类型不支持");
 
+        // 后缀合法但 Content-Type 不是图片：只判后缀会落成一张打不开的"头像"
+        ResponseEntity<String> fakeImage = uploadAvatar(jpegBytes(), "a.jpg", "text/plain", token);
+        assertThat(fakeImage.getStatusCode().value()).isEqualTo(400);
+        assertThat(Envelope.msg(fakeImage)).isEqualTo("文件类型不支持");
+
         assertThat(avatarFileCount()).isEqualTo(before);
     }
 

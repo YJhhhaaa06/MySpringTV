@@ -194,11 +194,19 @@ public class FileUploadService {
         return path != null && new File(path).isFile();
     }
 
-    /** 校验：contentType 非空 **且** 扩展名合法，否则 {@code "文件类型不支持"}（TV 逐字）。 */
+    /**
+     * 校验：contentType 非空 **且** 扩展名合法，否则 {@code "文件类型不支持"}（TV 逐字）。
+     *
+     * <p>★ {@code AVATAR} 额外要求 contentType 以 {@code image/} 开头（`R-27`）：
+     * 只判后缀时，{@code a.jpg + text/plain} 会通过并落成一张打不开的"头像"。
+     * 只收紧头像分支，不改变既有 image / cover 口径（那是另一笔账）。
+     */
     private void validate(MultipartFile file, UploadType type) {
         String contentType = file.getContentType();
         String fileName = file.getOriginalFilename();
-        if (contentType == null || !type.isSuffixValid(fileName)) {
+        if (contentType == null
+                || !type.isSuffixValid(fileName)
+                || (type == UploadType.AVATAR && !contentType.startsWith("image/"))) {
             throw new ParamException(ErrorCode.UPLOAD_TYPE_INVALID, "文件类型不支持");
         }
     }

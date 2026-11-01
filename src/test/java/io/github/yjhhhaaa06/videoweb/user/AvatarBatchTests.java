@@ -86,6 +86,22 @@ class AvatarBatchTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
+    @DisplayName("★ 同一 id 重复 101 次 ⇒ 200 且只返回 1 条（上限按去重后计算，不能靠 IN 天然去重假绿）")
+    void 重复同一id一百零一次仍成功() {
+        registerAndGetToken("13800004205", "batch-repeat", PASSWORD);
+        long userId = userIdOf("13800004205");
+        // 单靠 IN (id,id,id) 也会只回 1 行 ⇒ 必须用"超过上限的重复"才能证明服务端真的先去重再判上限
+        String repeated = String.join(",", java.util.Collections.nCopies(101, String.valueOf(userId)));
+
+        ResponseEntity<String> resp = get("/api/v1/users/avatars?userIds=" + repeated, null);
+        assertThat(resp.getStatusCode().value()).as("%s", resp.getBody()).isEqualTo(200);
+        JsonNode data = Envelope.data(resp);
+        assertThat(data.size()).isEqualTo(1);
+        assertThat(urlOf(data, userId)).isEqualTo("/avatars/default-" + (userId % 6 + 1) + ".svg");
+        // 匿名请求（无 token）也能 200：与 101 个唯一 id 的 400 用例构成成对断言
+    }
+
+    @Test
     @DisplayName("缺参 / 空值 / 非法 / 101 个 ⇒ 400（上限按去重后计算）")
     void 参数非法400() {
         assertThat(get("/api/v1/users/avatars", null).getStatusCode().value()).isEqualTo(400);
