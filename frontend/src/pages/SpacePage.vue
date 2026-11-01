@@ -6,13 +6,14 @@ import { loadFolderItems, loadPublicFolders, loadSpace } from '../api/profile'
 import { followUser, unfollowUser } from '../api/interactions'
 import { ApiError, describeError } from '../api/http'
 import { formatCount, formatCoinInt } from '../api/adapters/format'
-import { isAuthenticated, restoreSession, sessionState } from '../auth/session'
+import { applyAvatarUrl, isAuthenticated, restoreSession, sessionState } from '../auth/session'
 import { requireLogin } from '../auth/loginPrompt'
 import { showToast } from '../common/toast'
 import { useCheckIn } from '../composables/useCheckIn'
 import AppIcon from '../components/common/AppIcon.vue'
 import EmptyState from '../components/common/EmptyState.vue'
 import Pagination from '../components/common/Pagination.vue'
+import AvatarSettingsDialog from '../components/common/AvatarSettingsDialog.vue'
 import UserAvatar from '../components/common/UserAvatar.vue'
 import VideoCard from '../components/common/VideoCard.vue'
 import VideoGrid from '../components/home/VideoGrid.vue'
@@ -93,6 +94,14 @@ const featured = ref<VideoCardVM[]>([])
 const loading = ref(false)
 const error = ref('')
 const followBusy = ref(false)
+const avatarDialogOpen = ref(false)
+
+/** 头像弹层成功后：就地改空间头部 + 登录态（顶栏同一实例立即生效）。 */
+function onAvatarUpdated(avatarUrl: string): void {
+  if (header.value) header.value = { ...header.value, avatarUrl }
+  applyAvatarUrl(avatarUrl)
+  avatarDialogOpen.value = false
+}
 
 /** 第一页的前 3 条做成大卡（其余进网格），避免同一内容出现两次 */
 const gridItems = computed(() => {
@@ -304,7 +313,25 @@ function goItemPage(page: number): void {
 
       <template v-else>
         <header class="space-header">
+          <button
+            v-if="header?.isSelf"
+            class="space-avatar-btn"
+            type="button"
+            title="更换头像"
+            aria-label="更换头像"
+            @click="avatarDialogOpen = true"
+          >
+            <UserAvatar
+              class="space-avatar"
+              :avatar-url="header.avatarUrl"
+              :user-id="header.id"
+              :initial="header.initial"
+              :size="84"
+            />
+            <span class="space-avatar-btn__mask" aria-hidden="true">更换头像</span>
+          </button>
           <UserAvatar
+            v-else
             class="space-avatar"
             :avatar-url="header?.avatarUrl ?? null"
             :user-id="header?.id ?? null"
@@ -479,6 +506,14 @@ function goItemPage(page: number): void {
         />
       </template>
     </div>
+
+    <AvatarSettingsDialog
+      v-if="avatarDialogOpen && header"
+      :current-avatar-url="header.avatarUrl"
+      :user-id="header.id"
+      @close="avatarDialogOpen = false"
+      @updated="onAvatarUpdated"
+    />
   </main>
 </template>
 
@@ -512,6 +547,37 @@ function goItemPage(page: number): void {
   border: 3px solid var(--bg-0);
   border-radius: 50%;
   box-shadow: var(--shadow-1);
+}
+
+/* 自己的头像才可点（R-27）：hover 出现「更换头像」遮罩；别人的空间保持普通头像 */
+.space-avatar-btn {
+  position: relative;
+  display: block;
+  flex: none;
+  padding: 0;
+  border-radius: 50%;
+  line-height: 0;
+}
+
+.space-avatar-btn__mask {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.5);
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+.space-avatar-btn:hover .space-avatar-btn__mask,
+.space-avatar-btn:focus-visible .space-avatar-btn__mask {
+  opacity: 1;
 }
 
 .space-ident {
