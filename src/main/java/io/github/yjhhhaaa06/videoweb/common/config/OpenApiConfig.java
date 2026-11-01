@@ -135,26 +135,28 @@ public class OpenApiConfig {
      * OpenAPI 3.1 表达可空 `$ref` 的标准形态是 {@code anyOf: [$ref, {type: 'null'}]}
      * （{@code nullable: true} 是 3.0 的写法，3.1 已移除）。
      */
-    private static final Map<String, Set<String>> NULLABLE_VO_FIELDS = Map.of(
+    private static final Map<String, Set<String>> NULLABLE_VO_FIELDS = Map.ofEntries(
             // 互动态三态：null = 本面不查 / 匿名；这是 R-13 的核心契约
-            "InteractionStatusVO", Set.of("isLiked", "isFavorited", "isFollowed", "coin"),
+            Map.entry("InteractionStatusVO", Set.of("isLiked", "isFavorited", "isFollowed", "coin")),
             // 列表按面裁剪的三个计数 + 图文无封面 / 时长未知 + 匿名无 interaction
-            "ContentVO", Set.of("coverUrl", "durationSeconds", "interaction",
-                    "likeCount", "commentCount", "playCount"),
+            Map.entry("ContentVO", Set.of("coverUrl", "durationSeconds", "interaction",
+                    "likeCount", "commentCount", "playCount")),
             // 详情：图文无 videoUrl、视频无 imageUrls、图文无时长、匿名无 interaction
-            "ContentDetailVO", Set.of("coverUrl", "durationSeconds", "videoUrl", "imageUrls", "interaction"),
+            Map.entry("ContentDetailVO", Set.of("coverUrl", "durationSeconds", "videoUrl", "imageUrls", "interaction")),
             // 匿名 / 看自己 ⇒ null（三态，不是 false）
-            "ProfileVO", Set.of("isFollowed"),
+            Map.entry("ProfileVO", Set.of("isFollowed")),
             // 主楼没有 parent / replyTo；叶子没有 children（CommentVO 与 children 的 item 类型各一份）
             // createTime（GAP-12）：DB 列可空 + 存量 Redis 元素没有该键 ⇒ 运行期会显式 null
-            "CommentVO", Set.of("parentId", "replyToUserId", "replyToUsername", "children", "createTime"),
-            "CommentCacheDTO", Set.of("parentId", "replyToUserId", "replyToUsername", "children", "createTime"),
+            Map.entry("CommentVO", Set.of("parentId", "replyToUserId", "replyToUsername", "children", "createTime")),
+            Map.entry("CommentCacheDTO", Set.of("parentId", "replyToUserId", "replyToUsername", "children", "createTime")),
             // 失效占位条目的展示字段确实为 null
-            "FavoriteItemVO", Set.of("coverUrl", "authorName"),
-            "WatchLaterItemVO", Set.of("coverUrl", "authorName"),
-            "HistoryItemVO", Set.of("coverUrl", "authorName", "durationSeconds"),
+            Map.entry("FavoriteItemVO", Set.of("coverUrl", "authorName")),
+            Map.entry("WatchLaterItemVO", Set.of("coverUrl", "authorName")),
+            Map.entry("HistoryItemVO", Set.of("coverUrl", "authorName", "durationSeconds")),
             // 单文件上传：只有视频有值；图片 / 封面恒 null（"未知" ≠ 0）
-            "UploadedAssetVO", Set.of("durationSeconds"));
+            Map.entry("UploadedAssetVO", Set.of("durationSeconds")),
+            // 推荐流游标：null = 已到底（服务端以"多取一条"判定，不是"本页不满"）
+            Map.entry("RecommendPageVO", Set.of("nextCursor")));
 
     /**
      * 供 spec 护栏测试遍历（{@code OpenApiSpecExportTests}）——**不是业务 API**，运行期不要读它。

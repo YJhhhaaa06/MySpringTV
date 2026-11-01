@@ -91,7 +91,7 @@ class ContentListCountTests extends AbstractContentIntegrationTest {
         jdbcTemplate.update("UPDATE content SET play_count = 22 WHERE id = ?", c2);
         jdbcTemplate.update("UPDATE content SET play_count = 33 WHERE id = ?", c3);
 
-        JsonNode list = Envelope.data(get("/api/v1/contents/recommended", null));
+        JsonNode list = Envelope.data(get("/api/v1/contents/recommended", null)).path("list");
 
         // 独立 oracle：三条播放量分别等于 DB 列
         assertThat(itemOf(list, c1).path("playCount").asLong()).isEqualTo(11L);
@@ -120,7 +120,7 @@ class ContentListCountTests extends AbstractContentIntegrationTest {
         long contentId = insertVideoContent(authorId, "载荷不含计数");
         jdbcTemplate.update("UPDATE content SET play_count = 9 WHERE id = ?", contentId);
 
-        Envelope.data(get("/api/v1/contents/recommended", null));
+        Envelope.data(get("/api/v1/contents/recommended", null)).path("list");
 
         String cached = cachedContentJson(contentId);
         assertThat(cached).as("前置：载荷已缓存").isNotNull();

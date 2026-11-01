@@ -609,6 +609,16 @@ paths:
       operationId: start
       parameters:
       - in: query
+        name: cursor
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: pageSize
+        required: false
+        schema:
+          type: string
+      - in: query
         name: type
         required: false
         schema:
@@ -623,7 +633,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ApiResponseListContentVO"
+                $ref: "#/components/schemas/ApiResponseRecommendPageVO"
           description: OK
         "400":
           $ref: "#/components/responses/ParamInvalid"
@@ -2787,21 +2797,6 @@ components:
             $ref: "#/components/schemas/ApiFieldError"
         msg:
           type: string
-    ApiResponseListContentVO:
-      type: object
-      properties:
-        code:
-          type: string
-        data:
-          type: array
-          items:
-            $ref: "#/components/schemas/ContentVO"
-        errors:
-          type: array
-          items:
-            $ref: "#/components/schemas/ApiFieldError"
-        msg:
-          type: string
     ApiResponseListCouponOrderVO:
       type: object
       properties:
@@ -3015,6 +3010,19 @@ components:
           type: string
         data:
           $ref: "#/components/schemas/ProfileVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponseRecommendPageVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          $ref: "#/components/schemas/RecommendPageVO"
         errors:
           type: array
           items:
@@ -3894,6 +3902,17 @@ components:
           format: int32
         name:
           type: string
+    RecommendPageVO:
+      type: object
+      properties:
+        list:
+          type: array
+          items:
+            $ref: "#/components/schemas/ContentVO"
+        nextCursor:
+          anyOf:
+          - type: string
+          - type: "null"
     RegisterRequest:
       type: object
       properties:

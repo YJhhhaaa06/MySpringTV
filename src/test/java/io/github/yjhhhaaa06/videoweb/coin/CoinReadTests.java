@@ -166,7 +166,7 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
         assertThat(coinCountOf(contentId)).as("前置：DB 计数为 1").isEqualTo(1);
 
         // ---- /start（登录）：interaction.coin 仍恒 null；coinCount 键不存在 ----
-        JsonNode startItem = itemOf(Envelope.data(get("/api/v1/contents/recommended", voter.token())), contentId);
+        JsonNode startItem = itemOf(Envelope.data(get("/api/v1/contents/recommended", voter.token())).path("list"), contentId);
         assertThat(startItem.path("interaction").isObject())
                 .as("登录 ⇒ interaction 仍是对象").isTrue();
         assertThat(startItem.path("interaction").path("coin").isNull())
@@ -240,7 +240,7 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
                 .as("视频详情：coin 是数量（未投过 ⇒ 0）").isTrue();
 
         // 列表面（/start）
-        JsonNode listInteraction = itemOf(Envelope.data(get("/api/v1/contents/recommended", viewer.token())), contentId)
+        JsonNode listInteraction = itemOf(Envelope.data(get("/api/v1/contents/recommended", viewer.token())).path("list"), contentId)
                 .path("interaction");
         assertThat(keysOf(listInteraction))
                 .as("★ 列表面子对象键集：同样恰好四维（coin 键在、值是 null）")

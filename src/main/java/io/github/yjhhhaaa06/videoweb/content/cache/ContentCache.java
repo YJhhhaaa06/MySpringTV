@@ -15,16 +15,17 @@ import io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO;
 import io.github.yjhhhaaa06.videoweb.content.model.entity.ContentMedia;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentDetailVO;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentVO;
+import io.github.yjhhhaaa06.videoweb.content.model.vo.RecommendPageVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * 内容缓存（承接 TV {@code com.itheima.content.service.ContentCache}，739 行）。
@@ -41,7 +42,7 @@ import java.util.Map;
  * 《迁移参照系》§一 的警告在本类身上成立：它**承载业务语义**——
  * ① 媒体行的装配（{@code buildContentMedia}：按 type/sort 拼出 coverUrl / videoUrl / imageUrls，
  * 且**视频行缺失 = 内容不可用**）；
- * ② {@code /start} 的参数校验与随机抽样（{@code getRecommendByFilter}）；
+ * ② {@code /api/v1/contents/recommended} 的参数校验与随机序取页（{@code getRecommendPage}）；
  * ③ "媒体损坏 ⇒ 该内容视为不存在"这一**可观察行为**（详情 404、列表跳过）。
  * 故迁移时不能"只搬缓存不搬语义"。
  *
@@ -175,41 +176,96 @@ public class ContentCache {
     // ========================================================================
 
     /**
-     * 首页推荐（类型 / 分区过滤）。索引为 Redis LIST：读全量 id → 去重 → shuffle → limit。
+     * 首页推荐的一页：**随机序 + 游标**（口径见 {@code architecture/domain/content/content-推荐流.md}）。
+     *
+     * <h2>序从哪来</h2>
+     * 索引是 Redis LIST（全量 id）；序 = {@link RecommendOrder#rank} 降序。`seed` 由游标携带，
+     * 无游标时现场生成一个 —— 于是同一游标永远重建同一排列，**服务端不存任何会话状态**。
      *
      * <p>{@code type}/{@code category} 的参数校验与旧 {@code buildQueryKey} 完全一致
      * （{@link ParamException} 同文案、同位置）——校验**留在缓存层内是 TV 的原样位置**，
      * 不"顺手"上移到 Controller（上移会改变"参数错但缓存未生效"这一可观察行为）。
      *
-     * <p>惰性探测（TV T5/cache-05）：按 shuffle 序逐条读，凑满 limit 即止 ——
-     * 探测量与候选总量解耦（原先是"批量探测全部候选"）。均匀性论证：
-     * shuffle 仍在**全量去重 id 列表**上一次性执行，返回集 = "shuffle 序前 limit 个非 null"，
-     * 与"批量读全量后按同一 shuffle 序收集"逐位一致；惰性只改"探测到第几个停止"。
-     * null（hit-empty / DB 无数据）照旧消耗探测位——最坏退化到全探测。
+     * <h2>为什么多取一条</h2>
+     * 目标条数是 {@code pageSize + 1}：能取到 {@code pageSize + 1} 条有效内容 ⇒ 一定还有下一页；
+     * 取不满 ⇒ **已到底**。这样 {@code nextCursor == null} 与"没有更多"等价，
+     * 前端不必靠"本页不满"去猜（脏 id / 媒体损坏会让"本页不满"与"到底"混淆）。
+     * 被多取的那一条会被下一页重新读到 —— 它仍在游标之下，**不会重复**。
+     *
+     * <h2>删除 / 新增在会话中的表现</h2>
+     * rank 只依赖 id 本身 ⇒ 删除某条不影响其它内容的序，**连游标指向的那条被删也不影响**
+     * （服务端不需要它存在）。池子里残留的脏 id（删除时 LREM 失败）在批量读后为 {@code null}，
+     * 跳过即可、不占名额。新内容是否出现在本次会话取决于它的 rank 落在游标哪一侧 —— 但**永不重复**。
+     *
+     * @param rawCursor 上页返回的 {@code nextCursor}；{@code null} / 非法 = 新会话（第一页）
+     * @param pageSize  期望条数（已由 Controller 归一）
+     * @return 一页内容 + 下一页游标；**池读失败**时降级为 {@code {[], null}}（200，不 500）
      */
-    public List<ContentVO> getRecommendByFilter(Integer type, Integer categoryId, int limit) {
+    public RecommendPageVO getRecommendPage(Integer type, Integer categoryId, String rawCursor, int pageSize) {
         String indexKey = buildQueryKey(type, categoryId);
         ensureIndex(indexKey);
 
+        RecommendOrder.Cursor cursor = RecommendOrder.decode(rawCursor);
+        long seed = cursor == null ? newSeed() : cursor.seed();
+        long cursorId = cursor == null ? 0L : cursor.lastId();
+
         List<Long> idList = readIndex(indexKey);
         if (idList.isEmpty()) {
-            return List.of();
+            return new RecommendPageVO(List.of(), null);
         }
-        List<Long> distinctIds = new ArrayList<>(new LinkedHashSet<>(idList));
-        Collections.shuffle(distinctIds);
 
-        List<ContentVO> result = new ArrayList<>();
-        for (Long contentId : distinctIds) {
-            ContentCacheDTO dto = getContent(contentId);
-            if (dto == null) {
-                continue;
+        long cursorRank = cursorId == 0 ? 0L : RecommendOrder.rank(seed, cursorId);
+        List<RankedId> ranked = new ArrayList<>(idList.size());
+        for (Long contentId : new LinkedHashSet<>(idList)) {   // 去重：索引理论上无重复，防御
+            long rank = RecommendOrder.rank(seed, contentId);
+            if (cursorId != 0 && rank >= cursorRank) {
+                continue;                                      // 只取游标之后的（rank 降序）
             }
-            result.add(toContentVO(dto));
-            if (result.size() >= limit) {
-                break;
-            }
+            ranked.add(new RankedId(rank, contentId));
         }
-        return result;
+        ranked.sort((a, b) -> Long.compare(b.rank(), a.rank()));
+
+        int target = pageSize + 1;
+        List<ContentVO> page = new ArrayList<>(target);
+        int next = 0;
+        while (next < ranked.size() && page.size() < target) {
+            int end = Math.min(next + LOAD_BATCH, ranked.size());
+            List<Long> chunk = new ArrayList<>(end - next);
+            for (int i = next; i < end; i++) {
+                chunk.add(ranked.get(i).id());
+            }
+            Map<Long, ContentCacheDTO> byId = getContentsBatch(chunk);
+            for (Long contentId : chunk) {
+                if (page.size() >= target) {
+                    break;
+                }
+                ContentCacheDTO dto = byId.get(contentId);
+                if (dto == null) {
+                    continue;                                  // 已删 / 媒体损坏 ⇒ 跳过，不占名额
+                }
+                page.add(toContentVO(dto));
+            }
+            next = end;
+        }
+
+        if (page.size() <= pageSize) {
+            return new RecommendPageVO(page, null);            // 取不满 ⇒ 已到底
+        }
+        List<ContentVO> trimmed = new ArrayList<>(page.subList(0, pageSize));
+        return new RecommendPageVO(trimmed,
+                RecommendOrder.encode(seed, trimmed.get(trimmed.size() - 1).getId()));
+    }
+
+    /** 新会话的随机种子：31 位正整数（只为缩短游标；撞 seed 无影响 —— 排列本来就是公开的）。 */
+    private static long newSeed() {
+        return ThreadLocalRandom.current().nextInt(1, Integer.MAX_VALUE);
+    }
+
+    /** 取页时的批量装载块大小：块小 ⇒ 脏 id 多时不必一次读穿全池；块大 ⇒ 往返少。 */
+    private static final int LOAD_BATCH = 32;
+
+    /** 排序中转：先把 rank 算一次，避免比较器里反复重算。 */
+    private record RankedId(long rank, long id) {
     }
 
     // ========================================================================

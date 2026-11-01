@@ -203,7 +203,7 @@ class ContentPlayCountTests extends AbstractContentIntegrationTest {
         assertThat(post("/api/v1/contents/" + contentId + "/play", null, viewerToken).getStatusCode().value())
                 .isEqualTo(200);
 
-        JsonNode startItem = itemOf(Envelope.data(get("/api/v1/contents/recommended", viewerToken)), contentId);
+        JsonNode startItem = itemOf(Envelope.data(get("/api/v1/contents/recommended", viewerToken)).path("list"), contentId);
         assertThat(startItem.path("playCount").asLong())
                 .as("★ GAP-01：网格卡片带播放量；独立 oracle = DB 列")
                 .isEqualTo((long) playCountColumn(contentId))
