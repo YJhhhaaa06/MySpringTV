@@ -6,6 +6,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.nio.file.Path;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -35,6 +37,15 @@ class UploadPropertiesBindingTests extends AbstractIntegrationTest {
                         + "否则上传测试会写入/删除真实媒体根里的文件")
                 .isEqualTo(AbstractIntegrationTest.testMediaRoot());
         assertThat(uploadProperties.root()).contains("test-media");
+    }
+
+    @Test
+    @DisplayName("★ 相对媒体根在绑定期归一为绝对路径（否则 Tomcat transferTo 会按临时 work 目录解析）")
+    void 相对媒体根归一为绝对路径() {
+        String relative = Path.of(".tmp", "e2e-media").toString();
+        assertThat(new UploadProperties(relative).root())
+                .as("UPLOAD_ROOT=.tmp/e2e-media 必须落成同一个绝对根；相对值会让 mkdirs 与 transferTo 分家")
+                .isEqualTo(Path.of(relative).toAbsolutePath().normalize().toString());
     }
 
     @Test
