@@ -24,13 +24,15 @@ import static org.assertj.core.api.Assertions.fail;
  * 「**翻完全部页 == 池子全集，且无重复**」这一条独立 oracle —— 期望值来自直读索引 key 的 id 集合，
  * 与被测实现无关。
  *
- * <h2>三条判别力来自哪里</h2>
+ * <h2>三条判别力，以及它们各自钉哪一行</h2>
  * <ul>
- *   <li><b>去掉 {@code rank < lastRank} 过滤</b> ⇒ 第一页会被重复返回 ⇒ "无重复"必红；</li>
- *   <li><b>把 {@code nextCursor} 改成"本页不满才给 null"</b> ⇒ 恰好整除时最后一页会多一个空请求
- *       （无判别力），但"取 pageSize+1 判定"若退化成"取 pageSize"，整除时会把"还有下一页"错报成到底
- *       ⇒ {@link #翻完全部页等于池子全集()} 必红（漏掉一页）；</li>
- *   <li><b>游标改用下标而不是 id</b> ⇒ {@link #游标指向已删内容仍精确()} 必红。</li>
+ *   <li><b>去掉 {@code rank < lastRank} 过滤</b> ⇒ {@link #翻完全部页等于池子全集()} /
+ *       {@link #相邻两页无交集()} / {@link #脏id被跳过且不占名额()} /
+ *       {@link #游标指向已删内容仍精确()} 四处变红；</li>
+ *   <li><b>把 {@code pageSize + 1} 退化成 {@code pageSize}</b> ⇒ {@link #整除边界不多给空页()}
+ *       变红（恰好整除时永远不会给出 {@code nextCursor}）；</li>
+ *   <li><b>游标改用"位次"而不是 id</b> ⇒ {@link #游标指向已删内容仍精确()} 变红
+ *       （末条从索引里也消失后，位次会整体位移、漏掉一条）。</li>
  * </ul>
  *
  * <h2>夹具纪律</h2>
@@ -56,7 +58,7 @@ class RecommendFeedTests extends AbstractContentIntegrationTest {
             inserted.add(insertVideoContent(authorId, "推荐页内容 " + i));
         }
 
-        List<Long> collected = walkAllPages(3);
+        List<Long> collected = walkAllPages(3, null);
 
         assertThat(collected).as("跨页不得重复").doesNotHaveDuplicates();
         assertThat(new LinkedHashSet<>(collected))
@@ -84,17 +86,40 @@ class RecommendFeedTests extends AbstractContentIntegrationTest {
         assertThat(idsOf(second)).hasSize(5).doesNotContainAnyElementsOf(idsOf(first));
     }
 
+    @Test
+    @DisplayName("★整除边界：池子 6 条 / 每页 3 ⇒ 第 2 页恰好取满且 nextCursor=null（不多给一个空页）")
+    void 整除边界不多给空页() {
+        registerAndGetToken(AUTHOR_PHONE, AUTHOR);
+        long authorId = userIdOf(AUTHOR_PHONE);
+        Set<Long> inserted = new LinkedHashSet<>();
+        for (int i = 1; i <= 6; i++) {
+            inserted.add(insertVideoContent(authorId, "整除内容 " + i));
+        }
+
+        ResponseEntity<String> first = get("/api/v1/contents/recommended?pageSize=3", null);
+        ResponseEntity<String> second = get("/api/v1/contents/recommended?pageSize=3&cursor=" + cursorOf(first), null);
+
+        assertThat(idsOf(first)).hasSize(3);
+        assertThat(cursorOf(first)).as("还有 3 条 ⇒ 必须有下一页").isNotNull();
+        assertThat(idsOf(second)).as("第 2 页应恰好取满").hasSize(3);
+        assertThat(cursorOf(second)).as("已取完 ⇒ 必须报到底，而不是再给一个空游标").isNull();
+        Set<Long> all = new LinkedHashSet<>(idsOf(first));
+        all.addAll(idsOf(second));
+        assertThat(all).isEqualTo(inserted);
+    }
+
     // ========================================================================
     // 删除 / 脏 id
     // ========================================================================
 
     @Test
-    @DisplayName("★游标指向已删内容仍精确：下一页不重不漏（游标锚在 id 上，不依赖它存在）")
+    @DisplayName("★游标指向已删内容仍精确：走真实删除（索引也 LREM），剩余内容不重不漏")
     void 游标指向已删内容仍精确() {
-        registerAndGetToken(AUTHOR_PHONE, AUTHOR);
+        String token = registerAndGetToken(AUTHOR_PHONE, AUTHOR);
         long authorId = userIdOf(AUTHOR_PHONE);
+        Set<Long> inserted = new LinkedHashSet<>();
         for (int i = 1; i <= 6; i++) {
-            insertVideoContent(authorId, "游标删除内容 " + i);
+            inserted.add(insertVideoContent(authorId, "游标删除内容 " + i));
         }
 
         ResponseEntity<String> first = get("/api/v1/contents/recommended?pageSize=2", null);
@@ -102,15 +127,16 @@ class RecommendFeedTests extends AbstractContentIntegrationTest {
         long lastOfPage1 = page1.get(page1.size() - 1);
         String cursor = cursorOf(first);
 
-        // 直接删库：内容没了，但索引里的 id 还在（= 脏 id；比"正常删除"更苛刻）
-        jdbcTemplate.update("DELETE FROM content WHERE id = ?", lastOfPage1);
+        // ★ 走真实删除：内容软删 + 索引 LREM（位次会整体位移；游标锚在 id 上则不受影响）
+        assertThat(delete("/api/v1/contents/" + lastOfPage1, token).getStatusCode().value()).isEqualTo(204);
 
-        ResponseEntity<String> second = get("/api/v1/contents/recommended?pageSize=2&cursor=" + cursor, null);
-        List<Long> page2 = idsOf(second);
+        List<Long> rest = walkAllPages(2, cursor);
+        inserted.removeAll(page1);   // 第一页已经消费过的（含被删的末条）不在游标之后
 
-        assertThat(second.getStatusCode().value()).isEqualTo(200);
-        assertThat(page2).as("游标指向的那条已不存在，仍应从它之后继续").hasSize(2);
-        assertThat(page2).doesNotContain(lastOfPage1).doesNotContainAnyElementsOf(page1);
+        assertThat(rest).as("剩余内容不得重复").doesNotHaveDuplicates();
+        assertThat(new LinkedHashSet<>(rest))
+                .as("游标指向的那条已消失，仍应精确接上剩余内容")
+                .isEqualTo(inserted);
     }
 
     @Test
@@ -122,10 +148,19 @@ class RecommendFeedTests extends AbstractContentIntegrationTest {
         for (int i = 1; i <= 5; i++) {
             ids.add(insertVideoContent(authorId, "脏 id 内容 " + i));
         }
+        // ★ 先发一次请求：让索引真的把这 5 条写进去（否则删行后的懒重建会读不到它，"脏 id" 就不存在）
+        assertThat(idsOf(get("/api/v1/contents/recommended?pageSize=5", null))).hasSize(5);
+
         long dirty = ids.get(2);
         jdbcTemplate.update("DELETE FROM content WHERE id = ?", dirty);
+        // 模拟"删除时 LREM 失败"：索引保留脏 id；同时清掉内容缓存，让批量读真的拿不到它
+        redis.delete(List.of(CONTENT_KEY_PREFIX + dirty, EMPTY_PREFIX + dirty));
 
-        List<Long> collected = walkAllPages(2);
+        ResponseEntity<String> first = get("/api/v1/contents/recommended?pageSize=2", null);
+        assertThat(idsOf(first)).as("脏 id 不占名额 ⇒ 本页仍应凑满 2 条").hasSize(2);
+
+        List<Long> collected = new ArrayList<>(idsOf(first));
+        collected.addAll(walkAllPages(2, cursorOf(first)));
 
         assertThat(collected).as("不得出现已删内容").doesNotContain(dirty);
         assertThat(collected).as("其余 4 条一条不少").hasSize(4).doesNotHaveDuplicates();
@@ -146,7 +181,7 @@ class RecommendFeedTests extends AbstractContentIntegrationTest {
     }
 
     @Test
-    @DisplayName("pageSize 归一：缺省 20、上限 50、非数字回落、显式值原样生效")
+    @DisplayName("pageSize 归一：缺省 20、上限 50、非数字回落、显式值生效；limit 不识别")
     void pageSize归一() {
         registerAndGetToken(AUTHOR_PHONE, AUTHOR);
         long authorId = userIdOf(AUTHOR_PHONE);
@@ -155,12 +190,18 @@ class RecommendFeedTests extends AbstractContentIntegrationTest {
         }
 
         assertThat(idsOf(get("/api/v1/contents/recommended?pageSize=5", null))).hasSize(5);
+        assertThat(idsOf(get("/api/v1/contents/recommended", null)))
+                .as("不传 pageSize ⇒ 缺省 20").hasSize(20);
         assertThat(idsOf(get("/api/v1/contents/recommended?pageSize=0", null)))
                 .as("≤0 ⇒ 缺省 20").hasSize(20);
         assertThat(idsOf(get("/api/v1/contents/recommended?pageSize=abc", null)))
                 .as("非数字 ⇒ 缺省 20").hasSize(20);
         assertThat(idsOf(get("/api/v1/contents/recommended?pageSize=999", null)))
                 .as("超上限 ⇒ 截到 50").hasSize(50);
+        assertThat(idsOf(get("/api/v1/contents/recommended?limit=5", null)))
+                .as("★ limit 不识别 ⇒ 仍按缺省 20（若被当成条数，这里会是 5）").hasSize(20);
+        assertThat(idsOf(get("/api/v1/contents/recommended?limit=5&pageSize=6", null)))
+                .as("pageSize 优先级更高").hasSize(6);
     }
 
     @Test
@@ -223,10 +264,10 @@ class RecommendFeedTests extends AbstractContentIntegrationTest {
     // 辅助
     // ========================================================================
 
-    /** 从第一页翻到底，返回按访问顺序收集的 id。 */
-    private List<Long> walkAllPages(int pageSize) {
+    /** 从第一页翻到底。 */
+    private List<Long> walkAllPages(int pageSize, String startCursor) {
         List<Long> collected = new ArrayList<>();
-        String cursor = null;
+        String cursor = startCursor;
         for (int guard = 0; guard < 100; guard++) {
             String path = "/api/v1/contents/recommended?pageSize=" + pageSize
                     + (cursor == null ? "" : "&cursor=" + cursor);

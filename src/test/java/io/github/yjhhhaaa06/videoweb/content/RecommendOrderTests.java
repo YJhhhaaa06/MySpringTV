@@ -31,14 +31,19 @@ class RecommendOrderTests {
         assertThat(RecommendOrder.rank(739201L, 1042L))
                 .as("基准值：换算法必须同时递增游标版本 v1")
                 .isEqualTo(-1688543909761158575L);
+
+        RecommendOrder.rank(1L, 7L);      // 中间插一次别的调用，排除"藏着可变的当前 seed"
         assertThat(RecommendOrder.rank(739201L, 1042L))
-                .as("同 (seed, id) 反复调用必须相同")
-                .isEqualTo(RecommendOrder.rank(739201L, 1042L));
+                .as("同 (seed, id) 的结果不得被别的调用影响")
+                .isEqualTo(-1688543909761158575L);
     }
 
     @Test
     @DisplayName("十万个连续 id 的 rank 两两不同（双射 ⇒ 无并列）")
     void 排序键无碰撞() {
+        // 这条抓的是"rank 被收窄"（如强制转 int 取低 32 位）——10⁵ 样本按生日问题期望约 1 次碰撞。
+        // ⚠️ 它抓不到"排序键不看 seed"（`id` / `id.hashCode()` 在 1..10⁵ 上也两两不同），
+        //    那种错由「换 seed 换排列」抓。
         long seed = 739201L;
         Set<Long> ranks = new HashSet<>(200_000);
         for (long id = 1; id <= 100_000; id++) {

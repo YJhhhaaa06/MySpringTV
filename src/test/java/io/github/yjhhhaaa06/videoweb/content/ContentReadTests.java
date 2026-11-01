@@ -318,7 +318,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
     // ========================================================================
 
     @Test
-    @DisplayName("/api/v1/contents/recommended：返回 {list,nextCursor} 且包含已发布内容；limit 不识别（分页走 pageSize）")
+    @DisplayName("/api/v1/contents/recommended：返回 {list,nextCursor} 且包含已发布内容")
     void 首页推荐_列表与limit忽略() {
         registerAndGetToken(AUTHOR_PHONE, AUTHOR);
         long authorId = userIdOf(AUTHOR_PHONE);

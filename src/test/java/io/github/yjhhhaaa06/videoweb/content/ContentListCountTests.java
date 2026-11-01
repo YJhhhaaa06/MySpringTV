@@ -120,7 +120,8 @@ class ContentListCountTests extends AbstractContentIntegrationTest {
         long contentId = insertVideoContent(authorId, "载荷不含计数");
         jdbcTemplate.update("UPDATE content SET play_count = 9 WHERE id = ?", contentId);
 
-        Envelope.data(get("/api/v1/contents/recommended", null)).path("list");
+        assertThat(get("/api/v1/contents/recommended", null).getStatusCode().value())
+                .as("触发一次列表读（顺带证明端点没被改坏）").isEqualTo(200);
 
         String cached = cachedContentJson(contentId);
         assertThat(cached).as("前置：载荷已缓存").isNotNull();

@@ -225,11 +225,15 @@ public class ContentCache {
         }
         ranked.sort((a, b) -> Long.compare(b.rank(), a.rank()));
 
-        int target = pageSize + 1;
+        int safePageSize = Math.max(1, pageSize);   // 防御：非 Controller 调用方传 0 时别把 subList 撑爆
+        int target = safePageSize + 1;
         List<ContentVO> page = new ArrayList<>(target);
         int next = 0;
         while (next < ranked.size() && page.size() < target) {
-            int end = Math.min(next + LOAD_BATCH, ranked.size());
+            // 只取"还差多少 + 一点余量"，避免 pageSize=5 时也一次读 32 条并回填缓存；
+            // 但保留 MIN_LOAD_BATCH 的下限，免得脏 id 多时退化成一块一块地挪。
+            int want = Math.min(LOAD_BATCH, Math.max(target - page.size(), MIN_LOAD_BATCH));
+            int end = Math.min(next + want, ranked.size());
             List<Long> chunk = new ArrayList<>(end - next);
             for (int i = next; i < end; i++) {
                 chunk.add(ranked.get(i).id());
@@ -248,10 +252,10 @@ public class ContentCache {
             next = end;
         }
 
-        if (page.size() <= pageSize) {
+        if (page.size() <= safePageSize) {
             return new RecommendPageVO(page, null);            // 取不满 ⇒ 已到底
         }
-        List<ContentVO> trimmed = new ArrayList<>(page.subList(0, pageSize));
+        List<ContentVO> trimmed = new ArrayList<>(page.subList(0, safePageSize));
         return new RecommendPageVO(trimmed,
                 RecommendOrder.encode(seed, trimmed.get(trimmed.size() - 1).getId()));
     }
@@ -263,6 +267,9 @@ public class ContentCache {
 
     /** 取页时的批量装载块大小：块小 ⇒ 脏 id 多时不必一次读穿全池；块大 ⇒ 往返少。 */
     private static final int LOAD_BATCH = 32;
+
+    /** 每块至少取这么多：脏 id 多时避免退化成"一块只挪一条"。 */
+    private static final int MIN_LOAD_BATCH = 8;
 
     /** 排序中转：先把 rank 算一次，避免比较器里反复重算。 */
     private record RankedId(long rank, long id) {
