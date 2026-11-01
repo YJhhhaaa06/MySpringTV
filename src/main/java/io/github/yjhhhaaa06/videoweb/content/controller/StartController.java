@@ -31,7 +31,8 @@ import java.util.Set;
  *
  * <h2>分页：游标，不是页码</h2>
  * 响应是 {@code {list, nextCursor}}（不是裸数组）。首页无限加载只需要"下一页"，
- * 不需要总数，也不需要页码 —— 随机序里页码没有稳定含义（见设计篇 §2.3）。
+ * 不需要总数，也不需要页码 —— 随机序里页码没有稳定含义
+ * （见 {@code architecture/domain/content/content-推荐流.md} §2.3）。
  * {@code pageSize} 缺省 {@value #RECOMMEND_PAGE_SIZE_DEFAULT}、上限 {@value #RECOMMEND_PAGE_SIZE_MAX}；
  * {@code cursor} 由上一页给出，**原样回传**即可，客户端不得解析。
  * ⚠️ 旧的 {@code limit} 参数**不识别**（传了不生效）——它从来不是契约，分页一律走 {@code pageSize}。

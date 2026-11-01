@@ -20,7 +20,7 @@ export interface HomeData {
 }
 
 /**
- * `GET /contents/recommended` → `{list, nextCursor}`（游标信封，见后端设计篇
+ * `GET /contents/recommended` → `{list, nextCursor}`（游标信封，见后端
  * `architecture/domain/content/content-推荐流.md`）。
  *
  * <p>★ 端点层**完全不碰时钟**：「现在」由卡片适配器的 `serverNow()` 决定（唯一来源）。
