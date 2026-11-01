@@ -35,8 +35,9 @@ import RelationPanel from '../components/space/RelationPanel.vue'
  *   ⇒ 这两类 tab **不渲染**，而不是摆一个点不动的。
  *
  * <h2>★ 关注 / 粉丝列表的降级（GAP-25）</h2>
- * `FollowUserVO` 只有 `userId / username / isFollowed / isSelf` —— **没有头像、没有签名**
- * ⇒ 首字头像 + 名字 + 关注按钮；B 站的「分组 / 最近关注 / 最常访问 / 搜索关键词 / 批量操作」
+ * `FollowUserVO` 只有 `userId / username / isFollowed / isSelf` —— **没有头像字段、没有签名**
+ * （头像由 `RelationPanel` 走 `GET /users/avatars` 批量补，`R-27`）⇒ 名字 + 关注按钮；
+ * B 站的「分组 / 最近关注 / 最常访问 / 搜索关键词 / 批量操作」
  * 一个都不渲染（没有对应端点）。两个端点都要登录（B 站同样 `-101`），
  * 匿名进这两个 tab 是「登录后查看」而不是空列表。
  *

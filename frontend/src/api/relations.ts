@@ -7,7 +7,8 @@
  * 前端在空间页的这两个 tab 里渲染「登录后查看」，而不是把 401 画成空列表。
  *
  * <p>载荷是 `PageResult<FollowUserVO>`：只有 `userId / username / isFollowed / isSelf`，
- * 没有头像与签名（GAP 台账）⇒ 卡片只放首字头像 + 名字 + 关注按钮。
+ * `FollowUserVO` 没有头像与签名 ⇒ 头像由页面批量端点补（`R-27`），
+ * 卡片保留名字 + 关注按钮。
  */
 import type { RelationPageVM } from '../types/ui'
 import { toRelationPage } from './adapters/relation'

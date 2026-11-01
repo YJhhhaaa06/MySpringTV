@@ -8,7 +8,8 @@ import { formatCommentTime } from './format'
  *
  * <h2>两处显式降级（GAP 台账）</h2>
  * <ol>
- *   <li><b>没有头像</b>：GAP-08，昵称首字 + 渐变底。</li>
+ *   <li><b>头像</b>：`R-27` 起由页面用 `GET /users/avatars` 批量补 URL；
+ *       本适配器只产出 `authorId` / 昵称首字（缺失时由 `UserAvatar` 按 userId 回落）。</li>
  *   <li><b>时间可能缺失</b>：`createTime` 自 GAP-12 起由后端返回，但有两个空值来源 ——
  *       存量 Redis 元素（key 无版本前缀，且读命中会续期；本项目 Redis 每次起服务为空
  *       ⇒ 已按 `I-32` 核销，保留为防御）与脏数据。

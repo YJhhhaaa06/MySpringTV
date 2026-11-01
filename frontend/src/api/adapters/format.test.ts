@@ -327,7 +327,7 @@ describe('cleanDescription', () => {
 })
 
 describe('initialOf', () => {
-  it('取昵称首字并大写（头像占位；后端没有头像字段）', () => {
+  it('取昵称首字并大写（头像 URL 缺失时的兜底）', () => {
     expect(initialOf('frontend_demo')).toBe('F')
     expect(initialOf('一号员工')).toBe('一')
     // 表情符号按 code point 取，不切出半个代理对

@@ -366,8 +366,8 @@ export interface DynamicPageVM {
 /**
  * 关注 / 粉丝列表里的一个人（`FollowUserVO`）。
  *
- * <p>★ 这个 VO 只有 `userId / username / isFollowed / isSelf` —— **没有头像、没有签名**
- * （GAP 台账）⇒ 卡片只渲染默认 SVG 头像、名字与关注按钮，不编签名。
+ * <p>★ 这个 VO 只有 `userId / username / isFollowed / isSelf` —— **没有头像字段 / 没有签名**
+ * （头像由页面 `GET /users/avatars` 批量补，`R-27`）⇒ 卡片渲染头像、名字与关注按钮，不编签名。
  */
 export interface RelationUserVM {
   id: number

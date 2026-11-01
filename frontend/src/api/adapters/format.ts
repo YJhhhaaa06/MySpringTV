@@ -287,7 +287,7 @@ export function cleanDescription(value: string | null | undefined): string {
 /**
  * 头像占位：昵称首字（大写）。
  *
- * <p>后端没有头像字段（GAP 台账）⇒ 全站用「昵称首字 + 渐变底」代替，
+ * <p>头像 URL 由 `UserAvatar` / 页面批量端点负责；这里只保留「昵称首字」作为兜底，
  * 与 B 站默认头像的**位置/尺寸**一致，但不引用不存在的 URL。
  * 空昵称回 `U`（不画一个空圆）。
  */
