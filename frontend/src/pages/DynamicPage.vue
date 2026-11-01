@@ -11,6 +11,7 @@ import { formatCount } from '../api/adapters/format'
 import { isAuthenticated, restoreSession, sessionState, signOut } from '../auth/session'
 import { requireLogin } from '../auth/loginPrompt'
 import { showToast } from '../common/toast'
+import { useUserAvatars } from '../composables/useUserAvatars'
 import AppIcon from '../components/common/AppIcon.vue'
 import EmptyState from '../components/common/EmptyState.vue'
 import Pagination from '../components/common/Pagination.vue'
@@ -62,6 +63,15 @@ const error = ref('')
 
 const profile = ref<SpaceHeaderVM | null>(null)
 const following = ref<RelationPageVM | null>(null)
+
+/**
+ * 作者快照面的头像（`R-27`）：动态卡 / 右栏关注列表只拿得到 userId，
+ * 由批量端点按页实时补 URL；缺 id 时 UserAvatar 按 userId 回落默认。
+ */
+const feedAvatarIds = computed(() => (feed.value?.items ?? []).map((item) => item.authorId))
+const { avatars: feedAvatars } = useUserAvatars(feedAvatarIds)
+const followingAvatarIds = computed(() => (following.value?.items ?? []).map((user) => user.id))
+const { avatars: followingAvatars } = useUserAvatars(followingAvatarIds)
 
 /** 正在请求点赞的卡片（同一张卡不并发两次；其余卡片不受影响） */
 const likeBusy = reactive(new Set<number>())
@@ -248,6 +258,7 @@ function followingHref(userId: number): string {
                   :key="card.id"
                   :item="card"
                   :busy="likeBusy.has(card.id)"
+                  :avatar-url="feedAvatars.get(card.authorId) ?? null"
                   @toggle-like="toggleLike(card)"
                 />
               </div>
@@ -286,7 +297,12 @@ function followingHref(userId: number): string {
                   rel="noopener"
                   :title="`${user.name} 的空间`"
                 >
-                  <UserAvatar :user-id="user.id" :initial="user.initial" :size="36" />
+                  <UserAvatar
+                    :avatar-url="followingAvatars.get(user.id) ?? null"
+                    :user-id="user.id"
+                    :initial="user.initial"
+                    :size="36"
+                  />
                   <span class="dyn-following__name">{{ user.name }}</span>
                 </a>
               </li>

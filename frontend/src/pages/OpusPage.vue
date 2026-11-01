@@ -8,6 +8,7 @@ import { initialOf } from '../api/adapters/format'
 import { videoHref } from '../api/adapters/links'
 import { sessionState } from '../auth/session'
 import { shareCurrentPage } from '../common/share'
+import { useUserAvatars } from '../composables/useUserAvatars'
 import { useVideoInteractions } from '../composables/useVideoInteractions'
 import EmptyState from '../components/common/EmptyState.vue'
 import UserAvatar from '../components/common/UserAvatar.vue'
@@ -25,7 +26,7 @@ import OpusImageGallery from '../components/opus/OpusImageGallery.vue'
  * 图片区默认九宫格，点图进放大态，两种形态随时可切换（`OpusImageGallery`）。
  *
  * <h2>降级（GAP 台账；不渲染 = 后端没有，不是漏做）</h2>
- * - 没有头像字段（GAP-08）⇒ 昵称首字圆形头像；
+ * - 作者头像经 `GET /users/avatars` 批量读（`R-27`）；缺 URL 时仍按 userId 回落默认；
  * - 图文没有播放语义（GAP-05）⇒ 不渲染播放量；
  * - 图文不支持投币（coin 域只服务视频）⇒ 操作栏**不渲染硬币按钮**；
  * - 没有「列出点赞人 / 转发人」端点、也没有转发域 ⇒ 不渲染「赞与转发」tab；
@@ -65,6 +66,10 @@ const {
 } = interactions
 
 const authorInitial = computed(() => initialOf(detail.value?.authorName))
+
+/** 图文作者头像（`R-27`）：详情只带 authorId，由批量端点补 URL。 */
+const authorAvatarIds = computed(() => (detail.value ? [detail.value.authorId] : []))
+const { avatars: authorAvatars } = useUserAvatars(authorAvatarIds)
 
 async function load(): Promise<void> {
   if (!id.value) {
@@ -148,7 +153,12 @@ function onCommentCount(count: number): void {
             rel="noopener"
             :title="`${detail.authorName} 的空间`"
             :aria-label="`${detail.authorName} 的空间`"
-          ><UserAvatar :user-id="detail.authorId" :initial="authorInitial" :size="48" /></a>
+          ><UserAvatar
+            :avatar-url="authorAvatars.get(detail.authorId) ?? null"
+            :user-id="detail.authorId"
+            :initial="authorInitial"
+            :size="48"
+          /></a>
           <div class="opus-author__body">
             <a
               class="opus-author__name"

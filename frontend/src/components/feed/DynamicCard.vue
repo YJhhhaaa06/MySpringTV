@@ -29,7 +29,12 @@ import UserAvatar from '../common/UserAvatar.vue'
  * - 评论数：块内显示（0 也显示，B 站同）；
  * - 点赞数：**> 0 才显示**（B 站 0 赞时只写「点赞」），点过赞后一定显示。
  */
-const props = defineProps<{ item: DynamicCardVM; busy?: boolean }>()
+const props = defineProps<{
+  item: DynamicCardVM
+  busy?: boolean
+  /** 作者头像 URL（`R-27` 批量端点）；null ⇒ UserAvatar 按 userId 回落 */
+  avatarUrl?: string | null
+}>()
 defineEmits<{ (event: 'toggle-like'): void }>()
 
 /** 封面 404 / 解码失败也走占位块（dev 数据会撞到），逻辑与 `VideoCard` 一致 */
@@ -57,7 +62,12 @@ const showLikeCount = computed(
         rel="noopener"
         :title="`${item.authorName} 的空间`"
         :aria-label="`${item.authorName} 的空间`"
-      ><UserAvatar :user-id="item.authorId" :initial="item.authorInitial" :size="52" /></a>
+      ><UserAvatar
+        :avatar-url="avatarUrl ?? null"
+        :user-id="item.authorId"
+        :initial="item.authorInitial"
+        :size="52"
+      /></a>
       <div class="dyn-card__ident">
         <a class="dyn-author" :href="item.authorHref" target="_blank" rel="noopener">{{ item.authorName }}</a>
         <p class="dyn-meta">

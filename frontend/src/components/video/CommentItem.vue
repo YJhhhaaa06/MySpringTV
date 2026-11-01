@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import type { CommentVM } from '../../types/ui'
+import { authorIdsOf } from '../../api/avatarIds'
 import { fetchReplies, likeComment, publishComment, removeComment, unlikeComment } from '../../api/comments'
 import { toPublishedComment } from '../../api/adapters/comment'
 import { describeError } from '../../api/http'
@@ -28,12 +29,29 @@ import CommentComposer from './CommentComposer.vue'
  * 第一次点"删除"变成"确认删除 / 取消"（不做 `window.confirm`：阻塞式原生弹窗
  * 在播放页会打断播放，而且样式不可控）。
  */
-const props = defineProps<{ comment: CommentVM; contentId: number; highlight?: boolean }>()
+const props = defineProps<{
+  comment: CommentVM
+  contentId: number
+  highlight?: boolean
+  /** `userId → 生效头像 URL`（父组件批量读；缺省 ⇒ UserAvatar 按 userId 回落） */
+  avatars?: Map<number, string>
+}>()
 
 const emit = defineEmits<{
   (event: 'removed', commentId: number): void
   (event: 'count-changed', delta: number): void
+  /** 游标加载出新的楼中楼作者 ⇒ 父组件把这批 userId 并进批量头像请求 */
+  (event: 'avatars-needed', ids: number[]): void
 }>()
+
+function avatarUrlOf(userId: number): string | null {
+  return props.avatars?.get(userId) ?? null
+}
+
+function emitAvatarIds(items: CommentVM[]): void {
+  const ids = authorIdsOf(items)
+  if (ids.length) emit('avatars-needed', ids)
+}
 
 const rootEl = ref<HTMLElement | null>(null)
 const likePending = ref(false)
@@ -151,6 +169,7 @@ async function submitReply(text: string): Promise<void> {
       replyCursor.value = props.comment.replies.at(-1)?.id ?? null
     }
     expandedReplies.value = [...expandedReplies.value, created]
+    emitAvatarIds([created])
     props.comment.replyCount += 1
     replyDraft.value = ''
     replyOpen.value = false
@@ -172,6 +191,7 @@ async function loadReplies(): Promise<void> {
     if (!expanded.value) {
       const first = await fetchReplies(props.comment.id, null, 10)
       expandedReplies.value = first.items
+      emitAvatarIds(first.items)
       replyCursor.value = first.nextCursor
       replyDone.value = first.nextCursor === null
       expanded.value = true
@@ -182,6 +202,7 @@ async function loadReplies(): Promise<void> {
       const merged = new Map<number, CommentVM>()
       for (const item of [...expandedReplies.value, ...next.items]) merged.set(item.id, item)
       expandedReplies.value = [...merged.values()].sort((a, b) => a.id - b.id)
+      emitAvatarIds(next.items)
       replyCursor.value = next.nextCursor
       replyDone.value = next.nextCursor === null
     }
@@ -195,7 +216,13 @@ async function loadReplies(): Promise<void> {
 
 <template>
   <article ref="rootEl" class="comment" :class="{ 'comment--highlight': highlight }">
-    <UserAvatar :user-id="comment.authorId" :initial="comment.initial" :size="40" aria-hidden="true" />
+    <UserAvatar
+      :avatar-url="avatarUrlOf(comment.authorId)"
+      :user-id="comment.authorId"
+      :initial="comment.initial"
+      :size="40"
+      aria-hidden="true"
+    />
 
     <div class="comment__body">
       <a class="comment__author" :href="`/placeholder/space?uid=${comment.authorId}`">{{ comment.authorName }}</a>
@@ -253,7 +280,13 @@ async function loadReplies(): Promise<void> {
 
       <ul v-if="shownReplies.length" class="reply-list">
         <li v-for="reply in shownReplies" :key="reply.id" class="reply">
-          <UserAvatar :user-id="reply.authorId" :initial="reply.initial" :size="24" aria-hidden="true" />
+          <UserAvatar
+            :avatar-url="avatarUrlOf(reply.authorId)"
+            :user-id="reply.authorId"
+            :initial="reply.initial"
+            :size="24"
+            aria-hidden="true"
+          />
           <div class="reply__body">
             <p class="reply__head">
               <a class="reply__author" :href="`/placeholder/space?uid=${reply.authorId}`">{{ reply.authorName }}</a>

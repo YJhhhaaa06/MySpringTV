@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { CommentPageVM } from '../../types/ui'
+import { collectCommentAuthorIds, mergeAvatarIds } from '../../api/avatarIds'
 import { fetchComments, publishComment } from '../../api/comments'
 import { describeError } from '../../api/http'
 import { newIdempotencyKey } from '../../api/idempotency'
 import { restoreSession } from '../../auth/session'
 import { showToast } from '../../common/toast'
+import { useUserAvatars } from '../../composables/useUserAvatars'
 import Pagination from '../common/Pagination.vue'
 import CommentComposer from './CommentComposer.vue'
 import CommentItem from './CommentItem.vue'
@@ -46,6 +48,19 @@ const publishing = ref(false)
 const highlightId = ref<number | null>(null)
 let submitKey: string | null = null
 
+/**
+ * 评论作者头像（`R-27`）：评论只带 authorId，由批量端点补 URL。
+ *
+ * 主楼 + 预览楼中楼的 id 随页装载；更深的楼中楼由 `CommentItem` 走游标加载后
+ * 通过 `avatars-needed` 回传，这里合并后重读（同一页最多一次批量，不逐条请求）。
+ */
+const avatarIds = ref<number[]>([])
+const { avatars } = useUserAvatars(avatarIds)
+
+function onAvatarsNeeded(ids: number[]): void {
+  avatarIds.value = mergeAvatarIds(avatarIds.value, ids)
+}
+
 const shownCount = computed(() => total.value ?? result.value?.total ?? null)
 
 // 草稿一改 = 新的发表意图 ⇒ 旧幂等键作废（同一草稿的重试才复用它）
@@ -73,6 +88,7 @@ async function load(targetPage: number = page.value): Promise<void> {
     const data = await fetchComments(props.contentId, targetPage, PAGE_SIZE)
     result.value = data
     page.value = data.page
+    avatarIds.value = collectCommentAuthorIds(data.items)
   } catch (exception) {
     error.value = describeError(exception)
     result.value = null
@@ -153,9 +169,11 @@ void load(1)
           :key="item.id"
           :comment="item"
           :content-id="contentId"
+          :avatars="avatars"
           :highlight="highlightId === item.id"
           @removed="onRemoved"
           @count-changed="onCountDelta"
+          @avatars-needed="onAvatarsNeeded"
         />
       </div>
 
