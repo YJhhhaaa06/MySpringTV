@@ -5,11 +5,17 @@ import { toAuthorCard, toCurrentUser } from './user'
 type ProfileVO = components['schemas']['ProfileVO']
 
 describe('toCurrentUser', () => {
-  it('用昵称首字做头像占位（后端没有 avatar 字段）', () => {
+  it('用昵称首字做兜底（avatarUrl 缺失时由 UserAvatar 再按 userId 回落）', () => {
     const user = toCurrentUser({ id: 233, username: 'frontend_demo', phone: '13900000002', admin: false, coin: 3 })
     expect(user.initial).toBe('F')
     expect(user.name).toBe('frontend_demo')
     expect(user.spaceHref).toBe('/space/233')
+    expect(user.avatarUrl).toBeNull()
+  })
+
+  it('★ avatarUrl 原样带出（R-27：自定义 / 默认 URL 都只做透传，不在这里拼）', () => {
+    expect(toCurrentUser({ avatarUrl: '/upload/avatar/x.jpg' }).avatarUrl).toBe('/upload/avatar/x.jpg')
+    expect(toCurrentUser({ avatarUrl: '/avatars/default-3.svg' }).avatarUrl).toBe('/avatars/default-3.svg')
   })
 
   it('中文昵称取第一个字（不是首字节）', () => {
@@ -59,6 +65,7 @@ describe('toAuthorCard', () => {
   const profile: ProfileVO = {
     userId: 3,
     username: '基米',
+    avatarUrl: '/upload/avatar/up.jpg',
     followerCount: 12_345,
     followCount: 2,
     isFollowed: false,
@@ -69,6 +76,7 @@ describe('toAuthorCard', () => {
     const card = toAuthorCard(profile)
     expect(card.name).toBe('基米')
     expect(card.initial).toBe('基')
+    expect(card.avatarUrl).toBe('/upload/avatar/up.jpg')
     expect(card.followerCount).toBe(12_345)
     expect(card.followingCount).toBe(2)
     expect(card.worksCount).toBe(8)

@@ -270,7 +270,12 @@ function onCommentCount(count: number): void {
       <aside class="video-side">
         <section v-if="author" class="author-card">
           <a class="author-card__avatar" :href="author.href" :title="`${author.name} 的空间`">
-            <UserAvatar :user-id="author.id" :initial="author.initial" :size="48" />
+            <UserAvatar
+              :avatar-url="author.avatarUrl"
+              :user-id="author.id"
+              :initial="author.initial"
+              :size="48"
+            />
           </a>
           <div class="author-card__body">
             <a class="author-card__name" :href="author.href">{{ author.name }}</a>

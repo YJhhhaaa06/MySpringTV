@@ -125,7 +125,7 @@ describe('toPublishedComment', () => {
       parentId: null,
       content: '好活',
       viewer: {
-        id: 233, name: 'frontend_demo', initial: 'F', admin: false, coin: 0,
+        id: 233, name: 'frontend_demo', initial: 'F', avatarUrl: null, admin: false, coin: 0,
         signedToday: false, historyRecording: true, spaceHref: '/space/233',
       },
     })

@@ -306,6 +306,7 @@ function goItemPage(page: number): void {
         <header class="space-header">
           <UserAvatar
             class="space-avatar"
+            :avatar-url="header?.avatarUrl ?? null"
             :user-id="header?.id ?? null"
             :initial="header?.initial ?? '?'"
             :size="84"

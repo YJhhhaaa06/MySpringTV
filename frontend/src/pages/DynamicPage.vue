@@ -188,6 +188,7 @@ function followingHref(userId: number): string {
           <section class="dyn-profile">
             <div class="dyn-profile__head">
               <UserAvatar
+                :avatar-url="me?.avatarUrl ?? null"
                 :user-id="me?.id ?? null"
                 :initial="me?.initial ?? '?'"
                 :size="58"

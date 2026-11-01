@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, UPLOAD_TIMEOUT_MS, deleteJson, getJson, postForm, postJson, putJson } from './http'
+import { ApiError, UPLOAD_TIMEOUT_MS, deleteJson, getJson, postForm, postJson, putForm, putJson } from './http'
 import { IDEMPOTENCY_HEADER, newIdempotencyKey } from './idempotency'
 import { resetServerClock, serverNow } from './serverClock'
 
@@ -283,6 +283,28 @@ describe('multipart 上传（postForm）', () => {
 
     xhr.respond(200, JSON.stringify({ code: 'OK', msg: 'success', data: { contentId: 9 } }))
     await expect(pending).resolves.toEqual({ contentId: 9 })
+  })
+
+  it('putForm：PUT + FormData，信封 / Bearer 与 postForm 同一份实现（头像上传 R-27）', async () => {
+    stubXhr()
+    localStorage.setItem('myspringtv.token', 'tok-avatar')
+    const form = new FormData()
+    form.append('file', new Blob([new Uint8Array([1, 2, 3])]), 'avatar.jpg')
+
+    const pending = putForm('/api/v1/users/me/avatar', form)
+    const xhr = FakeXhr.last!
+    expect(xhr.method).toBe('PUT')
+    expect(xhr.url).toBe('/api/v1/users/me/avatar')
+    expect(xhr.body).toBe(form)
+    expect(xhr.headers.get('Authorization')).toBe('Bearer tok-avatar')
+    expect(xhr.headers.has('Content-Type')).toBe(false)
+
+    xhr.respond(200, JSON.stringify({
+      code: 'OK',
+      msg: 'success',
+      data: { userId: 233, avatarUrl: '/upload/avatar/x.jpg' },
+    }))
+    await expect(pending).resolves.toEqual({ userId: 233, avatarUrl: '/upload/avatar/x.jpg' })
   })
 
   it('上传进度只在 lengthComputable 时回调（loaded/total 原样交给页面）', async () => {

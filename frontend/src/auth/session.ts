@@ -115,6 +115,22 @@ export function applyCoinBalance(balance: number | null | undefined): void {
 }
 
 /**
+ * 头像切换成功后**就地更新**本应用实例的登录态（`R-27`）。
+ *
+ * <p>顶栏 / 创作中心 / 评论框 / 动态页自己的资料卡都读 `sessionState.user.avatarUrl`；
+ * 更新后立即生效，不必整页刷新。唯一事实源仍是服务端 `users.avatar_ref`，
+ * 下一次整页装载由 `restoreSession()` 重新读。**不写 localStorage**。
+ *
+ * <p>只接受非空字符串：服务端返回的是生效 URL；null 只可能是"老后端缺字段"，
+ * 此时保留原值（继续按 userId 回落），不把头像画空。
+ */
+export function applyAvatarUrl(url: string | null | undefined): void {
+  if (!state.user || typeof url !== 'string' || !url) return
+  if (state.user.avatarUrl === url) return
+  state.user = { ...state.user, avatarUrl: url }
+}
+
+/**
  * 签到成功的**状态迁移**（纯函数：`session.test.ts` 直接断言，不用起 DOM）。
  *
  * <h2>★ 任何一次 200 的签到回执都意味着「今天已签」</h2>

@@ -13,6 +13,7 @@ const user: CurrentUserVM = {
   id: 7,
   name: '五个字神人',
   initial: '五',
+  avatarUrl: null,
   admin: false,
   coin: 0.5,
   signedToday: false,

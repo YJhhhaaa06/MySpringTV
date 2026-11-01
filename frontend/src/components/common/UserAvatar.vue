@@ -1,36 +1,34 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import avatarSunrise from '../../assets/avatars/default-01-sunrise.svg'
-import avatarPlanet from '../../assets/avatars/default-02-planet.svg'
-import avatarCat from '../../assets/avatars/default-03-cat.svg'
-import avatarBird from '../../assets/avatars/default-04-bird.svg'
-import avatarTv from '../../assets/avatars/default-05-tv.svg'
-import avatarCloud from '../../assets/avatars/default-06-cloud.svg'
+import { defaultAvatarForUser } from '../../constants/avatars'
 
 /**
- * 默认头像（GAP-08）：后端没有头像字段 ⇒ 前端按 `userId` 稳定取一张本地 SVG。
+ * 用户头像（`R-27`）。
  *
- * <p>数组顺序即分配顺序：同一 `userId` 永远同一张，不随刷新 / 页面变化。
- * 没有 `userId`（例如未登录的评论框）才退回昵称首字 —— 那只是「游客」占位，不是用户头像。
+ * <p>`avatarUrl` 是后端返回的**生效 URL**（默认 `default:N` / 自定义 `/upload/avatar/...` /
+ * 未选过时按 `userId % 6` 回落）。调用方有 URL 就传；没有（老后端 / 未接线的旧面）
+ * 仍按 `userId` 稳定回落本地 `public/avatars`。
+ *
+ * <p>★ 优先级：`avatarUrl` → `userId` 对应默认头像 → 昵称首字（游客）。
+ * 没有任何身份（游客评论框）才用首字 —— 那只是占位，不是用户头像。
  */
 const props = withDefaults(
   defineProps<{
+    /** 生效头像 URL；null / 缺省 = 按 userId 回落 */
+    avatarUrl?: string | null
     /** 用户 id；null = 没有身份（游客占位） */
     userId?: number | null
-    /** 无 userId 时的兜底文字（昵称首字） */
+    /** 无头像 URL / userId 时的兜底文字（昵称首字） */
     initial?: string
     /** 渲染边长（px），各页按 B 站实测尺寸传 */
     size?: number
   }>(),
-  { userId: null, initial: '?', size: 40 },
+  { avatarUrl: null, userId: null, initial: '?', size: 40 },
 )
 
-const variants = [avatarSunrise, avatarPlanet, avatarCat, avatarBird, avatarTv, avatarCloud] as const
-
-const variant = computed(() => {
-  const id = props.userId
-  if (id == null) return null
-  return variants[Math.abs(id) % variants.length]
+const src = computed(() => {
+  if (typeof props.avatarUrl === 'string' && props.avatarUrl) return props.avatarUrl
+  return defaultAvatarForUser(props.userId)
 })
 
 const boxStyle = computed(() => ({ width: `${props.size}px`, height: `${props.size}px` }))
@@ -38,7 +36,7 @@ const initialStyle = computed(() => ({ fontSize: `${Math.round(props.size * 0.4)
 </script>
 
 <template>
-  <img v-if="variant" class="user-avatar" :src="variant" :style="boxStyle" alt="" draggable="false" />
+  <img v-if="src" class="user-avatar" :src="src" :style="boxStyle" alt="" draggable="false" />
   <span v-else class="user-avatar user-avatar--initial" :style="[boxStyle, initialStyle]">{{ initial }}</span>
 </template>
 

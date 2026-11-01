@@ -12,6 +12,7 @@ function profile(fields: Partial<Record<keyof ProfileVO, unknown>> = {}): Profil
   return {
     userId: 1,
     username: '一号员工',
+    avatarUrl: '/avatars/default-3.svg',
     followerCount: 9,
     followCount: 1,
     isFollowed: false,
@@ -21,14 +22,17 @@ function profile(fields: Partial<Record<keyof ProfileVO, unknown>> = {}): Profil
 }
 
 describe('toSpaceHeader', () => {
-  it('资料都是真接口数字；昵称首字当头像（后端没有 avatar）', () => {
+  it('资料都是真接口数字；avatarUrl 原样带出（R-27）', () => {
     const header = toSpaceHeader(profile(), null)
     expect(header.id).toBe(1)
     expect(header.name).toBe('一号员工')
     expect(header.initial).toBe('一')
+    expect(header.avatarUrl).toBe('/avatars/default-3.svg')
     expect(header.followerCount).toBe(9)
     expect(header.followingCount).toBe(1)
     expect(header.worksCount).toBe(30)
+
+    expect(toSpaceHeader({}, null).avatarUrl).toBeNull()
   })
 
   it('★ isSelf：只有"看自己的空间"才不显示关注按钮', () => {

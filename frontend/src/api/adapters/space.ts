@@ -19,9 +19,8 @@ function count(value: number | null | undefined): Count {
 /**
  * `ProfileVO` → 空间页头部。
  *
- * <p>★ 三处降级（都记在 GAP 台账里，界面上**不假装有**）：
- * 没有头像（昵称首字）、没有签名 / 生日 / 地区（资料卡只放真实计数）、
- * 没有 banner 图（渐变底）。
+ * <p>★ `avatarUrl`（`R-27`）已有；签名 / 生日 / 地区 / banner 仍降级
+ * （资料卡只放真实计数、banner 用渐变底）。
  *
  * <p>`isFollowed` 匿名时是 `null` ⇒ 关注按钮显示"关注"但**点下去先弹登录**
  * （不是"已关注"——那会把"不知道"画成"知道"）。
@@ -36,6 +35,7 @@ export function toSpaceHeader(
     id,
     name,
     initial: initialOf(name),
+    avatarUrl: typeof profile.avatarUrl === 'string' && profile.avatarUrl ? profile.avatarUrl : null,
     followerCount: count(profile.followerCount),
     followingCount: count(profile.followCount),
     worksCount: count(profile.contentPage?.total),

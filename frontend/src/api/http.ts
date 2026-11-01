@@ -21,10 +21,11 @@ import { syncServerClock } from './serverClock'
  *       `architecture/domain/history/history-客户端契约.md` §五）。</li>
  * </ol>
  *
- * <h2>★ 唯一例外：multipart 上传走 {@link postForm}</h2>
+ * <h2>★ 唯一例外：multipart 上传走 {@link postForm} / {@link putForm}</h2>
  * `fetch` 不提供上传进度，而投稿页的进度条是用户能看见的东西 ⇒ 上传用 `XMLHttpRequest`。
  * 但**信封解包 / Bearer / 204 / Retry-After 与上面是同一份实现**（{@link parseEnvelope}），
- * 不允许在页面里另写一套判信封。
+ * 不允许在页面里另写一套判信封。`putForm` 与 `postForm` 共用同一个 `sendForm`，
+ * 只为头像这种"PUT 替换单值资源 + multipart"的端点存在（`R-27`）。
  *
  * <h2>★ 写接口的幂等键是**调用方显式传**的</h2>
  * 后端只有 4 条 `KEYED` 端点（评论 / 投币 / 投稿视频 / 投稿图文）——它们的效果层非幂等，
@@ -292,9 +293,35 @@ export function postForm<K extends keyof paths>(
   options?: FormRequestOptions,
 ): Promise<OkData<OpFor<K, 'post'>>> {
   const url = buildUrl(expandPath(path as string, options?.path), options?.query)
+  return sendForm<OkData<OpFor<K, 'post'>>>('POST', url, form, options)
+}
+
+/**
+ * PUT + `multipart/form-data`（头像上传专用，`R-27`）。
+ *
+ * <p>与 {@link postForm} 共用 {@link sendForm}：信封 / Bearer / 超时 / 进度回调只有一份实现。
+ * 为什么不复用 `PUT /uploads/{type}`：头像要"落盘 + 写 user + 删旧文件"的单一意图，
+ * 通用上传口只落盘不写库（见 `AvatarController` 类注释）。
+ */
+export function putForm<K extends keyof paths>(
+  path: K,
+  form: FormData,
+  options?: FormRequestOptions,
+): Promise<OkData<OpFor<K, 'put'>>> {
+  const url = buildUrl(expandPath(path as string, options?.path), options?.query)
+  return sendForm<OkData<OpFor<K, 'put'>>>('PUT', url, form, options)
+}
+
+/** multipart 的唯一实现：`postForm` / `putForm` 只是动词不同。 */
+function sendForm<T>(
+  method: 'POST' | 'PUT',
+  url: string,
+  form: FormData,
+  options?: FormRequestOptions,
+): Promise<T> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
-    xhr.open('POST', url)
+    xhr.open(method, url)
     xhr.timeout = UPLOAD_TIMEOUT_MS
     xhr.setRequestHeader('Accept', 'application/json')
     const token = readToken()

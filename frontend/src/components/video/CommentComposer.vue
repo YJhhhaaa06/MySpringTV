@@ -50,6 +50,7 @@ async function submit(): Promise<void> {
   <form class="composer" :class="{ 'composer--compact': compact }" @submit.prevent="submit">
     <UserAvatar
       v-if="!compact"
+      :avatar-url="sessionState.user?.avatarUrl ?? null"
       :user-id="sessionState.user?.id ?? null"
       :initial="avatar"
       :size="40"

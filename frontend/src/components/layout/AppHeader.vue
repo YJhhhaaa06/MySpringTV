@@ -70,7 +70,11 @@ onUnmounted(() => {
             :href="sessionState.user.spaceHref"
             :title="`${sessionState.user.name} 的空间`"
           >
-            <UserAvatar :user-id="sessionState.user.id" :size="34" />
+            <UserAvatar
+              :avatar-url="sessionState.user.avatarUrl"
+              :user-id="sessionState.user.id"
+              :size="34"
+            />
           </a>
           <div class="user-menu">
             <p class="user-menu__name">{{ sessionState.user.name }}</p>

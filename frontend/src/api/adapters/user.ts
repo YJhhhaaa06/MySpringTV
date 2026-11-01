@@ -15,8 +15,8 @@ function firstChar(name: string): string {
 /**
  * `UserInfoVO` → 顶栏用户。
  *
- * <p>★ 后端**没有头像字段**（`UserInfoVO` 只有 id/username/phone/admin/coin/signedToday/historyRecording）
- * ⇒ 头像用昵称首字占位（`initial`）。这是 GAP 台账里的一条「M1 字段缺 / 前端适配」。
+ * <p>★ `avatarUrl`（`R-27`）：后端返回**生效 URL**（默认 / 自定义 / 未选过回落），
+ * 这里只做"缺字段 ⇒ null"的兼容兜底；`UserAvatar` 在 null 时仍按 userId 回落默认。
  *
  * <p>★ `signedToday` 必须原样带出：它是签到按钮「进页就置灰」的唯一判据
  * （`UserInfoVO` 加这一列**就是为此**，见 `architecture/domain/coin/coin.md` §二）。
@@ -29,6 +29,7 @@ export function toCurrentUser(me: components['schemas']['UserInfoVO']): CurrentU
     id: me.id ?? 0,
     name,
     initial: firstChar(name).toUpperCase(),
+    avatarUrl: typeof me.avatarUrl === 'string' && me.avatarUrl ? me.avatarUrl : null,
     admin: me.admin === true,
     coin: me.coin ?? 0,
     // 只认 true：缺字段 = 不知道，但签到按钮宁可"先别亮"（同 `admin` 的口径）
@@ -52,6 +53,7 @@ export function toAuthorCard(profile: components['schemas']['ProfileVO']): Autho
     id: profile.userId ?? 0,
     name,
     initial: firstChar(name).toUpperCase(),
+    avatarUrl: typeof profile.avatarUrl === 'string' && profile.avatarUrl ? profile.avatarUrl : null,
     href: spaceHref(profile.userId),
     followerCount: count(profile.followerCount),
     followingCount: count(profile.followCount),

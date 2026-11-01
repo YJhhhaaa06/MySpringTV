@@ -33,7 +33,11 @@ function login(): void {
           :href="sessionState.user.spaceHref"
           :title="`${sessionState.user.name} 的空间`"
         >
-          <UserAvatar :user-id="sessionState.user.id" :size="30" />
+          <UserAvatar
+            :avatar-url="sessionState.user.avatarUrl"
+            :user-id="sessionState.user.id"
+            :size="30"
+          />
           <span class="creator-header__name">{{ sessionState.user.name }}</span>
         </a>
         <button

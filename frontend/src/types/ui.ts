@@ -58,12 +58,17 @@ export interface HeroSlideVM {
   authorName: string
 }
 
-/** 当前登录用户（`GET /users/me`；★ 后端没有 avatar 字段，见 GAP 台账） */
+/** 当前登录用户（`GET /users/me`） */
 export interface CurrentUserVM {
   id: number
   name: string
-  /** 昵称首字（只有拿不到 `id` 时才当头像兜底；默认头像见 `UserAvatar`） */
+  /** 昵称首字（只有 `avatarUrl` 缺失时才当兜底；默认头像见 `UserAvatar`） */
   initial: string
+  /**
+   * 生效头像 URL（`R-27`）：`/avatars/default-N.svg` 或 `/upload/avatar/...`。
+   * 后端对真实用户恒返回非空；`null` 只用于"老后端 / 字段缺失"的兼容兜底。
+   */
+  avatarUrl: string | null
   admin: boolean
   /**
    * 硬币余额，**一位小数**（后端 `coin_deci / 10`，`1.5` 就是一枚半）。
@@ -129,11 +134,13 @@ export interface InteractionVM {
   followed: boolean | null
 }
 
-/** 播放页侧栏的 UP 主卡（`GET /users/{id}`，真粉丝数/投稿数） */
+/** 播放页侧栏的 UP 主卡（`GET /users/{id}`，真粉丝数/投稿数；头像来自 `R-27`） */
 export interface AuthorCardVM {
   id: number
   name: string
   initial: string
+  /** 生效头像 URL；null = 老后端缺字段（`UserAvatar` 按 id 回落） */
+  avatarUrl: string | null
   href: string
   followerCount: Count
   followingCount: Count
@@ -230,11 +237,13 @@ export interface FavoriteFolderVM {
   contains: boolean
 }
 
-/** 空间页头部（`GET /users/{id}`；后端没有头像 / 签名 / banner ⇒ 全部降级） */
+/** 空间页头部（`GET /users/{id}`；头像已有，签名 / banner 仍降级） */
 export interface SpaceHeaderVM {
   id: number
   name: string
   initial: string
+  /** 生效头像 URL（`R-27`）；null = 老后端缺字段 */
+  avatarUrl: string | null
   followerCount: Count
   followingCount: Count
   worksCount: Count
