@@ -22,7 +22,7 @@ Flyway + Testcontainers。由 `old-project/TVhomework1`（Servlet + 手写连接
 | **写代码读哪里** | `architecture/` 是**唯一活的事实源**（域设计 + 横切机制 + **前端应用层**），主索引 `architecture/ARCHITECTURE.md` |
 | **本期做什么**（★ **联调期**，2026-10-30 起） | ★ **`task/CURRENT_INTEGRATION.md`**（唯一入口：联调判据 / 有条件补回 / 任务 / 结转）｜差异清单 `task/CURRENT_FRONTEND_GAPS.md`｜上一期 `task/CURRENT_FRONTEND.md`（重制期，仅作背景）｜**后端期登记台已归档**（`archive/backend-2026-10-30/`）｜执行中发现的问题 `task/CURRENT_ISSUES.md`（`I-##`，`I-31` 起）｜遗留池 `task/FURTHER_ISSUES.md`（`F-##`，`F-30` 起） |
 | **已收口的专项** | 收藏（2026-10-15）、限流（2026-10-17）、接口契约（2026-10-24）、**写接口幂等（2026-10-25）** —— 结论已沉淀进 `architecture/`（幂等 / 接口契约的设计是**活文档**，不建 `archive/`） |
-| **回归基线** | `python tools/run_tests.py`（默认排除 `resilience`）＋ `--group resilience`；**最近一次登记的 = 默认集 852 + resilience 41 = 893 例全绿**（2026-10-25，`T68` 后）。⚠️ `T70` 之后**未全量复跑** ⇒ 该数字是旧基线，**以本窗复跑为准**。⚠️ 跑全量须设 `DB_POOL_MAX_SIZE=4` |
+| **回归基线** | `python tools/run_tests.py`（默认排除 `resilience`）＋ `--group resilience`；**最近一次登记的 = 默认集 956（含 1 例已知偶发 `I-33`）+ resilience 41 = 997**（2026-11-02，`R-28` 后）。⚠️ 跑全量须设 `DB_POOL_MAX_SIZE=4` |
 | **环境** | dev 库 `spring_tv`@3306、媒体根 `D:/data/projects/MySpringTV/media` |
 | **还欠什么** | `task/FURTHER_ISSUES.md`（`F-##` 结转池）+ 各域 `*-已知代价.md`（**已拍板接受、不修**的账） |
 

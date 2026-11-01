@@ -21,8 +21,9 @@
   决策 **`R-27`** 起（`R-25` = 记录开关、`R-26` = 历史可删 + per-day 口径）/ 问题 **`I-33`** 起（`I-31`/`I-32` 已终结）/ 结转 **`F-30`** 起。
   ⚠️ **编号不回收、不复用**：后端期已用的 `I-01`–`I-30` 随归档留在原地，联调期**从 `I-31` 继续**；
   `F-##` 同理（`F-01`–`F-29` 已用，见 [FURTHER_ISSUES](./FURTHER_ISSUES.md)）。
-* ★ **回归基线**：默认集 **942**（2026-11-01，`DB_POOL_MAX_SIZE=4`，`R-27` 后全绿；上一档 928）+ 前端 **333**（`R-27` 后）；
-  `resilience` 组 **41** 本轮随全量复跑 ⇒ 全量 **983** 全绿（2026-11-01，耗时 6:43）。
+* ★ **回归基线**：默认集 **956**（2026-11-02，`DB_POOL_MAX_SIZE=4`，`R-28` 后；上一档 942）+ 前端 **333**（形状适配后仍全绿）；
+  `resilience` 组 **41** 按惯例单跑 ⇒ 全量口径 **997**。⚠️ 本次默认集有 1 例**已知偶发**（`I-33`：投币并发死锁，单跑 19/19 绿），
+  **不是** `R-28` 引入的回归。
   跑全量必须带 `DB_POOL_MAX_SIZE=4`，否则容器 MySQL `Too many connections`（**不是代码缺陷**）。
 * ★ **门禁**：文档三道 —— `python tools/docs/doc_links.py` · `python tools/docs/doc_refs.py` · `python tools/docs/doc_stats.py`；
   前端 `npm run typecheck` / `npm run test` / `npm run build`（★ **先 `cd frontend`** —— 仓库根**没有** `package.json`，在根目录跑 `npm run build` 会 `ENOENT`，不是编译失败；跑起来与截图规矩见 `frontend/README.md`）。
@@ -104,15 +105,21 @@
 | `T84` | 文档收口：`接口契约`（3 端点 + `avatarUrl` 字段）、`前端.md`（页面 × 端点矩阵 / 头像口径）、`GAP-08` / `GAP-25` 销账、`CURRENT_INTEGRATION` 回写；三道门禁 + subagent review | 不新开编号；不写死实现步骤；代码注释只引用 `architecture/**` / `archive/**`，不得引用登记台别名；`doc_stats` 不新增超限文档 | `doc_links` 悬空 0 / `doc_refs` 0 违规 / `doc_stats` 无新增 advisory；`grep -rn "GAP-08" src` 指向已销账行；subagent review 报告归档在回写 | **已完成（2026-11-01）** |
 | `T85` | 真浏览器验收（`UPLOAD_ROOT=.tmp/e2e-media` 起后端）：空间页头像入口 → 默认切换 / 自定义裁剪预览 / 更新 → 刷新保持 → 评论 / 动态 / 关注列表头像一致 | 不碰真实媒体根；`.tmp` 不入库；失败先登记 `I-##` 再修 | 六步全过：① 自己空间头像可点、别人不可点；② 选默认 N 后顶栏 / 空间 / 评论一致；③ 上传自定义 → 180×180 圆形预览 → 更新；④ 刷新后仍是自定义；⑤ 切回默认后旧自定义文件消失；⑥ 匿名看评论区头像可显示 | **已完成（2026-11-01）** |
 | `T86` | `R-28` 纯函数：`RecommendOrder`（splitmix64 排序键 + `v1.<seed>.<lastId>` 编解码） | 不用 `hashCode` / `Random` 当排序键；非法游标**静默归 null**（不 400）；不引入锁与缓存 | `RecommendOrderTests` 4 例（基准值 / 1e5 连续 id 无碰撞 / 换 seed 换排列 / 编解码与非法格式） | **已完成（2026-11-02）** |
-| `T87` | `R-28` 读路径：`ContentCache#getRecommendPage`（池读 → 去重 → rank 过滤排序 → 分块批量读 → 取 pageSize+1 判定到底） | 池读失败降级空页（不 500）；不新增 Redis key；不写缓存；空页只可能出现在候选耗尽时 | `ContentCacheTests` 既有索引用例 + 新增取页单测；`ContentIndexCooldownTests` 跟随新签名 | 执行中 |
-| `T88` | `R-28` 契约层：`RecommendPageVO` + `StartController` 新增 `cursor`/`pageSize` + `OpenApiConfig` 可空登记 + spec 重生成 + 13 处数组断言跟随 | 端点不新增（仍 74 条）；`type`/`categoryId` 数字口径不动；`limit` 继续忽略 | spec 快照一致；`OpenApiSpecExportTests` 全绿；`ContentReadTests` 三处（列表 / 过滤 / 互动态）改读 `list` | 待执行 |
-| `T89` | `R-28` 集成测试 + 反向验证：翻完全部页 == 池子全集、相邻页无交集、游标指向已删内容、脏 id 跳过仍填满、空池 / 池读失败 / pageSize 归一 / 非法游标 / 同游标两次一致 | 期望值按业务口径推导；夹具带对照（另一条内容 + 另一人）；不按"短页"判到底 | 新用例全绿；反向注入：去掉 `rank < lastRank` ⇒ 相邻页断言必红 | 待执行 |
-| `T90` | `R-28` 文档收口：设计篇按实现校准（复杂度 / 不变量 / "多取一条"）、`GAP-06` 后端状态、登记台回写；subagent review | 不新开编号；不改 `§2.6` 既有编号；代码注释只引 `architecture/**` | 三道门禁 0 违规；review 的 P0/P1 已修或有明确裁决 | 待执行 |
+| `T87` | `R-28` 读路径：`ContentCache#getRecommendPage`（池读 → 去重 → rank 过滤排序 → 分块批量读 → 取 pageSize+1 判定到底） | 池读失败降级空页（不 500）；不新增 Redis key；不写缓存；空页只可能出现在候选耗尽时 | `ContentCacheTests` 既有索引用例 + 新增取页单测；`ContentIndexCooldownTests` 跟随新签名 | **已完成（2026-11-02）** |
+| `T88` | `R-28` 契约层：`RecommendPageVO` + `StartController` 新增 `cursor`/`pageSize` + `OpenApiConfig` 可空登记 + spec 重生成 + 13 处数组断言跟随 | 端点不新增（仍 74 条）；`type`/`categoryId` 数字口径不动；`limit` 继续忽略 | spec 快照一致；`OpenApiSpecExportTests` 全绿；`ContentReadTests` 三处（列表 / 过滤 / 互动态）改读 `list`；登记簿 TSV 改 `ApiResponse<RecommendPageVO>` | **已完成（2026-11-02）** |
+| `T89` | `R-28` 集成测试 + 反向验证：翻完全部页 == 池子全集、相邻页无交集、游标指向已删内容、脏 id 跳过仍填满、空池 / 池读失败 / pageSize 归一 / 非法游标 / 同游标两次一致 | 期望值按业务口径推导；夹具带对照（另一条内容 + 另一人）；不按"短页"判到底 | `RecommendFeedTests` **10 例**全绿；反向注入 3 条（去掉游标过滤 ⇒ 5 红 / `pageSize+1` 退化 ⇒ 6 红 / 排序键不看 seed ⇒ 3 红，明细见设计篇 §六） | **已完成（2026-11-02）** |
+| `T90` | `R-28` 文档收口：设计篇按实现校准（复杂度 / 不变量 / "多取一条"）、`GAP-06` 后端状态、登记台回写；subagent review | 不新开编号；不改 `§2.6` 既有编号；代码注释只引 `architecture/**` | 三道门禁 0 违规；review 的 2 条 P0 + 4 条 P1/P2 全部已修（见回写）；设计篇按实现校准（分块 / 整除边界 / 判别力实测） | **已完成（2026-11-02）** |
 | — | *（本窗第一件事：跑基线 + 列联调清单，见 §一 / §2.1）* | — | — | — |
 
 > **R-27 回写（2026-11-01）**：`T80`–`T85` 已完成。后端 `V11` + 3 端点 + 生效 `avatarUrl` + 公开批量读；前端默认头像稳定 URL、空间页弹窗 + 1:1 裁剪、评论 / 动态 / 关注 / 图文作者批量接线。
 > subagent review 抓到的 2 条 P1（去重用例假绿 / `/avatars/` 未进静态跳过清单）与 3 条 P2（头像 Content-Type / 预览尺寸 / spec 必填登记）已修；
 > 实机验收覆盖默认切换、自定义裁剪上传、空间页与评论区头像。已知代价（不重编码 / 崩溃孤儿 / 头像不进缓存）见 `R-27` 推翻条件。
+
+> **R-28 回写（2026-11-02）**：`T86`–`T90` 完成（**后端 + 前端形状适配**）。`recommended` 改游标分页
+> （`{list,nextCursor}`、随机序、翻页不重不漏）；**前端只读第一页，无限滚动未做**（行为另窗讨论）。
+> 端点不新增（仍 74 条）。反向注入 3 条实测：去掉游标过滤 ⇒ 5 红；`pageSize+1` 退化 ⇒ 6 红；
+> 排序键不看 seed ⇒ 3 红。subagent review 抓到 2 条 P0（前端消费方未跟随契约、脏 id 用例是假绿）
+> 与 4 条 P1/P2（位次游标判别力不足、缺整除边界、limit 判别力为零、分块过取），均已修。
 
 ---
 
