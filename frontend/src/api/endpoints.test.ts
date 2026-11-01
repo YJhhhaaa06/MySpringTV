@@ -70,7 +70,7 @@ describe('端点层没有自己的时钟（四条链路）', () => {
 
   it('★ loadHome：不传时钟 ⇒ 用 Date 头', async () => {
     anchorToShanghaiNoon()
-    mockedGetJson.mockResolvedValueOnce([content(createdAt)])
+    mockedGetJson.mockResolvedValueOnce({ list: [content(createdAt)], nextCursor: null })
     const home = await loadHome()
     expect(home.cards[0]?.dateText).toBe('3小时前')
   })
@@ -111,7 +111,7 @@ describe('端点层没有自己的时钟（四条链路）', () => {
         interaction: null,
       })
       .mockResolvedValueOnce({ userId: 1, username: '一号员工' })
-      .mockResolvedValueOnce([content(createdAt, 93)])
+      .mockResolvedValueOnce({ list: [content(createdAt, 93)], nextCursor: null })
     const page = await loadVideoPage(92)
     expect(page.related[0]?.dateText).toBe('3小时前')
   })

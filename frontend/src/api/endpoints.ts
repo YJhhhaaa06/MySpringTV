@@ -20,15 +20,18 @@ export interface HomeData {
 }
 
 /**
- * `GET /contents/recommended`（固定 12 条、**无 page 参数** ⇒ 只渲染一页，不做无限滚动）
+ * `GET /contents/recommended` → `{list, nextCursor}`（游标信封，见后端设计篇
+ * `architecture/domain/content/content-推荐流.md`）。
  *
  * <p>★ 端点层**完全不碰时钟**：「现在」由卡片适配器的 `serverNow()` 决定（唯一来源）。
  * 这里曾经有 `now: Date = new Date()` —— 那等于给"现在"开第二个来源，端点自己赢一次，
  * 浏览器时钟就回到了适配器手上，而只测适配器的用例仍然全绿（`T72` 已删）。
+ *
+ * <p>⚠️ 本函数**只取第一页**：首页无限滚动（按 `nextCursor` 续拉）是另一件事，尚未接入。
  */
 export async function loadHome(): Promise<HomeData> {
-  const items = await getJson('/api/v1/contents/recommended')
-  const { slides, rest } = splitHero(items, 3)
+  const page = await getJson('/api/v1/contents/recommended')
+  const { slides, rest } = splitHero(page.list ?? [], 3)
   return { slides, cards: rest.map((item) => toVideoCard(item)) }
 }
 
@@ -90,8 +93,8 @@ export async function loadVideoPage(id: number): Promise<VideoPageData> {
   const authorPromise: Promise<AuthorCardVM | null> = loadAuthorCard(detail.authorId)
 
   const relatedPromise: Promise<VideoCardVM[]> = getJson('/api/v1/contents/recommended')
-    .then((items) =>
-      items
+    .then((page) =>
+      (page.list ?? [])
         .filter((item) => item.id !== id && item.type === CONTENT_TYPE_VIDEO)
         .slice(0, 6)
         .map((item) => toVideoCard(item)),

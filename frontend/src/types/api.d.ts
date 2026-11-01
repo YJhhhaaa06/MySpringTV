@@ -1028,12 +1028,6 @@ export interface components {
             errors?: components["schemas"]["ApiFieldError"][];
             msg?: string;
         };
-        ApiResponseListContentVO: {
-            code?: string;
-            data?: components["schemas"]["ContentVO"][];
-            errors?: components["schemas"]["ApiFieldError"][];
-            msg?: string;
-        };
         ApiResponseListCouponOrderVO: {
             code?: string;
             data?: components["schemas"]["CouponOrderVO"][];
@@ -1128,6 +1122,12 @@ export interface components {
         ApiResponseProfileVO: {
             code?: string;
             data?: components["schemas"]["ProfileVO"];
+            errors?: components["schemas"]["ApiFieldError"][];
+            msg?: string;
+        };
+        ApiResponseRecommendPageVO: {
+            code?: string;
+            data?: components["schemas"]["RecommendPageVO"];
             errors?: components["schemas"]["ApiFieldError"][];
             msg?: string;
         };
@@ -1542,6 +1542,10 @@ export interface components {
             /** Format: int32 */
             itemCount?: number;
             name?: string;
+        };
+        RecommendPageVO: {
+            list?: components["schemas"]["ContentVO"][];
+            nextCursor?: string | null;
         };
         RegisterRequest: {
             password: string;
@@ -2230,6 +2234,8 @@ export interface operations {
     start: {
         parameters: {
             query?: {
+                cursor?: string;
+                pageSize?: string;
                 type?: string;
                 categoryId?: string;
             };
@@ -2245,7 +2251,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponseListContentVO"];
+                    "application/json": components["schemas"]["ApiResponseRecommendPageVO"];
                 };
             };
             400: components["responses"]["ParamInvalid"];
