@@ -14,6 +14,7 @@ import io.github.yjhhhaaa06.videoweb.common.security.JwtService;
 import io.github.yjhhhaaa06.videoweb.common.time.SiteTime;
 import io.github.yjhhhaaa06.videoweb.user.dao.UserDao;
 import io.github.yjhhhaaa06.videoweb.user.event.UserRenamedEvent;
+import io.github.yjhhhaaa06.videoweb.user.model.AvatarRefs;
 import io.github.yjhhhaaa06.videoweb.user.model.dto.ChangePasswordRequest;
 import io.github.yjhhhaaa06.videoweb.user.model.dto.RegisterRequest;
 import io.github.yjhhhaaa06.videoweb.user.model.entity.User;
@@ -226,8 +227,11 @@ public class UserService implements AdminChecker {
         // null = "同一行在两次查询之间被删"的窗口（列 NOT NULL ⇒ 不会读到空值）。
         // 按**开**处理：DB 默认就是开，"误开"只是多记一次观看，"误关"要用户自己发现记录少了。
         boolean historyRecording = recording == null || recording;
+        // R-27：DB 存的是"选择"（default:N / /upload/avatar/...），出口统一解析成生效 URL。
+        // 未选过 ⇒ 按 userId % 6 回落默认（与前端 UserAvatar 的历史分配一致）。
+        String avatarUrl = AvatarRefs.resolveUrl(user.getId(), user.getAvatarRef());
         return new UserInfoVO(user.getId(), user.getUsername(), user.getPhone(), user.isAdmin(),
-                coin, signedToday, historyRecording);
+                coin, signedToday, historyRecording, avatarUrl);
     }
 
     /**

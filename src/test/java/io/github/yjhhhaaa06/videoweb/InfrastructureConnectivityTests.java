@@ -55,7 +55,7 @@ class InfrastructureConnectivityTests extends AbstractIntegrationTest {
     }
 
     @Test
-    void Flyway_在空库上跑V1至V10建出全部19张业务表() throws Exception {
+    void Flyway_在空库上跑V1至V11建出全部19张业务表() throws Exception {
         try (var conn = dataSource.getConnection();
              var st = conn.createStatement();
              var rs = st.executeQuery(
@@ -65,7 +65,8 @@ class InfrastructureConnectivityTests extends AbstractIntegrationTest {
             // 19 张业务表（V1 的 15 张 + V2 的 favorite_folder / favorite_item + V4 的 watch_later
             // + V5 的 content_coin + V6 的 watch_history − V7 删掉的 video / videoinfo
             // + V10 的 content_play_dedup；
-            // V8 只换 watch_history 的索引、V9 只给 users 加一列、V10 的 DROP COLUMN 也不动表计数）
+            // V8 只换 watch_history 的索引、V9 只给 users 加一列、V10 的 DROP COLUMN 也不动表计数、
+            // V11 只给 users 加 avatar_ref 一列）
             // + flyway_schema_history
             assertThat(rs.getInt(1)).isEqualTo(20);
         }
@@ -79,7 +80,8 @@ class InfrastructureConnectivityTests extends AbstractIntegrationTest {
         // V7 = 播放记录专项 T45 删遗留 video / videoinfo（结构性 ⇒ 表计数 −2）；
         // V8 = 播放记录列表索引替换（非结构性 ⇒ 表计数不变）；
         // V9 = 记录开关 R-25 给 users 加一列（非结构性 ⇒ 表计数不变）；
-        // V10 = R-26 建播放量去重账本 content_play_dedup（结构性 ⇒ 表计数 +1）+ 拆掉 watch_history 的死列/死索引。
+        // V10 = R-26 建播放量去重账本 content_play_dedup（结构性 ⇒ 表计数 +1）+ 拆掉 watch_history 的死列/死索引；
+        // V11 = R-27 给 users 加 avatar_ref（非结构性 ⇒ 表计数不变）。
         try (var conn = dataSource.getConnection();
              var st = conn.createStatement();
              var rs = st.executeQuery(
@@ -93,7 +95,7 @@ class InfrastructureConnectivityTests extends AbstractIntegrationTest {
                 successes.add(rs.getBoolean("success"));
             }
             assertThat(versions).as("脚本清单（每加一个 V<n> 都要在这里显式认账）")
-                    .containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10");
+                    .containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11");
             assertThat(types).containsOnly("SQL");
             assertThat(successes).containsOnly(true);
         }

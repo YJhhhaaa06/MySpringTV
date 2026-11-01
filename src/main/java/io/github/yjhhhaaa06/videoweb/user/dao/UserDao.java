@@ -51,7 +51,12 @@ public interface UserDao {
      */
     User findByPhoneForLogin(@Param("phone") String phone);
 
-    /** 按 id 查用户（资料用，不含 hashedPassword）。TV: {@code getUserForProfileById}。 */
+    /**
+     * 按 id 查用户（资料用，不含 hashedPassword）。TV: {@code getUserForProfileById}。
+     *
+     * <p>`R-27` 起列集含 {@code avatar_ref}：资料出口要解析出生效 `avatarUrl`。
+     * 它仍是**单列窄查询**，不把签到 / 开关等其它新列一起拖出来。
+     */
     User findByIdForProfile(@Param("id") long id);
 
     /** 手机号是否已被使用。TV: {@code isPhoneUsed}。 */
@@ -307,4 +312,30 @@ public interface UserDao {
      * @return 影响行数（0 = 用户不存在）
      */
     int updateHistoryRecording(@Param("userId") long userId, @Param("recording") boolean recording);
+
+    // ========================================================================
+    // 以下 2 个方法由头像域（`R-27` / `T80`）补入：
+    // `users.avatar_ref` 由 user 域维护（先例 = V5 coin_deci、V9 history_recording）。
+    // ⚠️ 头像**不进**评论 / feed / 内容缓存；作者快照面走批量端点按 userId 实时读。
+    // ========================================================================
+
+    /**
+     * 写头像选择（`default:N` 或 `/upload/avatar/...`）。
+     *
+     * <p>单条 UPDATE ⇒ 天然幂等（同一个 ref 写两遍结果一样）。调用方必须在写之前
+     * 读过旧的 {@code avatar_ref}，以便写成功后删除旧的自定义文件。
+     *
+     * @return 影响行数（0 = 用户不存在 ⇒ 401 / 本次上传的新文件需补偿删除）
+     */
+    int updateAvatarRef(@Param("userId") long userId, @Param("avatarRef") String avatarRef);
+
+    /**
+     * 批量读头像选择（**只选 id / avatar_ref**，作者快照面的批量端点用）。
+     *
+     * <p>{@code ORDER BY id} 只为输出稳定；调用方最终按 userId 建 Map，不依赖顺序。
+     * 不存在的 id 自然不在结果里 ⇒ 批量端点"缺 id 不返回条目"。
+     *
+     * @param ids 非空且去重（调用方保证：空 {@code IN ()} 是非法 SQL）
+     */
+    List<User> findAvatarRefsByIds(@Param("ids") List<Long> ids);
 }

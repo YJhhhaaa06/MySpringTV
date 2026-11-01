@@ -93,15 +93,17 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
     private static final boolean WRITE_MODE = Boolean.getBoolean("api.openapi.write");
 
     /**
-     * 声明了 {@code @RequestPart} 的端点（`T59` 登记为 multipart 例外，§2.5）—— **五条都在**。
+     * 声明了 {@code @RequestPart} 的端点（`T59` 登记为 multipart 例外，§2.5）—— **六条都在**。
      * 显式列出的理由与 `T59-3` 的计数护栏相同：让"改名后脱保"这件事**变红**，而不是静默失配。
+     * `R-27` 起新增头像上传（`PUT /users/me/avatar`），不沿用 `/uploads/{type}`。
      */
     private static final List<String> MULTIPART_ENDPOINTS = List.of(
             "POST /api/v1/contents/posts",
             "POST /api/v1/contents/videos",
             "POST /api/v1/uploads/{type}",
             "PUT /api/v1/contents/{id}/media",
-            "PUT /api/v1/admin/media/{id}");
+            "PUT /api/v1/admin/media/{id}",
+            "PUT /api/v1/users/me/avatar");
 
     @Autowired
     private OpenApiWebMvcResource specResource;
@@ -157,8 +159,8 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
                 .as("登记簿里有、spec 里没有 —— springdoc 没能表达该端点（多为映射写法超出它识别的范围）")
                 .isEmpty();
         assertThat(fromSpec)
-                .as("端点总数应与登记簿一致（T54 起逐批递增；71 = 70 + 删除历史 R-26）")
-                .hasSize(71);
+                .as("端点总数应与登记簿一致（T54 起逐批递增；74 = 71 + 头像 R-27 的 3 个端点）")
+                .hasSize(74);
     }
 
     // ==================== 用例 3：假参数 ====================
@@ -305,6 +307,9 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
                 .contains("file");
         assertThat(requiredBodyParts(spec, "PUT /api/v1/admin/media/{id}"))
                 .as("管理员换源同样必填 file")
+                .contains("file");
+        assertThat(requiredBodyParts(spec, "PUT /api/v1/users/me/avatar"))
+                .as("头像上传缺文件 ⇒ 框架 400，所以 file 是必填（R-27）")
                 .contains("file");
 
         assertThat(spec.getServers())

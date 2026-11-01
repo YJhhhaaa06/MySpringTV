@@ -75,7 +75,7 @@ public final class IdempotencyScope {
     }
 
     /**
-     * 全部非 GET 端点（当前 42 条：POST 15 / PUT 16 / DELETE 11）。
+     * 全部非 GET 端点（当前 45 条：POST 15 / PUT 18 / DELETE 12）。
      *
      * <p>⚠️ 增删端点必须同步改这里，否则 {@code IdempotencyScopeTableTests} 红。
      * {@code Map.of} 只到 10 对 ⇒ 用 {@link Map#ofEntries}。
@@ -127,6 +127,10 @@ public final class IdempotencyScope {
             entry("PUT /api/v1/users/me/username", natural()),
             // 记录开关（R-25）：单列整体替换，同值重写结果不变 ⇒ 天然幂等（重试安全）。
             entry("PUT /api/v1/users/me/history-recording", natural()),
+            // 头像（R-27）：上传重试会再落一份文件并删旧份（DB 终态仍是单份）；
+            // 切默认同值重写结果不变 ⇒ 两条都按 NATURAL。孤儿由 T80 的已知代价接受。
+            entry("PUT /api/v1/users/me/avatar", natural()),
+            entry("PUT /api/v1/users/me/avatar/default", natural()),
             entry("PUT /api/v1/watch-later/{id}", natural()),
             entry("PUT /api/v1/watch-later/{id}/folder", natural()),
 

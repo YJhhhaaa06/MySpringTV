@@ -30,6 +30,17 @@ public class ProfileVO {
 
     private long userId;
     private String username;
+
+    /**
+     * 生效头像 URL（`R-27`）：默认头像已解析成 {@code /avatars/default-N.svg}；
+     * 从没选过的用户按 {@code userId % 6} 回落 ⇒ **对真实用户恒非空**。
+     *
+     * <p>⚠️ DB 里存的是 {@code users.avatar_ref}（选择），不是这个 URL；
+     * 解析只在 {@code user.model.AvatarRefs} 一处。本字段不进任何缓存载荷的讨论
+     * （ProfileVO 本身是实时 DB 读，不是作者快照缓存）。
+     */
+    private String avatarUrl;
+
     private int followerCount;
     private int followCount;
     private Boolean isFollowed;
@@ -38,10 +49,11 @@ public class ProfileVO {
     public ProfileVO() {
     }
 
-    public ProfileVO(long userId, String username, int followerCount, int followCount,
+    public ProfileVO(long userId, String username, String avatarUrl, int followerCount, int followCount,
                      Boolean isFollowed, PageResult<ContentVO> contentPage) {
         this.userId = userId;
         this.username = username;
+        this.avatarUrl = avatarUrl;
         this.followerCount = followerCount;
         this.followCount = followCount;
         this.isFollowed = isFollowed;
@@ -62,6 +74,14 @@ public class ProfileVO {
 
     public void setUsername(String username) {
         this.username = username;
+    }
+
+    public String getAvatarUrl() {
+        return avatarUrl;
+    }
+
+    public void setAvatarUrl(String avatarUrl) {
+        this.avatarUrl = avatarUrl;
     }
 
     public int getFollowerCount() {

@@ -25,7 +25,12 @@ import java.math.BigDecimal;
  *                   也**不**把用户偏好塞进内容载荷（那是跨用户共享的缓存）。
  *                   ⚠️ 服务端**不**据此校验 history 写端点 —— "不记录"由客户端不发写请求保证，
  *                   代价见 {@code architecture/domain/history/history-已知代价.md}。
+ * @param avatarUrl 生效头像 URL（`R-27`）：用户选过的默认 / 自定义 URL，或按
+ *                  {@code userId % 6} 回落的默认 URL。**对真实用户恒非空**（不是三态）。
+ *                  DB 里存的是 {@code users.avatar_ref}（选择），解析规则只在
+ *                  {@code AvatarRefs} 一处；前端顶栏 / 创作中心 / 评论框直接用它。
  */
 public record UserInfoVO(long id, String username, String phone, boolean admin,
-                         BigDecimal coin, boolean signedToday, boolean historyRecording) {
+                         BigDecimal coin, boolean signedToday, boolean historyRecording,
+                         String avatarUrl) {
 }

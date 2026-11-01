@@ -138,6 +138,9 @@ class SecurityContractTests extends AbstractIntegrationTest {
         assertThat(requiresLogin("PUT", "/api/v1/users/me/username")).isTrue();
         // 记录开关（R-25 / T73）：路由必须落到 @Controller 处理器上（写错路径 ⇒ 未映射 ⇒ false）。
         assertThat(requiresLogin("PUT", "/api/v1/users/me/history-recording")).isTrue();
+        // 头像写端点（R-27 / T80）：两个都是"我的"资源，必须登录。
+        assertThat(requiresLogin("PUT", "/api/v1/users/me/avatar")).isTrue();
+        assertThat(requiresLogin("PUT", "/api/v1/users/me/avatar/default")).isTrue();
         assertThat(requiresLogin("POST", "/api/v1/coupons/1/claims")).isTrue();
         assertThat(requiresLogin("GET", "/api/v1/users/me/coupons")).isTrue();
         assertThat(requiresLogin("POST", "/api/v1/comments")).isTrue();
@@ -150,6 +153,11 @@ class SecurityContractTests extends AbstractIntegrationTest {
         assertThat(requiresLogin("POST", "/api/v1/sessions")).isFalse();
         assertThat(requiresLogin("POST", "/api/v1/users")).isFalse();
         assertThat(requiresLogin("GET", "/api/v1/coupons")).isFalse();
+        // R-27：作者快照面的批量头像读必须匿名可达（评论 / 图文本身公开）。
+        // ⚠️ 这条同时钉住"字面量 /users/avatars 优先于 /users/{id}"——若被 {id} 吃掉，
+        //     handler 仍是 ProfileController 的 @Public，判定恰好也是 false（假绿）；
+        //     真正的判别力在 AvatarBatchTests 的 200 响应形状（400「userId 格式错误」会红）。
+        assertThat(requiresLogin("GET", "/api/v1/users/avatars")).isFalse();
     }
 
     @Test

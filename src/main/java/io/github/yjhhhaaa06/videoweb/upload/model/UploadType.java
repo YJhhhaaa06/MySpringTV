@@ -5,20 +5,27 @@ import java.util.List;
 /**
  * 上传类型（承接 TV {@code com.itheima.upload.controller.UploadType}）。
  *
- * <p>三类：视频 / 图片 / 封面。每类带三件套：**磁盘子目录**（{@code dir}）、
+ * <p>四类：视频 / 图片 / 封面 / 头像。前三个内容媒体带三件套：**磁盘子目录**（{@code dir}）、
  * **合法扩展名**（{@code suffixes}）、**{@code content_media.type} 取值**（{@code mediaType}）。
+ * {@code AVATAR} 只用于头像落盘 / 替换：**不对应 {@code content_media}**（{@code mediaType = 0}），
+ * 也**不**经 {@code /api/v1/uploads/{type}} 暴露。
  *
  * <table>
- *   <caption>枚举口径（TV 原样，逐字保留）</caption>
+ *   <caption>枚举口径（前三类 TV 原样；AVATAR 为 R-27 增量）</caption>
  *   <tr><th>枚举</th><th>dir</th><th>suffixes</th><th>mediaType</th></tr>
  *   <tr><td>{@code VIDEO}</td><td>{@code video}</td><td>.mp4</td><td>1</td></tr>
  *   <tr><td>{@code IMAGE}</td><td>{@code image}</td><td>.jpg / .png / .jpeg</td><td>2</td></tr>
  *   <tr><td>{@code COVER}</td><td>{@code cover}</td><td>.jpg / .png</td><td>3</td></tr>
+ *   <tr><td>{@code AVATAR}</td><td>{@code avatar}</td><td>.jpg / .png / .jpeg</td><td>0（非内容媒体）</td></tr>
  * </table>
  * ⚠️ 注意 {@code COVER} 的 {@code dir} 是 {@code cover}（不是 image）——URL 形如
  * {@code /upload/cover/xxx.png}，与 {@code FileUploadService.UPLOAD_URL_PATTERN} 的
- * {@code (video|image|cover)} 三选一对应。**别把 dir 与 contentTypePrefix 混为一谈**
+ * {@code (video|image|cover|avatar)} 对应。**别把 dir 与 contentTypePrefix 混为一谈**
  * （旧实现里 COVER 的 contentTypePrefix 是 {@code image/}，那是给"按 contentType 猜类型"用的）。
+ *
+ * <p>★ {@code AVATAR} 为什么不是内容媒体：头像挂在 {@code users} 上、可替换、旧文件要删；
+ * 内容媒体的生命周期是"上传 → 绑定 content_media → 不可变"。混进 {@code image/} 会让
+ * {@code tools/devclean/media_clean.py}（只认 content_media 引用）把头像判成孤儿。</p>
  *
  * <h2>★ S7 只搬"有调用方"的成员（"不搬无主代码"纪律）</h2>
  * 旧枚举另有 {@code contentTypePrefix} 字段 + {@code fromContentType()} / {@code fromFileName()} /
@@ -35,7 +42,16 @@ public enum UploadType {
     IMAGE("image", List.of(".jpg", ".png", ".jpeg"), 2),
 
     /** 封面：{@code .jpg/.png}，媒体类型 3。 */
-    COVER("cover", List.of(".jpg", ".png"), 3);
+    COVER("cover", List.of(".jpg", ".png"), 3),
+
+    /**
+     * 头像：{@code .jpg/.png/.jpeg}，**不属于内容媒体**（{@code mediaType = 0}）。
+     *
+     * <p>只由 {@code user.service.AvatarService} 使用；{@code fromDir} / {@code fromMediaType}
+     * 都**不认**它 —— 前者保证 {@code POST /api/v1/uploads/avatar} 仍是非法类型，
+     * 后者保证 {@code type=0} 的换源请求仍被 400 拒绝。
+     */
+    AVATAR("avatar", List.of(".jpg", ".png", ".jpeg"), 0);
 
     private final String dir;
     private final List<String> suffixes;
@@ -73,6 +89,11 @@ public enum UploadType {
      */
     public static UploadType fromMediaType(int mediaType) {
         for (UploadType type : values()) {
+            // mediaType = 0 是 AVATAR 的"非内容媒体"标记，绝不参与换源类型判定
+            // （否则 type=0 会从"非法 ⇒ 400"变成命中头像类型）。
+            if (type.mediaType == 0) {
+                continue;
+            }
             if (type.mediaType == mediaType) {
                 return type;
             }
@@ -86,9 +107,16 @@ public enum UploadType {
      *
      * <p>只认**小写目录名**：它就是 URL 里出现的那一段（{@code /upload/cover/x.png}），
      * 不是枚举名。无匹配返回 {@code null}（调用方 400）。
+     *
+     * <p>★ 刻意**跳过 {@code AVATAR}**：{@code /api/v1/uploads/{type}} 是内容媒体的通用上传口，
+     * 头像只走 {@code PUT /api/v1/users/me/avatar}。头像 URL 的形状判定由
+     * {@code FileUploadService#resolveAbsolutePath}（正则含 avatar）承担，与本方法无关。
      */
     public static UploadType fromDir(String dir) {
         for (UploadType type : values()) {
+            if (type == AVATAR) {
+                continue;
+            }
             if (type.dir.equals(dir)) {
                 return type;
             }
@@ -101,7 +129,11 @@ public enum UploadType {
         return dir;
     }
 
-    /** {@code content_media.type} 取值。 */
+    /**
+     * {@code content_media.type} 取值；{@code AVATAR} 返回 0（**非内容媒体**）。
+     *
+     * <p>调用方只有内容域（VIDEO / IMAGE / COVER 三处），头像分支不得拿它写 content_media。
+     */
     public int getMediaType() {
         return mediaType;
     }

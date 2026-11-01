@@ -19,11 +19,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * 播放记录域的**结构契约**验收：V6 建出的两列 + {@code watch_history} 一次到位，
  * V7 真的把两张遗留表删掉，V8 把列表索引换成覆盖复合索引，V9 只给 users 加一列（不动本域结构），
  * V10 建出播放量去重账本并把 {@code play_counted} / {@code idx_content_id} 拆掉，
- * 且**全部迁移版本都被应用**。
+ * V11 只给 users 加 {@code avatar_ref}（不动本域结构），且**全部迁移版本都被应用**。
  *
  * <h2>覆盖什么（期望值出自 history.md §二 / §五 的 DDL，盖住实现照样写得出来）</h2>
  * <ul>
- *   <li><b>版本行</b>：{@code flyway_schema_history} 里 V1…V10 **全部 applied 且 success**；</li>
+ *   <li><b>版本行</b>：{@code flyway_schema_history} 里 V1…V11 **全部 applied 且 success**；</li>
  *   <li><b>列集</b>：{@code id / user_id / content_id / progress_seconds / create_time / update_time}
  *       （`R-26` 起本表只存进度，{@code play_counted} 已搬去账本）；</li>
  *   <li>★ <b>唯一键 {@code uk_user_content (user_id, content_id)}</b>：本域"一人一内容一行"
@@ -65,15 +65,15 @@ class HistorySchemaTests extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("★全部迁移版本都被应用（V1~V10 且 success）—— V7 的删表 / V8 的换索引 / V10 的搬标记也要真的跑到")
+    @DisplayName("★全部迁移版本都被应用（V1~V11 且 success）—— V7 的删表 / V8 的换索引 / V10 的搬标记也要真的跑到")
     void 全部迁移版本都被应用() {
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
                 "SELECT version, success FROM flyway_schema_history WHERE success = 1 ORDER BY installed_rank");
         List<String> appliedVersions = rows.stream().map(r -> String.valueOf(r.get("version"))).toList();
         assertThat(appliedVersions)
-                .as("★ 版本序必须连续 1..10：V6 建播放记录、V7 删遗留表、V8 换列表索引、V9 users.history_recording、"
-                        + "V10 建去重账本并拆掉 play_counted（缺一都让上层结构对不上）")
-                .containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10");
+                .as("★ 版本序必须连续 1..11：V6 建播放记录、V7 删遗留表、V8 换列表索引、V9 users.history_recording、"
+                        + "V10 建去重账本并拆掉 play_counted、V11 users.avatar_ref（缺一都让上层结构对不上）")
+                .containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11");
     }
 
     @Test

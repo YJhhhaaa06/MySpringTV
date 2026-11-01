@@ -12,6 +12,7 @@ import io.github.yjhhhaaa06.videoweb.content.model.vo.ProfileVO;
 import io.github.yjhhhaaa06.videoweb.follow.service.FollowService;
 import io.github.yjhhhaaa06.videoweb.interaction.model.InteractionDimension;
 import io.github.yjhhhaaa06.videoweb.user.dao.UserDao;
+import io.github.yjhhhaaa06.videoweb.user.model.AvatarRefs;
 import io.github.yjhhhaaa06.videoweb.user.model.entity.User;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -146,7 +147,10 @@ public class ProfileService {
         // GAP-01：主页「投稿」是网格卡片，只显示播放量；公共计数不看登录态。
         contentCountFiller.fillCountsBatch(contentList, PROFILE_COUNT_FIELDS);
 
+        // R-27：头像与用户名同源（users 行），实时解析成生效 URL（默认 / 自定义 / 未选过回落）。
+        // 它不进内容缓存：ProfileVO 每次由本方法直接组装，缓存里只有内容条目。
         return new ProfileVO(profileUserId, user.getUsername(),
+                AvatarRefs.resolveUrl(profileUserId, user.getAvatarRef()),
                 followerCount, followCount, isFollowed,
                 new PageResult<>(contentList, total, page, pageSize));
     }

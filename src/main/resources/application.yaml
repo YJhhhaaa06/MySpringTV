@@ -469,6 +469,9 @@ video:
         "[PUT /api/v1/users/me/username]": 3
         # 记录开关（R-25）：低频设置写，按"其余写 3"计；不参与 history 上报路径的任何判断。
         "[PUT /api/v1/users/me/history-recording]": 3
+        # 头像（R-27）：自定义上传是文件写重活（10）；默认切换是低频设置写（3）。
+        "[PUT /api/v1/users/me/avatar]": 10
+        "[PUT /api/v1/users/me/avatar/default]": 3
         # —— 内容作者操作（delete 为级联软删，成本与"单个作品"同阶）——
         "[PUT /api/v1/contents/{id}/comment-enabled]": 3
         "[PUT /api/v1/contents/{id}]": 3
