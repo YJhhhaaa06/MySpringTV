@@ -47,7 +47,7 @@ Flyway + Testcontainers。由 `old-project/TVhomework1`（Servlet + 手写连接
 .docs/
 ├── INDEX.md              ← 本文件（唯一入口）
 ├── architecture/         ← ★ **活的事实源**（域设计 + 横切机制 + 前端应用层）—— 功能"沉淀"的落点；主索引 = `architecture/ARCHITECTURE.md`
-│   ├── domain/           ← 业务域（**按域分目录**）：`favorite/` · `feed/`（每域 = `<域>.md` 设计 + 可选 `<域>-需求.md` / `<域>-已知代价.md` / `<域>-术语表.md`）
+│   ├── domain/           ← 业务域（**按域分目录**）：`favorite/` · `feed/` · `content/`（推荐流）（每域 = `<域>.md` 设计 + 可选 `<域>-需求.md` / `<域>-已知代价.md` / `<域>-术语表.md`）
 │   ├── tech/             ← 横切机制（**按面分目录**）：`security/` · `rate-limit/` · `idempotency/` · `observability/` · `cache/` ·
 │   │                        `resilience/` · `mq/` · `events/` · `transaction/` · `module-boundary/` · `data-evolution/` · `api/`
 │   ├── frontend/         ← ★ **前端应用层**：`前端.md`（入口 / 路由 / 类型三层 / 页面×端点矩阵 / 降级约定 / 请求层约定）
@@ -72,7 +72,7 @@ Flyway + Testcontainers。由 `old-project/TVhomework1`（Servlet + 手写连接
 | ★ **改"用户看不见但要一直跑"的行为**（进度上报、自动重试与退避、退出信号、崩溃补偿、幂等键、乐观更新与对齐、登录态时序、限流感知） | **`architecture/frontend/客户端静默机制.md`**（四要素：触发 / 做了什么 / 代价 / 怎么验 + **"没覆盖"清单**）；数值契约 → `domain/history/history-客户端契约.md` | 这类行为一旦改动（改了就要同时更新"验证矩阵"） |
 | ★ **执行中登记（任务 / 需求 / 问题）** | ★ **联调期 → `task/CURRENT_INTEGRATION.md`（唯一入口：任务 / 范围 / 判据）**；执行中发现的问题 → `task/CURRENT_ISSUES.md`（`I-##`）；本期不解决的 → `task/FURTHER_ISSUES.md`（`F-##`）；GAP 差异清单 → `task/CURRENT_FRONTEND_GAPS.md`；上一期（重制期）→ `task/CURRENT_FRONTEND.md` | 每窗开 / 收时 |
 | ★ **查某个编号是什么**（`T#` / `R-##` / `I-##` / `F-##` / `G#` / `C#`） | **活速查**（每号**只许一行结论**）：`favorite.md` / `coin.md` / **`history.md`** / `tech/idempotency/写接口幂等.md` 各篇 **附录「编号速查」**；限流的在 `architecture/tech/rate-limit/限流.md` 附录。★ **按专项找**，别在一个附录里找别的域的号 | 每期收尾把已终结的编号收编进速查 |
-| ★ **加新功能 / 看设计** | `architecture/domain/favorite/`（`favorite.md` 设计 + `favorite-需求.md` 用户可见规则 + `favorite-已知代价.md` 台账）、`feed/feed.md`（域文档样板）、`history/history.md`（播放记录：写读路径 + 时长 + 编号速查）。本期做哪些 ⇒ `task/CURRENT_INTEGRATION.md` | 开工前登记 / 设计变更时 |
+| ★ **加新功能 / 看设计** | `architecture/domain/favorite/`（`favorite.md` 设计 + `favorite-需求.md` 用户可见规则 + `favorite-已知代价.md` 台账）、`feed/feed.md`（域文档样板）、`history/history.md`（播放记录：写读路径 + 时长 + 编号速查）、`content/content-推荐流.md`（首页无限加载：随机序 + 游标 + 代价）。本期做哪些 ⇒ `task/CURRENT_INTEGRATION.md` | 开工前登记 / 设计变更时 |
 | ★ **改端点 / 加端点**（路径、HTTP 方法、状态码、错误码、入参出参形状） | [接口契约](architecture/tech/api/接口契约.md)（状态码分层 + 码表 + 路径/方法判据 + 载荷规范；`R-21` 起为唯一活事实源）；护栏与产物（端点登记簿 / `openapi.yaml` 的生成与更新纪律）→ [接口契约-护栏与Spec](architecture/tech/api/接口契约-护栏与Spec.md) | 端点或契约变更时 |
 | ★ **让写端点"重试不重复"**（幂等键 / 响应重放 / 新增 `Idempotency-Key`） | [写接口幂等](architecture/tech/idempotency/写接口幂等.md)（设计 + 为什么不做 X）；用例与对外契约 → [写接口幂等-测试与契约](architecture/tech/idempotency/写接口幂等-测试与契约.md) | 幂等覆盖范围、状态机或 TTL 变更时 |
 | ★ **某个词到底指什么**（页面名 / 会话 / 标签页这类指代） | 试点 = [history-术语表](architecture/domain/history/history-术语表.md)（页面↔端点矩阵 + 一物一名 + 错→对）。★ **只此一域**，推广判据见该篇 §五 | 该域发生新的术语歧义时 |
