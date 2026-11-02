@@ -17,6 +17,8 @@ export const ICONS = {
   play: '<rect x="2.5" y="4.5" width="19" height="15" rx="4"/><path d="M10 8.6v6.8l5.6-3.4z" fill="currentColor" stroke="none"/>',
   danmaku: '<rect x="3" y="5" width="18" height="14" rx="3.2"/><path d="M7 10h5M7 14h10M15.5 10h2"/>',
   refresh: '<path d="M20 12a8 8 0 1 1-2.5-5.8"/><path d="M20.2 4.2v4.6h-4.6"/>',
+  /* 回到顶部（首页右下浮层，R-29）：B 站是三角，这里用等价的向上折线 */
+  up: '<path d="m6 14.5 6-6 6 6"/>',
   'chevron-left': '<path d="m14.6 5-7 7 7 7"/>',
   'chevron-right': '<path d="m9.4 5 7 7-7 7"/>',
   close: '<path d="m6 6 12 12M18 6 6 18"/>',
