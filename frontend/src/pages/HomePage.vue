@@ -43,7 +43,8 @@ let inlineObserver: IntersectionObserver | null = null
 
 function inPrefetchRange(): boolean {
   const element = sentinel.value
-  if (!element) return false
+  // 卸载后元素已脱离文档，rect 恒 0 ⇒ 不加这一句会让 while 继续把整池拉完
+  if (!element?.isConnected) return false
   return element.getBoundingClientRect().top <= window.innerHeight + PREFETCH_MARGIN
 }
 
@@ -53,7 +54,7 @@ function inPrefetchRange(): boolean {
  * 熔断在纯函数里（空页 + 游标非空 ⇒ error），这里不会死循环。
  */
 async function loadMore(): Promise<void> {
-  while (view.value === 'ready' && inPrefetchRange()) {
+  while (feed.shouldLoadMore() && inPrefetchRange()) {
     await feed.loadMore()
     await nextTick()
   }

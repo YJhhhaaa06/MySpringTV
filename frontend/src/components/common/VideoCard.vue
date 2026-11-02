@@ -80,23 +80,25 @@ function onCardClick(event: MouseEvent): void {
         :aria-disabled="item.invalid || undefined"
         @click="onCardClick"
       >
-        <img
-          v-if="showCover"
-          class="video-card__img"
-          :class="{ 'is-loaded': coverLoaded }"
-          :src="item.coverUrl ?? undefined"
-          :alt="item.title"
-          loading="lazy"
-          decoding="async"
-          @load="coverLoaded = true"
-          @error="coverBroken = true"
-        />
-        <!-- 数据已到、封面未到：只盖封面位（不是整卡骨架），加载完由 img 淡入接管 -->
-        <span
-          v-if="showCover && !coverLoaded"
-          class="video-card__cover-loading skeleton"
-          aria-hidden="true"
-        />
+        <!-- 有封面：图 + 图未到时的封面位占位（同一个 v-if 分支，别让下面的 v-else-if 串到骨架上） -->
+        <template v-if="showCover">
+          <img
+            class="video-card__img"
+            :class="{ 'is-loaded': coverLoaded }"
+            :src="item.coverUrl ?? undefined"
+            :alt="item.title"
+            loading="lazy"
+            decoding="async"
+            @load="coverLoaded = true"
+            @error="coverBroken = true"
+          />
+          <!-- 数据已到、封面未到：只盖封面位（不是整卡骨架），加载完由 img 淡入接管 -->
+          <span
+            v-if="!coverLoaded"
+            class="video-card__cover-loading skeleton"
+            aria-hidden="true"
+          />
+        </template>
         <!-- 纯文字图文：封面位换成真的简介；没写简介就写中性的「图文动态」（不编内容） -->
         <span v-else-if="item.isPost" class="video-card__text-cover">
           <span class="video-card__text-quote" aria-hidden="true">“</span>
