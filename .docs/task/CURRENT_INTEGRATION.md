@@ -111,12 +111,12 @@
 | `T89` | `R-28` 集成测试 + 反向验证：翻完全部页 == 池子全集、相邻页无交集、游标指向已删内容、脏 id 跳过仍填满、空池 / 池读失败 / pageSize 归一 / 非法游标 / 同游标两次一致 | 期望值按业务口径推导；夹具带对照（另一条内容 + 另一人）；不按"短页"判到底 | `RecommendFeedTests` **10 例**全绿；反向注入 3 条（去掉游标过滤 ⇒ 5 红 / `pageSize+1` 退化 ⇒ 6 红 / 排序键不看 seed ⇒ 3 红，明细见设计篇 §六） | **已完成（2026-11-02）** |
 | `T90` | `R-28` 文档收口：设计篇按实现校准（复杂度 / 不变量 / "多取一条"）、`GAP-06` 后端状态、登记台回写；subagent review | 不新开编号；不改 `§2.6` 既有编号；代码注释只引 `architecture/**` | 三道门禁 0 违规；review 的 2 条 P0 + 4 条 P1/P2 全部已修（见回写）；设计篇按实现校准（分块 / 整除边界 / 判别力实测） | **已完成（2026-11-02）** |
 | `T91` | **首页无限滚动前端落地**（`R-29`，消费 `R-28` 的游标信封）：D1–D11 一次落地，拆见 `T91-1`…`T91-7` | 不改后端契约；不新增端点；不动 5 列视觉基准；代码注释只引 `architecture/**` | 子任务全绿 + 弱网 / 真浏览器手动验收 + subagent review P0/P1 全修 | **执行中** |
-| `T91-1` | 推荐流**纯状态机**：`src/feed/recommendFeed.ts`（items / cursor / phase / error / epoch + 七条迁移 + `feedView`） | 不依赖 Vue / DOM；不引状态库；epoch 必须能淘汰"刷新时在途的续页" | `recommendFeed.test.ts` 覆盖 append / 到底 / 失败 / retry / 旧 epoch / 刷新失败保留旧内容 / 六种视图态；反向注入：去掉 epoch 判断 ⇒ 竞态用例红 | **执行中** |
-| `T91-2` | 端点层：`loadHome` 回带 `nextCursor` + `loadHomeMore(cursor)`；两者共用 `pageSize=20`；侧栏加 `?type=1` | 只有第一页 `splitHero`；`type` 用**数字 1**（不是 `VIDEO`）；`limit` 仍不识别 | `endpoints.test.ts` 补 4 例（无 cursor / 带 cursor / 只拆第一页 / 侧栏 `type:1`）；反向注入：续页也拆 hero ⇒ 红；去掉 `type` ⇒ 红 | **待执行** |
-| `T91-3` | 首页接线：哨兵（`rootMargin 800px`）+ 单飞 + 连续补页、10 个续页骨架、到底文案、行内重试（429 倒计时、不自动重试）、空态改文案、刷新失败 toast / 页面错误 | 到底 ≠ 首屏空；替换不追加；有旧内容时刷新失败不丢列表；不引虚拟滚动 | `typecheck` / `test` / `build`；断言在状态机层（DOM 接线无 jsdom，明写靠 review + 手动） | **待执行** |
-| `T91-4` | 两态换一换：内联（原地）+ 右下浮层（先回顶再刷新，hover 展开「刷新内容」）+ 顶部；显隐由内联按钮可见性决定 | 两者不同时出现；浮层不摆「...」；内联刷新不回顶；浮层刷新先回顶 | `typecheck` / `build`；显隐与 hover 手动验收（无 DOM 测试，明写） | **待执行** |
-| `T91-5` | 封面占位：数据已到、图未到只盖封面位（`.skeleton`）+ 加载完 150ms 淡入 | 不遮标题 / 作者 / 播放量；`coverUrl` 变化重置；破图仍 fallback；`reduced-motion` 关动效 | `typecheck` / `build` + DevTools 弱网手动验收（视觉无单测） | **待执行** |
-| `T91-6` | 文档收口：`GAP-06` 销账、`前端.md`（§三 / §四 / §六 / §七）、`content-推荐流.md` §五 更正、`CURRENT_INTEGRATION` 回写 | 只增不改号；不新开编号空间；代码注释只引 `architecture/**` | 三道门禁 0 违规；`grep -rn "GAP-06" src` 指向已销账行 | **待执行** |
+| `T91-1` | 推荐流**纯状态机**：`src/feed/recommendFeed.ts`（items / cursor / phase / error / epoch + 七条迁移 + `feedView`） | 不依赖 Vue / DOM；不引状态库；epoch 必须能淘汰"刷新时在途的续页" | `recommendFeed.test.ts` 覆盖 append / 到底 / 失败 / retry / 旧 epoch / 刷新失败保留旧内容 / 六种视图态；反向注入：去掉 epoch 判断 ⇒ 竞态用例红 | **已完成（2026-11-02）** |
+| `T91-2` | 端点层：`loadHome` 回带 `nextCursor` + `loadHomeMore(cursor)`；两者共用 `pageSize=20`；侧栏加 `?type=1` | 只有第一页 `splitHero`；`type` 用**数字 1**（不是 `VIDEO`）；`limit` 仍不识别 | `endpoints.test.ts` 补 4 例（无 cursor / 带 cursor / 只拆第一页 / 侧栏 `type:1`）；反向注入：续页也拆 hero ⇒ 红；去掉 `type` ⇒ 红 | **已完成（2026-11-02）** |
+| `T91-3` | 首页接线：哨兵（`rootMargin 800px`）+ 单飞 + 连续补页、10 个续页骨架、到底文案、行内重试（429 倒计时、不自动重试）、空态改文案、刷新失败 toast / 页面错误 | 到底 ≠ 首屏空；替换不追加；有旧内容时刷新失败不丢列表；不引虚拟滚动 | `typecheck` / `test` / `build`；断言在状态机层（DOM 接线无 jsdom，明写靠 review + 手动） | **已完成（2026-11-02）** |
+| `T91-4` | 两态换一换：内联（原地）+ 右下浮层（先回顶再刷新，hover 展开「刷新内容」）+ 顶部；显隐由内联按钮可见性决定 | 两者不同时出现；浮层不摆「...」；内联刷新不回顶；浮层刷新先回顶 | `typecheck` / `build`；显隐与 hover 手动验收（无 DOM 测试，明写） | **已完成（2026-11-02）** |
+| `T91-5` | 封面占位：数据已到、图未到只盖封面位（`.skeleton`）+ 加载完 150ms 淡入 | 不遮标题 / 作者 / 播放量；`coverUrl` 变化重置；破图仍 fallback；`reduced-motion` 关动效 | `typecheck` / `build` + DevTools 弱网手动验收（视觉无单测） | **已完成（2026-11-02）** |
+| `T91-6` | 文档收口：`GAP-06` 销账、`前端.md`（§三 / §四 / §六 / §七）、`content-推荐流.md` §五 更正、`CURRENT_INTEGRATION` 回写 | 只增不改号；不新开编号空间；代码注释只引 `architecture/**` | 三道门禁 0 违规；`grep -rn "GAP-06" src` 指向已销账行 | **已完成（2026-11-02）** |
 | `T91-7` | 回归 + subagent review：前端全量 + 代码 / 文档审查，P0/P1 全修 | 不改实现来"变绿"；发现问题先登记 `I-##` 或停下问 | `typecheck` / `test` / `build` 全绿；review 报告与修复留痕 | **待执行** |
 | — | *（本窗第一件事：跑基线 + 列联调清单，见 §一 / §2.1）* | — | — | — |
 
