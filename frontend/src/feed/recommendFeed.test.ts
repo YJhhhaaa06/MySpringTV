@@ -106,19 +106,20 @@ describe('推荐流状态机', () => {
   })
 
   it('★ 刷新淘汰在途续页：旧续页晚到不会拼进新列表', () => {
-    const before = ready()
-    const loading = beginMore(before)
-    const refreshEpoch = loading.epoch
+    const loading = beginMore(ready())
+    const oldEpoch = loading.epoch
+
+    // 刷新 + 新列表 + 又一次续页在途：此刻 phase 仍是 loadingMore，
+    // 只有 epoch 能区分"这是上一代的响应"（只看 phase 的实现在这里会假绿）。
     const refreshing = beginRefresh(loading)
-    expect(refreshing.epoch).toBe(refreshEpoch + 1)
-
-    const stale = receiveMore(refreshing, page([99], 'v1.7.9'), refreshEpoch)
-    expect(stale).toBe(refreshing)
-    expect(stale.items).toEqual([1, 2])
-
     const fresh = receiveFirstPage(refreshing, page([7, 8], 'v1.8.0'), refreshing.epoch)
-    expect(fresh.items).toEqual([7, 8])
-    expect(fresh.cursor).toBe('v1.8.0')
+    const newLoading = beginMore(fresh)
+    expect(newLoading.phase).toBe('loadingMore')
+
+    const stale = receiveMore(newLoading, page([99], 'v1.9.0'), oldEpoch)
+    expect(stale).toBe(newLoading)
+    expect(stale.items).toEqual([7, 8])
+    expect(stale.cursor).toBe('v1.8.0')
   })
 
   it('续页失败进行内错误；重试复用同一游标并清掉错误', () => {
