@@ -27,10 +27,16 @@ const emit = defineEmits<{ (event: 'navigate', href: string): void }>()
 
 /** 封面 404 / 解码失败也走占位块 —— 否则破图比没有封面更难看（dev 数据里会撞到） */
 const coverBroken = ref(false)
+/**
+ * 图未到 ≠ 数据未到：标题 / 作者 / 播放量随 JSON 先到，只有封面在慢网下晚到。
+ * 这里只盖**封面位**（shimmer），文字照常显示；整卡骨架留给"下一页还在路上"。
+ */
+const coverLoaded = ref(false)
 watch(
   () => props.item.coverUrl,
   () => {
     coverBroken.value = false
+    coverLoaded.value = false
   },
 )
 
@@ -77,11 +83,19 @@ function onCardClick(event: MouseEvent): void {
         <img
           v-if="showCover"
           class="video-card__img"
+          :class="{ 'is-loaded': coverLoaded }"
           :src="item.coverUrl ?? undefined"
           :alt="item.title"
           loading="lazy"
           decoding="async"
+          @load="coverLoaded = true"
           @error="coverBroken = true"
+        />
+        <!-- 数据已到、封面未到：只盖封面位（不是整卡骨架），加载完由 img 淡入接管 -->
+        <span
+          v-if="showCover && !coverLoaded"
+          class="video-card__cover-loading skeleton"
+          aria-hidden="true"
         />
         <!-- 纯文字图文：封面位换成真的简介；没写简介就写中性的「图文动态」（不编内容） -->
         <span v-else-if="item.isPost" class="video-card__text-cover">
@@ -190,7 +204,19 @@ function onCardClick(event: MouseEvent): void {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: transform 0.3s ease;
+  opacity: 0;
+  transition: transform 0.3s ease, opacity 0.15s ease;
+}
+
+.video-card__img.is-loaded {
+  opacity: 1;
+}
+
+/* 图未到时的封面占位：只占封面位，不压住下面的标题 / 作者 / 播放量 */
+.video-card__cover-loading {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
 }
 
 .video-card:hover .video-card__img {
@@ -468,5 +494,12 @@ function onCardClick(event: MouseEvent): void {
 .video-card--row .video-card__meta {
   margin-top: 4px;
   font-size: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* 只关掉新增的淡入；hover 缩放是既有行为，不在本次范围 */
+  .video-card__img {
+    transition: transform 0.3s ease, opacity 0s;
+  }
 }
 </style>
