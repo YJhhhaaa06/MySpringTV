@@ -4,7 +4,7 @@ import { loadHome, loadHomeMore, loadVideoPage } from './endpoints'
 import { getJson } from './http'
 
 /**
- * 推荐流端点的**请求形状**（`T91-2`）：
+ * 推荐流端点的**请求形状**（见 `architecture/frontend/前端.md` §四）：
  * 游标原样回传、一页 20 条、只有第一页拆轮播、侧栏走 `?type=1`。
  * 这些都不该在页面里重复判断，所以钉在端点层。
  */
@@ -98,10 +98,12 @@ describe('推荐流端点', () => {
     expect(page.nextCursor).toBeNull()
   })
 
-  it('缺省 nextCursor（老后端 / 显式 null）一律归一成"到底"', async () => {
+  it('缺省 / null / 空串的 nextCursor 一律归一成"到底"', async () => {
     mockedGetJson.mockResolvedValueOnce({ list: [content(1, null)] })
-    const home = await loadHome()
-    expect(home.nextCursor).toBeNull()
+    expect((await loadHome()).nextCursor).toBeNull()
+
+    mockedGetJson.mockResolvedValueOnce({ list: [content(1, null)], nextCursor: '' })
+    expect((await loadHome()).nextCursor).toBeNull()
   })
 
   it('侧栏相关推荐：带数字口径的 type=1，并把图文挡在播放页版式之外', async () => {

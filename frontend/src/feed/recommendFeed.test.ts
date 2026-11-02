@@ -18,7 +18,7 @@ import {
 /**
  * 状态机的判别力只来自"迁移写错就会红"：
  * 每条期望都由口径推导（`cursor=null` ⇔ 到底 / 刷新淘汰在途续页 / 失败保留旧列表），
- * 不是抄实现。反向注入（去掉 epoch 判断、把失败态改成清空 items）见 `T91-7` 的回写。
+ * 不是抄实现。反向注入判据：去掉 epoch 判断 ⇒「刷新淘汰在途续页」「旧失败晚到」必红。
  */
 
 const page = (items: number[], nextCursor: string | null): FeedPage<number> => ({ items, nextCursor })
@@ -67,7 +67,22 @@ describe('推荐流状态机', () => {
     const state = receiveFirstPage(beginRefresh(emptyFeed<number>()), page([], 'v1.7.9'), 1)
     expect(state.phase).toBe('error')
     expect(state.error).toBe(EMPTY_PAGE_ERROR)
+    expect(state.items).toEqual([])
+    expect(state.cursor).toBeNull()
     expect(feedView(state)).toBe('error')
+  })
+
+  it('★ 已到底后刷新遇到空页（游标非空）⇒ 页面级错误，不冒充续页错误', () => {
+    const ended = receiveFirstPage(beginRefresh(emptyFeed<number>()), page([1, 2], null), 1)
+    const refreshing = beginRefresh(ended)
+    const broken = receiveFirstPage(refreshing, page([], 'v1.9.0'), refreshing.epoch)
+
+    // 旧列表清掉：否则 feedView 会因 items 非空给出 errorMore，而它的重试是"续页"
+    expect(broken.items).toEqual([])
+    expect(broken.cursor).toBeNull()
+    expect(feedView(broken)).toBe('error')
+    // 页面级错误只能刷新，不能进 loadingMore（否则光标为空、请求发不出去，永久骨架）
+    expect(retryMore(broken)).toBe(broken)
   })
 
   it('旧代际的第一页响应被丢弃（刷新已发生）', () => {
@@ -135,9 +150,16 @@ describe('推荐流状态机', () => {
     expect(retried.cursor).toBe('v1.7.3')
   })
 
-  it('旧代际的续页失败被丢弃', () => {
-    const state = beginRefresh(ready())
-    expect(failMore(state, '旧请求失败', state.epoch - 1)).toBe(state)
+  it('旧代际的续页失败被丢弃（新续页在途时旧失败晚到）', () => {
+    const oldLoading = beginMore(ready())
+    const oldEpoch = oldLoading.epoch
+    const refreshing = beginRefresh(oldLoading)
+    const fresh = receiveFirstPage(refreshing, page([7, 8], 'v1.8.0'), refreshing.epoch)
+    const newLoading = beginMore(fresh)
+    expect(newLoading.phase).toBe('loadingMore')
+
+    // 只看 phase 的实现在这里会把新列表打成 errorMore —— 必须靠 epoch 区分
+    expect(failMore(newLoading, '旧请求失败', oldEpoch)).toBe(newLoading)
   })
 
   it('刷新失败保留旧列表并回到原稳态（游标仍有效）', () => {

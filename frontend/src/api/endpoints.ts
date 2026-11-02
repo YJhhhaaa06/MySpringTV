@@ -46,8 +46,9 @@ async function fetchRecommendPage(cursor?: string): Promise<{
       ...(cursor ? { cursor } : {}),
     },
   })
-  // `nextCursor` 可能是缺省 / 显式 null；两者都归一成 null（= 到底）
-  return { items: page.list ?? [], nextCursor: page.nextCursor ?? null }
+  // `nextCursor` 可能是缺省 / 显式 null / 空串；三者都归一成 null（= 到底）。
+  // 空串尤其不能放过：它会让 `cursor !== null` 为真，续页时又被 `if (!cursor)` 吞掉。
+  return { items: page.list ?? [], nextCursor: page.nextCursor?.trim() || null }
 }
 
 /** 首屏：**只有第一页**参与轮播拆分（后续页一律进网格，否则第 2 页前 3 条会被抽走）。 */

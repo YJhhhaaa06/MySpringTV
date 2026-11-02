@@ -22,7 +22,7 @@ import ChannelWall from '../components/layout/ChannelWall.vue'
  * </ol>
  */
 const feed = useRecommendFeed()
-const { state, slides, view, errorText, retryAfter, canRetry, retry } = feed
+const { state, slides, view, errorText, retryAfter, canRetry } = feed
 
 /** 离底还有 800px 就开始拉下一页：滚到底时下一页通常已经在路上 */
 const PREFETCH_MARGIN = 800
@@ -37,6 +37,11 @@ const loadingMore = computed(() => view.value === 'loadingMore')
 const refreshing = computed(() => view.value === 'initial' || view.value === 'refreshing')
 const skeletons = computed(() => (initialLoading.value ? 11 : 10))
 const retryLabel = computed(() => (canRetry.value ? '重试' : `${retryAfter.value} 秒后再试`))
+/**
+ * "有没有可展示的内容"要**算上轮播**：池子只有 1~3 条且都有封面时，`splitHero` 会把它们
+ * 全抽进轮播、`cards` 为空 —— 只按 `items` 判会在这三张真轮播下面写「暂时没有内容」。
+ */
+const hasContent = computed(() => state.value.items.length > 0 || slides.value.length > 0)
 
 let sentinelObserver: IntersectionObserver | null = null
 let inlineObserver: IntersectionObserver | null = null
@@ -64,7 +69,14 @@ async function loadMore(): Promise<void> {
 async function refresh(): Promise<void> {
   await feed.refresh()
   await nextTick()
-  if (view.value === 'ready' && inPrefetchRange()) void loadMore()
+  if (feed.shouldLoadMore() && inPrefetchRange()) void loadMore()
+}
+
+/** 行内重试 + 补一次预取：失败时哨兵可能仍在触发区，IO 不会因为"还在视口里"再报 */
+async function retryLoadMore(): Promise<void> {
+  await feed.retry()
+  await nextTick()
+  if (feed.shouldLoadMore() && inPrefetchRange()) void loadMore()
 }
 
 /** 内联按钮：**原地**换一批，不动滚动位置 */
@@ -149,13 +161,16 @@ onBeforeUnmount(() => {
         <!-- 行内失败：只影响"下一页"，已加载的内容留着 -->
         <div v-if="view === 'errorMore'" class="home__more-error">
           <span>{{ errorText }}</span>
-          <button class="home__more-retry" type="button" :disabled="!canRetry" @click="retry">
+          <button class="home__more-retry" type="button" :disabled="!canRetry" @click="retryLoadMore">
             {{ retryLabel }}
           </button>
         </div>
 
-        <!-- 到底：会话级文案；块里不放按钮（此时右下浮层一定在） -->
-        <p v-if="view === 'done'" class="home__done">这次的推荐到底了</p>
+        <!-- 到底：会话级文案；块里不放按钮（此时右下浮层一定在）。
+             池子只有 1~3 条时 items 为空、内容全在轮播里 —— 仍算到底，不算空 -->
+        <p v-if="(view === 'done' || view === 'empty') && hasContent" class="home__done">
+          这次的推荐到底了
+        </p>
 
         <EmptyState
           v-if="view === 'error'"
@@ -167,7 +182,7 @@ onBeforeUnmount(() => {
         </EmptyState>
 
         <EmptyState
-          v-else-if="view === 'empty'"
+          v-else-if="view === 'empty' && !hasContent"
           icon="tv"
           title="暂时没有内容"
           description="刷新试试"

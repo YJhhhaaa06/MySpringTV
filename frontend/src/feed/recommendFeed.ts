@@ -66,7 +66,10 @@ export function beginRefresh<T>(state: FeedState<T>): FeedState<T> {
 export function receiveFirstPage<T>(state: FeedState<T>, page: FeedPage<T>, epoch: number): FeedState<T> {
   if (epoch !== state.epoch) return state
   if (!page.items.length && page.nextCursor !== null) {
-    return { ...state, phase: 'error', error: EMPTY_PAGE_ERROR }
+    // 首屏是**整批替换**：失败就清空旧 items / 游标，让它落页面级错误（重试 = 再拉第一页）。
+    // 留着旧列表会被 feedView 判成 errorMore，而 errorMore 的重试语义是"续页" —— 用旧游标
+    // append 会变成另一件事，cursor 为空时更会卡死在 loadingMore。
+    return { ...state, items: [], cursor: null, phase: 'error', error: EMPTY_PAGE_ERROR }
   }
   return {
     ...state,
@@ -111,9 +114,9 @@ export function failRefresh<T>(state: FeedState<T>, message: string): FeedState<
   return { ...state, phase: state.cursor === null ? 'done' : 'idle', error: null }
 }
 
-/** 行内重试：`error → loadingMore`，错误清掉（重试期间不继续显示旧错误）。 */
+/** 行内重试：`error → loadingMore`（只对"有已加载内容的续页错误"有效；页面级错误走刷新）。 */
 export function retryMore<T>(state: FeedState<T>): FeedState<T> {
-  if (state.phase !== 'error') return state
+  if (state.phase !== 'error' || !state.items.length) return state
   return { ...state, phase: 'loadingMore', error: null }
 }
 

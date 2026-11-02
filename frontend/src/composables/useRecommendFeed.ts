@@ -33,6 +33,8 @@ export function useRecommendFeed() {
   const retryAfter = ref(0)
 
   let cooldownTimer: ReturnType<typeof setInterval> | null = null
+  /** 卸载后不再写 state / 弹 toast：否则请求失败会把提示打到下一个页面 */
+  let disposed = false
 
   const view = computed(() => feedView(state.value))
   const errorText = computed(() => state.value.error ?? '')
@@ -67,7 +69,7 @@ export function useRecommendFeed() {
 
     try {
       const data = await loadHome()
-      if (epoch !== state.value.epoch) return
+      if (disposed || epoch !== state.value.epoch) return
       slides.value = data.slides
       state.value = receiveFirstPage(
         state.value,
@@ -75,7 +77,7 @@ export function useRecommendFeed() {
         epoch,
       )
     } catch (exception) {
-      if (epoch !== state.value.epoch) return
+      if (disposed || epoch !== state.value.epoch) return
       const message = describeError(exception, '刷新失败，请稍后重试')
       state.value = failRefresh(state.value, message)
       // 有旧内容：列表没换，用 toast 说明；没有旧内容：交给页面级错误态
@@ -87,17 +89,22 @@ export function useRecommendFeed() {
   async function runMore(): Promise<void> {
     const epoch = state.value.epoch
     const cursor = state.value.cursor
-    if (!cursor) return
+    if (!cursor) {
+      // 不该发生（beginMore 只在有游标时放行）；真发生了也必须离开 loadingMore，
+      // 否则页面会永久停在"10 个骨架"，且行内重试入口不渲染。
+      state.value = failMore(state.value, '加载状态异常，请刷新页面', epoch)
+      return
+    }
     try {
       const page = await loadHomeMore(cursor)
-      if (epoch !== state.value.epoch) return
+      if (disposed || epoch !== state.value.epoch) return
       state.value = receiveMore(
         state.value,
         { items: page.cards, nextCursor: page.nextCursor },
         epoch,
       )
     } catch (exception) {
-      if (epoch !== state.value.epoch) return
+      if (disposed || epoch !== state.value.epoch) return
       const message = describeError(exception, '加载失败，请稍后重试')
       state.value = failMore(state.value, message, epoch)
       startCooldown(exception)
@@ -121,7 +128,10 @@ export function useRecommendFeed() {
     await runMore()
   }
 
-  onBeforeUnmount(stopCooldown)
+  onBeforeUnmount(() => {
+    disposed = true
+    stopCooldown()
+  })
 
   return {
     state,
