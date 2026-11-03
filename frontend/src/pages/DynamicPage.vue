@@ -77,6 +77,10 @@ const authorId = computed(() => {
 const feed = ref<{ items: DynamicCardVM[]; page: number; total: number; totalPages: number } | null>(null)
 const loading = ref(false)
 const error = ref('')
+/** total > 0 但本页空 = 页码越界（不是"没有动态"；深链 / 旧书签会撞到） */
+const outOfRange = computed(
+  () => Boolean(feed.value && feed.value.items.length === 0 && feed.value.total > 0),
+)
 
 const profile = ref<SpaceHeaderVM | null>(null)
 const following = ref<RelationPageVM | null>(null)
@@ -107,6 +111,15 @@ const {
   closeComments,
 } = useDynamicActions()
 
+/**
+ * 竞态守卫：切作者 / 翻页时只允许**最新一次**请求写 `feed` / `authorHeader`。
+ * 没有它，A 的慢响应会在 URL 已经变成 B 之后覆盖列表（页头 B、内容 A）。
+ * `loadedAuthorId` 另做一件事：**切作者时先清空**，不让上一位作者的卡片短暂挂在新标题下；
+ * 同一作者翻页不清空（避免白屏闪）。
+ */
+let feedRequestId = 0
+let loadedAuthorId: number | null = null
+
 onMounted(async () => {
   await restoreSession()
   sessionReady.value = true
@@ -135,20 +148,31 @@ watch([page, authorId], () => {
 
 async function loadFeedPage(): Promise<void> {
   if (!isAuthenticated()) return
+  const requestId = ++feedRequestId
   closeComments() // 换页 / 重载后旧卡片的评论面板不再有意义
+  // 切作者（含从全部切到作者）先清空，别让上一位作者的卡短暂挂在新标题下；同作者翻页不清
+  if (authorId.value !== loadedAuthorId) {
+    feed.value = null
+    authorHeader.value = null
+    loadedAuthorId = authorId.value
+  }
   loading.value = true
   error.value = ''
   try {
     if (authorId.value) {
       // 作者模式 = 该作者的**全部投稿时间线**（与空间「动态」tab 同源；不是 /feed 加参）
       const data = await loadSpace(authorId.value, page.value, FEED_PAGE_SIZE)
+      if (requestId !== feedRequestId) return
       feed.value = data.timeline
       authorHeader.value = data.header
     } else {
-      feed.value = await loadFeed(page.value, FEED_PAGE_SIZE)
+      const data = await loadFeed(page.value, FEED_PAGE_SIZE)
+      if (requestId !== feedRequestId) return
+      feed.value = data
       authorHeader.value = null
     }
   } catch (exception) {
+    if (requestId !== feedRequestId) return
     feed.value = null
     authorHeader.value = null
     error.value =
@@ -156,7 +180,7 @@ async function loadFeedPage(): Promise<void> {
         ? '这个用户不存在'
         : describeError(exception)
   } finally {
-    loading.value = false
+    if (requestId === feedRequestId) loading.value = false
   }
 }
 
@@ -174,7 +198,6 @@ async function loadSidebars(): Promise<void> {
   if (profileResult.status === 'fulfilled') profile.value = profileResult.value
   if (followingResult.status === 'fulfilled') following.value = followingResult.value
 }
-
 
 async function signIn(): Promise<void> {
   await requireLogin()
@@ -208,10 +231,21 @@ function followingHref(userId: number): string {
       <EmptyState
         v-else-if="!loggedIn"
         icon="dynamic"
-        title="登录后查看关注动态"
-        description="动态流只属于账号：登录后按时间倒序显示你关注的 UP 主的投稿与图文（和 B 站一样，这个列表不公开）。"
+        :title="authorId ? '登录后查看 TA 的动态' : '登录后查看关注动态'"
+        :description="
+          authorId
+            ? '作者模式沿用动态页的登录门；TA 的空间动态是公开的，不登录也可以直接去空间看。'
+            : '动态流只属于账号：登录后按时间倒序显示你关注的 UP 主的投稿与图文（和 B 站一样，这个列表不公开）。'
+        "
       >
         <button class="btn btn-blue" type="button" @click="signIn">登录</button>
+        <a
+          v-if="authorId"
+          class="btn btn-ghost"
+          :href="`/space/${authorId}?tab=dynamic`"
+          target="_blank"
+          rel="noopener"
+        >去 TA 的空间看动态</a>
       </EmptyState>
 
       <div v-else class="dyn-layout">
@@ -297,14 +331,17 @@ function followingHref(userId: number): string {
             <EmptyState
               v-if="!feed.items.length"
               icon="dynamic"
-              :title="authorId ? 'TA 还没有发布过内容' : '还没有动态'"
+              :title="outOfRange ? '这一页没有内容' : authorId ? 'TA 还没有发布过内容' : '还没有动态'"
               :description="
-                authorId
-                  ? '这个 UP 主的投稿与图文会按时间倒序出现在这里。'
-                  : '关注一些 UP 主之后，他们的投稿与图文会按时间倒序出现在这里。'
+                outOfRange
+                  ? '页码超出了当前列表的范围（深链或旧书签），回第 1 页继续。'
+                  : authorId
+                    ? '这个 UP 主的投稿与图文会按时间倒序出现在这里。'
+                    : '关注一些 UP 主之后，他们的投稿与图文会按时间倒序出现在这里。'
               "
             >
-              <button v-if="authorId" class="btn btn-blue" type="button" @click="showAll">看全部动态</button>
+              <button v-if="outOfRange" class="btn btn-blue" type="button" @click="goPage(1)">回第 1 页</button>
+              <button v-else-if="authorId" class="btn btn-blue" type="button" @click="showAll">看全部动态</button>
               <a v-else class="btn btn-blue" href="/">去首页看看</a>
             </EmptyState>
 
