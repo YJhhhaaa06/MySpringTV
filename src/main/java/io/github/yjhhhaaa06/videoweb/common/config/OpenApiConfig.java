@@ -138,8 +138,8 @@ public class OpenApiConfig {
     private static final Map<String, Set<String>> NULLABLE_VO_FIELDS = Map.ofEntries(
             // 互动态三态：null = 本面不查 / 匿名；这是 R-13 的核心契约
             Map.entry("InteractionStatusVO", Set.of("isLiked", "isFavorited", "isFollowed", "coin")),
-            // 列表按面裁剪的三个计数 + 图文无封面 / 时长未知 + 匿名无 interaction
-            Map.entry("ContentVO", Set.of("coverUrl", "durationSeconds", "interaction",
+            // 列表按面裁剪的三个计数 + 图文无封面 / 视频无 imageUrls / 时长未知 + 匿名无 interaction
+            Map.entry("ContentVO", Set.of("coverUrl", "imageUrls", "durationSeconds", "interaction",
                     "likeCount", "commentCount", "playCount")),
             // 详情：图文无 videoUrl、视频无 imageUrls、图文无时长、匿名无 interaction
             Map.entry("ContentDetailVO", Set.of("coverUrl", "durationSeconds", "videoUrl", "imageUrls", "interaction")),

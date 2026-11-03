@@ -3350,6 +3350,12 @@ components:
         id:
           type: integer
           format: int64
+        imageUrls:
+          anyOf:
+          - type: array
+            items:
+              type: string
+          - type: "null"
         interaction:
           anyOf:
           - $ref: "#/components/schemas/InteractionStatusVO"

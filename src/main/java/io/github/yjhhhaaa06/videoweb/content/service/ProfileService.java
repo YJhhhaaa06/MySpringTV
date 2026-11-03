@@ -76,8 +76,16 @@ public class ProfileService {
      */
     private static final Set<InteractionDimension> PROFILE_DIMENSIONS = Set.of(InteractionDimension.LIKE);
 
-    /** 主页「投稿」是**网格卡片**：只显示播放量（GAP-01）。 */
-    private static final Set<ContentCountField> PROFILE_COUNT_FIELDS = Set.of(ContentCountField.PLAY);
+    /**
+     * 主页内容页带的公共计数：**三维全带**（`R-31`，2026-11-03）。
+     *
+     * <p>★ 同一个 {@code GET /users/{id}} 现在服务两个视图：空间的**网格**（主页 / 投稿）与
+     * **动态时间线**（空间 {@code ?tab=dynamic}）。网格只显示播放量，但时间线卡片要点赞 / 评论数
+     * ⇒ 整个面都查。代价是网格每页多两维的 key 读（约 24 次）；这是"同一端点两个面"的显式取舍，
+     * 与首页 / 搜索 / 推荐（仍只查 PLAY）不同。
+     */
+    private static final Set<ContentCountField> PROFILE_COUNT_FIELDS =
+            Set.of(ContentCountField.PLAY, ContentCountField.LIKE, ContentCountField.COMMENT);
 
     private final UserDao userDao;
     private final ContentDao contentDao;
@@ -144,7 +152,7 @@ public class ProfileService {
         if (currentUserId != null && !contentList.isEmpty()) {
             contentStatusFiller.fillInteractionBatch(contentList, currentUserId, PROFILE_DIMENSIONS);
         }
-        // GAP-01：主页「投稿」是网格卡片，只显示播放量；公共计数不看登录态。
+        // R-31：同一响应服务「空间网格 + 动态时间线」两个视图 ⇒ 三维全带；公共计数不看登录态。
         contentCountFiller.fillCountsBatch(contentList, PROFILE_COUNT_FIELDS);
 
         // R-27：头像与用户名同源（users 行），实时解析成生效 URL（默认 / 自定义 / 未选过回落）。

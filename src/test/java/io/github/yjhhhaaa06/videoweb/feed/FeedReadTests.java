@@ -235,6 +235,37 @@ class FeedReadTests extends AbstractFeedIntegrationTest {
     }
 
     @Test
+    @DisplayName("★R-31：图文条目带 imageUrls（按 sort 升序，oracle = content_media 行）；视频条目为 null")
+    void 图文条目带图集且视频为null() {
+        long viewerId = registerViewer();
+        long authorId = registerAuthor();
+        long post = insertPostContent(authorId, "feed 图文图集");
+        long video = insertVideoContent(authorId, "feed 视频无图集");
+        insertFollowRow(viewerId, authorId);
+        insertFeedInboxRow(viewerId, post);
+        insertFeedInboxRow(viewerId, video);
+        markSynced(viewerId);
+
+        JsonNode list = Envelope.data(getFeed(tokenOf(PHONE_VIEWER))).path("list");
+
+        // 独立 oracle：直接读 content_media 的 type=2 行（sort 升序），不看接口回显
+        List<String> expected = jdbcTemplate.queryForList(
+                "SELECT url FROM content_media WHERE content_id = ? AND type = 2 ORDER BY sort",
+                String.class, post);
+        assertThat(expected).as("夹具：图文有两张图").hasSize(2);
+
+        JsonNode postItem = itemOf(list, post);
+        assertThat(postItem.path("imageUrls").isArray()).as("R-31：图文列表条目带图集").isTrue();
+        List<String> actual = new ArrayList<>();
+        postItem.path("imageUrls").forEach(node -> actual.add(node.asString()));
+        assertThat(actual).as("顺序必须与 content_media.sort 一致").containsExactlyElementsOf(expected);
+
+        JsonNode videoItem = itemOf(list, video);
+        assertThat(videoItem.path("imageUrls").isNull())
+                .as("视频条目的 imageUrls 为 null（不是省略、也不是空数组）").isTrue();
+    }
+
+    @Test
     @DisplayName("★GAP-01：动态卡片带 play/like/comment（= DB 列），coinCount 键不存在；interaction.coin 恒 null")
     void 条目带动态卡片计数且coin不存在() {
         long viewerId = registerViewer();

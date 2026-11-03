@@ -364,6 +364,10 @@ public class ContentCache {
     public ContentVO toContentVO(ContentCacheDTO dto) {
         ContentVO vo = new ContentVO();
         copyCommon(vo, dto);
+        // ★ R-31：图集是图文卡片的正文数据，必须从缓存载荷搬过来。
+        //   漏这一行 ⇒ 列表的 imageUrls 恒 null，而 detail / DB 断言仍全绿（同 durationSeconds 的假绿坑）。
+        vo.setImageUrls(dto.getImageUrls());
+        // videoUrl 仍不拷：播放地址属详情，列表没有消费方。
         return vo;
     }
 
