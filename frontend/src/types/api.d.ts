@@ -1274,6 +1274,7 @@ export interface components {
             durationSeconds?: number | null;
             /** Format: int64 */
             id?: number;
+            imageUrls?: string[] | null;
             interaction?: components["schemas"]["InteractionStatusVO"] | null;
             likeCount?: number | null;
             playCount?: number | null;
