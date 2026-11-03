@@ -2,10 +2,10 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { DynamicCardVM, RelationPageVM, SpaceHeaderVM } from '../types/ui'
-import { FEED_PAGE_SIZE, loadFeed } from '../api/feed'
+import { FEED_PAGE_SIZE, dynamicQuery, loadFeed } from '../api/feed'
 import { loadFollowing } from '../api/relations'
-import { loadProfileHeader } from '../api/profile'
-import { describeError } from '../api/http'
+import { loadProfileHeader, loadSpace } from '../api/profile'
+import { ApiError, describeError } from '../api/http'
 import { formatCount } from '../api/adapters/format'
 import { isAuthenticated, restoreSession, sessionState } from '../auth/session'
 import { requireLogin } from '../auth/loginPrompt'
@@ -32,7 +32,13 @@ import DynamicCard from '../components/feed/DynamicCard.vue'
  * - **转发**：没有转发域（无表 / 无端点）⇒ 操作栏只有点赞与评论；
  * - **热搜 / 社区中心**（B 站右栏）：没有热搜/运营端点（GAP-24）⇒ 右栏换成**我关注的人**
  *   （真接口 `/users/{me}/following`，顺带把新交付的「关注」列表页接进来）；
- * - **按作者筛选 / 动态详情页**：没有端点 / 没有独立文档 ⇒ 卡片直接跳内容页。
+ * - **动态详情页**：本仓没有独立的动态文档 ⇒ 卡片直接跳内容页（图文 `/opus`、视频 `/video`）；
+ * - **按作者筛选（`R-31`）**：`/dynamic?author={id}` 走 `GET /users/{id}` 的 `contentPage`
+ *   （= 该作者的动态时间线，与空间「动态」tab 同源），**不是** `/feed` 加参。
+ *
+ * <h2>两种模式的 total 口径不同（别当 bug）</h2>
+ * 「全部动态」的 `total` = 读侧归并窗口条数（≤300，深翻空页）；
+ * 作者模式 = `contentPage.total`（TA 的全部投稿）。页头各自写清「全部动态 / TA 的动态」。
  *
  * <h2>页面级身份态</h2>
  * `/feed` 是类级 `@RequiresLogin` ⇒ 整页都属于"我"，匿名渲染「登录后查看」+ 登录按钮
@@ -47,6 +53,9 @@ const router = useRouter()
 
 const PREVIEW_LIMIT = 8
 
+/** 右栏只摆 8 个；头像行多取一些（≤24，横向滚动），不在这里做无限加载 */
+const FOLLOWING_FETCH = 24
+
 const sessionReady = ref(false)
 const loggedIn = computed(() => sessionState.status === 'authenticated')
 const me = computed(() => sessionState.user)
@@ -56,12 +65,23 @@ const page = computed(() => {
   return Number.isInteger(value) && value > 0 ? value : 1
 })
 
+/**
+ * 作者模式（`R-31`）：`?author={id}` ⇒ 只看 TA 的动态（`contentPage`）。
+ * 非法 / 缺省 = 全部动态（不把脏 query 画成错误页）。
+ */
+const authorId = computed(() => {
+  const value = Number(route.query.author)
+  return Number.isInteger(value) && value > 0 ? value : null
+})
+
 const feed = ref<{ items: DynamicCardVM[]; page: number; total: number; totalPages: number } | null>(null)
 const loading = ref(false)
 const error = ref('')
 
 const profile = ref<SpaceHeaderVM | null>(null)
 const following = ref<RelationPageVM | null>(null)
+/** 作者模式的作者头（同一个 `GET /users/{id}` 顺带返回，不额外请求） */
+const authorHeader = ref<SpaceHeaderVM | null>(null)
 
 /**
  * 作者快照面的头像（`R-27`）：动态卡 / 右栏关注列表只拿得到 userId，
@@ -71,6 +91,8 @@ const feedAvatarIds = computed(() => (feed.value?.items ?? []).map((item) => ite
 const { avatars: feedAvatars } = useUserAvatars(feedAvatarIds)
 const followingAvatarIds = computed(() => (following.value?.items ?? []).map((user) => user.id))
 const { avatars: followingAvatars } = useUserAvatars(followingAvatarIds)
+/** 右栏只摆前 8 个；头像行用完整的一页（≤24） */
+const followingPreview = computed(() => (following.value?.items ?? []).slice(0, PREVIEW_LIMIT))
 
 /**
  * 点赞 + 内联评论（`R-31`）：抽成 composable 与空间动态 tab 共用。
@@ -107,7 +129,7 @@ watch(
   { immediate: true },
 )
 
-watch(page, () => {
+watch([page, authorId], () => {
   if (isAuthenticated()) void loadFeedPage()
 })
 
@@ -117,10 +139,22 @@ async function loadFeedPage(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    feed.value = await loadFeed(page.value, FEED_PAGE_SIZE)
+    if (authorId.value) {
+      // 作者模式 = 该作者的**全部投稿时间线**（与空间「动态」tab 同源；不是 /feed 加参）
+      const data = await loadSpace(authorId.value, page.value, FEED_PAGE_SIZE)
+      feed.value = data.timeline
+      authorHeader.value = data.header
+    } else {
+      feed.value = await loadFeed(page.value, FEED_PAGE_SIZE)
+      authorHeader.value = null
+    }
   } catch (exception) {
     feed.value = null
-    error.value = describeError(exception)
+    authorHeader.value = null
+    error.value =
+      exception instanceof ApiError && exception.status === 404
+        ? '这个用户不存在'
+        : describeError(exception)
   } finally {
     loading.value = false
   }
@@ -135,7 +169,7 @@ async function loadSidebars(): Promise<void> {
   if (!userId) return
   const [profileResult, followingResult] = await Promise.allSettled([
     loadProfileHeader(userId),
-    loadFollowing(userId, 1, PREVIEW_LIMIT),
+    loadFollowing(userId, 1, FOLLOWING_FETCH),
   ])
   if (profileResult.status === 'fulfilled') profile.value = profileResult.value
   if (followingResult.status === 'fulfilled') following.value = followingResult.value
@@ -146,8 +180,19 @@ async function signIn(): Promise<void> {
   await requireLogin()
 }
 
+/** 翻页必须**保留 author**：只写 page 会静默掉回「全部动态」（分页口径就坏了） */
 function goPage(nextPage: number): void {
-  void router.push({ query: nextPage > 1 ? { page: String(nextPage) } : {} })
+  void router.push({ query: dynamicQuery(authorId.value, nextPage) })
+}
+
+/** 切到某个作者的动态（重置页码） */
+function selectAuthor(userId: number): void {
+  void router.push({ query: { author: String(userId) } })
+}
+
+/** 回到全部动态（重置作者与页码） */
+function showAll(): void {
+  void router.push({ query: {} })
 }
 
 function followingHref(userId: number): string {
@@ -207,9 +252,39 @@ function followingHref(userId: number): string {
 
         <!-- 中：动态流 -->
         <section class="dyn-center">
+          <!-- 头像行（R-31）：全部 + 我关注的人（≤24，横向滚动）；点谁看谁 -->
+          <nav v-if="following?.items.length" class="dyn-filter" aria-label="按 UP 主筛选动态">
+            <button class="dyn-filter__item" :class="{ 'is-active': !authorId }" type="button" @click="showAll">
+              <span class="dyn-filter__all"><AppIcon name="dynamic" :size="24" /></span>
+              <span class="dyn-filter__name">全部动态</span>
+            </button>
+            <button
+              v-for="user in following.items"
+              :key="user.id"
+              class="dyn-filter__item"
+              :class="{ 'is-active': authorId === user.id }"
+              type="button"
+              :title="`只看 ${user.name} 的动态`"
+              @click="selectAuthor(user.id)"
+            >
+              <span class="dyn-filter__avatar">
+                <UserAvatar
+                  :avatar-url="followingAvatars.get(user.id) ?? null"
+                  :user-id="user.id"
+                  :initial="user.initial"
+                  :size="52"
+                />
+              </span>
+              <span class="dyn-filter__name">{{ user.name }}</span>
+            </button>
+          </nav>
+
           <header class="dyn-head">
-            <h1 class="dyn-head__title">全部动态</h1>
+            <h1 class="dyn-head__title">
+              {{ authorId ? `${authorHeader?.name ?? 'TA'} 的动态` : '全部动态' }}
+            </h1>
             <span v-if="feed?.total" class="dyn-head__meta">共 {{ feed.total }} 条</span>
+            <button v-if="authorId" class="dyn-head__back" type="button" @click="showAll">返回全部</button>
           </header>
 
           <p v-if="loading && !feed" class="dyn-state">加载中…</p>
@@ -222,10 +297,15 @@ function followingHref(userId: number): string {
             <EmptyState
               v-if="!feed.items.length"
               icon="dynamic"
-              title="还没有动态"
-              description="关注一些 UP 主之后，他们的投稿与图文会按时间倒序出现在这里。"
+              :title="authorId ? 'TA 还没有发布过内容' : '还没有动态'"
+              :description="
+                authorId
+                  ? '这个 UP 主的投稿与图文会按时间倒序出现在这里。'
+                  : '关注一些 UP 主之后，他们的投稿与图文会按时间倒序出现在这里。'
+              "
             >
-              <a class="btn btn-blue" href="/">去首页看看</a>
+              <button v-if="authorId" class="btn btn-blue" type="button" @click="showAll">看全部动态</button>
+              <a v-else class="btn btn-blue" href="/">去首页看看</a>
             </EmptyState>
 
             <template v-else>
@@ -269,7 +349,7 @@ function followingHref(userId: number): string {
               还没有关注任何人。去首页或播放页点「关注」，他们的投稿就会出现在左边。
             </p>
             <ul v-else class="dyn-following__list">
-              <li v-for="user in following.items" :key="user.id">
+              <li v-for="user in followingPreview" :key="user.id">
                 <a
                   class="dyn-following__user"
                   :href="`/space/${user.id}`"
@@ -417,6 +497,90 @@ function followingHref(userId: number): string {
 .dyn-head__meta {
   font-size: 12px;
   color: var(--text-3);
+}
+
+.dyn-head__back {
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 13px;
+  color: var(--brand-blue);
+  cursor: pointer;
+}
+
+.dyn-head__back:hover {
+  text-decoration: underline;
+}
+
+/* ── 中：头像筛选行（R-31） ─────────────────────────────────── */
+.dyn-filter {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 4px 4px 12px;
+  scrollbar-width: none;
+}
+
+.dyn-filter::-webkit-scrollbar {
+  display: none;
+}
+
+.dyn-filter__item {
+  display: flex;
+  flex: none;
+  width: 64px;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.dyn-filter__all,
+.dyn-filter__avatar {
+  display: flex;
+  width: 52px;
+  height: 52px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--text-2);
+  background: var(--bg-1);
+  box-shadow: 0 0 0 2px transparent;
+  transition: box-shadow 0.15s ease, color 0.15s ease;
+}
+
+.dyn-filter__avatar {
+  background: none;
+}
+
+.dyn-filter__item:hover .dyn-filter__all,
+.dyn-filter__item:hover .dyn-filter__avatar,
+.dyn-filter__item.is-active .dyn-filter__all,
+.dyn-filter__item.is-active .dyn-filter__avatar {
+  box-shadow: 0 0 0 2px var(--brand-blue);
+}
+
+.dyn-filter__item.is-active .dyn-filter__all {
+  color: var(--brand-blue);
+}
+
+.dyn-filter__name {
+  max-width: 64px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-3);
+}
+
+.dyn-filter__item.is-active .dyn-filter__name {
+  color: var(--brand-blue);
+  font-weight: 600;
 }
 
 .dyn-list {

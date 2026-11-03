@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { components } from '../../types/api'
+import { dynamicQuery } from '../feed'
 import { toDynamicCard, toDynamicPage } from './feed'
 
 type ContentVO = components['schemas']['ContentVO']
@@ -127,6 +128,15 @@ describe('toDynamicCard', () => {
   it('评论开关透传（关闭时组件不把「评论」画成可写）', () => {
     expect(toDynamicCard(content({ commentEnabled: false }), now).commentEnabled).toBe(false)
     expect(toDynamicCard(content({ commentEnabled: true }), now).commentEnabled).toBe(true)
+  })
+})
+
+describe('dynamicQuery', () => {
+  it('★ 翻页保留 author；page=1 不写 page（丢掉 author = 静默掉回全部动态）', () => {
+    expect(dynamicQuery(7, 2)).toEqual({ author: '7', page: '2' })
+    expect(dynamicQuery(7, 1)).toEqual({ author: '7' })
+    expect(dynamicQuery(null, 2)).toEqual({ page: '2' })
+    expect(dynamicQuery(null, 1)).toEqual({})
   })
 })
 

@@ -9,14 +9,27 @@
  * `{id, name, itemCount}`（私密夹后端不返回，这块不用前端过滤）。
  */
 import type { components } from '../types/api'
-import type { PublicFolderVM, SpaceHeaderVM, SpaceWorksVM, VideoCardVM } from '../types/ui'
+import type {
+  DynamicPageVM,
+  PublicFolderVM,
+  SpaceHeaderVM,
+  SpaceWorksVM,
+  VideoCardVM,
+} from '../types/ui'
 import { currentUserId } from '../auth/session'
+import { toDynamicPage } from './adapters/feed'
 import { toFavoriteItemCard, toPublicFolder, toSpaceHeader, toSpaceWorks } from './adapters/space'
 import { getJson } from './http'
+import { serverNow } from './serverClock'
 
 export interface SpaceData {
   header: ReturnType<typeof toSpaceHeader>
   works: SpaceWorksVM
+  /**
+   * 同一份 `contentPage` 的**时间线视图**（`R-31`）：空间「动态」tab 与
+   * `/dynamic?author=` 都用它；与 `works` 只差呈现，不额外请求。
+   */
+  timeline: DynamicPageVM
   /** 只有第一页才给"最新三条"做大卡（B 站的代表作是 UP 自选的，本仓没有这个字段） */
   featured: VideoCardVM[]
 }
@@ -27,11 +40,13 @@ export async function loadSpace(userId: number, page = 1, pageSize = 10): Promis
     path: { id: userId }, // 注意：spec 里 {id} 声明成 string，按数字传也能命中
     query: { page, pageSize },
   })
-  // 不传 now ⇒ 卡片适配器取 serverNow()（"现在"只有一个来源，见 endpoints.ts#loadHome 说明）
-  const works = toSpaceWorks(profile.contentPage)
+  // "现在"只取一次：works / timeline 是同一响应、同一页，不能各取一次 serverNow
+  const now = serverNow()
+  const works = toSpaceWorks(profile.contentPage, now)
   return {
     header: toSpaceHeader(profile, currentUserId()),
     works,
+    timeline: toDynamicPage(profile.contentPage, now),
     featured: works.page === 1 ? works.items.slice(0, 3) : [],
   }
 }

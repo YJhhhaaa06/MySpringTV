@@ -26,3 +26,16 @@ export async function loadFeed(
   const result = await getJson('/api/v1/feed', { query: { page, pageSize } })
   return toDynamicPage(result, now)
 }
+
+/**
+ * `/dynamic` 的 query（`R-31`）：**翻页必须保留 author**。
+ *
+ * <p>只写 `page` 会把作者模式静默掉回「全部动态」——分页口径就坏了。
+ * `page=1` 不写（与仓库其它页面的"缺省即 1"一致）。
+ */
+export function dynamicQuery(authorId: number | null, page: number): Record<string, string> {
+  return {
+    ...(authorId ? { author: String(authorId) } : {}),
+    ...(page > 1 ? { page: String(page) } : {}),
+  }
+}
