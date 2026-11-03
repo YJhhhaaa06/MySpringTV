@@ -1,5 +1,6 @@
 import { DEFAULT_CATEGORY_ID, UPLOAD_CATEGORIES } from '../constants/categories'
 import type { components } from '../types/api'
+import { TITLELESS_SENTINEL } from './adapters/format'
 import { newIdempotencyKey } from './idempotency'
 
 /** 创建载荷直接用生成类型（`POST /api/v1/contents` 请求体）：契约改动会被 typecheck 立刻抓到。 */
@@ -45,6 +46,8 @@ export interface VideoDraft {
 
 export interface PostDraft {
   title: string
+  /** `R-31`：勾选「不使用标题」⇒ 提交 `「无标题」`；标题输入框禁用、校验跳过 */
+  titleless: boolean
   description: string
   categoryId: number
   cover: File | null
@@ -56,7 +59,14 @@ export function createVideoDraft(): VideoDraft {
 }
 
 export function createPostDraft(): PostDraft {
-  return { title: '', description: '', categoryId: DEFAULT_CATEGORY_ID, cover: null, images: [] }
+  return {
+    title: '',
+    titleless: false,
+    description: '',
+    categoryId: DEFAULT_CATEGORY_ID,
+    cover: null,
+    images: [],
+  }
 }
 
 /** 文件名后缀（含点、小写）；没有点 ⇒ 空串。与后端 `UploadType#isSuffixValid` 同口径。 */
@@ -145,7 +155,8 @@ export function validateVideoDraft(draft: VideoDraft): UploadFieldError[] {
 /** 图文投稿校验。返回空数组 = 可以提交。 */
 export function validatePostDraft(draft: PostDraft): UploadFieldError[] {
   const errors: UploadFieldError[] = []
-  const titleError = checkTitle(draft.title)
+  // 勾了「不使用标题」⇒ 提交的是魔串，标题输入框不参与校验
+  const titleError = draft.titleless ? null : checkTitle(draft.title)
   if (titleError) errors.push(titleError)
   const categoryError = checkCategory(draft.categoryId)
   if (categoryError) errors.push(categoryError)
@@ -239,7 +250,8 @@ export function postPayload(
 ): CreateContentPayload {
   return {
     type: 'POST',
-    title: draft.title.trim(),
+    // `R-31`：「不使用标题」提交魔串（含直角括号），动态卡 / opus 详情据此跳过标题
+    title: draft.titleless ? TITLELESS_SENTINEL : draft.title.trim(),
     description: draft.description.trim(),
     categoryId: draft.categoryId,
     media: {
@@ -270,8 +282,11 @@ export function draftSignature(draft: VideoDraft | PostDraft): string {
     'video' in draft
       ? [draft.video, draft.cover].filter((file): file is File => file !== null)
       : [draft.cover, ...draft.images].filter((file): file is File => file !== null)
+  // 标题用**将要提交的值**：勾了「不使用标题」就是魔串，否则 trim 后的标题。
+  // 否则"勾/取消勾"不会让幂等键作废 ⇒ 重试会带着旧载荷指纹（409）。
+  const title = 'titleless' in draft && draft.titleless ? TITLELESS_SENTINEL : draft.title.trim()
   return JSON.stringify({
-    title: draft.title.trim(),
+    title,
     description: draft.description.trim(),
     categoryId: draft.categoryId,
     files: files.map((file) => `${file.name}:${file.size}:${file.lastModified}`),

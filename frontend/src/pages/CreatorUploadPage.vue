@@ -646,7 +646,9 @@ async function submitPost(): Promise<void> {
             </div>
 
             <div class="field">
-              <label class="field__label" for="post-title"><i class="required">*</i>标题</label>
+              <label class="field__label" for="post-title">
+                <i v-if="!postDraft.titleless" class="required">*</i>标题
+              </label>
               <div class="input-wrap">
                 <input
                   id="post-title"
@@ -654,11 +656,17 @@ async function submitPost(): Promise<void> {
                   class="input"
                   type="text"
                   maxlength="50"
-                  placeholder="请输入标题"
+                  :disabled="postDraft.titleless"
+                  :placeholder="postDraft.titleless ? '提交时将保存为「无标题」' : '请输入标题'"
                   @input="clearError('title')"
                 />
                 <span class="counter">{{ postDraft.title.length }}/{{ TITLE_MAX }}</span>
               </div>
+              <!-- `R-31`：纯文字动态也可以没有标题；提交时写魔串「无标题」（含直角括号） -->
+              <label class="titleless-toggle">
+                <input v-model="postDraft.titleless" type="checkbox" @change="clearError('title')" />
+                <span>不使用标题（提交为「无标题」）</span>
+              </label>
               <p v-if="errorOf('title')" class="field-error">{{ errorOf('title') }}</p>
             </div>
 
@@ -728,7 +736,7 @@ async function submitPost(): Promise<void> {
     <CoverPreview
       v-if="postCover.previewOpen"
       :src="postCover.preview"
-      :title="postDraft.title"
+      :title="postDraft.titleless ? '无标题' : postDraft.title"
       @close="postCover.previewOpen = false"
     />
   </div>
@@ -992,6 +1000,20 @@ async function submitPost(): Promise<void> {
   font-size: 12px;
   color: var(--text-3);
   pointer-events: none;
+}
+
+.titleless-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.titleless-toggle input {
+  accent-color: var(--brand-blue);
 }
 
 .field-error {

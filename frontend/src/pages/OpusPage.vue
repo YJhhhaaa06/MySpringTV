@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router'
 import type { VideoDetailVM } from '../types/ui'
 import { loadOpusPage } from '../api/endpoints'
 import { ApiError, describeError } from '../api/http'
-import { initialOf } from '../api/adapters/format'
+import { initialOf, isTitleless } from '../api/adapters/format'
 import { videoHref } from '../api/adapters/links'
 import { sessionState } from '../auth/session'
 import { shareCurrentPage } from '../common/share'
@@ -143,7 +143,8 @@ function onCommentCount(count: number): void {
 
     <div v-else-if="detail" class="opus-layout">
       <article class="opus-article">
-        <h1 class="opus-title">{{ detail.title }}</h1>
+        <!-- `R-31`：投稿时勾了「不使用标题」⇒ 详情也不摆一个「无标题」大标题 -->
+        <h1 v-if="!isTitleless(detail.title)" class="opus-title">{{ detail.title }}</h1>
 
         <header class="opus-author">
           <a

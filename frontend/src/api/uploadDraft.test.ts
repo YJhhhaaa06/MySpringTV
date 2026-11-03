@@ -117,6 +117,10 @@ describe('图文投稿校验', () => {
     expect(validatePostDraft(postDraft())).toEqual([])
   })
 
+  it('★ R-31：勾了「不使用标题」⇒ 标题为空也能发（提交的是魔串）', () => {
+    expect(validatePostDraft(postDraft({ title: '', titleless: true }))).toEqual([])
+  })
+
   it('简介 10001 字拒绝（图文上限与视频不同，是 10000）', () => {
     const errors = validatePostDraft(postDraft({ description: 'a'.repeat(POST_DESCRIPTION_MAX + 1) }))
     expect(errors).toEqual([{ field: 'description', message: '简介不得超过 10000 字' }])
@@ -183,6 +187,11 @@ describe('上传计划与创建载荷（upload + JSON 清单）', () => {
     expect('videoUrl' in payload.media).toBe(false)
   })
 
+  it('★ R-31：不使用标题 ⇒ 载荷标题写魔串「无标题」（含直角括号），忽略输入框内容', () => {
+    const payload = postPayload(postDraft({ title: '这行不该被提交', titleless: true }), null, [])
+    expect(payload.title).toBe('「无标题」')
+  })
+
   it('图文创建载荷：imageUrls 顺序 = 传进来的顺序（长按换序后这就是新的 sort）', () => {
     const payload = postPayload(postDraft(), '/upload/cover/c.png', [
       '/upload/image/3.jpg',
@@ -220,6 +229,15 @@ describe('幂等键生命周期', () => {
     expect(changedTitle).not.toBe(first)
     const changedFile = holder.keyFor(draftSignature({ ...original, video: fakeFile('b.mp4', 1024) }))
     expect(changedFile).not.toBe(changedTitle)
+  })
+
+  it('★ R-31：勾 / 取消「不使用标题」⇒ 指纹变化；勾选态下输入框内容不影响指纹', () => {
+    const base = postDraft({ title: '标题' })
+    const withTitle = draftSignature(base)
+    const titleless = draftSignature({ ...base, titleless: true })
+    expect(titleless).not.toBe(withTitle)
+    // 勾选后真正提交的是魔串 ⇒ 输入框里残留的字不该让幂等键抖动
+    expect(draftSignature({ ...base, titleless: true, title: '另一行' })).toBe(titleless)
   })
 
   it('成功提交后 reset ⇒ 下一次是新意图（新键）', () => {
