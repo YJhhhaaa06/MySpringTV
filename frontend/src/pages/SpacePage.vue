@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import type { PublicFolderVM, SpaceHeaderVM, SpaceWorksVM, VideoCardVM } from '../types/ui'
+import type {
+  DynamicPageVM,
+  PublicFolderVM,
+  SpaceHeaderVM,
+  SpaceWorksVM,
+  VideoCardVM,
+} from '../types/ui'
 import { loadFolderItems, loadPublicFolders, loadSpace } from '../api/profile'
 import { followUser, unfollowUser } from '../api/interactions'
 import { ApiError, describeError } from '../api/http'
@@ -10,6 +16,8 @@ import { applyAvatarUrl, isAuthenticated, restoreSession, sessionState } from '.
 import { requireLogin } from '../auth/loginPrompt'
 import { showToast } from '../common/toast'
 import { useCheckIn } from '../composables/useCheckIn'
+import { useDynamicActions } from '../composables/useDynamicActions'
+import { useUserAvatars } from '../composables/useUserAvatars'
 import AppIcon from '../components/common/AppIcon.vue'
 import EmptyState from '../components/common/EmptyState.vue'
 import Pagination from '../components/common/Pagination.vue'
@@ -17,22 +25,33 @@ import AvatarSettingsDialog from '../components/common/AvatarSettingsDialog.vue'
 import UserAvatar from '../components/common/UserAvatar.vue'
 import VideoCard from '../components/common/VideoCard.vue'
 import VideoGrid from '../components/home/VideoGrid.vue'
+import DynamicCard from '../components/feed/DynamicCard.vue'
 import RelationPanel from '../components/space/RelationPanel.vue'
 
 /**
  * UP 主空间（`GET /users/{id}` + 公开收藏夹 + 关注/粉丝列表）。
  *
  * <h2>版式按 B 站 2026 空间页</h2>
- * banner（渐变底）→ 头像 + 昵称 + 关注按钮 → tab（主页 / 收藏）→ 内容 + 右侧资料卡。
+ * banner（渐变底）→ 头像 + 昵称 + 关注按钮 → tab（主页 / 动态 / 投稿 / 收藏）→ 内容 + 右侧资料卡。
  * 点头部的「粉丝 / 关注」数字进入**关注 / 粉丝列表**（B 站是 `/{uid}/relation/following`，
  * 2026-10-27 新增；本仓用同一文档里的 query：`?tab=following|followers`）。
+ *
+ * <h2>★ 三种视图 = 同一份 `contentPage`（`R-31`）</h2>
+ * 本仓没有独立动态域（"动态 = 投稿时间线"），所以三个 tab 不是三份数据，而是三种呈现：
+ * <ul>
+ *   <li><b>主页</b>（缺省）：最新 3 大卡 + 网格预览 6 + 「查看全部投稿」，不分页；</li>
+ *   <li><b>动态</b>：全量时间线（图文正文/图集、视频卡、内联评论）+ 分页；</li>
+ *   <li><b>投稿</b>：全量网格 + 分页（纯文字动态在这里是文字卡面，GAP-28 原口径）。</li>
+ * </ul>
+ * 主页与投稿是"预览 vs 全量"，不是"两个名字一套数据"；类型子筛选（视频/图文）另有
+ * `GAP-32`，本窗不渲染。
  *
  * <h2>★ 三处降级（都进了 GAP 台账，界面上不假装有）</h2>
  * - **没有 banner 图 / 签名 / 生日 / 地区**：banner 用渐变底，资料卡只放真实计数；
  * - **"代表作"是 UP 自选的，本仓没有这个字段** ⇒ 第一页把**最新 3 条**放大卡，
  *   标题写「最新投稿」而不是「代表作」（标题说谎比少一块更坏）；
- * - **动态 / 合集和系列 / 最近点赞**没有端点（`GET /feed` 是"我关注的动态"，不是某人的）
- *   ⇒ 这两类 tab **不渲染**，而不是摆一个点不动的。
+ * - **合集和系列 / 最近点赞**没有端点 ⇒ 这两类 tab **不渲染**，而不是摆一个点不动的；
+ *   「动态」tab 由 `contentPage` 的时间线视图提供（`R-31`，与 `/dynamic?author=` 同源）。
  *
  * <h2>★ 关注 / 粉丝列表的降级（GAP-25）</h2>
  * `FollowUserVO` 只有 `userId / username / isFollowed / isSelf` —— **没有头像字段、没有签名**
@@ -52,14 +71,14 @@ const router = useRouter()
 const PAGE_SIZE = 12
 
 /**
- * 四个 tab：主页（投稿）/ 收藏 / 关注 / 粉丝。
+ * 视图：主页 / 动态 / 投稿 / 收藏（+ 关注/粉丝两个隐藏入口）。
  *
  * <p>★ 后两个不是 B 站**tab 条**上的东西（B 站是点头部「关注 / 粉丝」数字进
  * `/{uid}/relation/following`，tab 条上没有任何一个高亮 —— 见
  * `.screenshots/bilibili-2026-10-26/space-following`）。本仓把入口放在**头部计数**
- * 上（同 B 站），tab 条保持 主页 / 收藏；进入关注/粉丝后两个 tab 都不高亮。
+ * 上（同 B 站），tab 条保持 主页 / 动态 / 投稿 / 收藏；进入关注/粉丝后都不高亮。
  */
-type SpaceTab = 'works' | 'folders' | 'following' | 'followers'
+type SpaceTab = 'home' | 'dynamic' | 'works' | 'folders' | 'following' | 'followers'
 
 const userId = computed(() => {
   const raw = Number(route.params.id)
@@ -67,8 +86,10 @@ const userId = computed(() => {
 })
 const tab = computed<SpaceTab>(() => {
   const raw = route.query.tab
-  if (raw === 'folders' || raw === 'following' || raw === 'followers') return raw
-  return 'works'
+  if (raw === 'dynamic' || raw === 'works' || raw === 'folders' || raw === 'following' || raw === 'followers') {
+    return raw
+  }
+  return 'home'
 })
 const isRelationTab = computed(() => tab.value === 'following' || tab.value === 'followers')
 const worksPage = computed(() => positive(route.query.page))
@@ -91,6 +112,8 @@ function positive(raw: unknown): number {
 // ── 作品 ──────────────────────────────────────────────────────────────
 const header = ref<SpaceHeaderVM | null>(null)
 const works = ref<SpaceWorksVM | null>(null)
+/** 同一份 `contentPage` 的时间线视图（`R-31`；与 `works` 同一次请求） */
+const timeline = ref<DynamicPageVM | null>(null)
 const featured = ref<VideoCardVM[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -110,13 +133,38 @@ const gridItems = computed(() => {
   return worksPage.value === 1 ? works.value.items.slice(featured.value.length) : works.value.items
 })
 
+/** 主页网格预览：第一页去掉 3 张大卡后最多再放 6 张，剩下的去「投稿」tab */
+const homePreview = computed(() => gridItems.value.slice(0, 6))
+
+/** 预览之外还有内容才显示「查看全部投稿」（按 total 算，不按本页是否满 12 条） */
+const hasMoreWorks = computed(() => {
+  if (!works.value) return false
+  return works.value.total > featured.value.length + homePreview.value.length
+})
+
+/** 空间动态卡的头像（作者快照面，`R-27` 批量补） */
+const timelineAvatarIds = computed(() => (timeline.value?.items ?? []).map((item) => item.authorId))
+const { avatars: timelineAvatars } = useUserAvatars(timelineAvatarIds)
+
+/** 点赞 / 内联评论：与 `/dynamic` 共用同一套动作（`R-31`） */
+const {
+  likeBusy,
+  toggleLike,
+  openCommentsId,
+  toggleComments,
+  onCommentCountChanged,
+  closeComments,
+} = useDynamicActions()
+
 async function loadWorks(): Promise<void> {
   if (!userId.value) {
     error.value = '地址里的用户 id 不合法'
     header.value = null
     works.value = null
+    timeline.value = null
     return
   }
+  closeComments() // 换页 / 换人后旧的评论面板不再有意义
   loading.value = true
   error.value = ''
   try {
@@ -126,10 +174,12 @@ async function loadWorks(): Promise<void> {
     const data = await loadSpace(userId.value, worksPage.value, PAGE_SIZE)
     header.value = data.header
     works.value = data.works
+    timeline.value = data.timeline
     featured.value = data.featured
   } catch (exception) {
     header.value = null
     works.value = null
+    timeline.value = null
     featured.value = []
     error.value =
       exception instanceof ApiError && exception.status === 404
@@ -270,10 +320,12 @@ function goRelationPage(page: number): void {
 }
 
 function setTab(next: SpaceTab): void {
+  closeComments() // 离开动态视图时收起评论区
+  // 主页是缺省态（URL 不带 tab），其余显式写 tab；切 tab 一律回第 1 页
   void router.push({
     name: 'space',
     params: { id: userId.value },
-    query: next === 'works' ? {} : { tab: next },
+    query: next === 'home' ? {} : { tab: next },
   })
 }
 
@@ -285,11 +337,15 @@ function backToFolders(): void {
   void router.push({ name: 'space', params: { id: userId.value }, query: { tab: 'folders' } })
 }
 
-function goWorksPage(page: number): void {
+/**
+ * 动态 / 投稿两个视图都有分页：**必须保留 tab**。
+ * 只写 `page` 会掉回主页（`works` 时代就有这个坑，`R-31` 把它变成两个 tab 共用）。
+ */
+function goTabPage(page: number): void {
   void router.push({
     name: 'space',
     params: { id: userId.value },
-    query: page > 1 ? { page: String(page) } : {},
+    query: { tab: tab.value, ...(page > 1 ? { page: String(page) } : {}) },
   })
 }
 
@@ -373,9 +429,17 @@ function goItemPage(page: number): void {
         </header>
 
         <nav class="space-tabs" aria-label="空间分类">
+          <button class="space-tab" :class="{ 'is-active': tab === 'home' }" type="button" @click="setTab('home')">
+            <AppIcon name="dashboard" :size="16" />
+            <span>主页</span>
+          </button>
+          <button class="space-tab" :class="{ 'is-active': tab === 'dynamic' }" type="button" @click="setTab('dynamic')">
+            <AppIcon name="dynamic" :size="16" />
+            <span>动态</span>
+          </button>
           <button class="space-tab" :class="{ 'is-active': tab === 'works' }" type="button" @click="setTab('works')">
             <AppIcon name="tv" :size="16" />
-            <span>主页</span>
+            <span>投稿</span>
           </button>
           <button class="space-tab" :class="{ 'is-active': tab === 'folders' }" type="button" @click="setTab('folders')">
             <AppIcon name="star" :size="16" />
@@ -385,12 +449,12 @@ function goItemPage(page: number): void {
 
         <div v-if="!isRelationTab" class="space-layout">
           <section class="space-main">
-            <!-- 主页：最新 3 条大卡 + 其余网格 + Page 分页 -->
-            <template v-if="tab === 'works'">
+            <!-- 主页（R-31）：最新 3 大卡 + 网格预览 6 + 查看全部；不分页 -->
+            <template v-if="tab === 'home'">
               <div v-if="loading && !works" class="space-skeleton">
                 <div v-for="n in 6" :key="n" class="skeleton space-skeleton__card" />
               </div>
-
+              <p v-else-if="error" class="space-empty space-empty--error">{{ error }}</p>
               <template v-else-if="works">
                 <section v-if="featured.length" class="featured">
                   <h2 class="featured__title">最新投稿</h2>
@@ -401,8 +465,53 @@ function goItemPage(page: number): void {
 
                 <p v-if="!works.items.length" class="space-empty">这个 UP 主还没有投稿</p>
                 <template v-else>
-                  <VideoGrid :items="gridItems" />
-                  <Pagination :page="works.page" :total-pages="works.totalPages" @update:page="goWorksPage" />
+                  <VideoGrid v-if="homePreview.length" :items="homePreview" />
+                  <button v-if="hasMoreWorks" class="space-more" type="button" @click="setTab('works')">
+                    查看全部投稿
+                    <AppIcon name="chevron-right" :size="14" />
+                  </button>
+                </template>
+              </template>
+            </template>
+
+            <!-- 动态（R-31）：同一份 contentPage 的时间线；与 /dynamic?author= 同源 -->
+            <template v-else-if="tab === 'dynamic'">
+              <div v-if="loading && !timeline" class="space-skeleton">
+                <div v-for="n in 4" :key="n" class="skeleton space-skeleton__card" />
+              </div>
+              <p v-else-if="error" class="space-empty space-empty--error">{{ error }}</p>
+              <template v-else-if="timeline">
+                <p v-if="!timeline.items.length" class="space-empty">这个 UP 主还没有发布过内容</p>
+                <template v-else>
+                  <div class="space-dynamic-list">
+                    <DynamicCard
+                      v-for="card in timeline.items"
+                      :key="card.id"
+                      :item="card"
+                      :busy="likeBusy.has(card.id)"
+                      :avatar-url="timelineAvatars.get(card.authorId) ?? null"
+                      :comments-open="openCommentsId === card.id"
+                      @toggle-like="toggleLike(card)"
+                      @toggle-comments="toggleComments(card)"
+                      @comment-count-changed="onCommentCountChanged(card, $event)"
+                    />
+                  </div>
+                  <Pagination :page="timeline.page" :total-pages="timeline.totalPages" @update:page="goTabPage" />
+                </template>
+              </template>
+            </template>
+
+            <!-- 投稿（R-31）：全量网格 + 分页；纯文字动态在这里是文字卡面（GAP-28） -->
+            <template v-else-if="tab === 'works'">
+              <div v-if="loading && !works" class="space-skeleton">
+                <div v-for="n in 6" :key="n" class="skeleton space-skeleton__card" />
+              </div>
+              <p v-else-if="error" class="space-empty space-empty--error">{{ error }}</p>
+              <template v-else-if="works">
+                <p v-if="!works.items.length" class="space-empty">这个 UP 主还没有投稿</p>
+                <template v-else>
+                  <VideoGrid :items="works.items" />
+                  <Pagination :page="works.page" :total-pages="works.totalPages" @update:page="goTabPage" />
                 </template>
               </template>
             </template>
@@ -687,6 +796,35 @@ function goItemPage(page: number): void {
 
 .space-empty--error {
   color: #f56c6c;
+}
+
+/* 主页「查看全部投稿」（R-31） */
+.space-more {
+  display: flex;
+  width: 100%;
+  height: 40px;
+  margin-top: 18px;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  background: var(--bg-0);
+  font-size: 13px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.space-more:hover {
+  color: var(--brand-blue);
+  border-color: var(--brand-blue);
+}
+
+/* 动态 tab 的卡片流（R-31） */
+.space-dynamic-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .space-back {
