@@ -257,6 +257,35 @@ class ContentReadTests extends AbstractContentIntegrationTest {
     }
 
     @Test
+    @DisplayName("★R-31：搜索列表图文带 imageUrls（按 sort 序）；视频为 null；两者都不带 videoUrl")
+    void 搜索列表_图文带图集且不泄露播放地址() {
+        registerAndGetToken(AUTHOR_PHONE, AUTHOR);
+        long authorId = userIdOf(AUTHOR_PHONE);
+        long post = insertPostContent(authorId, "r31image 搜索图集");
+        long video = insertVideoContent(authorId, "r31image 搜索视频");
+
+        JsonNode list = Envelope.data(get("/api/v1/contents?keyword=r31image", null)).path("list");
+
+        // 独立 oracle：content_media 的 type=2 行（sort 升序），不信接口回显
+        List<String> expected = jdbcTemplate.queryForList(
+                "SELECT url FROM content_media WHERE content_id = ? AND type = 2 ORDER BY sort",
+                String.class, post);
+        JsonNode postItem = itemOf(list, post);
+        assertThat(postItem.path("imageUrls").isArray())
+                .as("R-31：列表统一透出图集（不只 /feed）").isTrue();
+        List<String> actual = new ArrayList<>();
+        postItem.path("imageUrls").forEach(node -> actual.add(node.asString()));
+        assertThat(actual).as("顺序 = content_media.sort").containsExactlyElementsOf(expected);
+
+        assertThat(itemOf(list, video).path("imageUrls").isNull())
+                .as("视频条目的 imageUrls 为 null（与 /feed 同口径）").isTrue();
+        assertThat(postItem.has("videoUrl"))
+                .as("★ 列表仍屏蔽播放地址（videoUrl 不是 R-31 放开的面）").isFalse();
+        assertThat(itemOf(list, video).has("videoUrl"))
+                .as("视频条目也不带 videoUrl").isFalse();
+    }
+
+    @Test
     @DisplayName("搜索：缺省（不传分页）== 显式 page=1&pageSize=100 响应逐字节一致")
     void 搜索_缺省等价显式首页() {
         registerAndGetToken(AUTHOR_PHONE, AUTHOR);

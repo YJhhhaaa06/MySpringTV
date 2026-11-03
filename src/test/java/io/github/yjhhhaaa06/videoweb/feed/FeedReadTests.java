@@ -239,7 +239,12 @@ class FeedReadTests extends AbstractFeedIntegrationTest {
     void 图文条目带图集且视频为null() {
         long viewerId = registerViewer();
         long authorId = registerAuthor();
-        long post = insertPostContent(authorId, "feed 图文图集");
+        // ★ 故意**逆序插入**媒体行：sort 2 先插、sort 1 后插。
+        //   若 buildContentMedia 丢了 sort（只靠 DAO 默认顺序），actual 会变成 2,1 ⇒ 红。
+        long post = insertContent(authorId, CONTENT_TYPE_IMAGE, "feed 图文图集", "feed 图文图集 的简介", 2);
+        insertMedia(post, "/upload/image/" + post + "_2.jpg", MEDIA_TYPE_IMAGE, 2);
+        insertMedia(post, "/upload/image/" + post + "_1.jpg", MEDIA_TYPE_IMAGE, 1);
+        insertMedia(post, "/upload/cover/" + post + ".png", MEDIA_TYPE_COVER, 1);
         long video = insertVideoContent(authorId, "feed 视频无图集");
         insertFollowRow(viewerId, authorId);
         insertFeedInboxRow(viewerId, post);
@@ -263,6 +268,9 @@ class FeedReadTests extends AbstractFeedIntegrationTest {
         JsonNode videoItem = itemOf(list, video);
         assertThat(videoItem.path("imageUrls").isNull())
                 .as("视频条目的 imageUrls 为 null（不是省略、也不是空数组）").isTrue();
+        // 反向边界：imageUrls 放开了，但 videoUrl 仍必须被 @JsonIgnore 挡住
+        assertThat(postItem.has("videoUrl")).as("图文条目不带 videoUrl").isFalse();
+        assertThat(videoItem.has("videoUrl")).as("视频条目也不带 videoUrl（播放地址属详情）").isFalse();
     }
 
     @Test
