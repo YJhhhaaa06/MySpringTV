@@ -1,16 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { DynamicCardVM, RelationPageVM, SpaceHeaderVM } from '../types/ui'
 import { FEED_PAGE_SIZE, loadFeed } from '../api/feed'
 import { loadFollowing } from '../api/relations'
 import { loadProfileHeader } from '../api/profile'
-import { fetchLikeCount, likeContent, unlikeContent } from '../api/interactions'
-import { ApiError, describeError } from '../api/http'
+import { describeError } from '../api/http'
 import { formatCount } from '../api/adapters/format'
-import { isAuthenticated, restoreSession, sessionState, signOut } from '../auth/session'
+import { isAuthenticated, restoreSession, sessionState } from '../auth/session'
 import { requireLogin } from '../auth/loginPrompt'
-import { showToast } from '../common/toast'
+import { useDynamicActions } from '../composables/useDynamicActions'
 import { useUserAvatars } from '../composables/useUserAvatars'
 import AppIcon from '../components/common/AppIcon.vue'
 import EmptyState from '../components/common/EmptyState.vue'
@@ -73,8 +72,18 @@ const { avatars: feedAvatars } = useUserAvatars(feedAvatarIds)
 const followingAvatarIds = computed(() => (following.value?.items ?? []).map((user) => user.id))
 const { avatars: followingAvatars } = useUserAvatars(followingAvatarIds)
 
-/** 正在请求点赞的卡片（同一张卡不并发两次；其余卡片不受影响） */
-const likeBusy = reactive(new Set<number>())
+/**
+ * 点赞 + 内联评论（`R-31`）：抽成 composable 与空间动态 tab 共用。
+ * 评论是**页面级单值**（同时只开一个），卡片受控显示。
+ */
+const {
+  likeBusy,
+  toggleLike,
+  openCommentsId,
+  toggleComments,
+  onCommentCountChanged,
+  closeComments,
+} = useDynamicActions()
 
 onMounted(async () => {
   await restoreSession()
@@ -104,6 +113,7 @@ watch(page, () => {
 
 async function loadFeedPage(): Promise<void> {
   if (!isAuthenticated()) return
+  closeComments() // 换页 / 重载后旧卡片的评论面板不再有意义
   loading.value = true
   error.value = ''
   try {
@@ -131,39 +141,6 @@ async function loadSidebars(): Promise<void> {
   if (followingResult.status === 'fulfilled') following.value = followingResult.value
 }
 
-async function toggleLike(card: DynamicCardVM): Promise<void> {
-  if (likeBusy.has(card.id)) return
-  if (!(await requireLogin())) return
-  const target = card.liked !== true
-  const beforeLiked = card.liked
-  const beforeCount = card.likeCount
-  likeBusy.add(card.id)
-  // 乐观更新（三态：null = 本面没查，点下去就是 true）
-  card.liked = target
-  if (typeof beforeCount === 'number') card.likeCount = Math.max(0, beforeCount + (target ? 1 : -1))
-  try {
-    if (target) await likeContent(card.id)
-    else await unlikeContent(card.id)
-    // 写后对齐：服务端权威值。对齐失败不回滚（主写已经成功，回滚反而画出旧值）
-    try {
-      const authoritative = await fetchLikeCount(card.id)
-      if (typeof authoritative === 'number' && Number.isFinite(authoritative)) card.likeCount = authoritative
-    } catch {
-      /* 计数对齐是尽力而为 */
-    }
-  } catch (exception) {
-    card.liked = beforeLiked
-    card.likeCount = beforeCount
-    if (exception instanceof ApiError && exception.status === 401) {
-      signOut()
-      showToast('登录已过期，请重新登录', 'error')
-      return
-    }
-    showToast(describeError(exception), 'error')
-  } finally {
-    likeBusy.delete(card.id)
-  }
-}
 
 async function signIn(): Promise<void> {
   await requireLogin()
@@ -259,7 +236,10 @@ function followingHref(userId: number): string {
                   :item="card"
                   :busy="likeBusy.has(card.id)"
                   :avatar-url="feedAvatars.get(card.authorId) ?? null"
+                  :comments-open="openCommentsId === card.id"
                   @toggle-like="toggleLike(card)"
+                  @toggle-comments="toggleComments(card)"
+                  @comment-count-changed="onCommentCountChanged(card, $event)"
                 />
               </div>
               <Pagination :page="feed.page" :total-pages="feed.totalPages" @update:page="goPage" />

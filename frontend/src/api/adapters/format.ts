@@ -285,6 +285,20 @@ export function cleanDescription(value: string | null | undefined): string {
 }
 
 /**
+ * `R-31`：图文投稿「不使用标题」时写进 `title` 的**魔串**（含直角括号，5 字符）。
+ *
+ * <p>为什么用魔串而不是新增布尔字段：`title` 是必填列，后端零改动；直角括号让真实标题
+ * 「无标题」的碰撞概率降到可接受（代价见 `R-31` 推翻条件 —— 真冲突就加 `title_optional`）。
+ * 动态卡 / opus 详情 `trim()` 后全等则跳过标题；网格 / 搜索 / 历史仍按普通标题显示。
+ */
+export const TITLELESS_SENTINEL = '「无标题」'
+
+/** 该项是否「不使用标题」（`trim` 后与魔串全等；只该用于图文）。 */
+export function isTitleless(title: string | null | undefined): boolean {
+  return (title ?? '').trim() === TITLELESS_SENTINEL
+}
+
+/**
  * 头像占位：昵称首字（大写）。
  *
  * <p>头像 URL 由 `UserAvatar` / 页面批量端点负责；这里只保留「昵称首字」作为兜底，

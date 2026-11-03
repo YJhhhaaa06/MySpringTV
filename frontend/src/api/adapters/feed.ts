@@ -2,7 +2,14 @@ import type { components } from '../../types/api'
 import type { Count, DynamicCardVM, DynamicPageVM } from '../../types/ui'
 import { CONTENT_TYPE_POST } from '../contentTypes'
 import { serverNow } from '../serverClock'
-import { cleanDescription, formatCount, formatDuration, formatRelativeDate, initialOf } from './format'
+import {
+  cleanDescription,
+  formatCount,
+  formatDuration,
+  formatRelativeDate,
+  initialOf,
+  isTitleless,
+} from './format'
 import { likedOf } from './interaction'
 import { contentHref, spaceHref } from './links'
 
@@ -28,12 +35,23 @@ export function toDynamicCard(
 ): DynamicCardVM {
   const isPost = item.type === CONTENT_TYPE_POST
   const authorName = item.authorName?.trim() || '未知UP主'
+  const coverUrl = item.coverUrl?.trim() || null
+  const rawTitle = item.title?.trim() || '无标题'
+  // `R-31`：「不使用标题」的图文把标题存成「无标题」魔串 ⇒ 卡片不渲染标题，正文为主
+  const titleless = isPost && isTitleless(item.title)
+  const backendImages = isPost
+    ? (item.imageUrls ?? []).map((url) => url?.trim() ?? '').filter((url) => url !== '')
+    : []
+  // 存量图文可能只有封面（GAP-28 的旧形态）⇒ 用封面兜底成单图，别让它退化成纯文字
+  const imageUrls = isPost && backendImages.length === 0 && coverUrl ? [coverUrl] : backendImages
   return {
     id: item.id ?? 0,
-    title: item.title?.trim() || '无标题',
+    title: titleless ? '无标题' : rawTitle,
+    hasTitle: !titleless,
     // 图文 → /opus/{id}，视频 → /video/{id}（与首页 / 搜索同一套落点规则）
     href: contentHref(item.id, isPost),
-    coverUrl: item.coverUrl?.trim() || null,
+    coverUrl,
+    imageUrls,
     // 图文没有时长概念：即使后端误回填也不显示
     durationText: isPost ? null : formatDuration(item.durationSeconds),
     authorId: item.authorId ?? 0,
@@ -41,8 +59,9 @@ export function toDynamicCard(
     authorHref: spaceHref(item.authorId),
     authorInitial: initialOf(authorName),
     timeText: formatRelativeDate(item.createTime, now),
-    // 由 type 推导的**动作**文案（不是后端字段，所以不叫「动态类型」）
-    actionText: isPost ? '发布了图文' : '投稿了视频',
+    // 由 type + 有无媒体推导的**动作**文案（不是后端字段，所以不叫「动态类型」）：
+    // 无图无封面的图文就是纯文字动态（`R-31`），不写「发布了图文」
+    actionText: isPost ? (imageUrls.length > 0 ? '发布了图文' : '发布了动态') : '投稿了视频',
     description: cleanDescription(item.description),
     isPost,
     playCountText:

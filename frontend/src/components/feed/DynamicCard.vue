@@ -1,27 +1,34 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import type { DynamicCardVM } from '../../types/ui'
 import { formatCount } from '../../api/adapters/format'
 import AppIcon from '../common/AppIcon.vue'
 import UserAvatar from '../common/UserAvatar.vue'
+import CommentSection from '../video/CommentSection.vue'
 
 /**
  * 动态卡（B 站 2026-10 版式，参照 `.screenshots/bilibili-2026-10-26/dynamic-feed-all`）：
  *
  * <pre>
- * [头像] UP 主
- *        刚刚 · 投稿了视频
- * ┌────────────────────────────────────────────┐
- * │ 封面(16:9) │ 标题（两行）                    │
- * │            │ 简介（两行）                    │
- * │            │ ▷ 播放量   💬 评论数             │
- * └────────────────────────────────────────────┘
- *        点赞（有数字时带数字）        评论
+ * 视频：[头像] UP 主
+ *              刚刚 · 投稿了视频
+ *      ┌────────────────────────────────────────────┐
+ *      │ 封面(16:9) │ 标题（两行）                    │
+ *      │            │ 简介（两行）                    │
+ *      │            │ ▷ 播放量   💬 评论数             │
+ *      └────────────────────────────────────────────┘
+ * 图文：[头像] UP 主
+ *              刚刚 · 发布了图文 / 发布了动态
+ *      标题（可选）
+ *      正文（折叠 6 行，可展开）
+ *      [图] [图] [图]（≤9，第 9 张 +N）
+ *      点赞（有数字时带数字）        评论（可展开评论区）
  * </pre>
  *
  * <h2>★ 操作栏只有两个按钮，这是**故意**的</h2>
  * B 站还有「转发」：本仓没有转发域（没有表、没有端点）⇒ **不渲染**（有点不动的按钮 = 撒谎）。
- * 「评论」不是独立动作：本仓的评论在播放页，所以它是一个跳到 `/video/{id}#comments` 的链接。
+ * 「评论」自 `R-31` 起是**卡内展开**：挂载 `CommentSection`（懒加载、页面保证同时只开一个），
+ * 不再跳 `/video/{id}#comments`；详情页的评论区不动。
  * 「点赞」走真接口（`PUT|DELETE /contents/{id}/like`），成功后由页面回读 like-count 对齐。
  *
  * <h2>计数口径</h2>
@@ -34,8 +41,14 @@ const props = defineProps<{
   busy?: boolean
   /** 作者头像 URL（`R-27` 批量端点）；null ⇒ UserAvatar 按 userId 回落 */
   avatarUrl?: string | null
+  /** 评论区是否展开（受控：页面保证同时只开一个） */
+  commentsOpen?: boolean
 }>()
-defineEmits<{ (event: 'toggle-like'): void }>()
+const emit = defineEmits<{
+  (event: 'toggle-like'): void
+  (event: 'toggle-comments'): void
+  (event: 'comment-count-changed', count: number): void
+}>()
 
 /** 封面 404 / 解码失败也走占位块（dev 数据会撞到），逻辑与 `VideoCard` 一致 */
 const coverBroken = ref(false)
@@ -50,6 +63,63 @@ const showCover = computed(() => Boolean(props.item.coverUrl) && !coverBroken.va
 const showLikeCount = computed(
   () => props.item.likeCount !== null && (props.item.likeCount > 0 || props.item.liked === true),
 )
+
+// ── 图文：正文折叠 / 图集（B 站式；视频不走这里） ─────────────────────
+
+const expanded = ref(false)
+const canExpand = ref(false)
+const textEl = ref<HTMLElement | null>(null)
+const brokenImages = reactive(new Set<string>())
+
+const visibleImages = computed(() => props.item.imageUrls.slice(0, 9))
+const moreImages = computed(() => Math.max(0, props.item.imageUrls.length - 9))
+const imageGridClass = computed(() => {
+  const count = visibleImages.value.length
+  if (count === 1) return 'is-one'
+  return count <= 4 ? 'is-two' : 'is-three'
+})
+
+/**
+ * ★ 只在**折叠态**量：展开后 `scrollHeight == clientHeight`，
+ * 再量会把「收起」按钮误判成"没有溢出"而撤掉。
+ */
+function measure(): void {
+  const element = textEl.value
+  if (!element) {
+    canExpand.value = false
+    return
+  }
+  canExpand.value = !expanded.value && element.scrollHeight > element.clientHeight + 1
+}
+
+function onResize(): void {
+  if (!expanded.value) measure()
+}
+
+watch(
+  () => [props.item.id, props.item.description] as const,
+  async () => {
+    expanded.value = false
+    brokenImages.clear()
+    await nextTick()
+    measure()
+  },
+)
+
+onMounted(() => {
+  window.addEventListener('resize', onResize)
+  void nextTick(measure)
+})
+onBeforeUnmount(() => window.removeEventListener('resize', onResize))
+
+function toggleExpanded(): void {
+  expanded.value = !expanded.value
+  if (!expanded.value) void nextTick(measure)
+}
+
+function onCommentCountChanged(count: number): void {
+  emit('comment-count-changed', count)
+}
 </script>
 
 <template>
@@ -78,7 +148,8 @@ const showLikeCount = computed(
       </div>
     </header>
 
-    <a class="dyn-body" :href="item.href" target="_blank" rel="noopener" :aria-label="item.title">
+    <!-- 视频：封面 + 信息（B 站视频动态卡；版式不动） -->
+    <a v-if="!item.isPost" class="dyn-body" :href="item.href" target="_blank" rel="noopener" :aria-label="item.title">
       <span class="dyn-cover">
         <img
           v-if="showCover"
@@ -89,13 +160,7 @@ const showLikeCount = computed(
           decoding="async"
           @error="coverBroken = true"
         />
-        <!-- 纯文字图文：封面位换成文字纸片（正文在右侧，避免重复）；视频缺封面仍用 TV 占位 -->
-        <span v-else-if="item.isPost" class="dyn-cover__text" aria-hidden="true">
-          <span class="dyn-cover__quote">“</span>
-          <AppIcon name="article" :size="28" />
-        </span>
         <span v-else class="dyn-cover__fallback" aria-hidden="true"><AppIcon name="tv" :size="30" /></span>
-        <span v-if="item.isPost" class="dyn-cover__type">图文</span>
         <span v-if="item.durationText" class="dyn-cover__duration">{{ item.durationText }}</span>
       </span>
 
@@ -119,6 +184,46 @@ const showLikeCount = computed(
       </span>
     </a>
 
+    <!-- 图文：正文 + 图集（B 站式；太长折叠、展开按钮在链接外，避免嵌套交互元素） -->
+    <div v-else class="dyn-post">
+      <a class="dyn-post__link" :href="item.href" target="_blank" rel="noopener" :aria-label="item.title">
+        <h3 v-if="item.hasTitle" class="dyn-post__title">{{ item.title }}</h3>
+        <p
+          v-if="item.description"
+          ref="textEl"
+          class="dyn-post__text"
+          :class="{ 'is-clamped': !expanded }"
+        >{{ item.description }}</p>
+        <div v-if="visibleImages.length" class="dyn-post__images" :class="imageGridClass">
+          <span v-for="(url, index) in visibleImages" :key="`${url}-${index}`" class="dyn-post__image">
+            <img
+              v-if="!brokenImages.has(url)"
+              :src="url"
+              :alt="`${item.title} 的第 ${index + 1} 张图片`"
+              loading="lazy"
+              decoding="async"
+              @error="brokenImages.add(url)"
+            />
+            <span v-else class="dyn-post__image-fallback" aria-hidden="true">
+              <AppIcon name="article" :size="24" />
+            </span>
+            <span v-if="index === visibleImages.length - 1 && moreImages > 0" class="dyn-post__more">
+              +{{ moreImages }}
+            </span>
+          </span>
+        </div>
+      </a>
+      <button
+        v-if="canExpand"
+        class="dyn-post__toggle"
+        type="button"
+        :aria-expanded="expanded"
+        @click="toggleExpanded"
+      >
+        {{ expanded ? '收起' : '展开' }}
+      </button>
+    </div>
+
     <footer class="dyn-actions">
       <button
         class="dyn-action"
@@ -132,11 +237,28 @@ const showLikeCount = computed(
         <span>{{ item.liked === true ? '已点赞' : '点赞' }}</span>
         <span v-if="showLikeCount" class="dyn-action__count">{{ formatCount(item.likeCount) }}</span>
       </button>
-      <a class="dyn-action" :href="`${item.href}#comments`" target="_blank" rel="noopener">
+      <button
+        class="dyn-action"
+        :class="{ 'is-open': commentsOpen === true }"
+        type="button"
+        :aria-expanded="commentsOpen === true"
+        @click="$emit('toggle-comments')"
+      >
         <AppIcon name="comment" :size="20" />
         <span>评论</span>
-      </a>
+        <span v-if="item.commentCount !== null" class="dyn-action__count">{{ formatCount(item.commentCount) }}</span>
+      </button>
     </footer>
+
+    <!-- 评论内联（`R-31`）：懒加载 —— 只有展开的那张卡才挂载 / 发请求 -->
+    <div v-if="commentsOpen" class="dyn-comments">
+      <CommentSection
+        :content-id="item.id"
+        :comment-enabled="item.commentEnabled"
+        :initial-count="item.commentCount"
+        @count-changed="onCommentCountChanged"
+      />
+    </div>
   </article>
 </template>
 
@@ -235,41 +357,114 @@ const showLikeCount = computed(
   background: linear-gradient(135deg, #f1f2f3 0%, #e3e5e7 100%);
 }
 
-/* 纯文字图文的封面位：与网格卡同一套「文字纸片」语言（正文在右侧，这里只放引号 + 文档图标） */
-.dyn-cover__text {
+/* ── 图文：正文 + 图集（B 站式；缩进对齐 UP 主名字） ───────────── */
+.dyn-post {
+  margin: 12px 0 0 64px;
+}
+
+.dyn-post__link {
+  display: block;
+}
+
+.dyn-post__title {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 24px;
+  color: var(--text-1);
+  word-break: break-word;
+}
+
+.dyn-post__text {
+  margin-top: 6px;
+  font-size: 15px;
+  line-height: 24px;
+  color: var(--text-1);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 折叠 6 行；展开后去掉 clamp（`white-space: pre-wrap` 下 line-clamp 仍按行数算） */
+.dyn-post__text.is-clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+  overflow: hidden;
+}
+
+.dyn-post__toggle {
+  margin-top: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--brand-blue);
+  cursor: pointer;
+}
+
+.dyn-post__toggle:hover {
+  text-decoration: underline;
+}
+
+.dyn-post__images {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.dyn-post__images.is-one {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 420px;
+}
+
+.dyn-post__images.is-two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.dyn-post__images.is-three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.dyn-post__image {
   position: relative;
+  display: block;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--bg-2);
+}
+
+.dyn-post__images.is-one .dyn-post__image {
+  aspect-ratio: 4 / 3;
+}
+
+.dyn-post__image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.dyn-post__image-fallback {
   display: flex;
   width: 100%;
   height: 100%;
   align-items: center;
   justify-content: center;
-  color: var(--brand-blue);
-  background:
-    radial-gradient(circle at 88% 8%, rgba(0, 174, 236, 0.1), transparent 45%),
-    linear-gradient(135deg, #fbfcfd 0%, #eef4f9 100%);
+  color: var(--text-4);
+  background: var(--bg-2);
 }
 
-.dyn-cover__quote {
+.dyn-post__more {
   position: absolute;
-  top: 2px;
-  right: 12px;
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: 54px;
-  line-height: 1;
-  color: var(--brand-blue);
-  opacity: 0.16;
-}
-
-.dyn-cover__type {
-  position: absolute;
-  top: 6px;
-  left: 6px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--text-1);
-  background: rgba(255, 255, 255, 0.86);
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.45);
 }
 
 .dyn-cover__duration {
@@ -347,9 +542,14 @@ const showLikeCount = computed(
   align-items: center;
   justify-content: center;
   gap: 6px;
+  border: 0;
   border-radius: var(--radius);
+  background: transparent;
+  font: inherit;
   font-size: 14px;
   color: var(--text-2);
+  cursor: pointer;
+  text-decoration: none;
   transition: color 0.15s ease, background-color 0.15s ease;
 }
 
@@ -367,8 +567,20 @@ const showLikeCount = computed(
   color: var(--brand-pink);
 }
 
+.dyn-action.is-open {
+  color: var(--brand-blue);
+  background: var(--brand-blue-bg);
+}
+
 .dyn-action__count {
   font-variant-numeric: tabular-nums;
+}
+
+/* 评论内联（`R-31`）：只在展开时挂载；分隔线 + 与正文同缩进 */
+.dyn-comments {
+  margin: 8px 0 0 64px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-2);
 }
 
 @media (max-width: 760px) {
@@ -377,7 +589,9 @@ const showLikeCount = computed(
   }
 
   .dyn-body,
-  .dyn-actions {
+  .dyn-actions,
+  .dyn-post,
+  .dyn-comments {
     margin-left: 0;
   }
 }

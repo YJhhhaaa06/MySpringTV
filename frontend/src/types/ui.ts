@@ -328,10 +328,18 @@ export interface HistoryGroupVM {
  */
 export interface DynamicCardVM {
   id: number
+  /** 展示标题；图文「不使用标题」时是中性占位「无标题」，由 `hasTitle` 决定是否渲染 */
   title: string
+  /** 是否渲染标题：图文命中 `「无标题」` 魔串 ⇒ false（正文为主）；视频恒 true */
+  hasTitle: boolean
   /** 跨应用链接：`/video/{id}`（动态没有独立详情页，B 站的动态详情是另一套文档） */
   href: string
   coverUrl: string | null
+  /**
+   * 图文卡要展示的图集（`R-31`）：后端 `imageUrls` 按 `sort` 升序；
+   * 为空但有封面时用封面兜底成单图；视频恒 `[]`。
+   */
+  imageUrls: string[]
   /** 时长角标；图文恒 null */
   durationText: string | null
   authorId: number
