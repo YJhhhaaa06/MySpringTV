@@ -255,8 +255,9 @@ UPDATE content SET play_count = play_count + 1 WHERE id = ?;
 ```
 
 - ★ **不用 `ON DUPLICATE KEY UPDATE` 判首播**：`useAffectedRows=false` 下"插入"与"值没变的更新"
-  都返回 1 ⇒ 会把重复播放误判成首播。`INSERT IGNORE` 的 `1/0` 无歧义（与 coin 的
-  `insertIgnoreZero` 同形）。
+  都返回 1 ⇒ 会把重复播放误判成首播。`INSERT IGNORE` 的 `1/0` 无歧义。
+  ★ 这也是 history 与 coin 的**分岔点**：history 要拿这 `1/0` 判首播 ⇒ 必须留 `INSERT IGNORE`；
+  coin 不看返回值 ⇒ 换成 ODKU 只为让撞重直接拿排他锁（[coin.md](../coin/coin.md) §四.1）。
 - ★ **日期进主键 ⇒ 一条语句回答"今天有没有计过"**：旧实现要两条（`INSERT IGNORE` + 条件
   `UPDATE ... WHERE play_counted = 0`），现在只一条，两条语句之间的锁序窗口也随之消失。
 - ★ ② **必须无条件执行**：用户删了历史又重看时，今天不会再计播放量（账本还在），
