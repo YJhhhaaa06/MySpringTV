@@ -17,7 +17,6 @@ import { requireLogin } from '../auth/loginPrompt'
 import { showToast } from '../common/toast'
 import { useCheckIn } from '../composables/useCheckIn'
 import { useDynamicActions } from '../composables/useDynamicActions'
-import { useUserAvatars } from '../composables/useUserAvatars'
 import AppIcon from '../components/common/AppIcon.vue'
 import EmptyState from '../components/common/EmptyState.vue'
 import Pagination from '../components/common/Pagination.vue'
@@ -89,7 +88,9 @@ const tab = computed<SpaceTab>(() => {
   if (raw === 'dynamic' || raw === 'works' || raw === 'folders' || raw === 'following' || raw === 'followers') {
     return raw
   }
-  return 'home'
+  // 兼容旧链接：works 时代生成的 `/space/{id}?page=2` 没有 tab ⇒ 继续看投稿第 2 页，
+  // 不能静默掉回主页（主页不分页，用户会直接丢失第 2 页及之后的上下文）
+  return positive(route.query.page) > 1 ? 'works' : 'home'
 })
 const isRelationTab = computed(() => tab.value === 'following' || tab.value === 'followers')
 const worksPage = computed(() => positive(route.query.page))
@@ -130,7 +131,8 @@ function onAvatarUpdated(avatarUrl: string): void {
 /** 第一页的前 3 条做成大卡（其余进网格），避免同一内容出现两次 */
 const gridItems = computed(() => {
   if (!works.value) return []
-  return worksPage.value === 1 ? works.value.items.slice(featured.value.length) : works.value.items
+  // 用**已装载的页**判断，不用 query：主页固定请求第 1 页，`?page=2` 的旧链接也不该把大卡逻辑带偏
+  return works.value.page === 1 ? works.value.items.slice(featured.value.length) : works.value.items
 })
 
 /** 主页网格预览：第一页去掉 3 张大卡后最多再放 6 张，剩下的去「投稿」tab */
@@ -142,9 +144,10 @@ const hasMoreWorks = computed(() => {
   return works.value.total > featured.value.length + homePreview.value.length
 })
 
-/** 空间动态卡的头像（作者快照面，`R-27` 批量补） */
-const timelineAvatarIds = computed(() => (timeline.value?.items ?? []).map((item) => item.authorId))
-const { avatars: timelineAvatars } = useUserAvatars(timelineAvatarIds)
+/**
+ * 空间动态卡的头像：所有条目都是**空间主人**，直接用 `header.avatarUrl`（`R-27` 已解析生效 URL）。
+ * 不再为时间线打一次批量头像请求 —— 那会让没打开动态 tab 的页面也白读一趟。
+ */
 
 /** 点赞 / 内联评论：与 `/dynamic` 共用同一套动作（`R-31`） */
 const {
@@ -171,7 +174,8 @@ async function loadWorks(): Promise<void> {
     // ★ 先等登录态落定：`isSelf` 与 `isFollowed` 都取决于"我是谁"，
     //   抢在 restoreSession 之前装载，会把"看自己的空间"画成"关注自己"（后端会 FOLLOW_SELF）
     await restoreSession()
-    const data = await loadSpace(userId.value, worksPage.value, PAGE_SIZE)
+    // 主页固定第 1 页（它只有 3 + 6 的预览，不分页）；动态 / 投稿才吃 query 页码
+    const data = await loadSpace(userId.value, tab.value === 'home' ? 1 : worksPage.value, PAGE_SIZE)
     header.value = data.header
     works.value = data.works
     timeline.value = data.timeline
@@ -463,7 +467,9 @@ function goItemPage(page: number): void {
                   </div>
                 </section>
 
-                <p v-if="!works.items.length" class="space-empty">这个 UP 主还没有投稿</p>
+                <p v-if="!works.items.length" class="space-empty">
+                  {{ works.total > 0 ? '这一页没有内容，回第 1 页看看' : '这个 UP 主还没有投稿' }}
+                </p>
                 <template v-else>
                   <VideoGrid v-if="homePreview.length" :items="homePreview" />
                   <button v-if="hasMoreWorks" class="space-more" type="button" @click="setTab('works')">
@@ -481,7 +487,9 @@ function goItemPage(page: number): void {
               </div>
               <p v-else-if="error" class="space-empty space-empty--error">{{ error }}</p>
               <template v-else-if="timeline">
-                <p v-if="!timeline.items.length" class="space-empty">这个 UP 主还没有发布过内容</p>
+                <p v-if="!timeline.items.length" class="space-empty">
+                  {{ timeline.total > 0 ? '这一页没有内容，回第 1 页看看' : '这个 UP 主还没有发布过内容' }}
+                </p>
                 <template v-else>
                   <div class="space-dynamic-list">
                     <DynamicCard
@@ -489,7 +497,7 @@ function goItemPage(page: number): void {
                       :key="card.id"
                       :item="card"
                       :busy="likeBusy.has(card.id)"
-                      :avatar-url="timelineAvatars.get(card.authorId) ?? null"
+                      :avatar-url="header?.avatarUrl ?? null"
                       :comments-open="openCommentsId === card.id"
                       @toggle-like="toggleLike(card)"
                       @toggle-comments="toggleComments(card)"
@@ -508,7 +516,9 @@ function goItemPage(page: number): void {
               </div>
               <p v-else-if="error" class="space-empty space-empty--error">{{ error }}</p>
               <template v-else-if="works">
-                <p v-if="!works.items.length" class="space-empty">这个 UP 主还没有投稿</p>
+                <p v-if="!works.items.length" class="space-empty">
+                  {{ works.total > 0 ? '这一页没有内容，回第 1 页看看' : '这个 UP 主还没有投稿' }}
+                </p>
                 <template v-else>
                   <VideoGrid :items="works.items" />
                   <Pagination :page="works.page" :total-pages="works.totalPages" @update:page="goTabPage" />
