@@ -44,6 +44,7 @@
 | GAP-29 | M4 语义异 | 首页 / 推荐流 | B 站 **web 首页不推图文**（移动端推） | `GET /contents/recommended` 无 `type` 过滤 ⇒ 含图文 | 前端适配（保留图文，与移动端一致） | 图文按 `contentHref` 进 `/opus`；纯文字 / 无封面走文字卡面 | 无（若要严格对齐 web：加 `type=VIDEO` 过滤——**产品上不做**） | 长期/有意为之 |
 | GAP-30 | M4 语义异 | 投稿页 / 分区 | 投稿分区用的 `categoryId` 体系 | 后端只接受 **0~9 单个数字字符**（旧项目 10 项：其他/游戏/音乐/资讯/动画/娱乐/动物/体育/鬼畜/绘画）；首页 18 频道是另一套视觉导航，没有 id 映射 | 前端适配 | 投稿页用 `constants/categories.ts` 固定 10 项；**不把 18 频道写进 `categoryId`** | 无（分类端点已拍板不补，GAP-02） | 长期 |
 | GAP-31 | M4 语义异 | 创作中心 / 编辑 | 简介上限按内容类型（视频 ≤1000 / 图文 ≤10000） | 旧缺陷：`POST /contents/posts` 允许 10000，`PUT /contents/{id}` 只允许 **5000** ⇒ 5001~10000 字的图文**发布后永远改不了** | **✅ 已修（2026-10-29）** | `ContentService.updateContent` 按内容类型取上限（VIDEO 1000 / POST 10000），编辑页可直接支持长图文 | 已交付；⚠️ 视频侧由旧 5000 收紧到 1000，与发布同源 | ✅ 已交付 |
+| GAP-32 | M3 参数缺 | 空间页 / 动态·投稿 tabs | B 站有「视频 / 图文 / 音频」子筛选（本仓只有视频 / 图文） | `/users/{id}` 只有 `page/pageSize`，`contentPage` 混排视频 + 图文 | 后端补（P3） | **不渲染子筛选**（三 tab 混排；B 站 的「视频 / 图文」子 tab 明写不做） | `/users/{id}?type=VIDEO\|POST`；同时要给 `ProfileVO` 加 `worksCount`（否则 header 的「投稿 N」会被筛选带偏） | 待补（等后端）/ 长期 |
 
 > ★ **稍后再看没有"是否已在池中"的查询端点**（[favorite.md §六](../architecture/domain/favorite/favorite.md) 红线）：
 > 本仓**不登记 GAP**、也不逐卡回源 —— 前端用 URL 作用域的内存记忆复刻 B 站实测行为
