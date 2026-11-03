@@ -90,7 +90,10 @@ async function load(): Promise<void> {
       return
     }
     detail.value = data
-    document.title = `${detail.value.title} - 哔哩哔哩`
+    // `R-31`：无标题图文不把魔串写进标签页标题
+    document.title = isTitleless(detail.value.title)
+      ? '图文详情 - 哔哩哔哩'
+      : `${detail.value.title} - 哔哩哔哩`
   } catch (exception) {
     detail.value = null
     error.value =

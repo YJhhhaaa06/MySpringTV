@@ -327,9 +327,11 @@ async function submitVideo(): Promise<void> {
   submitting.value = true
   progress.value = 0
   stage.value = 'uploading'
-  const key = videoKeys.keyFor(draftSignature(videoDraft))
+  // 快照：上传可能要几十秒，期间用户继续编辑不能让"签名时的草稿"和"真正提交的载荷"错位
+  const draft = { ...videoDraft }
+  const key = videoKeys.keyFor(draftSignature(draft))
   try {
-    const id = await publishVideo(videoDraft, key, videoPool, (loaded, total) => {
+    const id = await publishVideo(draft, key, videoPool, (loaded, total) => {
       progress.value = progressPercent(loaded, total)
       if (progress.value >= 100) stage.value = 'processing'
     })
@@ -356,9 +358,11 @@ async function submitPost(): Promise<void> {
   submitting.value = true
   progress.value = 0
   stage.value = 'uploading'
-  const key = postKeys.keyFor(draftSignature(postDraft))
+  // 快照（数组也复制）：理由同视频；另防"上传期间勾/取消不使用标题"让指纹与载荷错位
+  const draft = { ...postDraft, images: [...postDraft.images] }
+  const key = postKeys.keyFor(draftSignature(draft))
   try {
-    const id = await publishPost(postDraft, key, postPool, (loaded, total) => {
+    const id = await publishPost(draft, key, postPool, (loaded, total) => {
       progress.value = progressPercent(loaded, total)
       if (progress.value >= 100) stage.value = 'processing'
     })
@@ -656,7 +660,7 @@ async function submitPost(): Promise<void> {
                   class="input"
                   type="text"
                   maxlength="50"
-                  :disabled="postDraft.titleless"
+                  :disabled="postDraft.titleless || submitting"
                   :placeholder="postDraft.titleless ? '提交时将保存为「无标题」' : '请输入标题'"
                   @input="clearError('title')"
                 />
@@ -664,7 +668,12 @@ async function submitPost(): Promise<void> {
               </div>
               <!-- `R-31`：纯文字动态也可以没有标题；提交时写魔串「无标题」（含直角括号） -->
               <label class="titleless-toggle">
-                <input v-model="postDraft.titleless" type="checkbox" @change="clearError('title')" />
+                <input
+                  v-model="postDraft.titleless"
+                  type="checkbox"
+                  :disabled="submitting"
+                  @change="clearError('title')"
+                />
                 <span>不使用标题（提交为「无标题」）</span>
               </label>
               <p v-if="errorOf('title')" class="field-error">{{ errorOf('title') }}</p>
