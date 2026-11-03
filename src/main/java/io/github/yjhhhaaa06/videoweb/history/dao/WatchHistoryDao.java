@@ -31,8 +31,11 @@ import java.util.List;
  *
  * <h2>★ 为什么 {@code /play} 不用 {@code ON DUPLICATE KEY UPDATE} 判首播</h2>
  * Connector/J 默认 {@code useAffectedRows=false} ⇒ ODKU 的"插入"与"值没变的更新"**都返回 1**
- * ⇒ 重复播放会被误判成首播、播放量被反复累加。{@code INSERT IGNORE} 的 {@code 1/0} 没有这种歧义
- * （与投币的 {@code insertIgnoreZero} 同形）。权衡与代价见
+ * ⇒ 重复播放会被误判成首播、播放量被反复累加。{@code INSERT IGNORE} 的 {@code 1/0} 没有这种歧义。
+ * ★ 这正是 history 与 coin 的**分岔点**：history 要拿这 {@code 1/0} 判"是不是首播" ⇒ 必须留
+ * {@code INSERT IGNORE}；coin 压根不看返回值（"投上了没有"由后面条件 UPDATE 的 WHERE 回答）
+ * ⇒ 可以换成 ODKU，只为让撞重直接拿排他锁（{@code ContentCoinDao#ensureRow}，
+ * 理由见 {@code architecture/domain/coin/coin.md} §四.1）。权衡与代价见
  * {@code architecture/domain/history/history.md} §四.2。
  */
 @Mapper
