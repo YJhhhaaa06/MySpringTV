@@ -194,7 +194,27 @@ function onCommentCountChanged(count: number): void {
           class="dyn-post__text"
           :class="{ 'is-clamped': !expanded }"
         >{{ item.description }}</p>
-        <div v-if="visibleImages.length" class="dyn-post__images" :class="imageGridClass">
+      </a>
+      <!-- ★ 展开/收起必须在正文之后、图集之前：放到图集下面会被图片挤到首屏外，
+           用户只看到省略号却找不到展开入口（真浏览器验收抓到） -->
+      <button
+        v-if="canExpand"
+        class="dyn-post__toggle"
+        type="button"
+        :aria-expanded="expanded"
+        @click="toggleExpanded"
+      >
+        {{ expanded ? '收起' : '展开' }}
+      </button>
+      <a
+        v-if="visibleImages.length"
+        class="dyn-post__images-link"
+        :href="item.href"
+        target="_blank"
+        rel="noopener"
+        :aria-label="`${item.title} 的图片`"
+      >
+        <div class="dyn-post__images" :class="imageGridClass">
           <span v-for="(url, index) in visibleImages" :key="`${url}-${index}`" class="dyn-post__image">
             <img
               v-if="!brokenImages.has(url)"
@@ -213,15 +233,6 @@ function onCommentCountChanged(count: number): void {
           </span>
         </div>
       </a>
-      <button
-        v-if="canExpand"
-        class="dyn-post__toggle"
-        type="button"
-        :aria-expanded="expanded"
-        @click="toggleExpanded"
-      >
-        {{ expanded ? '收起' : '展开' }}
-      </button>
     </div>
 
     <footer class="dyn-actions">
@@ -246,7 +257,8 @@ function onCommentCountChanged(count: number): void {
       >
         <AppIcon name="comment" :size="20" />
         <span>评论</span>
-        <span v-if="item.commentCount !== null" class="dyn-action__count">{{ formatCount(item.commentCount) }}</span>
+        <!-- 视频卡的评论数已在内容块右下显示；操作栏只给图文补数字，避免同一个数字出现两次 -->
+        <span v-if="item.commentCount !== null && item.isPost" class="dyn-action__count">{{ formatCount(item.commentCount) }}</span>
       </button>
     </footer>
 
@@ -362,7 +374,8 @@ function onCommentCountChanged(count: number): void {
   margin: 12px 0 0 64px;
 }
 
-.dyn-post__link {
+.dyn-post__link,
+.dyn-post__images-link {
   display: block;
 }
 
