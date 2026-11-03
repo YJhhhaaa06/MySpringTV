@@ -92,6 +92,11 @@ describe('toDynamicCard', () => {
 
     const video = toDynamicCard(content({ type: 1, title: '「无标题」' }), now)
     expect(video.hasTitle).toBe(true)
+
+    // ★ 少一个直角括号就不是魔串：真标题「无标题」必须照常显示（一字不多一字不少）
+    const noBrackets = toDynamicCard(content({ type: 2, title: '无标题' }), now)
+    expect(noBrackets.hasTitle).toBe(true)
+    expect(noBrackets.title).toBe('无标题')
   })
 
   it('★ 视频的 imageUrls 恒为空（后端为 null；即使误回填也不画图集）', () => {

@@ -86,6 +86,11 @@ describe('详情 → 草稿', () => {
     const draft = toEditableContent(postDetail({ title: '「无标题」' }))
     expect(draft.titleless).toBe(true)
     expect(draft.title).toBe('')
+
+    // 少一个直角括号就不是魔串：真标题「无标题」必须照常回填
+    const noBrackets = toEditableContent(postDetail({ title: '无标题' }))
+    expect(noBrackets.titleless).toBe(false)
+    expect(noBrackets.title).toBe('无标题')
   })
 
   it('★ R-31：视频不套用无标题约定（同名标题仍是真标题）', () => {

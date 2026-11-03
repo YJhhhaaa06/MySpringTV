@@ -16,10 +16,10 @@ import { contentHref, spaceHref } from './links'
 /**
  * `ContentVO` → 动态卡（`GET /feed`）。
  *
- * <h2>这是 `likeCount` / `commentCount` 的第一个消费方</h2>
+ * <h2>`likeCount` / `commentCount` 在这里第一次有展示位</h2>
  * 后端自 GAP-01 起在 `/feed` 上带 `playCount + likeCount + commentCount`
- * （`FeedService#FEED_COUNT_FIELDS`），但网格卡只要播放量 ⇒ 后两维一直没人读。
- * 动态卡底部操作栏正好是它们的展示位。
+ * （`FeedService#FEED_COUNT_FIELDS`）；`R-31` 起空间 `contentPage` 也带三维
+ * （同一响应服务空间网格 + 动态时间线）。动态卡底部操作栏是它们的展示位。
  *
  * <h2>★ 缺口 fallback 仍在这一层</h2>
  * - **图文没有播放量**：后端 `play_count` 对图文结构性恒 0（GAP-05）⇒ 恒 `null`，不画「浏览 0」；
