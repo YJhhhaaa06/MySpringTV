@@ -269,7 +269,7 @@ def main() -> int:
     try:
         proc = subprocess.run(
             build_cmd(mysqldump, conn, dump_path),
-            capture_output=True, text=True, timeout=600,
+            capture_output=True, timeout=600,
             env=dict(os.environ, MYSQL_PWD=conn.password),
         )
     except subprocess.TimeoutExpired:
@@ -278,7 +278,8 @@ def main() -> int:
 
     if proc.returncode != 0:
         print("错误: mysqldump 失败，退出码 " + str(proc.returncode))
-        print((proc.stderr or proc.stdout).strip())
+        # 不用 text=True：那会用 locale 编码（Windows 中文 = cp936）解码 UTF-8 输出 ⇒ 报错被吞成 None。
+        print((proc.stderr or proc.stdout or b"").decode("utf-8", errors="replace").strip())
         return 1
 
     if not dump_path.exists() or dump_path.stat().st_size == 0:
