@@ -124,6 +124,13 @@ const {
 const sentinel = ref<HTMLElement | null>(null)
 let sentinelObserver: IntersectionObserver | null = null
 
+// 哨兵在登录门之后才渲染（`sessionReady` 切换）⇒ 不能只在 onMounted 里 observe 一次：
+// 那一刻 DOM 还没 flush，sentinel 仍是 null（真浏览器抓到的：滚到底永远不加载第二页）。
+watch(sentinel, (element) => {
+  sentinelObserver?.disconnect()
+  if (element) sentinelObserver?.observe(element)
+})
+
 /**
  * 内联横幅的可见性：横幅滚出视口时才出右下「有新动态」胶囊（两者互斥，照首页 `R-29` 口径）。
  * 横幅是 `v-if` 渲染的，ref 出现 / 消失都要重新 observe。
@@ -220,16 +227,17 @@ async function retryMore(): Promise<void> {
 }
 
 onMounted(async () => {
-  await restoreSession()
-  sessionReady.value = true
-
+  // 先建 observer：哨兵要等 `sessionReady` 之后才渲染，watch(sentinel) 才能在它出现时接上
   sentinelObserver = new IntersectionObserver(
     (entries) => {
       if (entries.some((entry) => entry.isIntersecting)) void loadMore()
     },
     { rootMargin: `0px 0px ${PREFETCH_MARGIN}px 0px` },
   )
-  if (sentinel.value) sentinelObserver.observe(sentinel.value)
+
+  await restoreSession()
+  sessionReady.value = true
+
   document.addEventListener('visibilitychange', onVisibilityChange)
   window.addEventListener('scroll', onScroll, { passive: true })
   onScroll()
