@@ -184,6 +184,19 @@ public interface FavoriteFolderDao {
                              @Param("isPrivate") Boolean isPrivate);
 
     /**
+     * 自定义封面整体替换（V12 / R-33）：上传写新 URL，恢复自动写 {@code null}。
+     *
+     * <p>★ 归属校验在 service 先做（{@link #findById} ⇒ 404/403），本语句只按 id 写。
+     * 上传路径下返回 0 行 = 夹在 check 之后被并发删掉 ⇒ 调用方删新文件并 404；
+     * 恢复路径下 0 行也可能是"本来就没自定义封面"⇒ 幂等成功，不据此报错。
+     *
+     * @param id       目标夹（调用方保证存在且属于当前用户）
+     * @param coverRef 新自定义封面 URL；{@code null} = 恢复自动
+     * @return 受影响行数（值未变化 / 夹已消失时可能为 0）
+     */
+    int updateCoverRef(@Param("id") long id, @Param("coverRef") String coverRef);
+
+    /**
      * 删除夹行（硬删）。
      *
      * <p>⚠️ <b>条目由 {@code FavoriteItemDao.deleteByFolderId} 在**同一事务**里先删</b>

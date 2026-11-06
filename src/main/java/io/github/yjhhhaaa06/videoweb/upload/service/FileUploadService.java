@@ -49,7 +49,7 @@ public class FileUploadService {
      * 这样 {@code deleteFileByUrl} 能清理旧头像，而通用上传口仍然只服务内容媒体。
      */
     private static final Pattern UPLOAD_URL_PATTERN =
-            Pattern.compile("^/upload/(video|image|cover|avatar)/([A-Za-z0-9._-]+)$");
+            Pattern.compile("^/upload/(video|image|cover|avatar|favorite-cover)/([A-Za-z0-9._-]+)$");
 
     private final UploadProperties props;
 
@@ -204,9 +204,12 @@ public class FileUploadService {
     private void validate(MultipartFile file, UploadType type) {
         String contentType = file.getContentType();
         String fileName = file.getOriginalFilename();
+        // AVATAR / FOLDER_COVER 都是"图片单值资源"：只判后缀时 a.jpg + text/plain 会通过并落成
+        // 一张打不开的图。只收紧这两个分支，不改变既有 image / cover 口径。
+        boolean imageOnly = type == UploadType.AVATAR || type == UploadType.FOLDER_COVER;
         if (contentType == null
                 || !type.isSuffixValid(fileName)
-                || (type == UploadType.AVATAR && !contentType.startsWith("image/"))) {
+                || (imageOnly && !contentType.startsWith("image/"))) {
             throw new ParamException(ErrorCode.UPLOAD_TYPE_INVALID, "文件类型不支持");
         }
     }

@@ -5,10 +5,10 @@ import java.util.List;
 /**
  * 上传类型（承接 TV {@code com.itheima.upload.controller.UploadType}）。
  *
- * <p>四类：视频 / 图片 / 封面 / 头像。前三个内容媒体带三件套：**磁盘子目录**（{@code dir}）、
+ * <p>五类：视频 / 图片 / 封面 / 头像 / 收藏夹封面。前三个内容媒体带三件套：**磁盘子目录**（{@code dir}）、
  * **合法扩展名**（{@code suffixes}）、**{@code content_media.type} 取值**（{@code mediaType}）。
- * {@code AVATAR} 只用于头像落盘 / 替换：**不对应 {@code content_media}**（{@code mediaType = 0}），
- * 也**不**经 {@code /api/v1/uploads/{type}} 暴露。
+ * {@code AVATAR} / {@code FOLDER_COVER} 只用于各自业务落盘 / 替换：**不对应 {@code content_media}**
+ * （{@code mediaType = 0}），也**不**经 {@code /api/v1/uploads/{type}} 暴露。
  *
  * <table>
  *   <caption>枚举口径（前三类 TV 原样；AVATAR 为 R-27 增量）</caption>
@@ -17,10 +17,11 @@ import java.util.List;
  *   <tr><td>{@code IMAGE}</td><td>{@code image}</td><td>.jpg / .png / .jpeg</td><td>2</td></tr>
  *   <tr><td>{@code COVER}</td><td>{@code cover}</td><td>.jpg / .png</td><td>3</td></tr>
  *   <tr><td>{@code AVATAR}</td><td>{@code avatar}</td><td>.jpg / .png / .jpeg</td><td>0（非内容媒体）</td></tr>
+ *   <tr><td>{@code FOLDER_COVER}</td><td>{@code favorite-cover}</td><td>.jpg / .png / .jpeg</td><td>0（非内容媒体）</td></tr>
  * </table>
  * ⚠️ 注意 {@code COVER} 的 {@code dir} 是 {@code cover}（不是 image）——URL 形如
  * {@code /upload/cover/xxx.png}，与 {@code FileUploadService.UPLOAD_URL_PATTERN} 的
- * {@code (video|image|cover|avatar)} 对应。**别把 dir 与 contentTypePrefix 混为一谈**
+ * {@code (video|image|cover|avatar|favorite-cover)} 对应。**别把 dir 与 contentTypePrefix 混为一谈**
  * （旧实现里 COVER 的 contentTypePrefix 是 {@code image/}，那是给"按 contentType 猜类型"用的）。
  *
  * <p>★ {@code AVATAR} 为什么不是内容媒体：头像挂在 {@code users} 上、可替换、旧文件要删；
@@ -51,7 +52,17 @@ public enum UploadType {
      * 都**不认**它 —— 前者保证 {@code POST /api/v1/uploads/avatar} 仍是非法类型，
      * 后者保证 {@code type=0} 的换源请求仍被 400 拒绝。
      */
-    AVATAR("avatar", List.of(".jpg", ".png", ".jpeg"), 0);
+    AVATAR("avatar", List.of(".jpg", ".png", ".jpeg"), 0),
+
+    /**
+     * 收藏夹封面（{@code R-33}）：{@code /upload/favorite-cover/}，**不属于内容媒体**（{@code mediaType = 0}）。
+     *
+     * <p>★ 必须与 {@link #COVER}（{@code cover/}）分家：{@code tools/devclean/media_clean.py}
+     * 只把 {@code content_media} 引用的 {@code video/image/cover} 视为有效引用，
+     * 收藏夹封面复用 {@code cover/} 会在清理时被误判成孤儿。
+     * <p>与 {@link #AVATAR} 一样：{@link #fromDir} / {@link #fromMediaType} 都**不认**它。
+     */
+    FOLDER_COVER("favorite-cover", List.of(".jpg", ".png", ".jpeg"), 0);
 
     private final String dir;
     private final List<String> suffixes;
@@ -114,7 +125,8 @@ public enum UploadType {
      */
     public static UploadType fromDir(String dir) {
         for (UploadType type : values()) {
-            if (type == AVATAR) {
+            // 非内容媒体（头像 / 收藏夹封面）只走各自的业务端点，不进通用上传口。
+            if (type == AVATAR || type == FOLDER_COVER) {
                 continue;
             }
             if (type.dir.equals(dir)) {

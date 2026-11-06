@@ -53,9 +53,9 @@ class WatchLaterSchemaTests extends AbstractIntegrationTest {
         // ★ "末版本认账"锚点：每加一版迁移都要显式改这一行（T36 的 V5 = 投币专项；
         //   T45 的 V6 = 播放记录、V7 = 删遗留表；V8 = 播放记录列表覆盖索引；
         //   V9 = 记录开关 R-25 给 users 加一列；V10 = R-26 建播放量去重账本；
-        //   V11 = R-27 给 users 加 avatar_ref）。
+        //   V11 = R-27 给 users 加 avatar_ref；V12 = R-33 给 favorite_folder 加 cover_ref）。
         //   它不是"跟着实现改断言"，而是把"新增的版本有没有真的被应用"变成一次人工确认。
-        assertThat(appliedVersions).as("V11 必须是最后一个已应用版本（V11 = users.avatar_ref）").endsWith("11");
+        assertThat(appliedVersions).as("V12 必须是最后一个已应用版本（V12 = favorite_folder.cover_ref）").endsWith("12");
     }
 
     @Test

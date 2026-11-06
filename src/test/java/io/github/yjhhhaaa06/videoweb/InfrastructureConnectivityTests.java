@@ -81,7 +81,8 @@ class InfrastructureConnectivityTests extends AbstractIntegrationTest {
         // V8 = 播放记录列表索引替换（非结构性 ⇒ 表计数不变）；
         // V9 = 记录开关 R-25 给 users 加一列（非结构性 ⇒ 表计数不变）；
         // V10 = R-26 建播放量去重账本 content_play_dedup（结构性 ⇒ 表计数 +1）+ 拆掉 watch_history 的死列/死索引；
-        // V11 = R-27 给 users 加 avatar_ref（非结构性 ⇒ 表计数不变）。
+        // V11 = R-27 给 users 加 avatar_ref（非结构性 ⇒ 表计数不变）；
+        // V12 = R-33 给 favorite_folder 加 cover_ref（非结构性 ⇒ 表计数不变）。
         try (var conn = dataSource.getConnection();
              var st = conn.createStatement();
              var rs = st.executeQuery(
@@ -95,7 +96,7 @@ class InfrastructureConnectivityTests extends AbstractIntegrationTest {
                 successes.add(rs.getBoolean("success"));
             }
             assertThat(versions).as("脚本清单（每加一个 V<n> 都要在这里显式认账）")
-                    .containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11");
+                    .containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12");
             assertThat(types).containsOnly("SQL");
             assertThat(successes).containsOnly(true);
         }

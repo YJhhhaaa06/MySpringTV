@@ -60,11 +60,12 @@ class FavoriteSchemaTests extends AbstractIntegrationTest {
     // ==================== 1. 列集（一次到位的那些列） ====================
 
     @Test
-    @DisplayName("V2 建出收藏两表，且列集与 favorite.md §二 一致（含 is_private / description / favorite_count）")
+    @DisplayName("V2 + V12 建出收藏两表，且列集与 favorite.md §二 一致（含 is_private / description / favorite_count / cover_ref）")
     void 收藏两表的列集与骨架一致() {
-        assertThat(列名("favorite_folder")).as("favorite_folder 的列（default_uniq 是默认夹唯一键的判别列，见 favorite.md §二）")
+        assertThat(列名("favorite_folder")).as("favorite_folder 的列（default_uniq 是默认夹唯一键的判别列；"
+                        + "cover_ref 是 R-33 的自定义封面相对 URL，见 favorite.md §二）")
                 .containsExactly("id", "user_id", "name", "description", "is_private", "is_default",
-                        "default_uniq", "create_time", "update_time");
+                        "default_uniq", "create_time", "update_time", "cover_ref");
 
         assertThat(列名("favorite_item")).as("favorite_item 的列（user_id 是「按人去重」的冗余列）")
                 .containsExactly("id", "folder_id", "user_id", "content_id", "create_time");

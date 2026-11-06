@@ -24,15 +24,20 @@
         <result property="name" column="name"/>
         <result property="isPrivate" column="is_private"/>
         <result property="isDefault" column="is_default"/>
+        <!-- V12（R-33）：自定义封面相对 URL；删夹前清理旧文件要它。 -->
+        <result property="coverRef" column="cover_ref"/>
     </resultMap>
 
-    <!-- 列表行映射（FavoriteFolderVO）：比上一行多一个聚合列 item_count。 -->
+    <!-- 列表行映射（FavoriteFolderVO）：比上一行多一个聚合列 item_count，外加 R-33 的 cover_ref。
+         ⚠️ coverRef 是**内部字段**（VO 上 @JsonIgnore），由 FavoriteFolderCoverService 消费后
+            只对外回带生效 `coverUrl` + `hasCustomCover`。 -->
     <resultMap id="favoriteFolderVoMap" type="io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteFolderVO">
         <id property="id" column="id"/>
         <result property="name" column="name"/>
         <result property="isDefault" column="is_default"/>
         <result property="isPrivate" column="is_private"/>
         <result property="itemCount" column="item_count"/>
+        <result property="coverRef" column="cover_ref"/>
     </resultMap>
 
     <!-- 他人视角列表行映射（PublicFavoriteFolderVO）：**id + name + itemCount**
@@ -43,6 +48,8 @@
         <id property="id" column="id"/>
         <result property="name" column="name"/>
         <result property="itemCount" column="item_count"/>
+        <!-- R-33：coverRef 内部承载（@JsonIgnore），对外只回带生效 coverUrl。 -->
+        <result property="coverRef" column="cover_ref"/>
     </resultMap>
 
     <!-- 新建自建夹。刻意**不写 is_default**（走列默认 0）：
@@ -55,7 +62,7 @@
     <!-- 按 id 取夹（改名 / 删除前校验：在不在 → 是不是我的 → 是不是默认夹）。
          列清单与 resultMap 一一对应，不写 SELECT *（新增列时不会静默流进实体）。 -->
     <select id="findById" resultMap="favoriteFolderMap">
-        SELECT id, user_id, name, is_private, is_default
+        SELECT id, user_id, name, is_private, is_default, cover_ref
         FROM favorite_folder
         WHERE id = #{id}
     </select>
@@ -67,11 +74,11 @@
          ★ GROUP BY 列写全（ONLY_FULL_GROUP_BY 下无歧义），ORDER BY 默认夹置顶 + id 升序。
          ⚠️ is_default DESC 用列而不是表达式，保持可用 uk_user_default 前导列做等值定位。 -->
     <select id="findByUserIdWithItemCount" resultMap="favoriteFolderVoMap">
-        SELECT f.id, f.name, f.is_private, f.is_default, COUNT(i.id) AS item_count
+        SELECT f.id, f.name, f.is_private, f.is_default, f.cover_ref, COUNT(i.id) AS item_count
         FROM favorite_folder f
         LEFT JOIN favorite_item i ON i.folder_id = f.id
         WHERE f.user_id = #{userId}
-        GROUP BY f.id, f.name, f.is_private, f.is_default
+        GROUP BY f.id, f.name, f.is_private, f.is_default, f.cover_ref
         ORDER BY f.is_default DESC, f.id ASC
     </select>
 
@@ -82,11 +89,11 @@
          ★ GROUP BY 列写全（ONLY_FULL_GROUP_BY 下无歧义），ORDER BY 与"我的夹列表"复用同一顺序
            （默认夹置顶 + id 升序）—— 顺序是契约，两处不许各排一半。 -->
     <select id="findPublicByUserIdWithItemCount" resultMap="publicFavoriteFolderVoMap">
-        SELECT f.id, f.name, COUNT(i.id) AS item_count
+        SELECT f.id, f.name, f.cover_ref, COUNT(i.id) AS item_count
         FROM favorite_folder f
         LEFT JOIN favorite_item i ON i.folder_id = f.id
         WHERE f.user_id = #{userId} AND f.is_private = 0
-        GROUP BY f.id, f.name, f.is_default
+        GROUP BY f.id, f.name, f.is_default, f.cover_ref
         ORDER BY f.is_default DESC, f.id ASC
     </select>
 
@@ -118,6 +125,17 @@
             <if test="name != null">name = #{name},</if>
             <if test="isPrivate != null">is_private = #{isPrivate},</if>
         </set>
+        WHERE id = #{id}
+    </update>
+
+    <!-- 自定义封面整体替换（V12 / R-33）。
+         ★ 上传 = 写新 URL；恢复自动 = 写 NULL；两条走同一条 SQL（单列整体替换，天然幂等）。
+         ★ 归属校验在 service 先做（findById ⇒ 404/403），本语句只按 id 写。
+         ⚠️ 上传路径下"受影响 0 行" = 夹在 check 之后被并发删掉 ⇒ 调用方删掉本次新文件并 404；
+           恢复路径下 0 行也可能是"本来就没自定义封面"⇒ 幂等成功（**不**据此报错）。 -->
+    <update id="updateCoverRef">
+        UPDATE favorite_folder
+        SET cover_ref = #{coverRef}
         WHERE id = #{id}
     </update>
 

@@ -65,15 +65,16 @@ class HistorySchemaTests extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("★全部迁移版本都被应用（V1~V11 且 success）—— V7 的删表 / V8 的换索引 / V10 的搬标记也要真的跑到")
+    @DisplayName("★全部迁移版本都被应用（V1~V12 且 success）—— V7 的删表 / V8 的换索引 / V10 的搬标记也要真的跑到")
     void 全部迁移版本都被应用() {
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
                 "SELECT version, success FROM flyway_schema_history WHERE success = 1 ORDER BY installed_rank");
         List<String> appliedVersions = rows.stream().map(r -> String.valueOf(r.get("version"))).toList();
         assertThat(appliedVersions)
-                .as("★ 版本序必须连续 1..11：V6 建播放记录、V7 删遗留表、V8 换列表索引、V9 users.history_recording、"
-                        + "V10 建去重账本并拆掉 play_counted、V11 users.avatar_ref（缺一都让上层结构对不上）")
-                .containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11");
+                .as("★ 版本序必须连续 1..12：V6 建播放记录、V7 删遗留表、V8 换列表索引、V9 users.history_recording、"
+                        + "V10 建去重账本并拆掉 play_counted、V11 users.avatar_ref、V12 favorite_folder.cover_ref"
+                        + "（缺一都让上层结构对不上）")
+                .containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12");
     }
 
     @Test

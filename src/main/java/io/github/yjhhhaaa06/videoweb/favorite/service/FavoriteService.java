@@ -213,6 +213,14 @@ public class FavoriteService {
     private final FavoriteCache favoriteCache;
 
     /**
+     * 收藏夹封面（R-33）：列表读取时填生效 `coverUrl` / `hasCustomCover`；删夹后清旧文件。
+     *
+     * <p>它是本域内的窄服务（不反向依赖本类），解析时只经 `ContentService` 契约取封面，
+     * 不直连 content / content_media 表。
+     */
+    private final FavoriteFolderCoverService folderCoverService;
+
+    /**
      * 容量上限（T16）—— 三个数字的**唯一来源**（{@code video.favorite.*}）。
      *
      * <p>⚠️ 阈值必须从它读，**不得**在方法里写死数字字面量：上限是**对外契约**
@@ -222,12 +230,14 @@ public class FavoriteService {
 
     public FavoriteService(FavoriteFolderDao folderDao, FavoriteItemDao itemDao, ContentDao contentDao,
                            ContentService contentService, FavoriteCache favoriteCache,
+                           FavoriteFolderCoverService folderCoverService,
                            FavoriteLimitProperties limits) {
         this.folderDao = folderDao;
         this.itemDao = itemDao;
         this.contentDao = contentDao;
         this.contentService = contentService;
         this.favoriteCache = favoriteCache;
+        this.folderCoverService = folderCoverService;
         this.limits = limits;
     }
 
@@ -290,7 +300,10 @@ public class FavoriteService {
      * 让"我的"和"他人的"共用一条 SQL、靠"传没传 userId"分流，正是 R-08 否决的形态。
      */
     public List<FavoriteFolderVO> listMyFolders(long userId) {
-        return folderDao.findByUserIdWithItemCount(userId);
+        List<FavoriteFolderVO> folders = folderDao.findByUserIdWithItemCount(userId);
+        // R-33：自定义优先，否则夹内最新一条收藏的 coverUrl；取不到即 null（前端占位）。
+        folderCoverService.fillMyCovers(folders);
+        return folders;
     }
 
     /**
@@ -314,7 +327,10 @@ public class FavoriteService {
      * <p>顺序与条目数口径同 {@link #listMyFolders}（SQL 里复用同一顺序：默认夹置顶 + 创建序）。
      */
     public List<PublicFavoriteFolderVO> listPublicFolders(long userId) {
-        return folderDao.findPublicByUserIdWithItemCount(userId);
+        List<PublicFavoriteFolderVO> folders = folderDao.findPublicByUserIdWithItemCount(userId);
+        // R-33：公开面只回带生效 coverUrl（不含 hasCustomCover / coverRef）。
+        folderCoverService.fillPublicCovers(folders);
+        return folders;
     }
 
     /**
@@ -446,6 +462,8 @@ public class FavoriteService {
         AfterCommit.run(() -> {
             favoriteCache.invalidateUserFavorites(userId);
             favoriteCache.invalidateFavoriteCounts(affectedContentIds);
+            // R-33：删夹才删自定义封面文件；回滚时本回调不执行（文件留到下一次替换/恢复）。
+            folderCoverService.deleteCustomCoverQuietly(folder.getCoverRef());
         });
     }
 
