@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { DynamicCardVM } from '../../types/ui'
 import { formatCount } from '../../api/adapters/format'
 import AppIcon from '../common/AppIcon.vue'
 import UserAvatar from '../common/UserAvatar.vue'
+import OpusImageGallery from '../opus/OpusImageGallery.vue'
 import CommentSection from '../video/CommentSection.vue'
 
 /**
@@ -22,9 +23,15 @@ import CommentSection from '../video/CommentSection.vue'
  *              刚刚 · 发布了图文 / 发布了动态
  *      标题（可选）
  *      正文（折叠 6 行，可展开）
- *      [图] [图] [图]（≤9，第 9 张 +N）
+ *      [图] [图] [图]（≤9，第 9 张 +N；点图 = 卡内放大）
  *      点赞（有数字时带数字）        评论（可展开评论区）
  * </pre>
+ *
+ * <h2>★ 图片是内容，不是跳详情的入口</h2>
+ * B 站动态卡点图片是**原地放大**（工具条：收起 / 查看大图 / 左右旋转 + 大图 + 缩略图条），
+ * 只有标题 / 正文才跳详情。这一层直接复用图文详情的 `OpusImageGallery`：
+ * 同一套九宫格 ↔ 放大态 ↔ 全屏查看大图，不在这里另写一份查看器。
+ * 视频卡的封面**仍然**跳播放页（那是"内容卡"，不是图集）。
  *
  * <h2>★ 操作栏只有两个按钮，这是**故意**的</h2>
  * B 站还有「转发」：本仓没有转发域（没有表、没有端点）⇒ **不渲染**（有点不动的按钮 = 撒谎）。
@@ -73,15 +80,6 @@ const showLikeCount = computed(
 const expanded = ref(false)
 const canExpand = ref(false)
 const textEl = ref<HTMLElement | null>(null)
-const brokenImages = reactive(new Set<string>())
-
-const visibleImages = computed(() => props.item.imageUrls.slice(0, 9))
-const moreImages = computed(() => Math.max(0, props.item.imageUrls.length - 9))
-const imageGridClass = computed(() => {
-  const count = visibleImages.value.length
-  if (count === 1) return 'is-one'
-  return count <= 4 ? 'is-two' : 'is-three'
-})
 
 /**
  * ★ 只在**折叠态**量：展开后 `scrollHeight == clientHeight`，
@@ -104,7 +102,6 @@ watch(
   () => [props.item.id, props.item.description] as const,
   async () => {
     expanded.value = false
-    brokenImages.clear()
     await nextTick()
     measure()
   },
@@ -202,33 +199,14 @@ function onCommentCountChanged(count: number): void {
       >
         {{ expanded ? '收起' : '展开' }}
       </button>
-      <a
-        v-if="visibleImages.length"
-        class="dyn-post__images-link"
-        :href="item.href"
-        target="_blank"
-        rel="noopener"
-        :aria-label="`${item.title} 的图片`"
-      >
-        <div class="dyn-post__images" :class="imageGridClass">
-          <span v-for="(url, index) in visibleImages" :key="`${url}-${index}`" class="dyn-post__image">
-            <img
-              v-if="!brokenImages.has(url)"
-              :src="url"
-              :alt="`${item.title} 的第 ${index + 1} 张图片`"
-              loading="lazy"
-              decoding="async"
-              @error="brokenImages.add(url)"
-            />
-            <span v-else class="dyn-post__image-fallback" aria-hidden="true">
-              <AppIcon name="article" :size="24" />
-            </span>
-            <span v-if="index === visibleImages.length - 1 && moreImages > 0" class="dyn-post__more">
-              +{{ moreImages }}
-            </span>
-          </span>
-        </div>
-      </a>
+      <!-- 图集：与图文详情共用同一套「九宫格 ↔ 放大态 ↔ 全屏查看大图」。
+           点图**不跳详情**（B 站同），跳详情只走上面的标题 / 正文链接。 -->
+      <OpusImageGallery
+        v-if="item.imageUrls.length"
+        variant="feed"
+        :images="item.imageUrls"
+        :title="item.title"
+      />
     </div>
 
     <footer class="dyn-actions">
@@ -370,8 +348,7 @@ function onCommentCountChanged(count: number): void {
   margin: 12px 0 0 64px;
 }
 
-.dyn-post__link,
-.dyn-post__images-link {
+.dyn-post__link {
   display: block;
 }
 
@@ -415,65 +392,10 @@ function onCommentCountChanged(count: number): void {
   text-decoration: underline;
 }
 
-.dyn-post__images {
-  display: grid;
-  gap: 6px;
-  margin-top: 10px;
-}
-
-.dyn-post__images.is-one {
-  grid-template-columns: minmax(0, 1fr);
-  max-width: 420px;
-}
-
-.dyn-post__images.is-two {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.dyn-post__images.is-three {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.dyn-post__image {
-  position: relative;
-  display: block;
-  aspect-ratio: 1;
-  overflow: hidden;
-  border-radius: var(--radius);
-  background: var(--bg-2);
-}
-
-.dyn-post__images.is-one .dyn-post__image {
-  aspect-ratio: 4 / 3;
-}
-
-.dyn-post__image img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.dyn-post__image-fallback {
-  display: flex;
-  width: 100%;
-  height: 100%;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-4);
-  background: var(--bg-2);
-}
-
-.dyn-post__more {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 22px;
-  font-weight: 600;
-  color: #fff;
-  background: rgba(0, 0, 0, 0.45);
+/* 图集：共用 `OpusImageGallery`（根节点自带 8px/24px 外边距，卡片里不需要底边距）。
+   列数与单图比例由 `variant="feed"` 决定（2–4 张两列、单图 4:3），不在这里改。 */
+.dyn-post :deep(.opus-images) {
+  margin: 10px 0 0;
 }
 
 .dyn-cover__duration {

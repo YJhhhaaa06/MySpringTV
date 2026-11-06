@@ -19,6 +19,18 @@ export function gridColumns(count: number): 1 | 2 | 3 {
   return 3
 }
 
+/**
+ * 动态卡的网格列数：1 张单图、2–4 张两列（4 张正好 2×2）、5 张及以上三列。
+ *
+ * <p>与图文详情的 `gridColumns` **刻意分开**：详情页是"最多三列"的九宫格；
+ * 动态卡沿用 `R-31` 的版式（4 张排 3+1 会多出一个孤零零的格子，B 站也不这么摆）。
+ */
+export function feedGridColumns(count: number): 1 | 2 | 3 {
+  if (count <= 1) return 1
+  if (count <= 4) return 2
+  return 3
+}
+
 /** 九宫格只展示前 9 张；`overflow` = 没展示的张数（0 表示全部展示） */
 export function gridPreview(images: readonly string[]): { shown: string[]; overflow: number } {
   return {
