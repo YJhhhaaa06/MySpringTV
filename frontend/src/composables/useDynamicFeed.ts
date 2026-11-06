@@ -184,9 +184,15 @@ export function useDynamicFeed(source: () => DynamicSource) {
     await runMore(source())
   }
 
-  /** 退出登录 / 页面失效：回到空状态（保留代际，旧响应仍被淘汰）。 */
+  /**
+   * 退出 / 切出动态视图：回到空状态，并**主动推进代际**。
+   *
+   * <p>`clearedFeed` 是给"切数据源后紧接着 beginRefresh"用的（保留 epoch 让下一次 +1）；
+   * 这里没有下一次 refresh 兜底 —— 若只保留 epoch，在途的首屏响应（`receiveFirstPage` 只看 epoch、
+   * 不看 phase）会把 items / authorHeader 写回已清空的状态。
+   */
   function reset(): void {
-    state.value = clearedFeed(state.value)
+    state.value = { ...clearedFeed(state.value), epoch: state.value.epoch + 1 }
     total.value = 0
     anchorId = null
     authorHeader.value = null

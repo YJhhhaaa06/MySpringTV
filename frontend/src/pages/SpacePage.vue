@@ -120,6 +120,12 @@ const loading = ref(false)
 const error = ref('')
 const followBusy = ref(false)
 const avatarDialogOpen = ref(false)
+/** header 的写版本：关注 / 头像的就地修改会 +1，晚到的加载响应不得覆盖 */
+const headerVersion = ref(0)
+/** works 属于谁（`SpaceWorksVM` 没有归属字段）；换人后必须重载，不能拿旧页冒充 */
+const worksLoadedFor = ref(0)
+/** loadWorks 的请求序号：晚到的旧响应不得覆盖新页 / 新用户 */
+let worksRequestId = 0
 
 /**
  * 动态 tab（`T107`）：与 `/dynamic?author=` **同一套无限滚动** —— 直接复用 `useDynamicFeed` 的
@@ -143,6 +149,7 @@ const {
 
 /** 头像弹层成功后：就地改空间头部 + 登录态（顶栏同一实例立即生效）。 */
 function onAvatarUpdated(avatarUrl: string): void {
+  headerVersion.value += 1
   if (header.value) header.value = { ...header.value, avatarUrl }
   applyAvatarUrl(avatarUrl)
   avatarDialogOpen.value = false
@@ -186,6 +193,10 @@ async function loadWorks(): Promise<void> {
     works.value = null
     return
   }
+  const requestId = ++worksRequestId
+  const targetUserId = userId.value
+  const targetPage = tab.value === 'home' ? 1 : worksPage.value
+  const version = headerVersion.value
   closeComments() // 换页 / 换人后旧的评论面板不再有意义
   loading.value = true
   error.value = ''
@@ -194,11 +205,16 @@ async function loadWorks(): Promise<void> {
     //   抢在 restoreSession 之前装载，会把"看自己的空间"画成"关注自己"（后端会 FOLLOW_SELF）
     await restoreSession()
     // 主页固定第 1 页（它只有 3 + 6 的预览，不分页）；投稿才吃 query 页码
-    const data = await loadSpace(userId.value, tab.value === 'home' ? 1 : worksPage.value, PAGE_SIZE)
-    header.value = data.header
+    const data = await loadSpace(targetUserId, targetPage, PAGE_SIZE)
+    // 晚到的旧请求（换人 / 换页 / 页面已切走）不得覆盖新状态
+    if (requestId !== worksRequestId || userId.value !== targetUserId) return
+    // 关注 / 头像刚改过：别让发起更早的响应把按钮或头像盖回去
+    if (headerVersion.value === version) header.value = data.header
     works.value = data.works
+    worksLoadedFor.value = targetUserId
     featured.value = data.featured
   } catch (exception) {
+    if (requestId !== worksRequestId || userId.value !== targetUserId) return
     // 已切到动态 tab：它有自己的错误面（`loadDynamic` 负责），别把整页打成错误
     if (tab.value === 'dynamic') return
     header.value = null
@@ -209,7 +225,7 @@ async function loadWorks(): Promise<void> {
         ? '这个用户不存在'
         : describeError(exception)
   } finally {
-    loading.value = false
+    if (requestId === worksRequestId) loading.value = false
   }
 }
 
@@ -239,22 +255,32 @@ async function loadDynamic(): Promise<void> {
   error.value = ''
   // 与 loadWorks 同口径：先等登录态落定，header 的 isSelf / isFollowed 才不会是匿名视角
   await restoreSession()
+  const version = headerVersion.value
   const result = await refreshDynamic()
   if (tab.value !== 'dynamic') return
   if (result.status === 'ok') {
-    if (dynamicAuthorHeader.value) header.value = dynamicAuthorHeader.value
+    // 关注 / 头像刚改过：别让发起更早的响应把按钮或头像盖回去
+    if (dynamicAuthorHeader.value && headerVersion.value === version) {
+      header.value = dynamicAuthorHeader.value
+    }
     // 首屏装不满时 IO 不会二次触发（元素一直在视口里）⇒ 补一次
     await nextTick()
     if (shouldLoadMoreDynamic() && inDynamicPrefetchRange()) void loadMoreDynamics()
     return
   }
   if (result.status === 'failed' && dynamicState.value.items.length === 0) {
-    error.value = result.message
-    header.value = null
-  } else if (result.status === 'failed') {
+    // 已知这个用户（header 就是 TA）⇒ 只让动态面板出错，保留顶栏 / tab / 投稿；
+    // 完全不知道（首屏直接落动态、或换了人）⇒ 才整页错误
+    if (!header.value || header.value.id !== userId.value) {
+      error.value = result.message
+      header.value = null
+    }
+    return
+  }
+  if (result.status === 'failed') {
     showToast(result.message, 'error')
   }
-  // superseded / busy：交给在途的那次
+  // superseded / busy：交给在途的那次（header 有版本守卫，不会被旧快照盖回）
 }
 
 /** 整页错误态的「重试」按当前 tab 分派（动态走无限滚动，其余走 loadWorks）。 */
@@ -323,7 +349,11 @@ watch(
     resetDynamic()
     if (loading.value) return // 同一个导航里 worksPage 变化已触发 loadWorks，别打两趟
     const expectedPage = current === 'home' ? 1 : worksPage.value
-    if (!header.value || ((current === 'home' || current === 'works') && works.value?.page !== expectedPage)) {
+    if (
+      !header.value ||
+      worksLoadedFor.value !== userId.value ||
+      ((current === 'home' || current === 'works') && works.value?.page !== expectedPage)
+    ) {
       void loadWorks()
     }
   },
@@ -335,7 +365,13 @@ watch(
   [tab, () => route.query.page],
   ([current, page]) => {
     if (current === 'dynamic' && page !== undefined) {
-      void router.replace({ name: 'space', params: { id: userId.value }, query: { tab: 'dynamic' } })
+      // 只摘掉 page；不顺手吃掉 hash / 其它并存的 query（归一不是重建 URL）
+      void router.replace({
+        name: 'space',
+        params: { id: userId.value },
+        query: { ...route.query, page: undefined },
+        hash: route.hash,
+      })
     }
   },
   { immediate: true },
@@ -364,6 +400,7 @@ async function toggleFollow(): Promise<void> {
   followBusy.value = true
   const target = card.followed !== true
   card.followed = target
+  headerVersion.value += 1
   if (typeof card.followerCount === 'number') {
     card.followerCount = Math.max(0, card.followerCount + (target ? 1 : -1))
   }
@@ -375,6 +412,7 @@ async function toggleFollow(): Promise<void> {
     // 动态 tab 走 loadDynamic（否则 loadWorks 的失败会把整页打成错误），其余走 loadWorks
     void reloadCurrent()
   } catch (exception) {
+    headerVersion.value += 1
     card.followed = !target
     if (typeof card.followerCount === 'number') {
       card.followerCount = Math.max(0, card.followerCount + (target ? -1 : 1))
@@ -632,9 +670,13 @@ function goItemPage(page: number): void {
               <div v-if="dynamicView === 'initial'" class="space-dyn-skeleton">
                 <div v-for="n in 3" :key="n" class="skeleton space-dyn-skeleton__card" />
               </div>
-              <p v-else-if="dynamicView === 'error'" class="space-empty space-empty--error">
-                {{ dynamicErrorText }}
-              </p>
+              <div
+                v-else-if="dynamicView === 'error'"
+                class="space-empty space-empty--error space-dyn-error"
+              >
+                <p>{{ dynamicErrorText }}</p>
+                <button class="space-more-error__retry" type="button" @click="loadDynamic">重试</button>
+              </div>
               <template v-else>
                 <p v-if="dynamicView === 'empty'" class="space-empty">这个 UP 主还没有发布过内容</p>
                 <template v-else>
@@ -1048,6 +1090,14 @@ function goItemPage(page: number): void {
 
 .space-dynamic-sentinel {
   height: 1px;
+}
+
+/* 动态面板单独出错（整页还活着）：文案 + 重试竖排 */
+.space-dyn-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
 }
 
 .space-back {
