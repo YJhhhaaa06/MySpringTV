@@ -11,13 +11,13 @@
  * <p>⚠️ 空间的 `GET /favorite-folders/{id}/items` 是另一条端点（只公开夹、匿名可看），
  * 别为了"少写一个函数"混用。
  */
-import type { MyFolderVM, PageVM, VideoCardVM } from '../types/ui'
+import type { LibraryFolderVM, PageVM, VideoCardVM } from '../types/ui'
 import { toMyFolder, toWatchLaterCard } from './adapters/favorites'
 import { toFavoriteItemCard } from './adapters/space'
 import { deleteJson, getJson, putJson } from './http'
 
 /** `GET /favorite-folders`：我的全部夹（含默认夹与私密夹） */
-export async function loadMyFolders(): Promise<MyFolderVM[]> {
+export async function loadMyFolders(): Promise<LibraryFolderVM[]> {
   const folders = await getJson('/api/v1/favorite-folders')
   return (folders ?? []).map((folder) => toMyFolder(folder))
 }

@@ -5,10 +5,11 @@ import LoginGate from '../components/auth/LoginGate.vue'
 import ToastHost from '../components/common/ToastHost.vue'
 
 /**
- * 收藏页应用外壳（第 5 个入口，2026-10-26）。
+ * 旧收藏页应用外壳（第 5 个入口，2026-10-26；`R-34` 起**软弃用**）。
  *
- * <p>需要 `LoginGate`：页面级「登录后查看」按钮走的是**动作级**闸门 `requireLogin()`；
- * 需要 `ToastHost`：单条移除成功/失败都要有反馈（静默删除用户会怀疑没生效）。
+ * <p>页面已换成 `LegacyFavoriteRedirect`：`/favorites` / `/watchlater` 只做旧 query 平移，
+ * 然后整页跳到空间收藏 tab。`LoginGate` 仍需要（匿名时「登录后跳转」走动作级闸门）；
+ * `ToastHost` 本页不再产生写操作，但保留外壳形状，待入口删除时一起清掉。
  */
 </script>
 

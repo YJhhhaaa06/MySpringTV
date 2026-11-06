@@ -18,6 +18,7 @@ const pageEntries: ReadonlyArray<readonly [RegExp, string]> = [
   [/^\/search\/?$/, '/search.html'],
   [/^\/video\/\d+\/?$/, '/video.html'],
   [/^\/opus\/\d+\/?$/, '/opus.html'],
+  [/^\/space\/me\/?$/, '/space.html'],
   [/^\/space\/\d+\/?$/, '/space.html'],
   [/^\/favorites\/?$/, '/favorites.html'],
   [/^\/watchlater\/?$/, '/favorites.html'],

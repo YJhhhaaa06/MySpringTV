@@ -1,7 +1,7 @@
 import type { components } from '../../types/api'
 import type {
   Count,
-  PublicFolderVM,
+  LibraryFolderVM,
   SpaceHeaderVM,
   SpaceWorksVM,
   VideoCardVM,
@@ -59,12 +59,21 @@ export function toSpaceWorks(
   }
 }
 
-/** `PublicFavoriteFolderVO` → 收藏夹卡片 */
-export function toPublicFolder(folder: components['schemas']['PublicFavoriteFolderVO']): PublicFolderVM {
+/**
+ * `PublicFavoriteFolderVO` → 收藏夹条目（公开面）。
+ *
+ * <p>公开面只回 `id / name / itemCount / coverUrl`：没有 `isDefault`（`null`，不判断），
+ * `isPrivate` 由端点语义保证为 `false`（只返回公开夹）。封面 `coverUrl` 是 `R-33`
+ * 的生效封面，取不到即 `null`。
+ */
+export function toPublicFolder(folder: components['schemas']['PublicFavoriteFolderVO']): LibraryFolderVM {
   return {
     id: folder.id ?? 0,
     name: folder.name?.trim() || '未命名收藏夹',
     itemCount: folder.itemCount ?? 0,
+    coverUrl: folder.coverUrl?.trim() || null,
+    isPrivate: false,
+    isDefault: null,
   }
 }
 

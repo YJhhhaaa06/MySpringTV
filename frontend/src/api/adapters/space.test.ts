@@ -89,13 +89,18 @@ describe('toSpaceWorks', () => {
 })
 
 describe('toPublicFolder', () => {
-  it('公开收藏夹：名字与条目数（后端不返回私密夹，前端不用过滤）', () => {
-    expect(toPublicFolder({ id: 14, name: '默认收藏夹', itemCount: 3 })).toEqual({
+  it('公开收藏夹：名字 / 条目数 / 封面；私密固定 false、默认夹未知为 null', () => {
+    expect(toPublicFolder({ id: 14, name: '默认收藏夹', itemCount: 3, coverUrl: '/upload/cover/a.png' })).toEqual({
       id: 14,
       name: '默认收藏夹',
       itemCount: 3,
+      coverUrl: '/upload/cover/a.png',
+      isPrivate: false,
+      isDefault: null,
     })
     expect(toPublicFolder({}).name).toBe('未命名收藏夹')
+    expect(toPublicFolder({}).coverUrl).toBeNull()
+    expect(toPublicFolder({ coverUrl: '   ' }).coverUrl).toBeNull()
   })
 })
 

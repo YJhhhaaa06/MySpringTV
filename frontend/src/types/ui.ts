@@ -261,23 +261,24 @@ export interface SpaceWorksVM {
   totalPages: number
 }
 
-/** 公开收藏夹条目（空间的「收藏」tab） */
-export interface PublicFolderVM {
-  id: number
-  name: string
-  itemCount: number
-}
-
 /**
- * 我的收藏夹（`GET /favorite-folders`，**含私密夹**；与 `PublicFolderVM` 是两种视图：
- * 后者只给公开夹、匿名可见）。
+ * 收藏夹（空间「收藏」tab 左栏 / 主页夹卡共用）。
+ *
+ * <p>self 面来自 `FavoriteFolderVO`（含私密夹与 `isDefault`）；公开面来自
+ * `PublicFavoriteFolderVO`（只保证公开）。公开面 VO **没有** `isDefault` ⇒ `null`，
+ * 不拿它做任何判断（自动选夹按服务端顺序）。
+ *
+ * <p>封面 `coverUrl`（`R-33`）：自定义 / 夹内最新一条收藏 / `null`（前端灰 TV 占位）。
  */
-export interface MyFolderVM {
+export interface LibraryFolderVM {
   id: number
   name: string
   itemCount: number
-  isDefault: boolean
+  coverUrl: string | null
+  /** self：真实私密标记；公开面只会返回公开夹 ⇒ false */
   isPrivate: boolean
+  /** 默认夹：self 面真实；公开面 `null`（不知道，也不判断） */
+  isDefault: boolean | null
 }
 
 /**

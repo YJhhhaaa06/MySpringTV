@@ -6,12 +6,13 @@
  * **作品的一页**（`contentPage`）—— 所以翻页也是再调它（翻页会顺带重读资料，可接受）。
  *
  * <p>公开收藏夹是另一条：`GET /users/{id}/favorite-folders` 只给**公开**夹的
- * `{id, name, itemCount}`（私密夹后端不返回，这块不用前端过滤）。
+ * `{id, name, itemCount, coverUrl}`（私密夹后端不返回，这块不用前端过滤）。
  */
 import type { components } from '../types/api'
 import type {
   DynamicPageVM,
-  PublicFolderVM,
+  LibraryFolderVM,
+  PageVM,
   SpaceHeaderVM,
   SpaceWorksVM,
   VideoCardVM,
@@ -67,7 +68,7 @@ export async function loadProfileHeader(userId: number): Promise<SpaceHeaderVM> 
 }
 
 /** `GET /users/{id}/favorite-folders`：该用户**公开**的收藏夹 */
-export async function loadPublicFolders(userId: number): Promise<PublicFolderVM[]> {
+export async function loadPublicFolders(userId: number): Promise<LibraryFolderVM[]> {
   const folders = await getJson('/api/v1/users/{id}/favorite-folders', { path: { id: userId } })
   return (folders ?? []).map((folder) => toPublicFolder(folder))
 }
@@ -77,7 +78,7 @@ export async function loadFolderItems(
   folderId: number,
   page = 1,
   pageSize = 10,
-): Promise<{ items: VideoCardVM[]; page: number; total: number; totalPages: number }> {
+): Promise<PageVM<VideoCardVM>> {
   const result = await getJson('/api/v1/favorite-folders/{id}/items', {
     path: { id: folderId },
     query: { page, pageSize },

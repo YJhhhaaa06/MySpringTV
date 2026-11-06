@@ -2,16 +2,30 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type {
-  PublicFolderVM,
+  LibraryFolderVM,
   SpaceHeaderVM,
   SpaceWorksVM,
   VideoCardVM,
 } from '../types/ui'
-import { loadFolderItems, loadPublicFolders, loadSpace } from '../api/profile'
+import { loadSpace } from '../api/profile'
+import {
+  loadLibraryFolders,
+  loadLibraryItems,
+  loadLibraryLater,
+  loadLibraryLaterTotal,
+  removeLibraryItem,
+  removeLibraryLater,
+} from '../api/favoriteLibrary'
 import { followUser, unfollowUser } from '../api/interactions'
 import { ApiError, describeError } from '../api/http'
 import { formatCount, formatCoinInt } from '../api/adapters/format'
-import { applyAvatarUrl, isAuthenticated, restoreSession, sessionState } from '../auth/session'
+import {
+  applyAvatarUrl,
+  currentUserId,
+  isAuthenticated,
+  restoreSession,
+  sessionState,
+} from '../auth/session'
 import { requireLogin } from '../auth/loginPrompt'
 import { showToast } from '../common/toast'
 import { useCheckIn } from '../composables/useCheckIn'
@@ -26,13 +40,18 @@ import UserAvatar from '../components/common/UserAvatar.vue'
 import VideoCard from '../components/common/VideoCard.vue'
 import VideoGrid from '../components/home/VideoGrid.vue'
 import DynamicCard from '../components/feed/DynamicCard.vue'
+import FavoriteFolderHeader from '../components/favorite/FavoriteFolderHeader.vue'
+import FavoriteItemGrid from '../components/favorite/FavoriteItemGrid.vue'
+import FolderHomeSection from '../components/favorite/FolderHomeSection.vue'
+import FolderRail from '../components/favorite/FolderRail.vue'
 import RelationPanel from '../components/space/RelationPanel.vue'
 
 /**
- * UP 主空间（`GET /users/{id}` + 公开收藏夹 + 关注/粉丝列表）。
+ * UP 主空间（`GET /users/{id}` + 收藏浏览器 + 关注/粉丝列表）。
  *
  * <h2>版式按 B 站 2026 空间页</h2>
- * banner（渐变底）→ 头像 + 昵称 + 关注按钮 → tab（主页 / 动态 / 投稿 / 收藏）→ 内容 + 右侧资料卡。
+ * banner（渐变底）→ 头像 + 昵称 + 关注按钮 → tab（主页 / 动态 / 投稿 / 收藏）→ 内容 + 右侧资料卡
+ * （收藏 tab 不摆资料卡，改用 B 站式全宽「左栏 + 条目网格」）。
  * 点头部的「粉丝 / 关注」数字进入**关注 / 粉丝列表**（B 站是 `/{uid}/relation/following`，
  * 2026-10-27 新增；本仓用同一文档里的 query：`?tab=following|followers`）。
  *
@@ -46,6 +65,15 @@ import RelationPanel from '../components/space/RelationPanel.vue'
  * </ul>
  * 主页与投稿是"预览 vs 全量"，不是"两个名字一套数据"；类型子筛选（视频/图文）另有
  * `GAP-32`，本窗不渲染。
+ *
+ * <h2>★ 收藏浏览器 = 唯一入口（`R-34`）</h2>
+ * `/space/{uid}?tab=folders` 是查看收藏夹内容的唯一入口（旧 `/favorites` 只留重定向壳）。
+ * - **self**：`GET /favorite-folders`（含私密夹）+ `GET /favorites?folderId=`，左栏带「私密」标记；
+ * - **别人 / 匿名**：`GET /users/{id}/favorite-folders` + `GET /favorite-folders/{id}/items`，只有公开夹；
+ * - 左栏底部的「稍后再看」是 **self 专属特殊项**（`?tab=folders&view=later&itemPage=N`），
+ *   复用同一套网格/分页/移出，但不计入收藏夹数；
+ * - 封面（`R-33`）只展示：选中夹头部 + 主页夹卡；`coverUrl=null` 灰 TV 占位；**不做上传/恢复**。
+ * 身份判定必须等 `restoreSession()` 落定，且登录 / 退出 / 换号时清空上一视角的私密夹与条目。
  *
  * <h2>★ 三处降级（都进了 GAP 台账，界面上不假装有）</h2>
  * - **没有 banner 图 / 签名 / 生日 / 地区**：banner 用渐变底，资料卡只放真实计数；
@@ -61,11 +89,11 @@ import RelationPanel from '../components/space/RelationPanel.vue'
  * 一个都不渲染（没有对应端点）。两个端点都要登录（B 站同样 `-101`），
  * 匿名进这两个 tab 是「登录后查看」而不是空列表。
  *
- * <p>tab 与**投稿 / 收藏**的翻页落在 query（`?tab=works&page=2`、`?tab=folders&folder=3&itemPage=2`）：
- * 刷新 / 分享能停在原处，与 B 站同构。动态 tab（`T107` 起）是无限滚动，**页码不进 URL**
- * （旧 `?tab=dynamic&page=2` 会静默落到第 1 页）。作品页是 **Page**，收藏条目也是 Page，
- * 但**来源不同**（`/users/{id}` 内嵌 vs `/favorite-folders/{id}/items`）。
- * 关注 / 粉丝用 `relPage`（不与作品的 `page` / 夹的 `itemPage` 抢名字）。
+ * <p>tab 与**投稿 / 收藏**的翻页落在 query（`?tab=works&page=2`、`?tab=folders&folder=3&itemPage=2`、
+ * `?tab=folders&view=later&itemPage=2`）：刷新 / 分享能停在原处，与 B 站同构。动态 tab（`T107` 起）
+ * 是无限滚动，**页码不进 URL**（旧 `?tab=dynamic&page=2` 会静默落到第 1 页）。作品页是 **Page**，
+ * 收藏条目 / 稍后再看也是 Page，但**来源不同**（`/users/{id}` 内嵌 vs `GET /favorites` /
+ * `GET /watch-later`）。关注 / 粉丝用 `relPage`（不与作品的 `page` / 夹的 `itemPage` 抢名字）。
  */
 const route = useRoute()
 const router = useRouter()
@@ -107,6 +135,20 @@ const activeFolderId = computed(() => {
   return Number.isInteger(value) && value > 0 ? value : 0
 })
 const itemPage = computed(() => positive(route.query.itemPage))
+/**
+ * 收藏 tab 的右栏视图：真实夹 / 稍后再看。
+ *
+ * <p>`view=later` 不是第五个 tab，只是左栏特殊项；只对 self 可见（见 `loadFoldersTab`）。
+ */
+const folderView = computed<'folder' | 'later'>(() => (route.query.view === 'later' ? 'later' : 'folder'))
+/**
+ * ★ 是否在看自己的空间。
+ *
+ * <p>用 `currentUserId()` 而不是 `header.isSelf`：收藏 tab 的装载可能早于
+ * `GET /users/{id}` 返回，抢跑会把自己的空间画成访客视角（私密夹先消失）。
+ * 所有调用点都在 `await restoreSession()` 之后使用它。
+ */
+const isSelf = computed(() => currentUserId() !== null && currentUserId() === userId.value)
 
 function positive(raw: unknown): number {
   const value = Number(raw)
@@ -348,6 +390,9 @@ watch(
       return
     }
     resetDynamic()
+    // ★ 必须在 `loading` 守卫之前：首屏的 works 装载会先置 loading=true，
+    //   若放到后面，主页收藏区块永远等不到装载（`T114` 实测踩到）
+    if (current === 'home') void loadFolders()
     if (loading.value) return // 同一个导航里 worksPage 变化已触发 loadWorks，别打两趟
     const expectedPage = current === 'home' ? 1 : worksPage.value
     if (
@@ -386,9 +431,12 @@ watch(
   () => sessionState.status,
   (status, previous) => {
     if ((status === 'authenticated' && previous === 'anonymous') || (status === 'anonymous' && previous === 'authenticated')) {
+      // ★ 先清收藏内存态：退出 / 换号后，上一视角的私密夹名与条目不许留在屏上
+      clearFolderState()
       // 动态 tab 走 loadDynamic（它会重拉 isLiked / isFollowed），其余 tab 走 loadWorks
       reloadCurrent()
-      if (tab.value === 'folders') void loadFolders(true)
+      if (tab.value === 'folders') void loadFoldersTab(true)
+      else if (tab.value === 'home') void loadFolders(true)
     }
   },
 )
@@ -439,62 +487,315 @@ const {
   submit: submitCheckIn,
 } = useCheckIn()
 
-// ── 收藏夹 ────────────────────────────────────────────────────────────
-const folders = ref<PublicFolderVM[]>([])
+// ── 收藏夹 / 稍后再看 ──────────────────────────────────────────────────
+const folders = ref<LibraryFolderVM[]>([])
 const foldersLoading = ref(false)
 const foldersError = ref('')
-const foldersLoadedFor = ref(0)
+/** 缓存键 = 用户 + self/public；登录 / 退出一变就必须重读（私密夹随视角变化） */
+const foldersLoadedFor = ref('')
 
 const folderItems = ref<VideoCardVM[]>([])
 const folderPage = ref(1)
+const folderTotal = ref(0)
 const folderTotalPages = ref(0)
 const itemsLoading = ref(false)
 const itemsError = ref('')
+const removingId = ref<number | null>(null)
+/** null = 未取到 / 非 self（渲染成 `-`，不假装是 0） */
+const laterTotal = ref<number | null>(null)
+/** 条目请求序号：切夹 / 切视图 / 翻页后，晚到的旧响应不得覆盖新面板 */
+let itemsRequestId = 0
+
+const activeFolder = computed(() => folders.value.find((folder) => folder.id === activeFolderId.value) ?? null)
+
+/** 主页收藏区块最多摆 10 个夹（B 站两行 + 查看更多）；总数另由 `folders.length` 给 */
+const homeFolders = computed(() => folders.value.slice(0, 10))
+
+/** 头部条数：优先用夹列表里的计数（进夹瞬间就能显示），列表没给再用分页 total */
+const headerTotal = computed(() => {
+  if (folderView.value === 'later') return laterTotal.value ?? folderTotal.value
+  return activeFolder.value?.itemCount ?? folderTotal.value
+})
+
+function folderScopeKey(): string {
+  return `${userId.value}:${isSelf.value ? 'self' : 'public'}`
+}
+
+/**
+ * 进收藏 tab 且没选夹：像 B 站一样直接打开第一个夹（self 优先默认夹）。
+ *
+ * <p>必须在**缓存命中时也执行**：从主页切到收藏 tab 时夹列表是内存里现成的，
+ * 不选夹的话右栏会停在"选择一个收藏夹"。
+ */
+async function ensureFolderSelection(list: LibraryFolderVM[], self: boolean): Promise<void> {
+  if (tab.value !== 'folders' || folderView.value !== 'folder' || activeFolderId.value !== 0 || !list.length) {
+    return
+  }
+  const preferred = self ? list.find((folder) => folder.isDefault === true) ?? list[0] : list[0]
+  if (preferred) {
+    await router.replace({
+      name: 'space',
+      params: { id: userId.value },
+      query: { tab: 'folders', folder: String(preferred.id) },
+    })
+  }
+}
 
 async function loadFolders(force = false): Promise<void> {
   if (!userId.value) return
-  if (!force && foldersLoadedFor.value === userId.value) return
+  await restoreSession()
+  if (!userId.value) return
+  const scopeKey = folderScopeKey()
+  // 视角变了（换人 / self↔public）而旧数据还在：先清空，别让上一视角的夹名 / 条目
+  // 在新页面上停留一拍（session watcher 已清一次，这里兜住换人场景）
+  if (foldersLoadedFor.value && foldersLoadedFor.value !== scopeKey) clearFolderState()
+  if (!force && foldersLoadedFor.value === scopeKey) {
+    await ensureFolderSelection(folders.value, isSelf.value)
+    return
+  }
+  const targetUserId = userId.value
+  const targetIsSelf = isSelf.value
   foldersLoading.value = true
   foldersError.value = ''
   try {
-    folders.value = await loadPublicFolders(userId.value)
-    foldersLoadedFor.value = userId.value
+    const list = await loadLibraryFolders(targetUserId, targetIsSelf)
+    if (userId.value !== targetUserId || isSelf.value !== targetIsSelf) return
+    folders.value = list
+    foldersLoadedFor.value = scopeKey
+    if (targetIsSelf) void loadLaterTotal()
+    else laterTotal.value = null
+    await ensureFolderSelection(list, targetIsSelf)
   } catch (exception) {
+    if (userId.value !== targetUserId || isSelf.value !== targetIsSelf) return
     folders.value = []
+    foldersLoadedFor.value = ''
     foldersError.value = describeError(exception)
   } finally {
-    foldersLoading.value = false
+    if (userId.value === targetUserId) foldersLoading.value = false
+  }
+}
+
+async function loadLaterTotal(): Promise<void> {
+  if (!isSelf.value) {
+    laterTotal.value = null
+    return
+  }
+  const targetUserId = userId.value
+  try {
+    const total = await loadLibraryLaterTotal()
+    // 在途期间换人 / 退出：别把上一账号的计数写回公开面
+    if (userId.value === targetUserId && isSelf.value) laterTotal.value = total
+  } catch {
+    // 计数是装饰：失败不影响夹列表 / 稍后再看本体
+    if (userId.value === targetUserId && isSelf.value) laterTotal.value = null
   }
 }
 
 async function loadItems(): Promise<void> {
-  if (!activeFolderId.value || route.query.tab !== 'folders') return
+  if (tab.value !== 'folders' || !userId.value) return
+  const requestId = ++itemsRequestId
+  const targetIsSelf = isSelf.value
+  const targetView = folderView.value
+  const targetFolderId = activeFolderId.value
+  const targetPage = itemPage.value
   itemsLoading.value = true
   itemsError.value = ''
+  // 切夹 / 切视图时先清空，别让上一夹的卡片（甚至私密夹）在新面板上停留一拍
+  folderItems.value = []
+  folderPage.value = 1
+  folderTotalPages.value = 0
+
   try {
-    const page = await loadFolderItems(activeFolderId.value, itemPage.value, PAGE_SIZE)
+    if (targetView === 'later') {
+      if (!targetIsSelf) {
+        itemsError.value = '稍后再看只对账号本人可见'
+        return
+      }
+      const page = await loadLibraryLater(targetPage, PAGE_SIZE)
+      if (requestId !== itemsRequestId) return
+      folderItems.value = page.items
+      folderPage.value = page.page
+      folderTotal.value = page.total
+      folderTotalPages.value = page.totalPages
+      laterTotal.value = page.total
+      return
+    }
+
+    if (!targetFolderId) {
+      folderItems.value = []
+      folderPage.value = 1
+      folderTotal.value = 0
+      folderTotalPages.value = 0
+      return
+    }
+    // 夹列表已装载（且不是加载失败）时，先用它挡掉"不存在 / 已不可见"的夹：
+    // 不拿夹端点 404 当普通空列表画，也不对别人的私密夹做任何探测。
+    if (foldersLoadedFor.value && !folders.value.some((folder) => folder.id === targetFolderId)) {
+      folderItems.value = []
+      folderPage.value = 1
+      folderTotal.value = 0
+      folderTotalPages.value = 0
+      itemsError.value = '这个收藏夹不存在或不可见'
+      return
+    }
+
+    const page = await loadLibraryItems(targetFolderId, targetIsSelf, targetPage, PAGE_SIZE)
+    if (requestId !== itemsRequestId) return
     folderItems.value = page.items
     folderPage.value = page.page
+    folderTotal.value = page.total
     folderTotalPages.value = page.totalPages
+    // 夹列表的 itemCount 是快照；以分页 total 对齐（同源口径）
+    const folder = folders.value.find((entry) => entry.id === targetFolderId)
+    if (folder) folder.itemCount = page.total
   } catch (exception) {
+    if (requestId !== itemsRequestId) return
     folderItems.value = []
-    itemsError.value = describeError(exception)
+    folderPage.value = 1
+    folderTotal.value = 0
+    folderTotalPages.value = 0
+    itemsError.value =
+      exception instanceof ApiError && exception.status === 404
+        ? '这个收藏夹不存在或不可见'
+        : exception instanceof ApiError && exception.status === 403
+          ? '这个收藏夹不是你的'
+          : describeError(exception)
   } finally {
-    itemsLoading.value = false
+    if (requestId === itemsRequestId) itemsLoading.value = false
   }
 }
 
+/**
+ * 收藏 tab 的装载入口：先落定登录态 → 再判 self → 再读夹列表 / 条目。
+ *
+ * <p>`view=later` 在非 self 上直接归一掉（手工拼的链接也不给它看别人的"稍后再看"）。
+ * 夹列表与条目**串行**：自动选夹要先 `router.replace` 落定，`loadItems` 才能读到新夹 id。
+ */
+async function loadFoldersTab(forceFolders = false): Promise<void> {
+  if (tab.value !== 'folders' || !userId.value) return
+  await restoreSession()
+  if (tab.value !== 'folders' || !userId.value) return
+  if (folderView.value === 'later' && !isSelf.value) {
+    await router.replace({ name: 'space', params: { id: userId.value }, query: { tab: 'folders' } })
+    return
+  }
+  const beforeFolderId = activeFolderId.value
+  await loadFolders(forceFolders)
+  if (tab.value !== 'folders') return
+  // 自动选夹已经改了 query ⇒ 交给 route watcher 装载，别打两趟
+  if (activeFolderId.value !== beforeFolderId) return
+  await loadItems()
+}
+
 watch(
-  () => [tab.value, activeFolderId.value, itemPage.value, userId.value] as const,
+  () => [tab.value, folderView.value, activeFolderId.value, itemPage.value, userId.value] as const,
   ([currentTab]) => {
     if (currentTab !== 'folders') return
-    void loadFolders()
-    void loadItems()
+    void loadFoldersTab()
   },
   { immediate: true },
 )
 
-const activeFolder = computed(() => folders.value.find((folder) => folder.id === activeFolderId.value) ?? null)
+/**
+ * 移出单条：乐观 → 失败回滚 → 成功后静默对齐。
+ *
+ * <p>只在 self 面渲染按钮；看别人时这个函数不会被调用。写后重读是因为 total / 夹计数
+ * 是别的标签页也能改的共享事实，只靠本地 -1 迟早漂移。
+ */
+async function removeItem(item: VideoCardVM): Promise<void> {
+  if (!isSelf.value || removingId.value !== null) return
+  const contentId = item.id
+  if (!contentId) return
+  const targetView = folderView.value
+  const targetFolderId = activeFolderId.value
+  const snapshot = {
+    items: folderItems.value,
+    total: folderTotal.value,
+    totalPages: folderTotalPages.value,
+    laterTotal: laterTotal.value,
+    folderCount: activeFolder.value?.itemCount ?? null,
+  }
+
+  removingId.value = contentId
+  folderItems.value = folderItems.value.filter((entry) => entry.id !== contentId)
+  folderTotal.value = Math.max(0, folderTotal.value - 1)
+  if (targetView === 'later') laterTotal.value = Math.max(0, (laterTotal.value ?? 1) - 1)
+  else if (activeFolder.value) activeFolder.value.itemCount = Math.max(0, activeFolder.value.itemCount - 1)
+
+  // 写请求在途时用户可能切夹 / 切视图 ⇒ 回滚与重读只落回"发起时的那一面"
+  const stillOnTarget = (): boolean =>
+    folderView.value === targetView && activeFolderId.value === targetFolderId
+
+  try {
+    if (targetView === 'later') await removeLibraryLater(contentId)
+    else await removeLibraryItem(targetFolderId, contentId)
+    showToast(targetView === 'later' ? '已移出稍后再看' : '已取消收藏')
+    if (stillOnTarget()) await refreshItemsSilently()
+    // 夹内移除可能换掉"最新一条收藏"⇒ 自动封面要跟着重算（folders 端点读取时现算）
+    if (targetView === 'folder') void loadFolders(true)
+  } catch (exception) {
+    if (stillOnTarget()) {
+      folderItems.value = snapshot.items
+      folderTotal.value = snapshot.total
+      folderTotalPages.value = snapshot.totalPages
+      laterTotal.value = snapshot.laterTotal
+      if (activeFolder.value && snapshot.folderCount !== null) {
+        activeFolder.value.itemCount = snapshot.folderCount
+      }
+    }
+    showToast(describeError(exception), 'error')
+  } finally {
+    removingId.value = null
+  }
+}
+
+/** 静默重读当前页；这一页被删空时退到最后一个有内容的页 */
+async function refreshItemsSilently(): Promise<void> {
+  if (!userId.value) return
+  try {
+    const page =
+      folderView.value === 'later'
+        ? await loadLibraryLater(itemPage.value, PAGE_SIZE)
+        : await loadLibraryItems(activeFolderId.value, isSelf.value, itemPage.value, PAGE_SIZE)
+    if (page.items.length === 0 && page.total > 0 && itemPage.value > 1) {
+      goItemPage(Math.max(1, page.totalPages))
+      return
+    }
+    folderItems.value = page.items
+    folderPage.value = page.page
+    folderTotal.value = page.total
+    folderTotalPages.value = page.totalPages
+    if (folderView.value === 'later') laterTotal.value = page.total
+    else {
+      const folder = activeFolder.value
+      if (folder) folder.itemCount = page.total
+    }
+  } catch {
+    // 静默失败：乐观结果已经呈现，下次进入页面会重建
+  }
+}
+
+/** 清空收藏相关内存态：登录 / 退出 / 换号 / 换人后，上一视角的私密夹与条目不得留在屏上 */
+function clearFolderState(): void {
+  itemsRequestId += 1
+  folders.value = []
+  foldersLoadedFor.value = ''
+  foldersError.value = ''
+  foldersLoading.value = false
+  folderItems.value = []
+  folderPage.value = 1
+  folderTotal.value = 0
+  folderTotalPages.value = 0
+  itemsLoading.value = false
+  itemsError.value = ''
+  removingId.value = null
+  laterTotal.value = null
+}
+
+// 换人（/space/5 → /space/6）时同步清空，别等异步请求回来才替换
+watch(userId, (next, previous) => {
+  if (next !== previous) clearFolderState()
+})
 
 // ── 关注 / 粉丝 ────────────────────────────────────────────────────────
 /** 面板只关心"看谁 / 看哪个列表 / 第几页"；装载、竞态与关注动作都在 `RelationPanel` 里 */
@@ -523,8 +824,18 @@ function openFolder(folderId: number): void {
   void router.push({ name: 'space', params: { id: userId.value }, query: { tab: 'folders', folder: String(folderId) } })
 }
 
-function backToFolders(): void {
+/** 左栏「稍后再看」：只改 query，右栏复用同一套网格 / 分页 */
+function selectLater(): void {
+  void router.push({ name: 'space', params: { id: userId.value }, query: { tab: 'folders', view: 'later' } })
+}
+
+/** 选中的夹不存在 / 不可见时退回夹列表（左栏仍在，不整页报错） */
+function clearFolderSelection(): void {
   void router.push({ name: 'space', params: { id: userId.value }, query: { tab: 'folders' } })
+}
+
+function retryFolderTab(): void {
+  void loadFoldersTab(true)
 }
 
 /**
@@ -540,11 +851,11 @@ function goTabPage(page: number): void {
 }
 
 function goItemPage(page: number): void {
-  void router.push({
-    name: 'space',
-    params: { id: userId.value },
-    query: { tab: 'folders', folder: String(activeFolderId.value), ...(page > 1 ? { itemPage: String(page) } : {}) },
-  })
+  const query =
+    folderView.value === 'later'
+      ? { tab: 'folders', view: 'later', ...(page > 1 ? { itemPage: String(page) } : {}) }
+      : { tab: 'folders', folder: String(activeFolderId.value), ...(page > 1 ? { itemPage: String(page) } : {}) }
+  void router.push({ name: 'space', params: { id: userId.value }, query })
 }
 </script>
 
@@ -637,7 +948,11 @@ function goItemPage(page: number): void {
           </button>
         </nav>
 
-        <div v-if="!isRelationTab" class="space-layout">
+        <div
+          v-if="!isRelationTab"
+          class="space-layout"
+          :class="{ 'space-layout--single': tab === 'folders' }"
+        >
           <section class="space-main">
             <!-- 主页（R-31）：最新 3 大卡 + 网格预览 6 + 查看全部；不分页 -->
             <template v-if="tab === 'home'">
@@ -663,6 +978,16 @@ function goItemPage(page: number): void {
                     <AppIcon name="chevron-right" :size="14" />
                   </button>
                 </template>
+
+                <FolderHomeSection
+                  :folders="homeFolders"
+                  :total="folders.length"
+                  :loading="foldersLoading"
+                  :error="foldersError"
+                  @open-folder="openFolder"
+                  @more="setTab('folders')"
+                  @retry="loadFolders(true)"
+                />
               </template>
             </template>
 
@@ -731,42 +1056,98 @@ function goItemPage(page: number): void {
               </template>
             </template>
 
-            <!-- 收藏：公开收藏夹列表 → 某个夹的条目（也是 Page 分页） -->
+            <!-- 收藏（R-34）：唯一查看收藏夹内容的入口；self 含私密夹，别人只有公开夹 -->
             <template v-else>
-              <button v-if="activeFolderId" class="space-back" type="button" @click="backToFolders">
-                <AppIcon name="chevron-left" :size="16" />
-                <span>返回收藏夹</span>
-              </button>
+              <div class="folder-browser">
+                <FolderRail
+                  :folders="folders"
+                  :active-folder-id="activeFolderId"
+                  :is-self="isSelf"
+                  :loading="foldersLoading"
+                  :error="foldersError"
+                  :later-total="laterTotal"
+                  :view="folderView"
+                  @select-folder="openFolder"
+                  @select-later="selectLater"
+                />
 
-              <p v-if="foldersLoading || itemsLoading" class="space-empty">加载中…</p>
-              <p v-else-if="foldersError || itemsError" class="space-empty space-empty--error">
-                {{ foldersError || itemsError }}
-              </p>
+                <section class="folder-browser__main">
+                  <EmptyState
+                    v-if="foldersError && !folders.length"
+                    icon="star"
+                    title="打不开收藏夹"
+                    :description="foldersError"
+                  >
+                    <button class="btn btn-blue" type="button" @click="retryFolderTab">重试</button>
+                  </EmptyState>
 
-              <template v-else-if="!activeFolderId">
-                <p v-if="!folders.length" class="space-empty">这个 UP 主还没有公开的收藏夹</p>
-                <ul v-else class="folder-cards">
-                  <li v-for="folder in folders" :key="folder.id">
-                    <button class="folder-card" type="button" @click="openFolder(folder.id)">
-                      <span class="folder-card__name">{{ folder.name }}</span>
-                      <span class="folder-card__count">{{ folder.itemCount }} 个内容</span>
-                    </button>
-                  </li>
-                </ul>
-              </template>
+                  <!-- 稍后再看：同一套网格 / 分页，只是数据源不同（仅 self） -->
+                  <template v-else-if="folderView === 'later'">
+                    <FavoriteFolderHeader :folder="null" :is-later="true" :total="headerTotal" />
+                    <p v-if="itemsLoading" class="space-empty">加载中…</p>
+                    <EmptyState
+                      v-else-if="itemsError"
+                      icon="clock"
+                      title="打不开稍后再看"
+                      :description="itemsError"
+                    >
+                      <button class="btn btn-blue" type="button" @click="retryFolderTab">重试</button>
+                    </EmptyState>
+                    <p v-else-if="!folderItems.length" class="space-empty">稍后再看是空的</p>
+                    <template v-else>
+                      <FavoriteItemGrid
+                        :items="folderItems"
+                        remove-label="移出"
+                        :can-remove="isSelf"
+                        :removing-id="removingId"
+                        @remove="removeItem"
+                      />
+                      <Pagination :page="folderPage" :total-pages="folderTotalPages" @update:page="goItemPage" />
+                    </template>
+                  </template>
 
-              <template v-else>
-                <h2 class="space-subtitle">{{ activeFolder?.name ?? '收藏夹' }}</h2>
-                <p v-if="!folderItems.length" class="space-empty">这个收藏夹还是空的</p>
-                <template v-else>
-                  <VideoGrid :items="folderItems" />
-                  <Pagination :page="folderPage" :total-pages="folderTotalPages" @update:page="goItemPage" />
-                </template>
-              </template>
+                  <template v-else>
+                    <p v-if="foldersLoading && !folders.length" class="space-empty">加载中…</p>
+                    <EmptyState
+                      v-else-if="!folders.length"
+                      icon="star"
+                      :title="isSelf ? '你还没有收藏夹' : '这个 UP 主还没有公开的收藏夹'"
+                      :description="isSelf ? '在播放页点收藏，选一个夹存进去。' : 'TA 还没有公开的收藏夹。'"
+                    />
+
+                    <template v-else-if="activeFolderId">
+                      <FavoriteFolderHeader :folder="activeFolder" :is-later="false" :total="headerTotal" />
+                      <p v-if="itemsLoading" class="space-empty">加载中…</p>
+                      <EmptyState
+                        v-else-if="itemsError"
+                        icon="star"
+                        title="打不开这个收藏夹"
+                        :description="itemsError"
+                      >
+                        <button class="btn btn-blue" type="button" @click="retryFolderTab">重试</button>
+                        <button class="btn btn-ghost" type="button" @click="clearFolderSelection">返回收藏夹</button>
+                      </EmptyState>
+                      <p v-else-if="!folderItems.length" class="space-empty">这个收藏夹还是空的</p>
+                      <template v-else>
+                        <FavoriteItemGrid
+                          :items="folderItems"
+                          remove-label="取消收藏"
+                          :can-remove="isSelf"
+                          :removing-id="removingId"
+                          @remove="removeItem"
+                        />
+                        <Pagination :page="folderPage" :total-pages="folderTotalPages" @update:page="goItemPage" />
+                      </template>
+                    </template>
+
+                    <p v-else class="space-empty">选择一个收藏夹</p>
+                  </template>
+                </section>
+              </div>
             </template>
           </section>
 
-          <aside class="space-side">
+          <aside v-if="tab !== 'folders'" class="space-side">
             <section class="side-card">
               <h2 class="side-card__title">个人资料</h2>
               <dl class="side-list">
@@ -987,12 +1368,28 @@ function goItemPage(page: number): void {
   align-items: start;
 }
 
+/* 收藏 tab 用 B 站式全宽浏览器（左栏 + 条目网格），不摆右侧资料卡 */
+.space-layout--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .space-main {
   min-width: 0;
 }
 
-.featured__title,
-.space-subtitle {
+/* 收藏浏览器：左栏 216px + 右栏内容（与 /favorites 旧版式同宽，但只此一处保留） */
+.folder-browser {
+  display: grid;
+  grid-template-columns: 216px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.folder-browser__main {
+  min-width: 0;
+}
+
+.featured__title {
   font-size: 16px;
   font-weight: 600;
   color: var(--text-1);
@@ -1102,57 +1499,6 @@ function goItemPage(page: number): void {
   flex-direction: column;
   align-items: center;
   gap: 8px;
-}
-
-.space-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  margin-bottom: 14px;
-  font-size: 13px;
-  color: var(--text-2);
-}
-
-.space-back:hover {
-  color: var(--brand-blue);
-}
-
-.folder-cards {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.folder-card {
-  display: flex;
-  width: 100%;
-  height: 96px;
-  flex-direction: column;
-  justify-content: center;
-  gap: 6px;
-  padding: 0 16px;
-  border: 1px solid var(--line-1);
-  border-radius: var(--radius);
-  text-align: left;
-  background: var(--bg-1);
-}
-
-.folder-card:hover {
-  border-color: var(--brand-blue);
-}
-
-.folder-card__name {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-1);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.folder-card__count {
-  font-size: 12px;
-  color: var(--text-3);
 }
 
 .space-side {
@@ -1268,8 +1614,11 @@ function goItemPage(page: number): void {
     position: static;
   }
 
+  .folder-browser {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .featured__row,
-  .folder-cards,
   .space-skeleton {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
