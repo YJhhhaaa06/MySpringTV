@@ -1,19 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import type { DynamicCardVM, RelationPageVM, SpaceHeaderVM } from '../types/ui'
-import { FEED_PAGE_SIZE, dynamicQuery, loadFeed } from '../api/feed'
+import type { RelationPageVM, SpaceHeaderVM } from '../types/ui'
+import { dynamicQuery } from '../api/feed'
 import { loadFollowing } from '../api/relations'
-import { loadProfileHeader, loadSpace } from '../api/profile'
-import { ApiError, describeError } from '../api/http'
+import { loadProfileHeader } from '../api/profile'
 import { formatCount } from '../api/adapters/format'
 import { isAuthenticated, restoreSession, sessionState } from '../auth/session'
 import { requireLogin } from '../auth/loginPrompt'
 import { useDynamicActions } from '../composables/useDynamicActions'
+import { useDynamicFeed } from '../composables/useDynamicFeed'
 import { useUserAvatars } from '../composables/useUserAvatars'
+import type { DynamicSource } from '../feed/dynamicPaging'
 import AppIcon from '../components/common/AppIcon.vue'
 import EmptyState from '../components/common/EmptyState.vue'
-import Pagination from '../components/common/Pagination.vue'
 import UserAvatar from '../components/common/UserAvatar.vue'
 import DynamicCard from '../components/feed/DynamicCard.vue'
 
@@ -36,9 +36,12 @@ import DynamicCard from '../components/feed/DynamicCard.vue'
  * - **按作者筛选（`R-31`）**：`/dynamic?author={id}` 走 `GET /users/{id}` 的 `contentPage`
  *   （= 该作者的动态时间线，与空间「动态」tab 同源），**不是** `/feed` 加参。
  *
- * <h2>两种模式的 total 口径不同（别当 bug）</h2>
- * 「全部动态」的 `total` = 读侧归并窗口条数（≤300，深翻空页）；
- * 作者模式 = `contentPage.total`（TA 的全部投稿）。页头各自写清「全部动态 / TA 的动态」。
+ * <h2>★ 列表口径（`R-32`）：无限滚动，不再翻页</h2>
+ * 全部动态走 `/feed`：首屏记下第一条 id 当**快照锚点**，第 2 页起带 `beforeContentId` ⇒
+ * 新内容插到头部也不会让 offset 漂（不重复、不漏条），`total` 只算锚点内（有界窗口 ≤300）。
+ * 作者模式走 `contentPage`：没有锚点，按 id 去重（作者翻页期间发新内容只会造成重复）。
+ * 两种源共用 `feed/listState.ts` 的续页状态机，令牌 = 下一页页码；`page >= totalPages` 才到底。
+ * 旧 `?page=` 链接不再读取（落到第 1 页）；作者模式仍保留 `?author=`。
  *
  * <h2>页面级身份态</h2>
  * `/feed` 是类级 `@RequiresLogin` ⇒ 整页都属于"我"，匿名渲染「登录后查看」+ 登录按钮
@@ -56,14 +59,12 @@ const PREVIEW_LIMIT = 8
 /** 右栏只摆 8 个；头像行多取一些（≤24，横向滚动），不在这里做无限加载 */
 const FOLLOWING_FETCH = 24
 
+/** 离底还有 800px 就开始拉下一页：滚到底时下一页通常已经在路上（与首页同口径） */
+const PREFETCH_MARGIN = 800
+
 const sessionReady = ref(false)
 const loggedIn = computed(() => sessionState.status === 'authenticated')
 const me = computed(() => sessionState.user)
-
-const page = computed(() => {
-  const value = Number(route.query.page)
-  return Number.isInteger(value) && value > 0 ? value : 1
-})
 
 /**
  * 作者模式（`R-31`）：`?author={id}` ⇒ 只看 TA 的动态（`contentPage`）。
@@ -74,24 +75,23 @@ const authorId = computed(() => {
   return Number.isInteger(value) && value > 0 ? value : null
 })
 
-const feed = ref<{ items: DynamicCardVM[]; page: number; total: number; totalPages: number } | null>(null)
-const loading = ref(false)
-const error = ref('')
-/** total > 0 但本页空 = 页码越界（不是"没有动态"；深链 / 旧书签会撞到） */
-const outOfRange = computed(
-  () => Boolean(feed.value && feed.value.items.length === 0 && feed.value.total > 0),
+/** 数据源：全部动态 / 某作者；切源由 `useDynamicFeed` 负责清空。 */
+const source = computed<DynamicSource>(() =>
+  authorId.value ? { mode: 'author', authorId: authorId.value } : { mode: 'all' },
 )
+
+/** 列表行为机：请求 + 续页状态迁移 + 两种源；滚动 / 哨兵留在本页。 */
+const feed = useDynamicFeed(() => source.value)
+const { state, total, authorHeader, view, errorText } = feed
 
 const profile = ref<SpaceHeaderVM | null>(null)
 const following = ref<RelationPageVM | null>(null)
-/** 作者模式的作者头（同一个 `GET /users/{id}` 顺带返回，不额外请求） */
-const authorHeader = ref<SpaceHeaderVM | null>(null)
 
 /**
  * 作者快照面的头像（`R-27`）：动态卡 / 右栏关注列表只拿得到 userId，
  * 由批量端点按页实时补 URL；缺 id 时 UserAvatar 按 userId 回落默认。
  */
-const feedAvatarIds = computed(() => (feed.value?.items ?? []).map((item) => item.authorId))
+const feedAvatarIds = computed(() => state.value.items.map((item) => item.authorId))
 const { avatars: feedAvatars } = useUserAvatars(feedAvatarIds)
 const followingAvatarIds = computed(() => (following.value?.items ?? []).map((user) => user.id))
 const { avatars: followingAvatars } = useUserAvatars(followingAvatarIds)
@@ -111,30 +111,72 @@ const {
   closeComments,
 } = useDynamicActions()
 
+// ── 无限滚动：哨兵 + 连续补页 ─────────────────────────────────────
+
+const sentinel = ref<HTMLElement | null>(null)
+let sentinelObserver: IntersectionObserver | null = null
+
+function inPrefetchRange(): boolean {
+  const element = sentinel.value
+  // 卸载后元素已脱离文档，rect 恒 0 ⇒ 不加这一句会让 while 继续把整池拉完
+  if (!element?.isConnected) return false
+  return element.getBoundingClientRect().top <= window.innerHeight + PREFETCH_MARGIN
+}
+
 /**
- * 竞态守卫：切作者 / 翻页时只允许**最新一次**请求写 `feed` / `authorHeader`。
- * 没有它，A 的慢响应会在 URL 已经变成 B 之后覆盖列表（页头 B、内容 A）。
- * `loadedAuthorId` 另做一件事：**切作者时先清空**，不让上一位作者的卡片短暂挂在新标题下；
- * 同一作者翻页不清空（避免白屏闪）。
+ * 连续补页：短页 / 大视口下哨兵可能仍留在触发区，而 IntersectionObserver 不会因为
+ * "元素还在视口里"再报一次。补到哨兵被推出触发区、到底、或失败为止。
+ * 死循环由状态机兜住（空页 + 令牌非空 ⇒ error）。
  */
-let feedRequestId = 0
-let loadedAuthorId: number | null = null
+async function loadMore(): Promise<void> {
+  while (feed.shouldLoadMore() && inPrefetchRange()) {
+    await feed.loadMore()
+    await nextTick()
+  }
+}
+
+/** 首屏 / 刷新 / 重试：整批替换；评论面板随旧卡片一起作废。 */
+async function refresh(): Promise<void> {
+  closeComments()
+  await feed.refresh()
+  await nextTick()
+  if (feed.shouldLoadMore() && inPrefetchRange()) void loadMore()
+}
+
+/** 行内重试 + 补一次预取：失败时哨兵可能仍在触发区，IO 不会因为"还在视口里"再报 */
+async function retryMore(): Promise<void> {
+  await feed.retry()
+  await nextTick()
+  if (feed.shouldLoadMore() && inPrefetchRange()) void loadMore()
+}
 
 onMounted(async () => {
   await restoreSession()
   sessionReady.value = true
+
+  sentinelObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) void loadMore()
+    },
+    { rootMargin: `0px 0px ${PREFETCH_MARGIN}px 0px` },
+  )
+  if (sentinel.value) sentinelObserver.observe(sentinel.value)
+})
+
+onBeforeUnmount(() => {
+  sentinelObserver?.disconnect()
 })
 
 watch(
   () => sessionState.status,
   (status) => {
     if (status === 'authenticated') {
-      void loadFeedPage()
+      void refresh()
       void loadSidebars()
       return
     }
     if (status === 'anonymous') {
-      feed.value = null
+      feed.reset()
       profile.value = null
       following.value = null
     }
@@ -142,47 +184,10 @@ watch(
   { immediate: true },
 )
 
-watch([page, authorId], () => {
-  if (isAuthenticated()) void loadFeedPage()
+/** 切作者 = 换数据源：整批清空重来（路由的 scrollBehavior 会顺带回顶）。 */
+watch(authorId, () => {
+  if (isAuthenticated()) void refresh()
 })
-
-async function loadFeedPage(): Promise<void> {
-  if (!isAuthenticated()) return
-  const requestId = ++feedRequestId
-  closeComments() // 换页 / 重载后旧卡片的评论面板不再有意义
-  // 切作者（含从全部切到作者）先清空，别让上一位作者的卡短暂挂在新标题下；同作者翻页不清
-  if (authorId.value !== loadedAuthorId) {
-    feed.value = null
-    authorHeader.value = null
-    loadedAuthorId = authorId.value
-  }
-  loading.value = true
-  error.value = ''
-  try {
-    if (authorId.value) {
-      // 作者模式 = 该作者的**全部投稿时间线**（与空间「动态」tab 同源；不是 /feed 加参）
-      const data = await loadSpace(authorId.value, page.value, FEED_PAGE_SIZE)
-      if (requestId !== feedRequestId) return
-      feed.value = data.timeline
-      authorHeader.value = data.header
-    } else {
-      const data = await loadFeed(page.value, FEED_PAGE_SIZE)
-      if (requestId !== feedRequestId) return
-      feed.value = data
-      authorHeader.value = null
-    }
-  } catch (exception) {
-    if (requestId !== feedRequestId) return
-    feed.value = null
-    authorHeader.value = null
-    error.value =
-      exception instanceof ApiError && exception.status === 404
-        ? '这个用户不存在'
-        : describeError(exception)
-  } finally {
-    if (requestId === feedRequestId) loading.value = false
-  }
-}
 
 /**
  * 两栏资料：**失败互不阻塞**（右栏挂了不该让左卡空着，反之亦然）。
@@ -203,17 +208,12 @@ async function signIn(): Promise<void> {
   await requireLogin()
 }
 
-/** 翻页必须**保留 author**：只写 page 会静默掉回「全部动态」（分页口径就坏了） */
-function goPage(nextPage: number): void {
-  void router.push({ query: dynamicQuery(authorId.value, nextPage) })
-}
-
-/** 切到某个作者的动态（重置页码） */
+/** 切到某个作者的动态（`?author=` 保留在 URL 里，可分享 / 刷新不丢） */
 function selectAuthor(userId: number): void {
-  void router.push({ query: { author: String(userId) } })
+  void router.push({ query: dynamicQuery(userId) })
 }
 
-/** 回到全部动态（重置作者与页码） */
+/** 回到全部动态（重置作者筛选） */
 function showAll(): void {
   void router.push({ query: {} })
 }
@@ -317,38 +317,50 @@ function followingHref(userId: number): string {
             <h1 class="dyn-head__title">
               {{ authorId ? `${authorHeader?.name ?? 'TA'} 的动态` : '全部动态' }}
             </h1>
-            <span v-if="feed?.total" class="dyn-head__meta">共 {{ feed.total }} 条</span>
-            <button v-if="authorId" class="dyn-head__back" type="button" @click="showAll">返回全部</button>
+            <span v-if="total" class="dyn-head__meta">共 {{ total }} 条</span>
+            <div class="dyn-head__actions">
+              <button v-if="authorId" class="dyn-head__back" type="button" @click="showAll">返回全部</button>
+              <button
+                class="dyn-head__refresh"
+                type="button"
+                :disabled="view === 'refreshing' || view === 'initial'"
+                title="刷新动态"
+                @click="refresh"
+              >
+                <AppIcon name="refresh" :size="15" :class="{ 'is-spinning': view === 'refreshing' }" />
+                <span>刷新</span>
+              </button>
+            </div>
           </header>
 
-          <p v-if="loading && !feed" class="dyn-state">加载中…</p>
+          <!-- 首屏骨架：数据未到（不是"没有动态"）；与首页 / 空间同口径 -->
+          <div v-if="view === 'initial'" class="dyn-skeleton">
+            <div v-for="n in 3" :key="n" class="skeleton dyn-skeleton__card" />
+          </div>
 
-          <EmptyState v-else-if="error" icon="dynamic" title="动态加载失败" :description="error">
-            <button class="btn btn-blue" type="button" @click="loadFeedPage">重试</button>
+          <EmptyState v-else-if="view === 'error'" icon="dynamic" title="动态加载失败" :description="errorText">
+            <button class="btn btn-blue" type="button" @click="refresh">重试</button>
           </EmptyState>
 
-          <template v-else-if="feed">
+          <template v-else>
             <EmptyState
-              v-if="!feed.items.length"
+              v-if="view === 'empty'"
               icon="dynamic"
-              :title="outOfRange ? '这一页没有内容' : authorId ? 'TA 还没有发布过内容' : '还没有动态'"
+              :title="authorId ? 'TA 还没有发布过内容' : '还没有动态'"
               :description="
-                outOfRange
-                  ? '页码超出了当前列表的范围（深链或旧书签），回第 1 页继续。'
-                  : authorId
-                    ? '这个 UP 主的投稿与图文会按时间倒序出现在这里。'
-                    : '关注一些 UP 主之后，他们的投稿与图文会按时间倒序出现在这里。'
+                authorId
+                  ? '这个 UP 主的投稿与图文会按时间倒序出现在这里。'
+                  : '关注一些 UP 主之后，他们的投稿与图文会按时间倒序出现在这里。'
               "
             >
-              <button v-if="outOfRange" class="btn btn-blue" type="button" @click="goPage(1)">回第 1 页</button>
-              <button v-else-if="authorId" class="btn btn-blue" type="button" @click="showAll">看全部动态</button>
+              <button v-if="authorId" class="btn btn-blue" type="button" @click="showAll">看全部动态</button>
               <a v-else class="btn btn-blue" href="/">去首页看看</a>
             </EmptyState>
 
             <template v-else>
               <div class="dyn-list">
                 <DynamicCard
-                  v-for="card in feed.items"
+                  v-for="card in state.items"
                   :key="card.id"
                   :item="card"
                   :busy="likeBusy.has(card.id)"
@@ -359,9 +371,25 @@ function followingHref(userId: number): string {
                   @comment-count-changed="onCommentCountChanged(card, $event)"
                 />
               </div>
-              <Pagination :page="feed.page" :total-pages="feed.totalPages" @update:page="goPage" />
+
+              <!-- 续页骨架：3 张（动态卡比首页高，10 张会撑太长） -->
+              <div v-if="view === 'loadingMore'" class="dyn-skeleton dyn-skeleton--more">
+                <div v-for="n in 3" :key="n" class="skeleton dyn-skeleton__card" />
+              </div>
+
+              <!-- 行内失败：只影响"下一页"，已加载的内容留着 -->
+              <div v-if="view === 'errorMore'" class="dyn-more-error">
+                <span>{{ errorText }}</span>
+                <button class="dyn-more-error__retry" type="button" @click="retryMore">重试</button>
+              </div>
+
+              <!-- 到底 = 会话级（窗口 ≤300），不承诺"全站刷完" -->
+              <p v-if="view === 'done'" class="dyn-done">这次的动态到底了</p>
             </template>
           </template>
+
+          <!-- 哨兵恒在：空态 / 错误态下也没有副作用（没有令牌时 shouldLoadMore 恒 false） -->
+          <div ref="sentinel" class="dyn-sentinel" aria-hidden="true"></div>
         </section>
 
         <!-- 右：我关注的人（B 站这里是热搜 + 社区中心；本仓没有那些端点，用真数据填位） -->
@@ -520,7 +548,7 @@ function followingHref(userId: number): string {
 /* ── 中：动态流 ─────────────────────────────────────────────── */
 .dyn-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
   padding: 4px 4px 14px;
 }
@@ -536,8 +564,14 @@ function followingHref(userId: number): string {
   color: var(--text-3);
 }
 
-.dyn-head__back {
+.dyn-head__actions {
+  display: flex;
   margin-left: auto;
+  align-items: center;
+  gap: 14px;
+}
+
+.dyn-head__back {
   padding: 0;
   border: 0;
   background: none;
@@ -548,6 +582,38 @@ function followingHref(userId: number): string {
 
 .dyn-head__back:hover {
   text-decoration: underline;
+}
+
+/* 刷新（`R-32`）：B 站靠服务端推送，本仓没有 ⇒ 这是"平替"的显式入口 */
+.dyn-head__refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 13px;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.dyn-head__refresh:hover:not(:disabled) {
+  color: var(--brand-blue);
+}
+
+.dyn-head__refresh:disabled {
+  color: var(--text-4);
+  cursor: default;
+}
+
+.dyn-head__refresh .is-spinning {
+  animation: dyn-spin 0.9s linear infinite;
+}
+
+@keyframes dyn-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ── 中：头像筛选行（R-31） ─────────────────────────────────── */
@@ -624,6 +690,64 @@ function followingHref(userId: number): string {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* 首屏 / 续页骨架：动态卡比首页高，3 张足够撑住"在加载"的观感 */
+.dyn-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dyn-skeleton--more {
+  margin-top: 12px;
+}
+
+.dyn-skeleton__card {
+  height: 168px;
+  border-radius: var(--radius-lg);
+}
+
+/* 行内失败：只影响"下一页"，已加载的内容留着 */
+.dyn-more-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px 0 4px;
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+.dyn-more-error__retry {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 13px;
+  color: var(--brand-blue);
+  cursor: pointer;
+}
+
+.dyn-more-error__retry:hover {
+  text-decoration: underline;
+}
+
+/* 到底 = 会话级（窗口 ≤300），不承诺"全站刷完" */
+.dyn-done {
+  padding: 18px 0 4px;
+  font-size: 12px;
+  color: var(--text-3);
+  text-align: center;
+}
+
+.dyn-sentinel {
+  height: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dyn-head__refresh .is-spinning {
+    animation: none;
+  }
 }
 
 /* ── 右：我关注的人 ─────────────────────────────────────────── */

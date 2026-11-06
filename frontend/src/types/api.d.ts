@@ -3140,6 +3140,7 @@ export interface operations {
             query?: {
                 page?: string;
                 pageSize?: string;
+                beforeContentId?: string;
             };
             header?: never;
             path?: never;

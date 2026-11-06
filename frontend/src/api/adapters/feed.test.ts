@@ -137,11 +137,9 @@ describe('toDynamicCard', () => {
 })
 
 describe('dynamicQuery', () => {
-  it('★ 翻页保留 author；page=1 不写 page（丢掉 author = 静默掉回全部动态）', () => {
-    expect(dynamicQuery(7, 2)).toEqual({ author: '7', page: '2' })
-    expect(dynamicQuery(7, 1)).toEqual({ author: '7' })
-    expect(dynamicQuery(null, 2)).toEqual({ page: '2' })
-    expect(dynamicQuery(null, 1)).toEqual({})
+  it('★ 只保留 author（无限滚动不写 page；去掉 author = 静默掉回全部动态）', () => {
+    expect(dynamicQuery(7)).toEqual({ author: '7' })
+    expect(dynamicQuery(null)).toEqual({})
   })
 })
 
