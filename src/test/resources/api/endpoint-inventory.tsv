@@ -50,6 +50,8 @@ GET	/api/v1/favorite-folders	LOGIN	ApiResponse<List<FavoriteFolderVO>>
 POST	/api/v1/favorite-folders	LOGIN	ApiResponse<Void>
 DELETE	/api/v1/favorite-folders/{id}	LOGIN	ResponseEntity<Void>
 PUT	/api/v1/favorite-folders/{id}	LOGIN	ApiResponse<Void>
+DELETE	/api/v1/favorite-folders/{id}/cover	LOGIN	ResponseEntity<Void>
+PUT	/api/v1/favorite-folders/{id}/cover	LOGIN	ApiResponse<Void>
 GET	/api/v1/favorite-folders/{id}/items	PUBLIC	ApiResponse<PageResult<FavoriteItemVO>>
 DELETE	/api/v1/favorites	LOGIN	ResponseEntity<Void>
 GET	/api/v1/favorites	LOGIN	ApiResponse<PageResult<FavoriteItemVO>>

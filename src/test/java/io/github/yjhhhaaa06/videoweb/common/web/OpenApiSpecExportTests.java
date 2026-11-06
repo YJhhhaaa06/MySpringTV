@@ -60,7 +60,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li><b>响应类别</b>：401 与**登记簿的鉴权档位**对应；{@code ResponseEntity<Void>} 必须 204 且不留 200。</li>
  *   <li><b>错误信封</b>：失败体只有 {@code code/msg/errors}，九个错误响应组件指向同一个 {@code ApiError}；
  *       码字典 = 41 项（形状守恒，见下方"判别力边界"）。</li>
- *   <li><b>multipart + 必填</b>：五个上传端点是 {@code multipart/form-data}，且必填字段没被写成可选。</li>
+ *   <li><b>multipart + 必填</b>：七个上传端点是 {@code multipart/form-data}，且必填字段没被写成可选。</li>
  *   <li><b>503 与 servers</b>：503 只挂 {@code report} 路径（{@code flush} 必须没有）；{@code servers} 不钉 localhost。</li>
  * </ol>
  *
@@ -93,9 +93,10 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
     private static final boolean WRITE_MODE = Boolean.getBoolean("api.openapi.write");
 
     /**
-     * 声明了 {@code @RequestPart} 的端点（`T59` 登记为 multipart 例外，§2.5）—— **六条都在**。
+     * 声明了 {@code @RequestPart} 的端点（`T59` 登记为 multipart 例外，§2.5）—— **七条都在**。
      * 显式列出的理由与 `T59-3` 的计数护栏相同：让"改名后脱保"这件事**变红**，而不是静默失配。
-     * `R-27` 起新增头像上传（`PUT /users/me/avatar`），不沿用 `/uploads/{type}`。
+     * `R-27` 起新增头像上传（`PUT /users/me/avatar`），`R-33` 起新增收藏夹封面
+     * （`PUT /favorite-folders/{id}/cover`），都不沿用 `/uploads/{type}`。
      */
     private static final List<String> MULTIPART_ENDPOINTS = List.of(
             "POST /api/v1/contents/posts",
@@ -103,7 +104,8 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
             "POST /api/v1/uploads/{type}",
             "PUT /api/v1/contents/{id}/media",
             "PUT /api/v1/admin/media/{id}",
-            "PUT /api/v1/users/me/avatar");
+            "PUT /api/v1/users/me/avatar",
+            "PUT /api/v1/favorite-folders/{id}/cover");
 
     @Autowired
     private OpenApiWebMvcResource specResource;
@@ -159,8 +161,8 @@ class OpenApiSpecExportTests extends AbstractIntegrationTest {
                 .as("登记簿里有、spec 里没有 —— springdoc 没能表达该端点（多为映射写法超出它识别的范围）")
                 .isEmpty();
         assertThat(fromSpec)
-                .as("端点总数应与登记簿一致（T54 起逐批递增；74 = 71 + 头像 R-27 的 3 个端点）")
-                .hasSize(74);
+                .as("端点总数应与登记簿一致（T54 起逐批递增；76 = 74 + 收藏夹封面 R-33 的 2 个端点）")
+                .hasSize(76);
     }
 
     // ==================== 用例 3：假参数 ====================

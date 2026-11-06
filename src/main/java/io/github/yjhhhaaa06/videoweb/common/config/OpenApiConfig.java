@@ -151,6 +151,9 @@ public class OpenApiConfig {
             Map.entry("CommentCacheDTO", Set.of("parentId", "replyToUserId", "replyToUsername", "children", "createTime")),
             // 失效占位条目的展示字段确实为 null
             Map.entry("FavoriteItemVO", Set.of("coverUrl", "authorName")),
+            // 收藏夹封面（R-33）：null = 自动封面取不到（失效 / 图文无封面 / 空夹）⇒ 前端占位
+            Map.entry("FavoriteFolderVO", Set.of("coverUrl")),
+            Map.entry("PublicFavoriteFolderVO", Set.of("coverUrl")),
             Map.entry("WatchLaterItemVO", Set.of("coverUrl", "authorName")),
             Map.entry("HistoryItemVO", Set.of("coverUrl", "authorName", "durationSeconds")),
             // 单文件上传：只有视频有值；图片 / 封面恒 null（"未知" ≠ 0）

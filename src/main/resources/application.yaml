@@ -492,6 +492,9 @@ video:
         "[POST /api/v1/favorite-folders]": 3
         "[PUT /api/v1/favorite-folders/{id}]": 3
         "[DELETE /api/v1/favorite-folders/{id}]": 3
+        # 收藏夹封面（R-33）：上传是文件写重活（同头像 10）；恢复自动是低频设置写（3）。
+        "[PUT /api/v1/favorite-folders/{id}/cover]": 10
+        "[DELETE /api/v1/favorite-folders/{id}/cover]": 3
         # —— 稍后再看（同批迁移）——
         "[PUT /api/v1/watch-later/{id}]": 3
         "[DELETE /api/v1/watch-later]": 3

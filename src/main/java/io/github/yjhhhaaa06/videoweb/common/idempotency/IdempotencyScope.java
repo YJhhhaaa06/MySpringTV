@@ -75,7 +75,7 @@ public final class IdempotencyScope {
     }
 
     /**
-     * 全部非 GET 端点（当前 45 条：POST 15 / PUT 18 / DELETE 12）。
+     * 全部非 GET 端点（当前 47 条：POST 15 / PUT 19 / DELETE 13；R-33 新增封面 PUT/DELETE 各 1）。
      *
      * <p>⚠️ 增删端点必须同步改这里，否则 {@code IdempotencyScopeTableTests} 红。
      * {@code Map.of} 只到 10 对 ⇒ 用 {@link Map#ofEntries}。
@@ -120,6 +120,9 @@ public final class IdempotencyScope {
             // 灰色地带：LWW —— 旧请求晚到会把进度回退（上报缓冲按到达顺序覆盖）。
             entry("PUT /api/v1/contents/{id}/progress", natural()),
             entry("PUT /api/v1/favorite-folders/{id}", natural()),
+            // 收藏夹封面（R-33）：重试会再落一份文件并删旧份（DB 终态仍是单份）；
+            // 孤儿由已知代价接受（与头像同款）。
+            entry("PUT /api/v1/favorite-folders/{id}/cover", natural()),
             entry("PUT /api/v1/favorites/{id}", natural()),
             entry("PUT /api/v1/follows/{id}", natural()),
             // 灰色地带：重试时"原密码"已不再是原密码 ⇒ 401；效果层幂等、响应层不可判（前端不得自动重试）。
@@ -142,6 +145,8 @@ public final class IdempotencyScope {
             entry("DELETE /api/v1/contents/{id}/like", natural()),
             entry("DELETE /api/v1/contents/{id}/media", natural()),
             entry("DELETE /api/v1/favorite-folders/{id}", natural()),
+            // 恢复自动封面（R-33）：写 NULL 幂等，重复删同样 204。
+            entry("DELETE /api/v1/favorite-folders/{id}/cover", natural()),
             entry("DELETE /api/v1/favorites", natural()),
             entry("DELETE /api/v1/follows/{id}", natural()),
             // 删除历史（R-26）：DELETE 天然幂等（重复删 / 行不存在都 204），重试不改变 DB 终态。

@@ -249,6 +249,15 @@ class SecurityContractTests extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("R-33：收藏夹封面写端点判为需登录（上传 / 恢复自动；方法级注解，与夹 CRUD 同一口径）")
+    void favorite封面端点需登录() {
+        // 两条都是"改我的夹"，且都收 @CurrentUserId（取不到即 401）——
+        // 与夹 CRUD 同组理由：不能靠类级 @RequiresLogin（会误拦三条匿名端点）。
+        assertThat(requiresLogin("PUT", "/api/v1/favorite-folders/1/cover")).isTrue();
+        assertThat(requiresLogin("DELETE", "/api/v1/favorite-folders/1/cover")).isTrue();
+    }
+
+    @Test
     @DisplayName("收藏一期 T3：他人公开夹端点**不得**判为需登录（匿名可访问；与上一条四端点 true 构成成对断言）")
     void favorite公开端点不得判为需登录() {
         // ★ 与上面那组构成**成对断言**：四端点 true + 公开端点 false。

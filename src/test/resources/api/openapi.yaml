@@ -1472,6 +1472,80 @@ paths:
           $ref: "#/components/responses/InternalError"
       tags:
       - favorite-controller
+  /api/v1/favorite-folders/{id}/cover:
+    delete:
+      operationId: resetCover
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        "204":
+          description: 已生效，无响应体
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - favorite-controller
+    put:
+      operationId: uploadCover
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+              required:
+              - file
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - favorite-controller
   /api/v1/favorite-folders/{id}/items:
     get:
       operationId: publicFolderItems
@@ -3533,6 +3607,12 @@ components:
     FavoriteFolderVO:
       type: object
       properties:
+        coverUrl:
+          anyOf:
+          - type: string
+          - type: "null"
+        hasCustomCover:
+          type: boolean
         id:
           type: integer
           format: int64
@@ -3905,6 +3985,10 @@ components:
     PublicFavoriteFolderVO:
       type: object
       properties:
+        coverUrl:
+          anyOf:
+          - type: string
+          - type: "null"
         id:
           type: integer
           format: int64
