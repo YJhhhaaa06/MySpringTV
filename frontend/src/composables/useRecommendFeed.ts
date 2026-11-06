@@ -14,13 +14,13 @@ import {
   retryMore,
   shouldLoadMore,
   type FeedState,
-} from '../feed/recommendFeed'
+} from '../feed/listState'
 import type { HeroSlideVM, VideoCardVM } from '../types/ui'
 
 /**
  * 首页推荐流的行为机：**请求 + 状态迁移 + 失败提示**。
  *
- * <p>迁移规则全在 `feed/recommendFeed.ts`（纯函数，可单测）；这里只做三件"有副作用"的事：
+ * <p>迁移规则全在 `feed/listState.ts`（纯函数，可单测）；这里只做三件"有副作用"的事：
  * 发请求、把失败翻成人话、429 冷却倒计时。滚动 / 哨兵 / DOM 留在 `HomePage`。
  *
  * <p>★ 刷新失败分两路（`R-29` ⑥）：有旧内容 ⇒ **保留列表 + toast**（替换整页更糟）；

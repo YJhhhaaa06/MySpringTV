@@ -11,7 +11,7 @@ import ChannelWall from '../components/layout/ChannelWall.vue'
 /**
  * 首页：`GET /contents/recommended` 的**无限滚动**（游标信封）。
  *
- * <p>分工：状态迁移在 `feed/recommendFeed.ts`（纯函数），请求 / 提示在
+ * <p>分工：状态迁移在 `feed/listState.ts`（纯函数），请求 / 提示在
  * `composables/useRecommendFeed`；本页只管 DOM —— 哨兵、骨架、到底文案、两个「换一换」。
  *
  * <p>★ 三个容易写错的点：

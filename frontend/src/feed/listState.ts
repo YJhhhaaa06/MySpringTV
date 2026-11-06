@@ -1,20 +1,21 @@
 /**
- * 首页推荐流的**状态机**（纯函数，无 Vue / DOM）。
+ * **列表续页状态机**（纯函数，无 Vue / DOM）—— 首页推荐流与动态流共用。
  *
  * <p>为什么单独一层：翻页的正确性全在"这一页该不该收、收到哪里、旧请求怎么淘汰"上，
- * 这些在组件里只能靠肉眼看。本文件只做状态迁移；请求、滚动、骨架由
- * `composables/useRecommendFeed` 与 `pages/HomePage.vue` 接。
+ * 这些在组件里只能靠肉眼看。本文件只做状态迁移；请求、滚动、骨架由各页的 composable 接
+ * （`useRecommendFeed` / `useDynamicFeed`）。
  *
- * <p>三条口径（依据 `architecture/domain/content/content-推荐流.md`）：
+ * <p>★ `cursor` 是**不透明继续令牌**：推荐流是服务端游标，动态流是"下一页页码"。
+ * 本层只承诺三条口径（推荐流的后端不变量见 `architecture/domain/content/content-推荐流.md`）：
  * <ol>
- *   <li><b>`cursor === null` ⇔ 到底</b>（后端不变量；前端不靠"本页不满"猜）；</li>
+ *   <li><b>`cursor === null` ⇔ 到底</b>（由数据源给出，本层不靠"本页不满"猜）；</li>
  *   <li><b>`epoch`</b> 每次"整批替换"（首屏 / 刷新）+1。在途响应带回旧 epoch ⇒ 丢弃：
  *       否则刷新后旧序的续页会拼进新列表（重复 + 错序）；</li>
- *   <li><b>刷新失败保留旧 items / cursor</b>：列表没换，旧游标仍然有效。</li>
+ *   <li><b>刷新失败保留旧 items / cursor</b>：列表没换，旧令牌仍然有效。</li>
  * </ol>
  *
- * <p>★ 首屏空 **不等于** 到底：`items=[]` 走空态（池子真空 / 池读失败同形），
- * 只有"拿到过内容、`cursor=null`"才是"这次的推荐到底了"。
+ * <p>★ 首屏空 **不等于** 到底：`items=[]` 走空态（池子真空 / 读失败同形），
+ * 只有"拿到过内容、`cursor=null`"才是"这次刷到底了"。
  */
 
 /** `idle` 兼两义：还没开始（items 空）与"有下一页的稳态"（items 非空）；由 `feedView` 分开。 */
@@ -47,10 +48,12 @@ export type FeedView =
   | 'errorMore'
 
 /**
- * 空页但游标非空 = 服务端违反了"空页只可能出现在候选耗尽时"。
+ * 空页但令牌非空 = 数据源违反了"空页只可能出现在候选耗尽时"。
  * 前端**必须停**（否则连续补页会打成死循环），并把它当失败暴露出来，不伪装成"到底"。
+ *
+ * <p>⚠️ 文案刻意不写"推荐流"：本文件两个调用方共用（动态流的窗口路径也会跳过失效内容）。
  */
-export const EMPTY_PAGE_ERROR = '推荐流返回了空页，请稍后重试'
+export const EMPTY_PAGE_ERROR = '列表返回了空页，请稍后重试'
 
 export function emptyFeed<T>(): FeedState<T> {
   return { items: [], cursor: null, phase: 'idle', error: null, epoch: 0 }

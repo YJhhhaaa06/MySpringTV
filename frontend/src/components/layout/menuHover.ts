@@ -10,7 +10,7 @@
  * <p>所以：`hover` 只负责**打开**，**关闭必须带延时**，让指针有时间跨过缝 / 斜穿。
  * 打开不延时（否则每次悬停都先等 180ms，手感发滞）。
  *
- * <p>与 `feed/recommendFeed.ts` 同一口径：**不依赖框架**，`onChange` 把状态推给组件。
+ * <p>与 `feed/listState.ts` 同一口径：**不依赖框架**，`onChange` 把状态推给组件。
  * 这样 `menuHover.test.ts` 用 fake timers 就能断言"100ms 还在 / 200ms 没了"，
  * 不需要 jsdom（本仓没有 DOM 测试环境，也不为一张卡片引入）。
  */

@@ -13,7 +13,7 @@ import {
   shouldLoadMore,
   type FeedPage,
   type FeedState,
-} from './recommendFeed'
+} from './listState'
 
 /**
  * 状态机的判别力只来自"迁移写错就会红"：
@@ -28,7 +28,7 @@ function ready(cursor: string | null = 'v1.7.3'): FeedState<number> {
   return receiveFirstPage(beginRefresh(emptyFeed<number>()), page([1, 2], cursor), 1)
 }
 
-describe('推荐流状态机', () => {
+describe('列表续页状态机（推荐流 / 动态流共用）', () => {
   it('空状态：算首屏（铺骨架），不算"没有内容"也不是"到底"', () => {
     const state = emptyFeed<number>()
     expect(feedView(state)).toBe('initial')
