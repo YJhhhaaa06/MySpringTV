@@ -625,19 +625,27 @@ public interface ContentDao {
      *
      * <p>{@code userIds} 为空时**不发 SQL**（{@code <foreach>} 不接受空集合，调用方保证非空）。
      *
+     * <p>{@code beforeContentId} 是动态流无限滚动的快照锚点：非空时只取 {@code id <= 锚点} 的行
+     * （计数用的 {@link #countContentByUsers} 必须带同一条件，否则 total 与当页口径漂移）。
+     *
      * @param offset 起始偏移（{@code (page-1)*pageSize}，调用方保证 ≥0）
      * @param pageSize 页大小
+     * @param beforeContentId 快照锚点（{@code null} = 不启用）
      */
     List<Long> findContentIdsByUsers(@Param("userIds") List<Long> userIds,
                                      @Param("offset") int offset,
-                                     @Param("pageSize") int pageSize);
+                                     @Param("pageSize") int pageSize,
+                                     @Param("beforeContentId") Long beforeContentId);
 
     /**
      * 关注流纯拉降级路径的**命中总数**（与当页 id 同源 SQL，仅 SELECT 列不同）。
      *
      * <p>TV: {@code SELECT COUNT(*) FROM content WHERE user_id IN (?,…) AND is_deleted = 0}
+     *
+     * @param beforeContentId 快照锚点（{@code null} = 不启用；必须与当页查询同条件）
      */
-    int countContentByUsers(@Param("userIds") List<Long> userIds);
+    int countContentByUsers(@Param("userIds") List<Long> userIds,
+                            @Param("beforeContentId") Long beforeContentId);
 
     /**
      * **每作者各取最近 K 条**内容 id（窗口重建的窗口装载）。

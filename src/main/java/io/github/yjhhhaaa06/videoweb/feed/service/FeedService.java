@@ -92,32 +92,42 @@ public class FeedService {
      * <p>分页契约：每次请求**重算整个窗口**再切第 {@code page} 页 ⇒ 无需 offset 深翻；
      * {@code total} = 归并窗口实际条数（≤ M）；越过窗口返回空页且 {@code total} 不变。
      *
-     * @param currentUserId 当前登录用户（由 {@code @CurrentUserId} 注入）
-     * @param page          页码（≥1，由 Controller 归一）
-     * @param pageSize      页大小（1..100，由 Controller 归一）
+     * <p>★ {@code beforeContentId} 是**可选快照锚点**（无限滚动用）：非空时先只保留
+     * {@code id <= 锚点} 的窗口成员，再在结果上切页 / 算 {@code total}。目的不是"再过滤一层"，
+     * 而是把"首屏那一刻的头部"冻结下来 —— 否则新内容插到头部会把整个 offset 推后一位，
+     * 第 2 页就会重复第 1 页的最后一条。详见 {@code architecture/domain/feed/feed.md} §3.4。
+     *
+     * @param currentUserId  当前登录用户（由 {@code @CurrentUserId} 注入）
+     * @param page           页码（≥1，由 Controller 归一）
+     * @param pageSize       页大小（1..100，由 Controller 归一）
+     * @param beforeContentId 快照锚点（{@code null} = 不启用；由 Controller 把非法值归成 null）
      */
-    public PageResult<ContentVO> getFeed(long currentUserId, int page, int pageSize) {
+    public PageResult<ContentVO> getFeed(long currentUserId, int page, int pageSize, Long beforeContentId) {
         FeedReadService.FeedReadResult window = feedReadService.readWindow(currentUserId);
         if (!window.synced()) {
             // 读态闸门未过（窗口不可信）→ 既有纯拉（本任务内完成判定 + 回退）
-            return purePull(currentUserId, page, pageSize);
+            return purePull(currentUserId, page, pageSize, beforeContentId);
         }
-        return loadWindowPage(currentUserId, window.windowIds(), page, pageSize);
+        return loadWindowPage(currentUserId, window.windowIds(), page, pageSize, beforeContentId);
     }
 
     /**
      * 窗口路径：在归并窗口上切页（**深翻禁止**）。
      *
-     * <p>窗口已按 contentId 降序、去重、截断到 M；越界（{@code offset >= total}）返回**空页**而非报错，
-     * 且 {@code total} 保持窗口实际条数（前端据此自然停止翻页）。
+     * <p>窗口已按 contentId 降序、去重、截断到 M；{@code beforeContentId} 非空时先过滤掉锚点以上的
+     * 成员（窗口本身有序，过滤后仍降序），再按 offset 切片。越界（{@code offset >= total}）返回**空页**
+     * 而非报错，且 {@code total} 保持过滤后的窗口条数（前端据此自然停止翻页）。
      */
     private PageResult<ContentVO> loadWindowPage(long currentUserId, List<Long> windowIds,
-                                                 int page, int pageSize) {
-        int total = windowIds.size();
+                                                 int page, int pageSize, Long beforeContentId) {
+        List<Long> visible = beforeContentId == null
+                ? windowIds
+                : windowIds.stream().filter(id -> id <= beforeContentId).toList();
+        int total = visible.size();
         long offset = (long) (page - 1) * pageSize;   // 用 long 防 int 溢出（page 极大时）
         List<Long> pageIds = (pageSize <= 0 || offset >= total)
                 ? List.of()
-                : windowIds.subList((int) offset, Math.min((int) offset + pageSize, total));
+                : visible.subList((int) offset, Math.min((int) offset + pageSize, total));
         return renderPage(currentUserId, pageIds, total, page, pageSize);
     }
 
@@ -127,13 +137,15 @@ public class FeedService {
      * <p>对外正确性 = 全量可见（不受有界窗口约束）⇒ 未同步用户不会因切读而"看不到旧内容"。
      * 关注集走 {@code FollowService}（其缓存三态读 + miss 回填 + Redis 挂降级 DB）；
      * DB 两查在 {@link FeedPullReader} 的单只读事务内（total 与页同源快照）。
+     *
+     * <p>{@code beforeContentId} 透传给两条 SQL（计数与当页同条件），语义同窗口路径。
      */
-    private PageResult<ContentVO> purePull(long currentUserId, int page, int pageSize) {
+    private PageResult<ContentVO> purePull(long currentUserId, int page, int pageSize, Long beforeContentId) {
         List<Long> followedIds = followService.getFollowingIds(currentUserId);
         if (followedIds.isEmpty()) {
             return new PageResult<>(List.of(), 0, page, pageSize);
         }
-        FeedPullReader.DbPage db = pullReader.pullForPage(followedIds, page, pageSize);
+        FeedPullReader.DbPage db = pullReader.pullForPage(followedIds, page, pageSize, beforeContentId);
         if (db.total() == 0) {
             return new PageResult<>(List.of(), 0, page, pageSize);
         }
