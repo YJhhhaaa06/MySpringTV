@@ -149,8 +149,8 @@
 | `T111` | `R-33` 契约与文档收口：`OpenApiConfig` 可空登记、spec 快照、端点清单 74→76 / 非 GET 45→47、`IdempotencyScope`、限流权重表；`favorite.md` / `favorite-需求.md` / `接口契约.md` / `前端.md` / `GAP-17` / `FURTHER_ISSUES`（`F-35`）/ 已知代价；`CURRENT_INTEGRATION` 回写 | 只增不改号；代码注释只引 `architecture/**` / `archive/**`；`GAP-17` 同步修正“四宫格”为“单封面”；前端任务另窗，**不写成已完成** | 三道文档门禁 0 违规；后端全量（`DB_POOL_MAX_SIZE=4`）0 失败；subagent review 的 P0/P1 全修或留痕 | **已完成（2026-11-06）**：文档门禁 0 违规；后端全量 **1021** / 0 失败；review 0 P0 / 2 P1 全修 + 6 P2 修 5 / 接受 1（归属校验复制）。前端未做，`GAP-17` 标“前端待接”。 |
 | `T112` | `R-34` 空间收藏 tab 成为唯一浏览器：抽 `FolderRail` / `FolderCover` / `FolderCard` / 选中夹头部 / 条目网格；self/public 数据源、私密夹、稍后再看左栏视图、封面展示 | 不改后端 / 不加端点；**别人的页面绝不调用我的端点**；退出 / 换号清空私密数据；封面只读；不做 CRUD / 排序 / 批量；`FavoriteDialog` 不加封面 | `favoriteLibrary` 适配器 / 数据源用例（self 含私密、public 不含）+ `typecheck` / `test` / `build`；真浏览器 self / 别人 / 匿名三态 | **已完成（2026-11-06）** |
 | `T113` | `/space/me` + 顶栏「收藏」直连 + `/favorites`、`/watchlater` 软弃用重定向壳（旧 query 映射） | 不硬删 `favorites.html` 入口；不改后端转发 / 限流清单（`/space/me` 走既有 `/space/{id}` 转发）；旧链接不 404；跨应用整页跳转用 `location.replace` | `/space/me` 登录 / 匿名 / 已登录、旧 URL 映射用例 + 真浏览器；`typecheck` / `build` | **已完成（2026-11-06）** |
-| `T114` | 空间主页 tab 收藏区块：`收藏 N` + 最多 10 张夹卡 + 封面 + 查看更多；self 含私密（带标记），别人公开 | 不动投稿预览 / 动态 / 投稿；夹列表失败不拖垮主页；无夹不渲染；封面只读 | 主页区块取数 / 上限用例 + 真浏览器；`typecheck` / `build` | **已完成（2026-11-06）** |
-| `T115` | 收口：`GAP-17` / `前端.md` 页面矩阵 / `CURRENT_FRONTEND` 入口映射 / `favorite.md` §十一 口径 / `CURRENT_INTEGRATION` 回写；三道文档门禁 + 前端全量 + subagent review + 真浏览器（需要时 `UPLOAD_ROOT=.tmp\e2e-media`） | 只增不改号；代码注释只引 `architecture/**` / `archive/**`；旧入口删除另窗；发现问题先登记 `I-##` 或停下问 | 三道门禁 0 违规；前端全绿；review P0/P1 全修；真浏览器六步（self / 别人 / 匿名、私密消失、封面占位、稍后再看、旧链接重定向、主页区块） | **执行中（2026-11-06；文档已改，待 review）** |
+| `T114` | 空间主页 tab 收藏区块：`收藏 N` + 最多 10 张夹卡 + 封面 + 查看更多；self 含私密（带标记），别人公开 | 不动投稿预览 / 动态 / 投稿；夹列表失败不拖垮主页；无夹不渲染；封面只读 | 真浏览器（3 夹卡 / 私密标记 / 空夹占位 / 查看更多）；⚠️ `slice(0,10)` 上限与 `isSelf` 判定**无 DOM 单测**（明写，不冒充已验）+ `typecheck` / `build` | **已完成（2026-11-06）** |
+| `T115` | 收口：`GAP-17` / `前端.md` 页面矩阵 / `CURRENT_FRONTEND` 入口映射 / `favorite.md` §十一 口径 / `CURRENT_INTEGRATION` 回写；三道文档门禁 + 前端全量 + subagent review + 真浏览器（需要时 `UPLOAD_ROOT=.tmp\e2e-media`） | 只增不改号；代码注释只引 `architecture/**` / `archive/**`；旧入口删除另窗；发现问题先登记 `I-##` 或停下问 | 三道门禁 0 违规；前端全绿；review P0/P1 全修；真浏览器六步（self / 别人 / 匿名、私密消失、封面占位、稍后再看、旧链接重定向、主页区块） | **已完成（2026-11-06）**：门禁 0 违规；前端 394 / typecheck / build；E2E 40 项；review 1 P1 已修 + P2 修 2。 |
 | — | *（本窗第一件事：跑基线 + 列联调清单，见 §一 / §2.1）* | — | — | — |
 
 > **R-27 回写（2026-11-01）**：`T80`–`T85` 已完成。后端 `V11` + 3 端点 + 生效 `avatarUrl` + 公开批量读；前端默认头像稳定 URL、空间页弹窗 + 1:1 裁剪、评论 / 动态 / 关注 / 图文作者批量接线。
@@ -297,7 +297,8 @@
 > 生产 8080 冒烟：`/space/me?tab=folders`、`/space/256?tab=folders` 200，`/favorites`、`/watchlater` 200。
 > **未做 / 另窗**：封面**上传 / 恢复**（GAP-17 只销展示）；旧 `favorites.html` 入口与转发 / 限流 / 测试清理；
 > 窄屏 / 触屏未验；E2E 的测试用户 256 因无删除用户端点留在 dev 库（夹具夹 / 稍后再看已清）。
-> **subagent review**：待跑（T115 保持执行中）。
+> **subagent review**：0 P0 / **1 P1**（`refreshItemsSilently` 绕过 `itemsRequestId`：退出 / 换人后在途 self 面响应可把私密条目写回公共面）+ 3 P2（失败移出切走后不回滚、主页多发一次 `/watch-later`、T114 验收把"上限"写成有用例）。
+> P1 已修：`refreshItemsSilently` 共用 `itemsRequestId` + `isSelf/userId/folder/view` 四重校验；P2 修 2（失败移出用服务端重读、主页不取稍后再看计数），T114 验收改为**明写无 DOM 单测**。修复后 `typecheck` / `test` **394** / `build` 绿；**未重跑全量 E2E**（夹具夹已清理，改动是防护性分支，正常路径由上一轮 40 项覆盖）。T115 完成。
 
 ---
 
