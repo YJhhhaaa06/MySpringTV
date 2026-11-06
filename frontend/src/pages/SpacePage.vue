@@ -527,7 +527,13 @@ function folderScopeKey(): string {
  * <p>必须在**缓存命中时也执行**：从主页切到收藏 tab 时夹列表是内存里现成的，
  * 不选夹的话右栏会停在"选择一个收藏夹"。
  */
-async function ensureFolderSelection(list: LibraryFolderVM[], self: boolean): Promise<void> {
+async function ensureFolderSelection(
+  list: LibraryFolderVM[],
+  self: boolean,
+  ownerId: number,
+): Promise<void> {
+  // 自动选夹的 replace 也必须校验视角：在途时换人，不能把上一个用户的夹 id 带到新页面
+  if (userId.value !== ownerId || isSelf.value !== self) return
   if (tab.value !== 'folders' || folderView.value !== 'folder' || activeFolderId.value !== 0 || !list.length) {
     return
   }
@@ -535,7 +541,7 @@ async function ensureFolderSelection(list: LibraryFolderVM[], self: boolean): Pr
   if (preferred) {
     await router.replace({
       name: 'space',
-      params: { id: userId.value },
+      params: { id: ownerId },
       query: { tab: 'folders', folder: String(preferred.id) },
     })
   }
@@ -550,7 +556,7 @@ async function loadFolders(force = false): Promise<void> {
   // 在新页面上停留一拍（session watcher 已清一次，这里兜住换人场景）
   if (foldersLoadedFor.value && foldersLoadedFor.value !== scopeKey) clearFolderState()
   if (!force && foldersLoadedFor.value === scopeKey) {
-    await ensureFolderSelection(folders.value, isSelf.value)
+    await ensureFolderSelection(folders.value, isSelf.value, userId.value)
     // 主页不渲染稍后再看 ⇒ 只有收藏 tab 才补这个计数；从主页切回来时缓存命中也要补
     if (tab.value === 'folders' && isSelf.value && laterTotal.value === null) void loadLaterTotal()
     return
@@ -566,7 +572,7 @@ async function loadFolders(force = false): Promise<void> {
     foldersLoadedFor.value = scopeKey
     if (targetIsSelf && tab.value === 'folders') void loadLaterTotal()
     else if (!targetIsSelf) laterTotal.value = null
-    await ensureFolderSelection(list, targetIsSelf)
+    await ensureFolderSelection(list, targetIsSelf, targetUserId)
   } catch (exception) {
     if (userId.value !== targetUserId || isSelf.value !== targetIsSelf) return
     folders.value = []
