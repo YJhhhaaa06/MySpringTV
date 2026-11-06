@@ -10,6 +10,7 @@ import { isAuthenticated, restoreSession, sessionState } from '../auth/session'
 import { requireLogin } from '../auth/loginPrompt'
 import { useDynamicActions } from '../composables/useDynamicActions'
 import { useDynamicFeed } from '../composables/useDynamicFeed'
+import { useNewDynamics } from '../composables/useNewDynamics'
 import { useUserAvatars } from '../composables/useUserAvatars'
 import type { DynamicSource } from '../feed/dynamicPaging'
 import AppIcon from '../components/common/AppIcon.vue'
@@ -84,6 +85,13 @@ const source = computed<DynamicSource>(() =>
 const feed = useDynamicFeed(() => source.value)
 const { state, total, authorHeader, view, errorText } = feed
 
+/**
+ * 「有新动态」轮询（`R-32`）：服务端不推送 ⇒ 1 分钟问一次"头部有没有比当前第一条更新"。
+ * **只在全部模式**跑（作者模式没有"新动态"语义），列表空 / 已立起横幅时不再问。
+ */
+const newDynamics = useNewDynamics()
+const { hasNew } = newDynamics
+
 const profile = ref<SpaceHeaderVM | null>(null)
 const following = ref<RelationPageVM | null>(null)
 
@@ -116,6 +124,29 @@ const {
 const sentinel = ref<HTMLElement | null>(null)
 let sentinelObserver: IntersectionObserver | null = null
 
+/**
+ * 内联横幅的可见性：横幅滚出视口时才出右下「有新动态」胶囊（两者互斥，照首页 `R-29` 口径）。
+ * 横幅是 `v-if` 渲染的，ref 出现 / 消失都要重新 observe。
+ */
+const banner = ref<HTMLElement | null>(null)
+const bannerVisible = ref(false)
+let bannerObserver: IntersectionObserver | null = null
+
+watch(banner, (element) => {
+  bannerObserver?.disconnect()
+  bannerObserver = null
+  if (!element) {
+    bannerVisible.value = false
+    return
+  }
+  // 先当可见（横幅刚立起、IO 回调还没来），避免浮层闪一下
+  bannerVisible.value = true
+  bannerObserver = new IntersectionObserver((entries) => {
+    bannerVisible.value = entries[0]?.isIntersecting ?? false
+  })
+  bannerObserver.observe(element)
+})
+
 function inPrefetchRange(): boolean {
   const element = sentinel.value
   // 卸载后元素已脱离文档，rect 恒 0 ⇒ 不加这一句会让 while 继续把整池拉完
@@ -138,9 +169,47 @@ async function loadMore(): Promise<void> {
 /** 首屏 / 刷新 / 重试：整批替换；评论面板随旧卡片一起作废。 */
 async function refresh(): Promise<void> {
   closeComments()
-  await feed.refresh()
+  // 切到作者模式时立刻停轮询：不能让"全部动态"的新内容提示挂到 TA 的时间线上
+  if (source.value.mode !== 'all') newDynamics.stop()
+  const ok = await feed.refresh()
   await nextTick()
+  if (ok && source.value.mode === 'all' && state.value.items.length) {
+    // 新列表头 = 下一次轮询的比较基准；同时把「有新动态」横幅收掉
+    newDynamics.watchHead(state.value.items[0].id)
+  } else {
+    newDynamics.stop()
+  }
   if (feed.shouldLoadMore() && inPrefetchRange()) void loadMore()
+}
+
+/** 横幅 / 浮层胶囊：先回顶再刷新（列表整批替换，停在深处只会被浏览器夹到底部） */
+function onNewClick(): void {
+  window.scrollTo({ top: 0, behavior: 'auto' })
+  void refresh()
+}
+
+/** 标签页回到前台：立刻补一次轮询（不重置已立起的横幅） */
+function onVisibilityChange(): void {
+  newDynamics.onVisible()
+}
+
+// ── 回到顶部（R-32）：B 站右下浮钮，滚过一屏才出现 ────────────────
+
+const showTop = ref(false)
+let scrollTicking = false
+
+function onScroll(): void {
+  if (scrollTicking) return
+  scrollTicking = true
+  requestAnimationFrame(() => {
+    showTop.value = window.scrollY > 800
+    scrollTicking = false
+  })
+}
+
+function backToTop(): void {
+  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+  window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' })
 }
 
 /** 行内重试 + 补一次预取：失败时哨兵可能仍在触发区，IO 不会因为"还在视口里"再报 */
@@ -161,10 +230,17 @@ onMounted(async () => {
     { rootMargin: `0px 0px ${PREFETCH_MARGIN}px 0px` },
   )
   if (sentinel.value) sentinelObserver.observe(sentinel.value)
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  window.addEventListener('scroll', onScroll, { passive: true })
+  onScroll()
 })
 
 onBeforeUnmount(() => {
   sentinelObserver?.disconnect()
+  bannerObserver?.disconnect()
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+  window.removeEventListener('scroll', onScroll)
+  newDynamics.stop()
 })
 
 watch(
@@ -177,6 +253,7 @@ watch(
     }
     if (status === 'anonymous') {
       feed.reset()
+      newDynamics.stop()
       profile.value = null
       following.value = null
     }
@@ -333,6 +410,20 @@ function followingHref(userId: number): string {
             </div>
           </header>
 
+          <!-- 有新动态（R-32）：服务端不推送 ⇒ 1 分钟轮询；点击 = 回顶 + 重拉第 1 页 -->
+          <button
+            v-if="hasNew"
+            ref="banner"
+            class="dyn-new"
+            type="button"
+            :disabled="view === 'refreshing'"
+            aria-live="polite"
+            @click="onNewClick"
+          >
+            <AppIcon name="refresh" :size="16" />
+            <span>有新动态，点击查看</span>
+          </button>
+
           <!-- 首屏骨架：数据未到（不是"没有动态"）；与首页 / 空间同口径 -->
           <div v-if="view === 'initial'" class="dyn-skeleton">
             <div v-for="n in 3" :key="n" class="skeleton dyn-skeleton__card" />
@@ -437,6 +528,18 @@ function followingHref(userId: number): string {
         </aside>
       </div>
     </div>
+
+    <!-- 横幅滚出视口时才出现的浮层胶囊（与内联横幅互斥，照 R-29 口径） -->
+    <button v-if="hasNew && !bannerVisible" class="dyn-new-pill" type="button" @click="onNewClick">
+      <AppIcon name="refresh" :size="16" />
+      <span>有新动态</span>
+    </button>
+
+    <!-- 回到顶部：滚过一屏才出现（B 站右下浮钮） -->
+    <button v-if="showTop" class="dyn-top" type="button" title="回到顶部" aria-label="回到顶部" @click="backToTop">
+      <span class="dyn-top__icon"><AppIcon name="up" :size="18" /></span>
+      <span class="dyn-top__label">顶部</span>
+    </button>
   </main>
 </template>
 
@@ -616,6 +719,92 @@ function followingHref(userId: number): string {
   }
 }
 
+/* 有新动态横幅（B 站版式：整行浅蓝） */
+.dyn-new {
+  display: flex;
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 10px 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  border-radius: var(--radius);
+  font-size: 13px;
+  color: var(--brand-blue);
+  background: var(--brand-blue-bg);
+  cursor: pointer;
+}
+
+.dyn-new:hover:not(:disabled) {
+  filter: brightness(0.98);
+}
+
+.dyn-new:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* 横幅在视口外时的浮层胶囊（fixed；不与页面内容抢列） */
+.dyn-new-pill {
+  position: fixed;
+  right: 16px;
+  bottom: 88px;
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border: 1px solid var(--brand-blue);
+  border-radius: 999px;
+  font-size: 13px;
+  color: var(--text-inverse);
+  background: var(--brand-blue);
+  box-shadow: var(--shadow-1);
+  cursor: pointer;
+}
+
+.dyn-new-pill:hover {
+  filter: brightness(1.04);
+}
+
+/* 回到顶部（fixed；与浮层胶囊错开高度） */
+.dyn-top {
+  position: fixed;
+  right: 12px;
+  bottom: 20px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.dyn-top__icon {
+  display: flex;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-1);
+  border-radius: 50%;
+  color: var(--text-2);
+  background: var(--bg-0);
+  box-shadow: var(--shadow-1);
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.dyn-top:hover .dyn-top__icon {
+  border-color: var(--brand-blue);
+  color: var(--brand-blue);
+}
+
 /* ── 中：头像筛选行（R-31） ─────────────────────────────────── */
 .dyn-filter {
   display: flex;
@@ -747,6 +936,17 @@ function followingHref(userId: number): string {
 @media (prefers-reduced-motion: reduce) {
   .dyn-head__refresh .is-spinning {
     animation: none;
+  }
+
+  .dyn-top__icon {
+    transition: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .dyn-new-pill,
+  .dyn-top {
+    right: 8px;
   }
 }
 
