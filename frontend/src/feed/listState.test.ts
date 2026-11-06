@@ -3,6 +3,7 @@ import {
   EMPTY_PAGE_ERROR,
   beginMore,
   beginRefresh,
+  clearedFeed,
   emptyFeed,
   failMore,
   failRefresh,
@@ -191,5 +192,17 @@ describe('列表续页状态机（推荐流 / 动态流共用）', () => {
     const loading = beginMore(before)
     receiveMore(loading, page([3], null), loading.epoch)
     expect(before.items).toEqual(snapshot)
+  })
+
+  it('★ 清空保留代际：切数据源后旧源的响应不会被当成新源的第一页', () => {
+    const old = ready('v1.7.3')
+    const cleared = clearedFeed(old)
+    expect(cleared.items).toEqual([])
+    expect(cleared.epoch).toBe(old.epoch)
+
+    const next = beginRefresh(cleared)
+    expect(next.epoch).toBe(old.epoch + 1)
+    // 旧代际的响应回来 ⇒ 丢弃（否则换作者时会把上一位作者的卡片写进新列表）
+    expect(receiveFirstPage(next, page([9], null), old.epoch)).toBe(next)
   })
 })

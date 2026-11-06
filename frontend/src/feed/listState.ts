@@ -59,6 +59,16 @@ export function emptyFeed<T>(): FeedState<T> {
   return { items: [], cursor: null, phase: 'idle', error: null, epoch: 0 }
 }
 
+/**
+ * 整表清空（**切数据源 / 退出登录**用）：保留 `epoch`。
+ *
+ * <p>★ 不能直接 `emptyFeed()`：那会把代际重置成 0，而旧数据源在途的响应可能正带着 epoch=1 ——
+ * 清空后新的首屏也是 epoch=1 ⇒ 旧响应会被当成"新源的第一页"写进列表（换作者时标题与内容错位）。
+ */
+export function clearedFeed<T>(state: FeedState<T>): FeedState<T> {
+  return { items: [], cursor: null, phase: 'idle', error: null, epoch: state.epoch }
+}
+
 /** 首屏 / 刷新共用：开新代际，**不动 items**（刷新期间不闪屏；失败也留旧内容）。 */
 export function beginRefresh<T>(state: FeedState<T>): FeedState<T> {
   if (state.phase === 'initial') return state
