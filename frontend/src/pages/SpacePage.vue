@@ -18,6 +18,7 @@ import { useCheckIn } from '../composables/useCheckIn'
 import { useDynamicActions } from '../composables/useDynamicActions'
 import { useDynamicFeed } from '../composables/useDynamicFeed'
 import AppIcon from '../components/common/AppIcon.vue'
+import BackToTop from '../components/common/BackToTop.vue'
 import EmptyState from '../components/common/EmptyState.vue'
 import Pagination from '../components/common/Pagination.vue'
 import AvatarSettingsDialog from '../components/common/AvatarSettingsDialog.vue'
@@ -830,6 +831,9 @@ function goItemPage(page: number): void {
         />
       </template>
     </div>
+
+    <!-- 动态 tab 的回到顶部（与 /dynamic 共用同一组件；其它 tab 不渲染） -->
+    <BackToTop v-if="tab === 'dynamic'" />
 
     <AvatarSettingsDialog
       v-if="avatarDialogOpen && header"

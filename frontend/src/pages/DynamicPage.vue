@@ -15,6 +15,7 @@ import { useNewDynamics } from '../composables/useNewDynamics'
 import { useUserAvatars } from '../composables/useUserAvatars'
 import type { DynamicSource } from '../feed/dynamicPaging'
 import AppIcon from '../components/common/AppIcon.vue'
+import BackToTop from '../components/common/BackToTop.vue'
 import EmptyState from '../components/common/EmptyState.vue'
 import UserAvatar from '../components/common/UserAvatar.vue'
 import DynamicCard from '../components/feed/DynamicCard.vue'
@@ -207,25 +208,6 @@ function onVisibilityChange(): void {
   newDynamics.onVisible()
 }
 
-// ── 回到顶部（R-32）：B 站右下浮钮，滚过一屏才出现 ────────────────
-
-const showTop = ref(false)
-let scrollTicking = false
-
-function onScroll(): void {
-  if (scrollTicking) return
-  scrollTicking = true
-  requestAnimationFrame(() => {
-    showTop.value = window.scrollY > 800
-    scrollTicking = false
-  })
-}
-
-function backToTop(): void {
-  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
-  window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' })
-}
-
 /** 行内重试 + 补一次预取：失败时哨兵可能仍在触发区，IO 不会因为"还在视口里"再报 */
 async function retryMore(): Promise<void> {
   await feed.retry()
@@ -246,15 +228,12 @@ onMounted(async () => {
   sessionReady.value = true
 
   document.addEventListener('visibilitychange', onVisibilityChange)
-  window.addEventListener('scroll', onScroll, { passive: true })
-  onScroll()
 })
 
 onBeforeUnmount(() => {
   sentinelObserver?.disconnect()
   bannerObserver?.disconnect()
   document.removeEventListener('visibilitychange', onVisibilityChange)
-  window.removeEventListener('scroll', onScroll)
   newDynamics.stop()
 })
 
@@ -555,11 +534,8 @@ function followingHref(userId: number): string {
       <span>有新动态</span>
     </button>
 
-    <!-- 回到顶部：滚过一屏才出现（B 站右下浮钮） -->
-    <button v-if="showTop" class="dyn-top" type="button" title="回到顶部" aria-label="回到顶部" @click="backToTop">
-      <span class="dyn-top__icon"><AppIcon name="up" :size="18" /></span>
-      <span class="dyn-top__label">顶部</span>
-    </button>
+    <!-- 回到顶部：滚过一屏才出现（与空间页动态 tab 共用同一组件） -->
+    <BackToTop />
   </main>
 </template>
 
@@ -788,43 +764,6 @@ function followingHref(userId: number): string {
   filter: brightness(1.04);
 }
 
-/* 回到顶部（fixed；与浮层胶囊错开高度） */
-.dyn-top {
-  position: fixed;
-  right: 12px;
-  bottom: 20px;
-  z-index: 30;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  font-size: 12px;
-  color: var(--text-3);
-  cursor: pointer;
-}
-
-.dyn-top__icon {
-  display: flex;
-  width: 44px;
-  height: 44px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--line-1);
-  border-radius: 50%;
-  color: var(--text-2);
-  background: var(--bg-0);
-  box-shadow: var(--shadow-1);
-  transition: color 0.15s ease, border-color 0.15s ease;
-}
-
-.dyn-top:hover .dyn-top__icon {
-  border-color: var(--brand-blue);
-  color: var(--brand-blue);
-}
-
 /* ── 中：头像筛选行（R-31） ─────────────────────────────────── */
 .dyn-filter {
   display: flex;
@@ -957,15 +896,10 @@ function followingHref(userId: number): string {
   .dyn-head__refresh .is-spinning {
     animation: none;
   }
-
-  .dyn-top__icon {
-    transition: none;
-  }
 }
 
 @media (max-width: 760px) {
-  .dyn-new-pill,
-  .dyn-top {
+  .dyn-new-pill {
     right: 8px;
   }
 }
