@@ -25,6 +25,19 @@ import {
 import type { DynamicCardVM, DynamicPageVM, SpaceHeaderVM } from '../types/ui'
 
 /**
+ * 一次"首屏 / 刷新"的结果（页面据此决定轮询与提示，**不能只看成功/失败布尔**）：
+ * - `ok`：列表已替换；
+ * - `failed`：失败；有旧内容时状态机保留旧列表（`error` 会被清掉）⇒ `message` 由页面弹 toast；
+ * - `superseded`：这次响应已被更晚的一次刷新 / 切源淘汰（**不能**据此停轮询：胜出的那次还要用）；
+ * - `busy`：已有一次首屏刷新在途（按钮应已 disabled；真发生就什么都不做）。
+ */
+export type DynamicRefreshResult =
+  | { status: 'ok' }
+  | { status: 'failed'; message: string }
+  | { status: 'superseded' }
+  | { status: 'busy' }
+
+/**
  * 动态流的行为机：**请求 + 状态迁移 + 两种数据源**。
  *
  * <p>迁移规则在 `feed/listState.ts`（与首页推荐流共用）；"下一页是谁、哪些该丢"在
@@ -40,6 +53,9 @@ import type { DynamicCardVM, DynamicPageVM, SpaceHeaderVM } from '../types/ui'
  *
  * <p>★ 切源（全部 ↔ 某作者）**先清空**：不能让上一位作者的卡片短暂挂在新标题下。
  * 同一作者刷新 / 重载不清空（避免白屏闪），由状态机的 `beginRefresh` 保留旧 items。
+ *
+ * <p>★ **作者头的写入必须在代际校验之后**：`fetchPage` 只返回数据，不写 ref。
+ * 否则慢的旧作者响应会把 A 的名字盖到 B 的列表上（旧页面用 requestId 前置守卫防的就是这个）。
  *
  * <p>⚠️ 与 `useRecommendFeed` 同款盲区：DOM 接线 / 定时器 / 卸载时机没有 jsdom 自动化，
  * 纯逻辑（令牌 / 去重 / 状态迁移）由单测覆盖，其余靠 review + 真浏览器。
@@ -67,18 +83,24 @@ export function useDynamicFeed(source: () => DynamicSource) {
     return describeError(exception, '加载失败，请稍后重试')
   }
 
-  /** 取一页：两种源返回同一个 VM 形状（`items/page/total/totalPages`）。 */
-  async function fetchPage(page: number, anchor: number | null, src: DynamicSource): Promise<DynamicPageVM> {
+  /**
+   * 取一页：两种源都归一成 `{page, header}`。
+   * **不在这里写 `authorHeader`** —— 写入权归调用方，且必须在代际校验通过之后。
+   */
+  async function fetchPage(
+    page: number,
+    anchor: number | null,
+    src: DynamicSource,
+  ): Promise<{ page: DynamicPageVM; header: SpaceHeaderVM | null }> {
     if (src.mode === 'author') {
       const data = await loadSpace(src.authorId, page, FEED_PAGE_SIZE)
-      authorHeader.value = data.header
-      return data.timeline
+      return { page: data.timeline, header: data.header }
     }
-    return loadFeed(page, FEED_PAGE_SIZE, anchor)
+    return { page: await loadFeed(page, FEED_PAGE_SIZE, anchor), header: null }
   }
 
   /** 首屏 / 刷新：整批替换（刷新期间保留旧内容，由状态机保证）。 */
-  async function refresh(): Promise<boolean> {
+  async function refresh(): Promise<DynamicRefreshResult> {
     const src = source()
     const key = sourceKeyOf(src)
     if (key !== loadedSourceKey) {
@@ -90,26 +112,30 @@ export function useDynamicFeed(source: () => DynamicSource) {
     }
 
     const next = beginRefresh(state.value)
-    if (next === state.value) return false
+    if (next === state.value) return { status: 'busy' }
     state.value = next
     const epoch = next.epoch
 
     try {
-      const page = await fetchPage(1, null, src)
-      if (disposed || epoch !== state.value.epoch) return false
-      total.value = page.total
+      const data = await fetchPage(1, null, src)
+      if (disposed || epoch !== state.value.epoch) return { status: 'superseded' }
+      if (data.header) authorHeader.value = data.header
+      total.value = data.page.total
       // 锚点取**首屏第一条**：服务端按 id<=锚点切后续页，已加载区段就冻结了
-      anchorId = page.items[0]?.id ?? null
+      anchorId = data.page.items[0]?.id ?? null
       state.value = receiveFirstPage(
         state.value,
-        { items: page.items, nextCursor: nextPageToken(page) },
+        { items: data.page.items, nextCursor: nextPageToken(data.page) },
         epoch,
       )
-      return state.value.phase !== 'error'
+      return state.value.phase === 'error'
+        ? { status: 'failed', message: state.value.error ?? '加载失败，请稍后重试' }
+        : { status: 'ok' }
     } catch (exception) {
-      if (disposed || epoch !== state.value.epoch) return false
-      state.value = failRefresh(state.value, messageOf(exception, src))
-      return false
+      if (disposed || epoch !== state.value.epoch) return { status: 'superseded' }
+      const message = messageOf(exception, src)
+      state.value = failRefresh(state.value, message)
+      return { status: 'failed', message }
     }
   }
 
@@ -126,10 +152,14 @@ export function useDynamicFeed(source: () => DynamicSource) {
     try {
       const data = await fetchPage(page, src.mode === 'all' ? anchorId : null, src)
       if (disposed || epoch !== state.value.epoch) return
-      total.value = data.total
+      // 作者头不在续页更新：它属于"源"，首屏已经写好；这里再写会让慢响应覆盖新作者
+      total.value = data.page.total
       state.value = receiveMore(
         state.value,
-        { items: appendUnique(state.value.items, data.items), nextCursor: nextPageToken(data) },
+        {
+          items: appendUnique(state.value.items, data.page.items),
+          nextCursor: nextPageToken(data.page),
+        },
         epoch,
       )
     } catch (exception) {
@@ -154,7 +184,7 @@ export function useDynamicFeed(source: () => DynamicSource) {
     await runMore(source())
   }
 
-  /** 退出登录 / 页面失效：回到空状态（下一次 refresh 会重新判定源）。 */
+  /** 退出登录 / 页面失效：回到空状态（保留代际，旧响应仍被淘汰）。 */
   function reset(): void {
     state.value = clearedFeed(state.value)
     total.value = 0

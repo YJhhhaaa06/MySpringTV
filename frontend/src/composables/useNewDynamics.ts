@@ -99,8 +99,15 @@ export function useNewDynamics() {
     schedule()
   }
 
+  /**
+   * 停轮询：**同时清掉横幅**。
+   *
+   * <p>⚠️ 不能只置 `stopped`：切作者 / 退出登录时横幅还在的话，会把"全部动态有新内容"
+   * 挂到作者时间线或匿名页上，而且点它只会再刷一次当前源、永远消不掉。
+   */
   function stop(): void {
     stopped = true
+    hasNew.value = false
     clearTimer()
   }
 

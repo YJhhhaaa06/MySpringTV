@@ -171,6 +171,8 @@ class FeedReadTests extends AbstractFeedIntegrationTest {
     void 窗口路径_快照锚点冻结头部() {
         long viewerId = registerViewer();
         long authorId = registerAuthor();
+        // ★ c0 故意**不写进收件箱**：若读路径退化到纯拉，total 会变成 5 ⇒ 本用例同时钉住"走的是窗口路径"
+        insertVideoContent(authorId, "窗口外（不在收件箱）");
         long c1 = insertVideoContent(authorId, "第1条");
         long c2 = insertVideoContent(authorId, "第2条");
         long c3 = insertVideoContent(authorId, "第3条");

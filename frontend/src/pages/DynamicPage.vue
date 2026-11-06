@@ -6,6 +6,7 @@ import { dynamicQuery } from '../api/feed'
 import { loadFollowing } from '../api/relations'
 import { loadProfileHeader } from '../api/profile'
 import { formatCount } from '../api/adapters/format'
+import { showToast } from '../common/toast'
 import { isAuthenticated, restoreSession, sessionState } from '../auth/session'
 import { requireLogin } from '../auth/loginPrompt'
 import { useDynamicActions } from '../composables/useDynamicActions'
@@ -178,14 +179,20 @@ async function refresh(): Promise<void> {
   closeComments()
   // 切到作者模式时立刻停轮询：不能让"全部动态"的新内容提示挂到 TA 的时间线上
   if (source.value.mode !== 'all') newDynamics.stop()
-  const ok = await feed.refresh()
+  const result = await feed.refresh()
   await nextTick()
-  if (ok && source.value.mode === 'all' && state.value.items.length) {
-    // 新列表头 = 下一次轮询的比较基准；同时把「有新动态」横幅收掉
-    newDynamics.watchHead(state.value.items[0].id)
-  } else {
-    newDynamics.stop()
+  if (result.status === 'ok') {
+    if (source.value.mode === 'all' && state.value.items.length) {
+      // 新列表头 = 下一次轮询的比较基准；同时把「有新动态」横幅收掉
+      newDynamics.watchHead(state.value.items[0].id)
+    } else {
+      newDynamics.stop()
+    }
+  } else if (result.status === 'failed' && state.value.items.length > 0) {
+    // 有旧内容时状态机会保留列表并清掉 error ⇒ 用 toast 说明，别让用户以为刷新成功了
+    showToast(result.message, 'error')
   }
+  // superseded / busy：什么都不做 —— 胜出的那次刷新会自己接上轮询，这里停会把它的轮询关掉
   if (feed.shouldLoadMore() && inPrefetchRange()) void loadMore()
 }
 
@@ -418,9 +425,9 @@ function followingHref(userId: number): string {
             </div>
           </header>
 
-          <!-- 有新动态（R-32）：服务端不推送 ⇒ 1 分钟轮询；点击 = 回顶 + 重拉第 1 页 -->
+          <!-- 有新动态（R-32）：只属于"全部动态"；服务端不推送 ⇒ 1 分钟轮询；点击 = 回顶 + 重拉第 1 页 -->
           <button
-            v-if="hasNew"
+            v-if="loggedIn && !authorId && hasNew"
             ref="banner"
             class="dyn-new"
             type="button"
@@ -537,8 +544,13 @@ function followingHref(userId: number): string {
       </div>
     </div>
 
-    <!-- 横幅滚出视口时才出现的浮层胶囊（与内联横幅互斥，照 R-29 口径） -->
-    <button v-if="hasNew && !bannerVisible" class="dyn-new-pill" type="button" @click="onNewClick">
+    <!-- 横幅滚出视口时才出现的浮层胶囊（与内联横幅互斥；同样只属于"全部动态"） -->
+    <button
+      v-if="loggedIn && !authorId && hasNew && !bannerVisible"
+      class="dyn-new-pill"
+      type="button"
+      @click="onNewClick"
+    >
       <AppIcon name="refresh" :size="16" />
       <span>有新动态</span>
     </button>
