@@ -551,6 +551,8 @@ async function loadFolders(force = false): Promise<void> {
   if (foldersLoadedFor.value && foldersLoadedFor.value !== scopeKey) clearFolderState()
   if (!force && foldersLoadedFor.value === scopeKey) {
     await ensureFolderSelection(folders.value, isSelf.value)
+    // 主页不渲染稍后再看 ⇒ 只有收藏 tab 才补这个计数；从主页切回来时缓存命中也要补
+    if (tab.value === 'folders' && isSelf.value && laterTotal.value === null) void loadLaterTotal()
     return
   }
   const targetUserId = userId.value
@@ -562,8 +564,8 @@ async function loadFolders(force = false): Promise<void> {
     if (userId.value !== targetUserId || isSelf.value !== targetIsSelf) return
     folders.value = list
     foldersLoadedFor.value = scopeKey
-    if (targetIsSelf) void loadLaterTotal()
-    else laterTotal.value = null
+    if (targetIsSelf && tab.value === 'folders') void loadLaterTotal()
+    else if (!targetIsSelf) laterTotal.value = null
     await ensureFolderSelection(list, targetIsSelf)
   } catch (exception) {
     if (userId.value !== targetUserId || isSelf.value !== targetIsSelf) return
@@ -576,7 +578,7 @@ async function loadFolders(force = false): Promise<void> {
 }
 
 async function loadLaterTotal(): Promise<void> {
-  if (!isSelf.value) {
+  if (!isSelf.value || tab.value !== 'folders') {
     laterTotal.value = null
     return
   }
@@ -743,21 +745,40 @@ async function removeItem(item: VideoCardVM): Promise<void> {
         activeFolder.value.itemCount = snapshot.folderCount
       }
     }
+    // 已切走 / 已退出时本地无法回滚那一面 ⇒ 用服务端权威值把夹计数 / 稍后再看计数拉回
+    if (targetView === 'folder') void loadFolders(true)
+    else if (tab.value === 'folders') void loadLaterTotal()
     showToast(describeError(exception), 'error')
   } finally {
     removingId.value = null
   }
 }
 
-/** 静默重读当前页；这一页被删空时退到最后一个有内容的页 */
+/**
+ * 静默重读当前页；这一页被删空时退到最后一个有内容的页。
+ *
+ * <p>★ 必须和 `loadItems` 共用 `itemsRequestId` 与视角校验：写请求 / 刷新在途时用户可能
+ * 退出登录或换人，晚到的 self 面响应**绝不能**写回公共面（`clearFolderState` 只作废
+ * 走 `loadItems` 的请求，这里另开一条路径，所以自己也要认同一个序号）。
+ */
 async function refreshItemsSilently(): Promise<void> {
   if (!userId.value) return
+  const requestId = ++itemsRequestId
+  const targetUserId = userId.value
+  const targetIsSelf = isSelf.value
+  const targetView = folderView.value
+  const targetFolderId = activeFolderId.value
+  const targetPage = itemPage.value
   try {
     const page =
-      folderView.value === 'later'
-        ? await loadLibraryLater(itemPage.value, PAGE_SIZE)
-        : await loadLibraryItems(activeFolderId.value, isSelf.value, itemPage.value, PAGE_SIZE)
-    if (page.items.length === 0 && page.total > 0 && itemPage.value > 1) {
+      targetView === 'later'
+        ? await loadLibraryLater(targetPage, PAGE_SIZE)
+        : await loadLibraryItems(targetFolderId, targetIsSelf, targetPage, PAGE_SIZE)
+    // 视角 / 夹 / 页在途变化 ⇒ 丢弃；否则私密条目会回流到退出后的公共面
+    if (requestId !== itemsRequestId) return
+    if (userId.value !== targetUserId || isSelf.value !== targetIsSelf) return
+    if (folderView.value !== targetView || activeFolderId.value !== targetFolderId) return
+    if (page.items.length === 0 && page.total > 0 && targetPage > 1) {
       goItemPage(Math.max(1, page.totalPages))
       return
     }
@@ -765,7 +786,7 @@ async function refreshItemsSilently(): Promise<void> {
     folderPage.value = page.page
     folderTotal.value = page.total
     folderTotalPages.value = page.totalPages
-    if (folderView.value === 'later') laterTotal.value = page.total
+    if (targetView === 'later') laterTotal.value = page.total
     else {
       const folder = activeFolder.value
       if (folder) folder.itemCount = page.total
