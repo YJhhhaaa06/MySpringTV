@@ -15,8 +15,9 @@ import CommentSection from '../video/CommentSection.vue'
  *      ┌────────────────────────────────────────────┐
  *      │ 封面(16:9) │ 标题（两行）                    │
  *      │            │ 简介（两行）                    │
- *      │            │ ▷ 播放量   💬 评论数             │
+ *      │            │ ▷ 播放量                        │
  *      └────────────────────────────────────────────┘
+ *      点赞                评论（带数字）
  * 图文：[头像] UP 主
  *              刚刚 · 发布了图文 / 发布了动态
  *      标题（可选）
@@ -32,8 +33,11 @@ import CommentSection from '../video/CommentSection.vue'
  * 「点赞」走真接口（`PUT|DELETE /contents/{id}/like`），成功后由页面回读 like-count 对齐。
  *
  * <h2>计数口径</h2>
- * - 播放量：**图文不显示**（`play_count` 对图文结构性恒 0，GAP-05）；
- * - 评论数：块内显示（0 也显示，B 站同）；
+ * - 播放量：**图文不显示**（`play_count` 对图文结构性恒 0，GAP-05）；视频在内容块右下；
+ * - 评论数：**一律只在操作栏的「评论」按钮旁显示**（0 也显示，B 站同），视频 / 图文同一口径 ——
+ *   视频卡曾经把它画在内容块右下，导致「数字离入口很远、点评论还要回头找」，
+ *   也把「播放量 / 评论数」两个不同维度的数字并排成一组（B 站内容块右下是播放量 + **弹幕**，
+ *   不是评论；本仓没有弹幕域 ⇒ 那里只留播放量，不拿评论数冒充）；
  * - 点赞数：**> 0 才显示**（B 站 0 赞时只写「点赞」），点过赞后一定显示。
  */
 const props = defineProps<{
@@ -172,14 +176,6 @@ function onCommentCountChanged(count: number): void {
             <AppIcon name="play" :size="18" />
             <span>{{ item.playCountText }}</span>
           </span>
-          <span
-            v-if="item.commentCount !== null"
-            class="dyn-stat"
-            :title="`评论 ${formatCount(item.commentCount)}`"
-          >
-            <AppIcon name="comment" :size="18" />
-            <span>{{ formatCount(item.commentCount) }}</span>
-          </span>
         </span>
       </span>
     </a>
@@ -257,8 +253,8 @@ function onCommentCountChanged(count: number): void {
       >
         <AppIcon name="comment" :size="20" />
         <span>评论</span>
-        <!-- 视频卡的评论数已在内容块右下显示；操作栏只给图文补数字，避免同一个数字出现两次 -->
-        <span v-if="item.commentCount !== null && item.isPost" class="dyn-action__count">{{ formatCount(item.commentCount) }}</span>
+        <!-- 评论数紧跟入口（视频 / 图文同一口径）：数字在这里，用户点之前就能看到「有几条」 -->
+        <span v-if="item.commentCount !== null" class="dyn-action__count">{{ formatCount(item.commentCount) }}</span>
       </button>
     </footer>
 
