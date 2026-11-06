@@ -298,7 +298,7 @@
 > **未做 / 另窗**：封面**上传 / 恢复**（GAP-17 只销展示）；旧 `favorites.html` 入口与转发 / 限流 / 测试清理；
 > 窄屏 / 触屏未验；E2E 的测试用户 256 因无删除用户端点留在 dev 库（夹具夹 / 稍后再看已清）。
 > **subagent review**：0 P0 / **1 P1**（`refreshItemsSilently` 绕过 `itemsRequestId`：退出 / 换人后在途 self 面响应可把私密条目写回公共面）+ 3 P2（失败移出切走后不回滚、主页多发一次 `/watch-later`、T114 验收把"上限"写成有用例）。
-> P1 已修：`refreshItemsSilently` 共用 `itemsRequestId` + `isSelf/userId/folder/view` 四重校验；P2 修 2（失败移出用服务端重读、主页不取稍后再看计数），T114 验收改为**明写无 DOM 单测**。修复后 `typecheck` / `test` **394** / `build` 绿；**未重跑全量 E2E**（夹具夹已清理，改动是防护性分支，正常路径由上一轮 40 项覆盖）。T115 完成。
+> P1 已修：`refreshItemsSilently` 共用 `itemsRequestId` + `isSelf/userId/folder/view` 四重校验；P2 修 2（失败移出用服务端重读、主页不取稍后再看计数），T114 验收改为**明写无 DOM 单测**。另补：自动选夹的 `router.replace` 也带 `ownerId + isSelf` 守卫（在途换人不会把上一用户的夹 id 带进新页面）。修复后 `typecheck` / `test` **394** / `build` 绿；**未重跑全量 E2E**（夹具夹已清理，改动是防护性分支，正常路径由上一轮 40 项覆盖）。T115 完成。
 
 ---
 
