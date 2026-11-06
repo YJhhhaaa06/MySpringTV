@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type {
-  DynamicPageVM,
   PublicFolderVM,
   SpaceHeaderVM,
   SpaceWorksVM,
@@ -17,6 +16,7 @@ import { requireLogin } from '../auth/loginPrompt'
 import { showToast } from '../common/toast'
 import { useCheckIn } from '../composables/useCheckIn'
 import { useDynamicActions } from '../composables/useDynamicActions'
+import { useDynamicFeed } from '../composables/useDynamicFeed'
 import AppIcon from '../components/common/AppIcon.vue'
 import EmptyState from '../components/common/EmptyState.vue'
 import Pagination from '../components/common/Pagination.vue'
@@ -39,7 +39,8 @@ import RelationPanel from '../components/space/RelationPanel.vue'
  * 本仓没有独立动态域（"动态 = 投稿时间线"），所以三个 tab 不是三份数据，而是三种呈现：
  * <ul>
  *   <li><b>主页</b>（缺省）：最新 3 大卡 + 网格预览 6 + 「查看全部投稿」，不分页；</li>
- *   <li><b>动态</b>：全量时间线（图文正文/图集、视频卡、内联评论）+ 分页；</li>
+ *   <li><b>动态</b>：全量时间线（图文正文/图集、视频卡、内联评论）+ **无限滚动**（`T107`，与
+ *       `/dynamic?author=` 同一套：追加 + 按 id 去重，不写 `page`）；</li>
  *   <li><b>投稿</b>：全量网格 + 分页（纯文字动态在这里是文字卡面，GAP-28 原口径）。</li>
  * </ul>
  * 主页与投稿是"预览 vs 全量"，不是"两个名字一套数据"；类型子筛选（视频/图文）另有
@@ -59,8 +60,9 @@ import RelationPanel from '../components/space/RelationPanel.vue'
  * 一个都不渲染（没有对应端点）。两个端点都要登录（B 站同样 `-101`），
  * 匿名进这两个 tab 是「登录后查看」而不是空列表。
  *
- * <p>tab 与翻页都落在 query（`?tab=folders&folder=3&itemPage=2`）：刷新 / 分享能停在原处，
- * 与 B 站同构。两种分页一起用到了：作品页是 **Page**，收藏条目也是 Page，
+ * <p>tab 与**投稿 / 收藏**的翻页落在 query（`?tab=works&page=2`、`?tab=folders&folder=3&itemPage=2`）：
+ * 刷新 / 分享能停在原处，与 B 站同构。动态 tab（`T107` 起）是无限滚动，**页码不进 URL**
+ * （旧 `?tab=dynamic&page=2` 会静默落到第 1 页）。作品页是 **Page**，收藏条目也是 Page，
  * 但**来源不同**（`/users/{id}` 内嵌 vs `/favorite-folders/{id}/items`）。
  * 关注 / 粉丝用 `relPage`（不与作品的 `page` / 夹的 `itemPage` 抢名字）。
  */
@@ -113,13 +115,31 @@ function positive(raw: unknown): number {
 // ── 作品 ──────────────────────────────────────────────────────────────
 const header = ref<SpaceHeaderVM | null>(null)
 const works = ref<SpaceWorksVM | null>(null)
-/** 同一份 `contentPage` 的时间线视图（`R-31`；与 `works` 同一次请求） */
-const timeline = ref<DynamicPageVM | null>(null)
 const featured = ref<VideoCardVM[]>([])
 const loading = ref(false)
 const error = ref('')
 const followBusy = ref(false)
 const avatarDialogOpen = ref(false)
+
+/**
+ * 动态 tab（`T107`）：与 `/dynamic?author=` **同一套无限滚动** —— 直接复用 `useDynamicFeed` 的
+ * 作者模式（`contentPage` 追加 + 按 id 去重 + 下一页令牌），不再单独维护 `timeline` + Pagination。
+ *
+ * <p>主页 / 投稿 / 收藏三个视图仍走各自的分页（它们不是"时间线"，不在这套状态机里）。
+ * 动态 tab 的 `authorHeader` 与 `loadWorks` 返回的是同一个 `SpaceHeaderVM`（同一端点），
+ * 用它补空间头部，避免为了头再打一趟。
+ */
+const {
+  state: dynamicState,
+  view: dynamicView,
+  errorText: dynamicErrorText,
+  authorHeader: dynamicAuthorHeader,
+  refresh: refreshDynamic,
+  loadMore: fetchMoreDynamic,
+  retry: retryDynamic,
+  reset: resetDynamic,
+  shouldLoadMore: shouldLoadMoreDynamic,
+} = useDynamicFeed(() => ({ mode: 'author', authorId: userId.value }))
 
 /** 头像弹层成功后：就地改空间头部 + 登录态（顶栏同一实例立即生效）。 */
 function onAvatarUpdated(avatarUrl: string): void {
@@ -164,7 +184,6 @@ async function loadWorks(): Promise<void> {
     error.value = '地址里的用户 id 不合法'
     header.value = null
     works.value = null
-    timeline.value = null
     return
   }
   closeComments() // 换页 / 换人后旧的评论面板不再有意义
@@ -174,16 +193,16 @@ async function loadWorks(): Promise<void> {
     // ★ 先等登录态落定：`isSelf` 与 `isFollowed` 都取决于"我是谁"，
     //   抢在 restoreSession 之前装载，会把"看自己的空间"画成"关注自己"（后端会 FOLLOW_SELF）
     await restoreSession()
-    // 主页固定第 1 页（它只有 3 + 6 的预览，不分页）；动态 / 投稿才吃 query 页码
+    // 主页固定第 1 页（它只有 3 + 6 的预览，不分页）；投稿才吃 query 页码
     const data = await loadSpace(userId.value, tab.value === 'home' ? 1 : worksPage.value, PAGE_SIZE)
     header.value = data.header
     works.value = data.works
-    timeline.value = data.timeline
     featured.value = data.featured
   } catch (exception) {
+    // 已切到动态 tab：它有自己的错误面（`loadDynamic` 负责），别把整页打成错误
+    if (tab.value === 'dynamic') return
     header.value = null
     works.value = null
-    timeline.value = null
     featured.value = []
     error.value =
       exception instanceof ApiError && exception.status === 404
@@ -194,7 +213,133 @@ async function loadWorks(): Promise<void> {
   }
 }
 
-watch([userId, worksPage], loadWorks, { immediate: true })
+watch(
+  [userId, worksPage],
+  () => {
+    // 动态 tab 的页码不进 URL，也不看 worksPage；它由下面的 tab watcher 单独装载
+    if (tab.value === 'dynamic') return
+    void loadWorks()
+  },
+  { immediate: true },
+)
+
+/**
+ * 动态 tab 的装载：只替换动态列表，不动 works / featured。
+ *
+ * <p>首屏失败（无旧内容）沿用旧口径：整页错误（用户不存在 / 网络）；有旧内容时只 toast。
+ * 切走之后返回的响应一律作废（`tab !== 'dynamic'`），别让它在别的 tab 上打整页错误。
+ */
+async function loadDynamic(): Promise<void> {
+  if (!userId.value) {
+    error.value = '地址里的用户 id 不合法'
+    header.value = null
+    return
+  }
+  closeComments()
+  error.value = ''
+  // 与 loadWorks 同口径：先等登录态落定，header 的 isSelf / isFollowed 才不会是匿名视角
+  await restoreSession()
+  const result = await refreshDynamic()
+  if (tab.value !== 'dynamic') return
+  if (result.status === 'ok') {
+    if (dynamicAuthorHeader.value) header.value = dynamicAuthorHeader.value
+    // 首屏装不满时 IO 不会二次触发（元素一直在视口里）⇒ 补一次
+    await nextTick()
+    if (shouldLoadMoreDynamic() && inDynamicPrefetchRange()) void loadMoreDynamics()
+    return
+  }
+  if (result.status === 'failed' && dynamicState.value.items.length === 0) {
+    error.value = result.message
+    header.value = null
+  } else if (result.status === 'failed') {
+    showToast(result.message, 'error')
+  }
+  // superseded / busy：交给在途的那次
+}
+
+/** 整页错误态的「重试」按当前 tab 分派（动态走无限滚动，其余走 loadWorks）。 */
+function reloadCurrent(): void {
+  if (tab.value === 'dynamic') void loadDynamic()
+  else void loadWorks()
+}
+
+// ── 动态 tab 的无限滚动：哨兵 + 连续补页 ─────────────────────────
+const dynamicSentinel = ref<HTMLElement | null>(null)
+let dynamicObserver: IntersectionObserver | null = null
+const DYNAMIC_PREFETCH_MARGIN = 800
+
+function inDynamicPrefetchRange(): boolean {
+  const element = dynamicSentinel.value
+  if (!element?.isConnected) return false
+  return element.getBoundingClientRect().top <= window.innerHeight + DYNAMIC_PREFETCH_MARGIN
+}
+
+/** 连续补页：短页 / 大视口下哨兵仍在触发区，IO 不会二次回调 */
+async function loadMoreDynamics(): Promise<void> {
+  while (shouldLoadMoreDynamic() && inDynamicPrefetchRange()) {
+    await fetchMoreDynamic()
+    await nextTick()
+  }
+}
+
+async function retryDynamics(): Promise<void> {
+  await retryDynamic()
+  await nextTick()
+  if (shouldLoadMoreDynamic() && inDynamicPrefetchRange()) void loadMoreDynamics()
+}
+
+onMounted(() => {
+  dynamicObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) void loadMoreDynamics()
+    },
+    { rootMargin: `0px 0px ${DYNAMIC_PREFETCH_MARGIN}px 0px` },
+  )
+  if (dynamicSentinel.value) dynamicObserver.observe(dynamicSentinel.value)
+})
+
+watch(dynamicSentinel, (element) => {
+  dynamicObserver?.disconnect()
+  if (element) dynamicObserver?.observe(element)
+})
+
+onBeforeUnmount(() => {
+  dynamicObserver?.disconnect()
+})
+
+/**
+ * 动态 tab 的入口 / 出口：
+ * - 进入（含首屏直接 `?tab=dynamic`、切人）⇒ 走无限滚动首屏；
+ * - 离开 ⇒ reset（下次进来重新拉，别把旧列表留在内存里）；
+ * - 从动态切到主页 / 投稿：`works` 可能还没装载过（首屏直接落动态）或页码已变 ⇒ 补一次。
+ */
+watch(
+  [userId, tab],
+  ([, current]) => {
+    if (current === 'dynamic') {
+      void loadDynamic()
+      return
+    }
+    resetDynamic()
+    if (loading.value) return // 同一个导航里 worksPage 变化已触发 loadWorks，别打两趟
+    const expectedPage = current === 'home' ? 1 : worksPage.value
+    if (!header.value || ((current === 'home' || current === 'works') && works.value?.page !== expectedPage)) {
+      void loadWorks()
+    }
+  },
+  { immediate: true },
+)
+
+/** 旧链接 `?tab=dynamic&page=2`：动态 tab 不再有页码 ⇒ 静默 replace 掉（落到第 1 页）。 */
+watch(
+  [tab, () => route.query.page],
+  ([current, page]) => {
+    if (current === 'dynamic' && page !== undefined) {
+      void router.replace({ name: 'space', params: { id: userId.value }, query: { tab: 'dynamic' } })
+    }
+  },
+  { immediate: true },
+)
 
 /**
  * 登录 / 退出后重读：`isFollowed` 匿名时是 `null`，不重读关注按钮会停在假象上
@@ -204,7 +349,8 @@ watch(
   () => sessionState.status,
   (status, previous) => {
     if ((status === 'authenticated' && previous === 'anonymous') || (status === 'anonymous' && previous === 'authenticated')) {
-      void loadWorks()
+      // 动态 tab 走 loadDynamic（它会重拉 isLiked / isFollowed），其余 tab 走 loadWorks
+      reloadCurrent()
       if (tab.value === 'folders') void loadFolders(true)
     }
   },
@@ -226,7 +372,8 @@ async function toggleFollow(): Promise<void> {
     else await unfollowUser(card.id)
     showToast(target ? '已关注' : '已取消关注')
     // 写成功后按服务端权威值对齐：登录瞬间可能会并行重读一次资料（读到的是关注前的状态）
-    void loadWorks()
+    // 动态 tab 走 loadDynamic（否则 loadWorks 的失败会把整页打成错误），其余走 loadWorks
+    void reloadCurrent()
   } catch (exception) {
     card.followed = !target
     if (typeof card.followerCount === 'number') {
@@ -342,8 +489,8 @@ function backToFolders(): void {
 }
 
 /**
- * 动态 / 投稿两个视图都有分页：**必须保留 tab**。
- * 只写 `page` 会掉回主页（`works` 时代就有这个坑，`R-31` 把它变成两个 tab 共用）。
+ * **投稿**视图的分页（`T107` 起动态 tab 改无限滚动，不再走这里）：
+ * 必须保留 `tab` —— 只写 `page` 会掉回主页（`works` 时代就有这个坑）。
  */
 function goTabPage(page: number): void {
   void router.push({
@@ -368,7 +515,7 @@ function goItemPage(page: number): void {
 
     <div class="page-content space-body">
       <EmptyState v-if="error" icon="user" title="打不开这个空间" :description="error">
-        <button class="btn btn-blue" type="button" @click="loadWorks">重试</button>
+        <button class="btn btn-blue" type="button" @click="reloadCurrent">重试</button>
         <a class="btn btn-ghost" href="/">回首页</a>
       </EmptyState>
 
@@ -480,20 +627,20 @@ function goItemPage(page: number): void {
               </template>
             </template>
 
-            <!-- 动态（R-31）：同一份 contentPage 的时间线；与 /dynamic?author= 同源 -->
+            <!-- 动态（R-31 / T107）：与 /dynamic?author= 同一套无限滚动（不再翻页） -->
             <template v-else-if="tab === 'dynamic'">
-              <div v-if="loading && !timeline" class="space-skeleton">
-                <div v-for="n in 4" :key="n" class="skeleton space-skeleton__card" />
+              <div v-if="dynamicView === 'initial'" class="space-dyn-skeleton">
+                <div v-for="n in 3" :key="n" class="skeleton space-dyn-skeleton__card" />
               </div>
-              <p v-else-if="error" class="space-empty space-empty--error">{{ error }}</p>
-              <template v-else-if="timeline">
-                <p v-if="!timeline.items.length" class="space-empty">
-                  {{ timeline.total > 0 ? '这一页没有内容，回第 1 页看看' : '这个 UP 主还没有发布过内容' }}
-                </p>
+              <p v-else-if="dynamicView === 'error'" class="space-empty space-empty--error">
+                {{ dynamicErrorText }}
+              </p>
+              <template v-else>
+                <p v-if="dynamicView === 'empty'" class="space-empty">这个 UP 主还没有发布过内容</p>
                 <template v-else>
                   <div class="space-dynamic-list">
                     <DynamicCard
-                      v-for="card in timeline.items"
+                      v-for="card in dynamicState.items"
                       :key="card.id"
                       :item="card"
                       :busy="likeBusy.has(card.id)"
@@ -504,9 +651,24 @@ function goItemPage(page: number): void {
                       @comment-count-changed="onCommentCountChanged(card, $event)"
                     />
                   </div>
-                  <Pagination :page="timeline.page" :total-pages="timeline.totalPages" @update:page="goTabPage" />
+
+                  <!-- 续页骨架：3 张（与 /dynamic 同口径） -->
+                  <div v-if="dynamicView === 'loadingMore'" class="space-dyn-skeleton space-dyn-skeleton--more">
+                    <div v-for="n in 3" :key="n" class="skeleton space-dyn-skeleton__card" />
+                  </div>
+
+                  <!-- 行内失败：只影响"下一页"，已加载的内容留着 -->
+                  <div v-if="dynamicView === 'errorMore'" class="space-more-error">
+                    <span>{{ dynamicErrorText }}</span>
+                    <button class="space-more-error__retry" type="button" @click="retryDynamics">重试</button>
+                  </div>
+
+                  <p v-if="dynamicView === 'done'" class="space-done">这次的动态到底了</p>
                 </template>
               </template>
+
+              <!-- 哨兵恒在（动态 tab 内）：空态 / 错误态下也没有副作用 -->
+              <div ref="dynamicSentinel" class="space-dynamic-sentinel" aria-hidden="true"></div>
             </template>
 
             <!-- 投稿（R-31）：全量网格 + 分页；纯文字动态在这里是文字卡面（GAP-28） -->
@@ -835,6 +997,57 @@ function goItemPage(page: number): void {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* 动态 tab 的首屏 / 续页骨架（T107：与 /dynamic 同口径，3 张整宽卡） */
+.space-dyn-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.space-dyn-skeleton--more {
+  margin-top: 12px;
+}
+
+.space-dyn-skeleton__card {
+  height: 168px;
+  border-radius: var(--radius-lg);
+}
+
+/* 行内失败：只影响"下一页" */
+.space-more-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px 0 4px;
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+.space-more-error__retry {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 13px;
+  color: var(--brand-blue);
+  cursor: pointer;
+}
+
+.space-more-error__retry:hover {
+  text-decoration: underline;
+}
+
+.space-done {
+  padding: 18px 0 4px;
+  font-size: 12px;
+  color: var(--text-3);
+  text-align: center;
+}
+
+.space-dynamic-sentinel {
+  height: 1px;
 }
 
 .space-back {
