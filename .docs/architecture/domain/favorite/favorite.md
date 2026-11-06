@@ -45,6 +45,7 @@ favorite_folder                                   favorite_item
   default_uniq    tinyint VIRTUAL 生成列            KEY idx_user_content (user_id, content_id)
   create_time     datetime                          KEY idx_folder_time (folder_id, create_time)
   update_time     datetime
+  cover_ref       varchar(255) 自定义封面（V12）      ← NULL = 自动封面（R-33）
   UNIQUE uk_user_default (user_id, default_uniq)    ← 每用户至多一个默认夹
 
 watch_later（V4，稍后再看；与收藏**不共表**）
@@ -61,6 +62,9 @@ content.favorite_count bigint（V2 加列 / V3 回填；冗余列，见 §四）
   MySQL 唯一索引**不约束 NULL** ⇒ 用一个键表达"多条自建夹 + 至多一条默认夹"。
   它是**默认夹懒建**在并发下唯一的防重复手段（`INSERT … WHERE NOT EXISTS` 兜不住：两事务都能查到"不存在"）。
 - ⚠️ `favorite_item` **刻意不加 `content_id` 前导索引** —— 它是 §四 那条一期计数基线的对照面。
+- ★ `favorite_folder.cover_ref` 是 **V12（R-33）** 新增列：只存自定义封面的应用内相对 URL
+  （`/upload/favorite-cover/...`）；**自动封面不落库**（读取时按夹内最新一条收藏现算）。
+  落盘目录与内容媒体 `cover/` 分家（`media_clean.py` 只认 `content_media` 引用，复用会被判孤儿）。
 
 ---
 
@@ -70,6 +74,8 @@ content.favorite_count bigint（V2 加列 / V3 回填；冗余列，见 §四）
 |---|---|---|
 | `POST /api/v1/favorite-folders` | 登录 | 新建收藏夹（超**个数**上限 ⇒ 400） |
 | `PUT /api/v1/favorite-folders/{id}` | 登录 | 改名 / 简介 / 私密开关（**部分更新**） |
+| `PUT /api/v1/favorite-folders/{id}/cover` | 登录 | 自定义封面上传（multipart `file`；替换 / 恢复删旧文件，R-33） |
+| `DELETE /api/v1/favorite-folders/{id}/cover` | 登录 | 恢复自动封面（写 NULL，**204 幂等**，R-33） |
 | `DELETE /api/v1/favorite-folders/{id}` | 登录 | 删除（**默认夹拒删 409**；夹内条目**同事务一并删**） |
 | `GET /api/v1/favorite-folders` | 登录 | 我的全部夹（含私密）+ 每夹条数 |
 | `GET /api/v1/users/{id}/favorite-folders` | **匿名** | 某人的**公开**夹（名称 + 条数 + `id`） |
@@ -168,6 +174,7 @@ content.favorite_count bigint（V2 加列 / V3 回填；冗余列，见 §四）
 | 我是否收藏过（`isFavorited`） | 高频 | Redis `Set` + `SISMEMBER`（`user:favoriteSet:{userId}`） |
 | 收藏数（`count`） | 高频 | Redis `String`（`content:favoriteCount:{id}`）；miss 回源**主键点查** |
 | **收在哪些夹（`folders`）** | **低频** | **直查 DB**，且 `SISMEMBER` 为 false 时**短路** ⇒ **刻意不缓存** |
+| **收藏夹封面（`coverUrl`）** | **低频** | **不缓存**：读取时一条最新收藏查询 + 一趟 content 批量读（见 §十一） |
 
 - ★ **`folders` 为什么不缓存**：它**低频**且"未收藏时短路"⇒ 正常路径下 DB 查询**几乎不发生**；
   给它加缓存要维护 **5 个**失效点，收益只是"省一次**亚毫秒**索引点查"⇒ **不划算**（缓存第一原则：只为"**高频 × 昂贵**"加）。
@@ -241,6 +248,32 @@ content.favorite_count bigint（V2 加列 / V3 回填；冗余列，见 §四）
 - ★ 夹内装配**共用一份实现**（`assembleFolderItems`）供"我的 / 他人公开"两条路径调用 ⇒ 失效口径不漂移。
 - ⚠️ **已接受的代价**（匿名暴露条目 `id` / `favoriteTime` + 夹存在性可探测）
   ⇒ 代价台账见 [favorite-已知代价](./favorite-已知代价.md)。
+
+---
+
+## 十一、收藏夹封面（V12 / `R-33`）
+
+- **三态互斥**（`coverUrl` 一个字段表达）：
+  ```
+  cover_ref != NULL                      ⇒ 自定义：coverUrl = cover_ref，hasCustomCover = true
+  cover_ref == NULL 且最新一条有封面      ⇒ 自动：coverUrl = 该内容的 coverUrl
+  cover_ref == NULL 且最新一条取不到/无封面 ⇒ 占位：coverUrl = NULL（前端灰底 TV）
+  ```
+- ★ **自动封面 = 夹内最新一条收藏**（视频 / 图文都算），按 `create_time DESC, id DESC`
+  取第一条；它能不能装出来由 content 装载契约决定（`ContentService.loadContentVOs`，
+  与 §五 的失效口径同源）。**最新一条失效 / 无封面 / 空夹 ⇒ 直接占位，不向前回退**
+  （对齐 B 站"最新视频被下架 ⇒ 视频不见了封面"）。
+- **自定义封面**：只在 `/favorites` 上传（可反复更换 + 可恢复自动）；默认夹 / 私密夹都可设；
+  创建收藏夹弹窗**不提供上传**（网页版口径）。文件落 `/upload/favorite-cover/`，
+  服务端只校验图片类型 + ≤2MB（前端 16:9 裁剪，服务端不重编码）。
+- **读路径不缓存**：folders 本来就不缓存（§七）；封面每页读取时现算：
+  一条 `favorite_item` 窗口查询取每夹最新 contentId + 一趟 content 批量读。
+  收藏域 SQL **不 JOIN content 表**（I-07 ③）。
+- ★ **写路径的文件清理**：替换 / 恢复 / 删夹都删旧自定义文件（只删 `/upload/favorite-cover/` 前缀）；
+  DB 与文件无法原子 —— 失败删新文件、成功后删旧文件，崩溃孤儿由已知代价接受。
+- ⚠️ **已知代价**（登记见 [favorite-已知代价](./favorite-已知代价.md)）：
+  自定义封面 URL 是静态直出（UUID 不可猜，但拿到 URL 即可读）；替换重试可能留孤儿；
+  自动封面"最新一条"不等于"最新可用"，失效即占位是有意取舍。
 
 ---
 

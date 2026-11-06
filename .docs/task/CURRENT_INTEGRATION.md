@@ -17,12 +17,12 @@
 ## 一、周期头（每窗开读）
 
 * ★ **状态**：2026-10-30 开窗。本窗第一件事 = 补一次全量回归基线（见下）+ 起联调清单。
-* ★ **编号**：任务 **`T76`** 起（`T71`–`T98` 已完结；**已用到 `T108`，下一编号 `T109`**）/
-  决策 **`R-27`** 起（`R-25` = 记录开关、`R-26` = 历史可删 + per-day 口径；**已用到 `R-32`，下一编号 `R-33`**）/ 问题 **`I-33`** 起（`I-31`/`I-32` 已终结；**下一编号 `I-34`**）/ 结转 **`F-30`** 起（**已用到 `F-34`，下一编号 `F-35`**）。
+* ★ **编号**：任务 **`T76`** 起（`T71`–`T98` 已完结；**已用到 `T111`，下一编号 `T112`**）/
+  决策 **`R-27`** 起（`R-25` = 记录开关、`R-26` = 历史可删 + per-day 口径；**已用到 `R-33`，下一编号 `R-34`**）/ 问题 **`I-33`** 起（`I-31`/`I-32` 已终结；**下一编号 `I-34`**）/ 结转 **`F-30`** 起（**已用到 `F-35`，下一编号 `F-36`**）。
   ⚠️ **编号不回收、不复用**：后端期已用的 `I-01`–`I-30` 随归档留在原地，联调期**从 `I-31` 继续**；
-  `F-##` 同理（`F-01`–`F-33` 已用，见 [FURTHER_ISSUES](./FURTHER_ISSUES.md)）。
-* ★ **回归基线**：默认集 **962**（2026-11-06，`DB_POOL_MAX_SIZE=4`，`R-32` 后；上一档 958）+ 前端 **383**（`R-32` 后；上一档 377）；
-  `resilience` 组 **41** 按惯例单跑 ⇒ 全量口径 **1003**。★ 本次全量 **0 失败**。
+  `F-##` 同理（`F-01`–`F-35` 已用，见 [FURTHER_ISSUES](./FURTHER_ISSUES.md)）。
+* ★ **回归基线**：默认集 **980**（2026-11-06，`DB_POOL_MAX_SIZE=4`，`R-33` 后；上一档 962）+ 前端 **383**（`R-32` 后；上一档 377）；
+  `resilience` 组 **41** 按惯例单跑 ⇒ 全量口径 **1021**。★ 本次全量 **0 失败**（`Tests run: 1021`）。
   跑全量必须带 `DB_POOL_MAX_SIZE=4`，否则容器 MySQL `Too many connections`（**不是代码缺陷**）。
 * ★ **门禁**：文档三道 —— `python tools/docs/doc_links.py` · `python tools/docs/doc_refs.py` · `python tools/docs/doc_stats.py`；
   前端 `npm run typecheck` / `npm run test` / `npm run build`（★ **先 `cd frontend`** —— 仓库根**没有** `package.json`，在根目录跑 `npm run build` 会 `ENOENT`，不是编译失败；跑起来与截图规矩见 `frontend/README.md`）。
@@ -79,6 +79,7 @@
 | `R-30` | **顶栏账号卡片按 B 站版式重做**（2026-11-03 拍板；实现 `T92`）：① 桌面 hover 开卡片、头像点击仍进空间；触屏 `hover: none` 点击头像开卡片；② 卡片 = 头像 + 昵称 + 硬币 + 关注/粉丝/动态（均新标签页）+ 个人中心/投稿管理/退出；③ **动态数 = 投稿总数** `contentPage.total`（本仓无动态域，"动态 = 投稿时间线"）；④ 不渲染等级/成长值、大会员、B币、主题、推荐服务；⑤ 退出 = `signOut()` + 回首页整页加载，无二次确认；⑥ 计数懒加载 `GET /users/{id}?pageSize=1`，失败降级 `-` | ① 出现真动态域 ⇒ 改读动态数；② 触屏交互失效 ⇒ 重议；③ 要保留当前页位置 ⇒ 就地退出 |
 | `R-31` | **动态页补齐：三种形态 + 图文呈现 + 内联评论**（2026-11-03 拍板；推翻 `F-32` 的两条裁剪）：① **个人动态 = 投稿时间线**（`R-30` 延伸）：作者维度**不走** `/feed` 加参，直接读 `GET /users/{id}` 的 `contentPage`；`/feed` 一字不动。② **空间三视图 + 收藏**：主页（最新 3 大卡 + 网格预览 6 + 查看全部，不分页）/ 动态（全量时间线 + 分页）/ 投稿（全量网格 + 分页）/ 收藏（前三者是本轮新增的三视图）；默认主页，原 `works` 改叫投稿；主页与投稿是"预览 vs 全量"，不是两套数据。③ **图文卡**：正文优先 + 图集（≤9，第 9 张 `+N`）+ 超长折叠/展开；无 media = 纯文字动态（meta「发布了动态」），有 media = 「发布了图文」；视频卡版式不动。④ **评论内联**：复用 `CommentSection`，懒加载、同时只开一个、计数回写；详情页评论不动。⑤ **字段**：`ContentVO` 透出 `imageUrls`（`videoUrl` 继续忽略；缓存 DTO 本来就有，零额外读）；`/users/{id}` 的 `contentPage` 补 `likeCount/commentCount`（同一端点服务网格 + 时间线，按面合约随契约跟随）。⑥ **标题**：图文投稿新增「不使用标题」，勾选提交 `title = "「无标题」"`（**含直角括号**，5 字符）；编辑页按同一魔串回填；动态卡 / opus 详情 trim 后全等则跳过标题；网格 / 搜索 / 历史仍显示该串。⑦ **登录门**：`/dynamic` 仍是页面级登录门；作者模式沿用登录门，匿名分享链接给「去 TA 的空间看动态」公开入口（不把公开数据说成"只属于账号"） | ① 出现独立纯文字 / 转发动态域 ⇒ 重定个人动态数据源；② 列表 payload 因图集变大成瓶颈 ⇒ 摘要 / 分页另案；③ 评论内联让首屏或滚动明显变慢 ⇒ 改抽屉；④ 空间三 tab 无点击或被质疑"同一套数据" ⇒ 撤 tab 或合回主页；⑤ `「无标题」` 与真实标题冲突成为问题 ⇒ 加 `title_optional` 布尔字段（不动 `title` 语义）；⑥ 需要按类型筛选（视频 / 图文）⇒ `/users/{id}` 加 `type` + `ProfileVO.worksCount`（另开 `R-##`，本窗不做，见 `GAP-32`） |
 | `R-32` | **动态页翻页改无限滚动 + 轮询式「有新动态」**（2026-11-06 拍板；服务端**不做推送**）：① `/dynamic` 全部动态与作者模式都改无限滚动（12/页、哨兵提前 800px、续页骨架、行内重试；到底 = `page >= totalPages`，文案「这次的动态到底了」）；② 后端只加**可选** `beforeContentId` 快照锚点：第 2 页起只看 `id ≤ 首屏首条 id`，`total` = 锚点内条数 ⇒ 新内容插到头部不会让 offset 漂（不去重、不漏条）；**不加端点、不改响应形状、不加迁移**；③ 「有新动态」= **1 分钟轮询** `GET /feed?page=1&pageSize=3`（不带锚点）比首条 id，**无计数**；仅标签页可见时跑、回前台立刻补一次、单飞、401 停、429 退避；点击 = 回顶 + 重拉第 1 页（整批替换，epoch 淘汰在途续页，失败 toast + 保留旧列表）；④ 标题行「刷新」按钮同语义；内联横幅 + 浮层「有新动态」胶囊互斥（横幅不在视口时才出浮层，照 `R-29` 口径）；⑤ 右下「回到顶部」（`scrollY > 800`）；⑥ 不落 localStorage；作者模式不轮询；空列表不轮询 | ① 真实 QPS 下轮询占比过高 / 要未读数 ⇒ 加 head 端点或推送通道；② 要"刷新不丢位置 / 多端同步 / 精确增量" ⇒ 上完整游标信封；③ 空间动态 tab 与作者模式体验割裂被质疑 ⇒ 下一窗接同一套；④ 窗口重建 / 删稿导致"跳 1 条"成为可感问题 ⇒ 改服务端会话快照 |
+| `R-33` | **收藏夹封面**（2026-11-06 用户拍板；推翻 `GAP-17` 长期与 `FURTHER_ISSUES` 的封面留池）：① 三态互斥 = 自定义 / 自动 / 灰底 TV 占位；自动封面 = **夹内最新一条收藏**（视频或图文都算），能经 content 装载契约取到且 `coverUrl` 非空就用它，否则（失效 / 无封面 / 空夹）**直接占位，不回退**；② 自定义封面只在 **`/favorites`** 提供上传：可反复更换、可「恢复自动」、默认夹与私密夹都可设；创建收藏夹弹窗**不提供上传**；`FavoriteDialog` 不显示封面；③ 展示面 = **空间「主页」tab 新增收藏区块（最多 10 个公开夹、两行、查看更多）+ `/favorites` 选中夹头部封面**；空间页 `?tab=folders` 本期不动（合并登记 `F-35`）；④ 接口：`PUT /api/v1/favorite-folders/{id}/cover`（multipart，服务端收 16:9 裁剪产物，**类型 + ≤2MB**）、`DELETE /api/v1/favorite-folders/{id}/cover`（恢复自动，204）；`GET /favorite-folders` / `GET /users/{id}/favorite-folders` 回带生效 `coverUrl`（我的夹另带 `hasCustomCover`）；⑤ 落盘 **`/upload/favorite-cover/`**（不混入 `cover/`：`media_clean.py` 会把未被 `content_media` 引用的 `cover` 文件判孤儿）；旧自定义文件在替换 / 恢复 / 删夹后清理；⑥ **不缓存 folders**：封面读取时现算（一条最新收藏查询 + 一趟 content 批量读）；**不改 `favorite_item` 写路径、不加 `content_type`**；⑦ 前端裁剪固定 **16:9 / 1280×720 JPEG**，原图 ≤10MB、jpg/png/jpeg；占位复用灰 TV 图标；本轮**后端优先**，前端另窗按工作量决定 | ① 要求「最新视频」而非「最新一条收藏」 ⇒ 需给 `favorite_item` 增 `content_type`（或回扫），重开；② 封面需要进缓存 / 列表热路径被质疑慢 ⇒ 再评缓存与失效；③ 需要创建时上传 / 空间收藏 tab 直接编辑 ⇒ 重定入口；④ 服务端要强制尺寸 / 去 EXIF / 内容审核 ⇒ 加 ImageIO 重编码；⑤ 封面孤儿需自动回收 ⇒ 扩 `media_clean.py` 把 `favorite_folder.cover_ref` 当引用源 |
 
 > 用户 2026-10-31 在 Chrome 重放上报请求实测：**B站 是服务端强制的**。本仓**刻意不跟**，理由与代价见
 > [history-已知代价](../architecture/domain/history/history-已知代价.md)（不是"没做到"）。
@@ -142,6 +143,9 @@
 | `T106` | 收口：`feed.md` §3.4 / `前端.md` §四 / `接口契约` 分页表注；三道门禁 + 全量回归 + subagent review | 只增不改号；代码注释只引 `architecture/**` / `archive/**`；review P0/P1 全修 | 门禁 0 违规；后端全量（`DB_POOL_MAX_SIZE=4`）+ 前端全绿；review 报告留痕 | **已完成（2026-11-06）**：三道门禁 0 违规；后端 962 / 前端 383；review 4 P1 + 3 P2 全修。 |
 | `T107` | `R-32` 延伸（用户 2026-11-06 点名）：空间页「动态」tab 改无限滚动，与 `/dynamic?author=` **同一思路**（复用 `useDynamicFeed` 作者模式 + `dynamicPaging`） | 不改后端 `/users/{id}`；不动主页 / 投稿 / 收藏三视图；动态 tab 不再读写 `?page=`（旧链接落到第 1 页）；不引「有新动态」轮询（个人页没有这个语义） | `typecheck` / `test` / `build` + 真浏览器：12→30 张全唯一、URL 不带 `page`、切 tab 不串页 | **已完成（2026-11-06）**：复用作者模式；12→30 全唯一、无 Pagination、URL 无 page；投稿 Page / 旧链接归一 / 切页回第 1 页均过。 |
 | `T108` | 空间页动态 tab 右下「回到顶部」（用户 2026-11-06）；抽 `BackToTop.vue` 与 `/dynamic` 共用 | 只在 `tab === 'dynamic'` 渲染；`scrollY > 800` 才出现；`prefers-reduced-motion` 关平滑；不动主页 / 投稿 / 收藏 | `typecheck` / `test` / `build` + 真浏览器：动态 tab 出现 / 点击回 0 / 切投稿消失 / 回动态再出现；`/dynamic` 不回归 | **已完成（2026-11-06）**：4031 → 0；切投稿不渲染；回动态再出现；`/dynamic` 仍正常（0 console error）。 |
+| `T109` | `R-33` 后端读路径：`V12` 加 `favorite_folder.cover_ref`；`FavoriteFolder` / 两个 folder VO / mapper 读回；`GET /favorite-folders` 与 `GET /users/{id}/favorite-folders` 返回**生效 `coverUrl`**（自定义优先，否则最新一条收藏的 `coverUrl`，取不到即 `null` 占位）；我的夹另带 `hasCustomCover` | `V1`–`V11` 逐字节冻结；**不加 `content_type` / 不改收藏写路径**；收藏域 SQL **不 JOIN content**；封面读取时现算、**不进 folders 缓存**；公开面只多 `coverUrl`，不加 `isPrivate` / `isDefault` | `FavoriteFolderCoverReadTests`（独立 oracle：自定义优先 / 最新一条 / 失效不回退 / 空夹 / 公开面键集 / 公开面自定义 / 另一用户另一夹干扰）+ 反向注入（去掉自定义优先 / 去掉最新一条 / 公开面多漏字段）| **已完成（2026-11-06）**：`FavoriteFolderCoverReadTests` **8 例**全绿；反向注入「去掉自定义优先」⇒ 1 例红（期望 custom、实际空串）。 |
+| `T110` | `R-33` 后端写路径：`UploadType.FOLDER_COVER` + `/upload/favorite-cover/`；`PUT|DELETE /api/v1/favorite-folders/{id}/cover`；权限 / 类型 / ≤2MB / 旧文件在替换、恢复、删夹后清理 | 不改创建收藏夹端点；不写 `content_media`；旧文件只删 `/upload/favorite-cover/` 前缀；替换/恢复的 DB 写与文件清理顺序照 `AvatarService`（失败删新文件、成功后删旧文件）；删夹清理走 `AfterCommit` | `FavoriteFolderCoverWriteTests`（上传落盘+DB+读侧 / 替换删旧 / 恢复删旧 + 回自动 / 删夹删文件 + 另一夹封面存活 / 401 / 403 / 404 / 空文件 / 坏后缀 / >2MB / 另一用户不受影响）+ `FavoriteTransactionTests` 的删夹回滚不删封面 + `UploadType` 非法目录断言 + 反向注入（去掉归属校验 / 去掉旧文件清理 / 去掉大小校验）| **已完成（2026-11-06）**：`FavoriteFolderCoverWriteTests` **8 例**、`FavoriteTransactionTests` **3 例**全绿；反向注入「去掉归属校验」⇒ 403 变 200（1 红）、「去掉替换删旧文件」⇒ 旧文件仍在（1 红）。 |
+| `T111` | `R-33` 契约与文档收口：`OpenApiConfig` 可空登记、spec 快照、端点清单 74→76 / 非 GET 45→47、`IdempotencyScope`、限流权重表；`favorite.md` / `favorite-需求.md` / `接口契约.md` / `前端.md` / `GAP-17` / `FURTHER_ISSUES`（`F-35`）/ 已知代价；`CURRENT_INTEGRATION` 回写 | 只增不改号；代码注释只引 `architecture/**` / `archive/**`；`GAP-17` 同步修正“四宫格”为“单封面”；前端任务另窗，**不写成已完成** | 三道文档门禁 0 违规；后端全量（`DB_POOL_MAX_SIZE=4`）0 失败；subagent review 的 P0/P1 全修或留痕 | **已完成（2026-11-06）**：文档门禁 0 违规；后端全量 **1021** / 0 失败；review 0 P0 / 2 P1 全修 + 6 P2 修 5 / 接受 1（归属校验复制）。前端未做，`GAP-17` 标“前端待接”。 |
 | — | *（本窗第一件事：跑基线 + 列联调清单，见 §一 / §2.1）* | — | — | — |
 
 > **R-27 回写（2026-11-01）**：`T80`–`T85` 已完成。后端 `V11` + 3 端点 + 生效 `avatarUrl` + 公开批量读；前端默认头像稳定 URL、空间页弹窗 + 1:1 裁剪、评论 / 动态 / 关注 / 图文作者批量接线。
@@ -249,12 +253,33 @@
 > （`scroll` 监听 / 按钮 / 样式收进组件，`v-if` 挂载 + 卸载时移除监听）。真浏览器：
 > `scrollY 4031 → 0`、切投稿不渲染、回动态再出现；`/dynamic` 仍正常；0 console error。
 
+> **R-33 / T109–T111 回写（2026-11-06）**：收藏夹封面**后端**交付。
+> **数据**：`V12` 只加 `favorite_folder.cover_ref`（不引入 `content_type`）；自动封面 = 夹内**最新一条收藏**
+> （窗口查询 `create_time DESC, id DESC` + 一趟 `ContentService.loadContentVOs`），失效 / 无封面 / 空夹 ⇒
+> `coverUrl=null` 前端占位、**不回退**；自定义优先；公开面只多 `coverUrl`，我的夹另带 `hasCustomCover`。
+> **端点**：`PUT|DELETE /api/v1/favorite-folders/{id}/cover`（落 `/upload/favorite-cover/`，≤2MB；
+> 替换 / 恢复 / 删夹删旧文件；`DELETE` 204 幂等）。folders **不缓存**，收藏域 SQL **不 JOIN content**。
+> **测试**：`FavoriteFolderCoverReadTests` **8** + `FavoriteFolderCoverWriteTests` **8** +
+> `FavoriteTransactionTests` **3**（含"删夹回滚不删封面"）；反向注入 3 条实测：去自定义优先 ⇒ 1 红、
+> 去归属校验 ⇒ 403→200 1 红、去替换删旧 ⇒ 旧文件仍在 1 红。契约：端点 74→76 / 非 GET 45→47，
+> spec 与 `api.d.ts` 重生成，幂等 / 限流 / 可空登记全跟随；`OpenApiSpecExportTests` 9 例绿。
+> **subagent review**：0 P0 / **2 P1**（删夹回滚无契约用例、删夹用例无干扰行）+ 6 P2
+> （公开面自定义零覆盖、`UploadType` 非法目录无红灯、`isCustom` 脏值、base-url 不一致、
+> `hasCustomCover` 缺键假绿、归属校验复制）⇒ P1 全修；P2 修 5 条，**接受 1 条**
+> （归属校验两处复制：同域小方法，抽公共组件属另一层重构）。
+> **前端未做**（按用户 2026-11-06 约定：后端工作量大则留给下一窗）：空间「主页」tab 收藏区块 +
+> `/favorites` 选中夹头部封面 / 上传 / 恢复；`GAP-17` 已标"后端已交付、前端待接"。
+> **回归**：后端全量 **1021** / 0 失败（`DB_POOL_MAX_SIZE=4`，2026-11-06）。
+> **前端**：`npm run gen:api` 重生成 `api.d.ts` + `npm run typecheck` 绿；**未做前端功能**。
+> **未验**：真浏览器 / 真实上传（未起服务；若起用 `UPLOAD_ROOT=.tmp/e2e-media`）；
+> 封面文件清理的并发 / 崩溃窗口只靠 code review。
+
 ---
 
 ## 四、结转与留池
 
-* **反面清单的唯一事实源** = [FURTHER_ISSUES.md](./FURTHER_ISSUES.md)（现 11 行：`F-10` / `F-14` / `F-18` /
-  `F-21` / `F-26` / `F-28` / `F-30` / `F-31` / `F-32` / `F-33` / `F-34`），每行带**推翻条件**；开窗时逐行核销一次，不许静默跳过。
+* **反面清单的唯一事实源** = [FURTHER_ISSUES.md](./FURTHER_ISSUES.md)（现 12 行：`F-10` / `F-14` / `F-18` /
+  `F-21` / `F-26` / `F-28` / `F-30` / `F-31` / `F-32` / `F-33` / `F-34` / `F-35`），每行带**推翻条件**；开窗时逐行核销一次，不许静默跳过。
 * **已核销只留一行摘要**（含短版推翻条件）：旧池全文（`F-01`–`F-27`）已归档到 `archive/backend-2026-10-30/`，
   新池的「已核销」表只为"代码 / 文档引用的编号"保一条可解析的摘要（链：编号 → 摘要 → 已知代价台账）。
 * 需要拍板的 `R-##` → 本文件；**执行中发现的问题** → [CURRENT_ISSUES](./CURRENT_ISSUES.md)（`I-##`）；
