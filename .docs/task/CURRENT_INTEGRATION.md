@@ -147,10 +147,10 @@
 | `T109` | `R-33` 后端读路径：`V12` 加 `favorite_folder.cover_ref`；`FavoriteFolder` / 两个 folder VO / mapper 读回；`GET /favorite-folders` 与 `GET /users/{id}/favorite-folders` 返回**生效 `coverUrl`**（自定义优先，否则最新一条收藏的 `coverUrl`，取不到即 `null` 占位）；我的夹另带 `hasCustomCover` | `V1`–`V11` 逐字节冻结；**不加 `content_type` / 不改收藏写路径**；收藏域 SQL **不 JOIN content**；封面读取时现算、**不进 folders 缓存**；公开面只多 `coverUrl`，不加 `isPrivate` / `isDefault` | `FavoriteFolderCoverReadTests`（独立 oracle：自定义优先 / 最新一条 / 失效不回退 / 空夹 / 公开面键集 / 公开面自定义 / 另一用户另一夹干扰）+ 反向注入（去掉自定义优先 / 去掉最新一条 / 公开面多漏字段）| **已完成（2026-11-06）**：`FavoriteFolderCoverReadTests` **8 例**全绿；反向注入「去掉自定义优先」⇒ 1 例红（期望 custom、实际空串）。 |
 | `T110` | `R-33` 后端写路径：`UploadType.FOLDER_COVER` + `/upload/favorite-cover/`；`PUT|DELETE /api/v1/favorite-folders/{id}/cover`；权限 / 类型 / ≤2MB / 旧文件在替换、恢复、删夹后清理 | 不改创建收藏夹端点；不写 `content_media`；旧文件只删 `/upload/favorite-cover/` 前缀；替换/恢复的 DB 写与文件清理顺序照 `AvatarService`（失败删新文件、成功后删旧文件）；删夹清理走 `AfterCommit` | `FavoriteFolderCoverWriteTests`（上传落盘+DB+读侧 / 替换删旧 / 恢复删旧 + 回自动 / 删夹删文件 + 另一夹封面存活 / 401 / 403 / 404 / 空文件 / 坏后缀 / >2MB / 另一用户不受影响）+ `FavoriteTransactionTests` 的删夹回滚不删封面 + `UploadType` 非法目录断言 + 反向注入（去掉归属校验 / 去掉旧文件清理 / 去掉大小校验）| **已完成（2026-11-06）**：`FavoriteFolderCoverWriteTests` **8 例**、`FavoriteTransactionTests` **3 例**全绿；反向注入「去掉归属校验」⇒ 403 变 200（1 红）、「去掉替换删旧文件」⇒ 旧文件仍在（1 红）。 |
 | `T111` | `R-33` 契约与文档收口：`OpenApiConfig` 可空登记、spec 快照、端点清单 74→76 / 非 GET 45→47、`IdempotencyScope`、限流权重表；`favorite.md` / `favorite-需求.md` / `接口契约.md` / `前端.md` / `GAP-17` / `FURTHER_ISSUES`（`F-35`）/ 已知代价；`CURRENT_INTEGRATION` 回写 | 只增不改号；代码注释只引 `architecture/**` / `archive/**`；`GAP-17` 同步修正“四宫格”为“单封面”；前端任务另窗，**不写成已完成** | 三道文档门禁 0 违规；后端全量（`DB_POOL_MAX_SIZE=4`）0 失败；subagent review 的 P0/P1 全修或留痕 | **已完成（2026-11-06）**：文档门禁 0 违规；后端全量 **1021** / 0 失败；review 0 P0 / 2 P1 全修 + 6 P2 修 5 / 接受 1（归属校验复制）。前端未做，`GAP-17` 标“前端待接”。 |
-| `T112` | `R-34` 空间收藏 tab 成为唯一浏览器：抽 `FolderRail` / `FolderCover` / `FolderCard` / 选中夹头部 / 条目网格；self/public 数据源、私密夹、稍后再看左栏视图、封面展示 | 不改后端 / 不加端点；**别人的页面绝不调用我的端点**；退出 / 换号清空私密数据；封面只读；不做 CRUD / 排序 / 批量；`FavoriteDialog` 不加封面 | `favoriteLibrary` 适配器 / 数据源用例（self 含私密、public 不含）+ `typecheck` / `test` / `build`；真浏览器 self / 别人 / 匿名三态 | **执行中（2026-11-06）** |
-| `T113` | `/space/me` + 顶栏「收藏」直连 + `/favorites`、`/watchlater` 软弃用重定向壳（旧 query 映射） | 不硬删 `favorites.html` 入口；不改后端转发 / 限流清单（`/space/me` 走既有 `/space/{id}` 转发）；旧链接不 404；跨应用整页跳转用 `location.replace` | `/space/me` 登录 / 匿名 / 已登录、旧 URL 映射用例 + 真浏览器；`typecheck` / `build` | **待执行** |
-| `T114` | 空间主页 tab 收藏区块：`收藏 N` + 最多 10 张夹卡 + 封面 + 查看更多；self 含私密（带标记），别人公开 | 不动投稿预览 / 动态 / 投稿；夹列表失败不拖垮主页；无夹不渲染；封面只读 | 主页区块取数 / 上限用例 + 真浏览器；`typecheck` / `build` | **待执行** |
-| `T115` | 收口：`GAP-17` / `前端.md` 页面矩阵 / `CURRENT_FRONTEND` 入口映射 / `favorite.md` §十一 口径 / `CURRENT_INTEGRATION` 回写；三道文档门禁 + 前端全量 + subagent review + 真浏览器（需要时 `UPLOAD_ROOT=.tmp\e2e-media`） | 只增不改号；代码注释只引 `architecture/**` / `archive/**`；旧入口删除另窗；发现问题先登记 `I-##` 或停下问 | 三道门禁 0 违规；前端全绿；review P0/P1 全修；真浏览器六步（self / 别人 / 匿名、私密消失、封面占位、稍后再看、旧链接重定向、主页区块） | **待执行** |
+| `T112` | `R-34` 空间收藏 tab 成为唯一浏览器：抽 `FolderRail` / `FolderCover` / `FolderCard` / 选中夹头部 / 条目网格；self/public 数据源、私密夹、稍后再看左栏视图、封面展示 | 不改后端 / 不加端点；**别人的页面绝不调用我的端点**；退出 / 换号清空私密数据；封面只读；不做 CRUD / 排序 / 批量；`FavoriteDialog` 不加封面 | `favoriteLibrary` 适配器 / 数据源用例（self 含私密、public 不含）+ `typecheck` / `test` / `build`；真浏览器 self / 别人 / 匿名三态 | **已完成（2026-11-06）** |
+| `T113` | `/space/me` + 顶栏「收藏」直连 + `/favorites`、`/watchlater` 软弃用重定向壳（旧 query 映射） | 不硬删 `favorites.html` 入口；不改后端转发 / 限流清单（`/space/me` 走既有 `/space/{id}` 转发）；旧链接不 404；跨应用整页跳转用 `location.replace` | `/space/me` 登录 / 匿名 / 已登录、旧 URL 映射用例 + 真浏览器；`typecheck` / `build` | **已完成（2026-11-06）** |
+| `T114` | 空间主页 tab 收藏区块：`收藏 N` + 最多 10 张夹卡 + 封面 + 查看更多；self 含私密（带标记），别人公开 | 不动投稿预览 / 动态 / 投稿；夹列表失败不拖垮主页；无夹不渲染；封面只读 | 主页区块取数 / 上限用例 + 真浏览器；`typecheck` / `build` | **已完成（2026-11-06）** |
+| `T115` | 收口：`GAP-17` / `前端.md` 页面矩阵 / `CURRENT_FRONTEND` 入口映射 / `favorite.md` §十一 口径 / `CURRENT_INTEGRATION` 回写；三道文档门禁 + 前端全量 + subagent review + 真浏览器（需要时 `UPLOAD_ROOT=.tmp\e2e-media`） | 只增不改号；代码注释只引 `architecture/**` / `archive/**`；旧入口删除另窗；发现问题先登记 `I-##` 或停下问 | 三道门禁 0 违规；前端全绿；review P0/P1 全修；真浏览器六步（self / 别人 / 匿名、私密消失、封面占位、稍后再看、旧链接重定向、主页区块） | **执行中（2026-11-06；文档已改，待 review）** |
 | — | *（本窗第一件事：跑基线 + 列联调清单，见 §一 / §2.1）* | — | — | — |
 
 > **R-27 回写（2026-11-01）**：`T80`–`T85` 已完成。后端 `V11` + 3 端点 + 生效 `avatarUrl` + 公开批量读；前端默认头像稳定 URL、空间页弹窗 + 1:1 裁剪、评论 / 动态 / 关注 / 图文作者批量接线。
@@ -278,6 +278,26 @@
 > **前端**：`npm run gen:api` 重生成 `api.d.ts` + `npm run typecheck` 绿；**未做前端功能**。
 > **未验**：真浏览器 / 真实上传（未起服务；若起用 `UPLOAD_ROOT=.tmp/e2e-media`）；
 > 封面文件清理的并发 / 崩溃窗口只靠 code review。
+
+> **R-34 / T112–T115 前端回写（2026-11-06）**：收藏夹查看入口收敛到空间收藏 tab，`/favorites` 软弃用。
+> **T112**：抽 `components/favorite/*`（`FolderRail` / `FolderCover` / `FolderCard` / `FavoriteFolderHeader` /
+> `FavoriteItemGrid` / `FolderHomeSection`）；`api/favoriteLibrary.ts` 按 `isSelf` 分流 self / public 端点，
+> **绝不混用**；`SpacePage` 收藏 tab 改全宽「左栏 + 选中夹/稍后再看 + 网格/分页/移出」；身份用
+> `restoreSession` 后的 `currentUserId()`，退出 / 换号 / 换人清空 folders + items + 选中夹；封面只展示
+> （`coverUrl=null` 灰 TV 占位、破图 fallback）。
+> **T113**：`/space/me`（登录态解析后 `replace` 数字 uid）+ 顶栏「收藏」直连；`/favorites`、`/watchlater`
+> 变薄重定向壳（`legacyFavoriteTarget` 纯函数 + 单测），旧 query 平移；**未硬删** HTML 入口。
+> **T114**：主页 tab「收藏 N」+ 最多 10 张夹卡 + 查看更多；self 含私密（带标记），别人公开；无夹不渲染，
+> 失败只块内联重试；修了"首屏 works 装载先置 loading ⇒ 收藏区块永不装载"的时序坑。
+> **测试**：前端 **394**（+11：数据源 7 / 旧 URL 映射 3 / 封面映射 1）全绿；`typecheck` / `build` 绿。
+> **真浏览器 E2E**（`UPLOAD_ROOT=.tmp\e2e-media`，Chrome 1600×1000）：**40 项全过、0 console error** —
+> self 左栏含私密 + 稍后再看 2、选中夹头部封面、私密夹/稍后再看/空夹（灰 TV + 空文案）、主页 3 夹卡 +
+> 私密标记 + 查看更多、匿名只剩公开夹且 crafted view=later 归一、旧 `/favorites`/`/watchlater` 重定向、
+> 顶栏 `/space/me`、夹内 / 稍后再看单条移除；截图 `.tmp/r34-{self,home,anonymous}-folders.png`。
+> 生产 8080 冒烟：`/space/me?tab=folders`、`/space/256?tab=folders` 200，`/favorites`、`/watchlater` 200。
+> **未做 / 另窗**：封面**上传 / 恢复**（GAP-17 只销展示）；旧 `favorites.html` 入口与转发 / 限流 / 测试清理；
+> 窄屏 / 触屏未验；E2E 的测试用户 256 因无删除用户端点留在 dev 库（夹具夹 / 稍后再看已清）。
+> **subagent review**：待跑（T115 保持执行中）。
 
 ---
 

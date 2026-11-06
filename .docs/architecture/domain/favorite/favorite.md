@@ -263,9 +263,13 @@ content.favorite_count bigint（V2 加列 / V3 回填；冗余列，见 §四）
   取第一条；它能不能装出来由 content 装载契约决定（`ContentService.loadContentVOs`，
   与 §五 的失效口径同源）。**最新一条失效 / 无封面 / 空夹 ⇒ 直接占位，不向前回退**
   （对齐 B 站"最新视频被下架 ⇒ 视频不见了封面"）。
-- **自定义封面**：只在 `/favorites` 上传（可反复更换 + 可恢复自动）；默认夹 / 私密夹都可设；
+- **自定义封面**：可反复更换 + 可恢复自动；默认夹 / 私密夹都可设；
   创建收藏夹弹窗**不提供上传**（网页版口径）。文件落 `/upload/favorite-cover/`，
   服务端只校验图片类型 + ≤2MB（前端 16:9 裁剪，服务端不重编码）。
+  ⚠️ `R-34`（2026-11-06）起 `/favorites` **软弃用**（收藏夹入口收敛到
+  `/space/{uid}?tab=folders`）⇒ 原“只在 `/favorites` 上传”的入口口径失效；
+  本窗前端**只做展示**（选中夹头部 + 主页夹卡），上传 / 恢复的入口待补，
+  未来应落在空间收藏 tab（见 `task/CURRENT_FRONTEND_GAPS.md` `GAP-17`）。
 - **读路径不缓存**：folders 本来就不缓存（§七）；封面每页读取时现算：
   一条 `favorite_item` 窗口查询取每夹最新 contentId + 一趟 content 批量读。
   收藏域 SQL **不 JOIN content 表**（I-07 ③）。

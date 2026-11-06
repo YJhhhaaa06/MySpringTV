@@ -94,7 +94,7 @@ npm run stage                                                # dist → ../src/m
 | `opus.html` | `/opus/:id`（图片两态是页面内状态，无路由） | 详情 + 评论 + 点赞/收藏（**无投币**，GAP-26） |
 | `search.html` | `/search?keyword=`（tab / 排序用 query） | `GET /contents?keyword=`（+ `type` / `order`，GAP-10） |
 | `space.html` | `/space/:id`（tab / 翻页 / 夹 / 关注粉丝用 query） | `GET /users/{id}` + 收藏夹 + `/following|followers` |
-| `favorites.html` | `/favorites`（`?folder=` / `?page=`）+ **`/watchlater`**（同入口的独立路由） | 收藏夹 / 收藏 / 稍后再看四端点 |
+| `favorites.html`（`R-34` 起软弃用） | `/favorites`、`/watchlater` → **薄重定向壳**（query 平移后整页跳到 `/space/{uid}?tab=folders`） | 无（页面不再发业务请求） |
 | `history.html` | `/history?page=` | `GET /history`（**只读**：无删除/清空，已知代价） |
 | `dynamic.html` | `/dynamic?page=` | `GET /feed`（**需登录**）+ 关注/粉丝 |
 | `creator.html` | `/creator`（投稿）· `/creator/manage` · `/creator/edit/:id` | `POST /uploads/{type}` + `POST /contents`（JSON 清单）· `GET /contents/{id}` 取回 · `PUT /contents/{id}` 整份覆盖 |
