@@ -27,12 +27,12 @@ cd ..
 ./mvnw.cmd spring-boot:run         # http://localhost:8080/
 ```
 
-- `/`、`/search`、`/video/:id`、`/opus/:id`、`/space/:id`、`/favorites`、`/watchlater`（同一 `favorites.html` 入口）、
+- `/`、`/search`、`/video/:id`、`/opus/:id`、`/space/:id`、
   `/history`、`/dynamic`、`/creator`（含应用内路由 `/creator/manage`、`/creator/edit/:id`）、`/placeholder/**`
   由 `WebMvcConfig#addViewControllers` **forward** 到对应入口 HTML
   （地址栏 URL 不变）；与 dev 侧 `vite.config.ts` 的 `htmlHistoryFallback` 是**同一张映射表**，两处要同步改。
-  ⚠️ `R-34` 起 `/favorites`、`/watchlater` 只保留**重定向壳**：query 平移后整页跳到
-  `/space/{uid}?tab=folders`（`/space/me` 用于顶栏「收藏」的登录态解析）。
+  ⚠️ 旧 `/favorites`、`/watchlater` 已退役（2026-11-07）：**直接 404**，不再有 HTML 入口或重定向壳；
+  收藏夹内容走 `/space/{uid}?tab=folders`（`/space/me` 用于顶栏「收藏」的登录态解析）。
 - `/assets/**` 是构建产物；它在限流跳过清单里（HTML 外壳同理）——页面里的 `/api/v1/**` 照常过闸。
 - `src/main/resources/static/` **不入库**：它是 `npm run stage` 的产物。⇒ 新克隆的仓库在
   stage 之前，8080 的页面入口是 **404**（不是旧页面）；要开发就用 `npm run dev`。
@@ -42,13 +42,13 @@ cd ..
 ## 结构
 
 ```
-index.html / search.html / video.html / opus.html / space.html / favorites.html / history.html / dynamic.html / creator.html
-                              ← 九个入口（MPA 外壳，跨应用整页跳转）
+index.html / search.html / video.html / opus.html / space.html / history.html / dynamic.html / creator.html
+                              ← 八个入口（MPA 外壳，跨应用整页跳转）
 src/entries/*.main.ts         ← 每个入口一个 app + 一个 vue-router
 src/types/api.d.ts            ← 生成，只读
 src/types/ui.ts               ← 手写：页面期望形状（计数一律原始数字）
 src/api/adapters/*            ← 纯函数 api → ui（缺口在这里显式 fallback）
-src/api/*.ts                  ← 端点封装（返回生成类型；favorites / history 是「我的」两个页面）
+src/api/*.ts                  ← 端点封装（返回生成类型；favorites / history 是「我的」端点，收藏页已并入空间收藏 tab）
 src/api/http.ts               ← 四动词 + 信封 + Bearer + Retry-After
 src/auth/                     ← token（唯一落点）/ 模块级登录态 / 动作级登录闸门
 src/composables/              ← useVideoInteractions（互动态）、usePlaybackProgress（进度接线）、

@@ -17,12 +17,12 @@
 ## 一、周期头（每窗开读）
 
 * ★ **状态**：2026-10-30 开窗。本窗第一件事 = 补一次全量回归基线（见下）+ 起联调清单。
-* ★ **编号**：任务 **`T76`** 起（`T71`–`T98` 已完结；**已用到 `T118`，下一编号 `T119`**）/
-  决策 **`R-27`** 起（`R-25` = 记录开关、`R-26` = 历史可删 + per-day 口径；**已用到 `R-35`，下一编号 `R-36`**）/ 问题 **`I-33`** 起（`I-31`/`I-32` 已终结；**下一编号 `I-34`**）/ 结转 **`F-30`** 起（**已用到 `F-35`，下一编号 `F-36`**）。
+* ★ **编号**：任务 **`T76`** 起（`T71`–`T98` 已完结；**已用到 `T120`，下一编号 `T121`**）/
+  决策 **`R-27`** 起（`R-25` = 记录开关、`R-26` = 历史可删 + per-day 口径；**已用到 `R-36`，下一编号 `R-37`**）/ 问题 **`I-33`** 起（`I-31`/`I-32` 已终结；**下一编号 `I-34`**）/ 结转 **`F-30`** 起（**已用到 `F-35`，下一编号 `F-36`**）。
   ⚠️ **编号不回收、不复用**：后端期已用的 `I-01`–`I-30` 随归档留在原地，联调期**从 `I-31` 继续**；
   `F-##` 同理（`F-01`–`F-35` 已用，见 [FURTHER_ISSUES](./FURTHER_ISSUES.md)）。
-* ★ **回归基线**：默认集 **980**（2026-11-06，`DB_POOL_MAX_SIZE=4`，`R-33` 后；上一档 962）+ 前端 **383**（`R-32` 后；上一档 377）；
-  `resilience` 组 **41** 按惯例单跑 ⇒ 全量口径 **1021**。★ 本次全量 **0 失败**（`Tests run: 1021`）。
+* ★ **回归基线**：默认集 **981**（2026-11-07，`DB_POOL_MAX_SIZE=4`，`R-36` 后；上一档 980）+ 前端 **413**（`R-36` 后；上一档 405）；
+  `resilience` 组 **41** 按惯例单跑 ⇒ 全量口径 **1022**。★ 本次默认集 **981 / 0 失败**（`resilience` 未重跑，本次无相关改动）。
   跑全量必须带 `DB_POOL_MAX_SIZE=4`，否则容器 MySQL `Too many connections`（**不是代码缺陷**）。
 * ★ **门禁**：文档三道 —— `python tools/docs/doc_links.py` · `python tools/docs/doc_refs.py` · `python tools/docs/doc_stats.py`；
   前端 `npm run typecheck` / `npm run test` / `npm run build`（★ **先 `cd frontend`** —— 仓库根**没有** `package.json`，在根目录跑 `npm run build` 会 `ENOENT`，不是编译失败；跑起来与截图规矩见 `frontend/README.md`）。
@@ -82,6 +82,7 @@
 | `R-33` | **收藏夹封面**（2026-11-06 用户拍板；推翻 `GAP-17` 长期与 `FURTHER_ISSUES` 的封面留池）：① 三态互斥 = 自定义 / 自动 / 灰底 TV 占位；自动封面 = **夹内最新一条收藏**（视频或图文都算），能经 content 装载契约取到且 `coverUrl` 非空就用它，否则（失效 / 无封面 / 空夹）**直接占位，不回退**；② 自定义封面只在 **`/favorites`** 提供上传：可反复更换、可「恢复自动」、默认夹与私密夹都可设；创建收藏夹弹窗**不提供上传**；`FavoriteDialog` 不显示封面；③ 展示面 = **空间「主页」tab 新增收藏区块（最多 10 个公开夹、两行、查看更多）+ `/favorites` 选中夹头部封面**；空间页 `?tab=folders` 本期不动（合并登记 `F-35`）；④ 接口：`PUT /api/v1/favorite-folders/{id}/cover`（multipart，服务端收 16:9 裁剪产物，**类型 + ≤2MB**）、`DELETE /api/v1/favorite-folders/{id}/cover`（恢复自动，204）；`GET /favorite-folders` / `GET /users/{id}/favorite-folders` 回带生效 `coverUrl`（我的夹另带 `hasCustomCover`）；⑤ 落盘 **`/upload/favorite-cover/`**（不混入 `cover/`：`media_clean.py` 会把未被 `content_media` 引用的 `cover` 文件判孤儿）；旧自定义文件在替换 / 恢复 / 删夹后清理；⑥ **不缓存 folders**：封面读取时现算（一条最新收藏查询 + 一趟 content 批量读）；**不改 `favorite_item` 写路径、不加 `content_type`**；⑦ 前端裁剪固定 **16:9 / 1280×720 JPEG**，原图 ≤10MB、jpg/png/jpeg；占位复用灰 TV 图标；本轮**后端优先**，前端另窗按工作量决定 | ① 要求「最新视频」而非「最新一条收藏」 ⇒ 需给 `favorite_item` 增 `content_type`（或回扫），重开；② 封面需要进缓存 / 列表热路径被质疑慢 ⇒ 再评缓存与失效；③ 需要创建时上传 / 空间收藏 tab 直接编辑 ⇒ 重定入口；④ 服务端要强制尺寸 / 去 EXIF / 内容审核 ⇒ 加 ImageIO 重编码；⑤ 封面孤儿需自动回收 ⇒ 扩 `media_clean.py` 把 `favorite_folder.cover_ref` 当引用源 |
 | `R-34` | **收藏夹查看入口收敛到个人空间收藏 tab**（2026-11-06 用户拍板；`/favorites` 软弃用）：① 唯一查看收藏夹内容的入口 = **`/space/{uid}?tab=folders`**；`/favorites` / `/watchlater` 不再作为独立页面，只保留**薄重定向壳**（旧 query 映射：`folder→folder`、`page→itemPage`、watchlater→`view=later`），新页稳定后另窗清理 HTML 入口 / 转发 / 限流 / 测试；② 顶栏「收藏」直连 **`/space/me?tab=folders`**，解析登录态后 `replace` 成数字 uid；匿名走页面级登录；③ self 走 `GET /favorite-folders` + `GET /favorites?folderId=`（含私密夹），别人走 `GET /users/{id}/favorite-folders` + `GET /favorite-folders/{id}/items`（公开），**绝不混用**；身份判定在 `restoreSession()` 之后用 `currentUserId()`，登录/退出/换号必须清空 folders / items / 选中夹；④ 稍后再看 = 收藏 tab **左栏特殊项**，右栏复用同一套网格 / 分页 / 移出；URL `?tab=folders&view=later&itemPage=N`；只 self 可见、不计入“收藏 N”和夹数；⑤ 封面本窗**只展示**（选中夹头部 + 主页夹卡；`coverUrl=null` 灰 TV 占位、破图 fallback；左栏与 `FavoriteDialog` 不显示）；**不做上传 / 恢复**，`hasCustomCover` 的 UI 留到上传那步；⑥ 空间主页 tab 收藏区块：self 含私密夹并带私密标记、别人只有公开夹；最多 10 张 + 查看更多；无夹不渲染、失败块内联重试；⑦ 不做收藏夹 CRUD / 私密开关 / 批量管理 / 排序 tabs / “播放全部” | ① `/space/{uid}` 无法安全承载 self 私密夹 ⇒ 改独立页；④ 稍后再看需要独立 URL / 独立 tab ⇒ 重开；⑤ 上传 / 恢复提前 ⇒ 重定入口（原“只在 `/favorites` 上传”口径随页面弃用失效）；⑥ 主页 10 张被质疑 ⇒ 调整上限 |
 | `R-35` | **收藏夹信息编辑入口落在空间收藏 tab**（2026-11-07 用户拍板；落地 `R-33` ⑤ / `R-34` ⑤ 的入口口径）：① 仅 self 面左栏每个夹 **hover / focus 出现 ⋮**，菜单只放「编辑信息」（删除夹另开任务）；② 弹窗 = **封面**（点封面选图 → 复用 16:9 / 1280×720 的 `CoverCropper` → 裁剪确认即上传）+ **名称**（≤20，与新建弹窗一致；后端实际允许 100）+ **公开开关**（`isPrivate` 取反）+ **简介只读禁用占位**（`favorite_folder.description` 列 V2 已存在，实体 / VO / DTO 未接；本窗不接后端、不做"可输入但丢弃"）；③ **恢复自动封面做**，仅在 `hasCustomCover=true` 时显示；`hasCustomCover` 补进 `LibraryFolderVM`（公开面 VO 无此字段 ⇒ false）；④ 默认夹可编辑（名称 / 公开 / 封面），**不提供删除**；⑤ 不改后端 / 不加迁移 / 不动 `FavoriteDialog` 与主页夹卡（只读）；⑥ 旧 `favorites.html` 入口与转发 / 限流 / 契约清理**下窗**做；验收 = self / public / anonymous 三态 + 真浏览器 | ① B站实测封面是"保存时一起提交"而非选图即上传 ⇒ 改 pending 模式（取消 = 放弃封面）；② 简介必须可编辑 ⇒ 补后端（列已存在，无需迁移）；③ 要求菜单同时有删除 ⇒ 另开任务；④ 空间收藏 tab 不再承担编辑入口 ⇒ 重定入口 |
+| `R-36` | **收藏夹删除入口 + 旧收藏页链接退役**（2026-11-07 用户拍板；落地 `R-35` ③ 的「另开任务」与 `F-35` 的壳清理）：① 删除入口 = 空间收藏 tab **self 左栏 ⋮ 菜单第二项「删除」**，默认夹**不渲染**删除项（后端 `409` 仍兜底）；② 确认框**只显示标题**「确认要删除收藏夹「{name}」？」，不解释“删夹 ≠ 下架视频”；确认后**关闭弹窗再执行**，失败用 toast；③ `DELETE /api/v1/favorite-folders/{id}` 的 `404`（行不存在 / 已删）**按成功处理**，`403`（不是自己的夹）不按成功 —— 保持后端既有 404/403 归属口径不变；④ 旧 `/favorites`、`/watchlater` **不再重定向，直接 404**；删除 `favorites.html` 入口与 `LegacyFavoriteRedirect` / `legacyFavoriteRedirect` 代码；⑤ **推翻** `R-34` ① / `T113` 的「软弃用重定向壳 / 旧链接不 404」；站内入口仍走顶栏「收藏」→ `/space/me?tab=folders` | ① 旧外链 / 旧书签仍有真实流量 ⇒ 恢复重定向壳；② 需要“删夹 = 回收站 / 可撤销” ⇒ 后端另开软删；③ 需要“删除失败内联”而非 toast ⇒ 改交互 |
 
 > 用户 2026-10-31 在 Chrome 重放上报请求实测：**B站 是服务端强制的**。本仓**刻意不跟**，理由与代价见
 > [history-已知代价](../architecture/domain/history/history-已知代价.md)（不是"没做到"）。
@@ -149,12 +150,14 @@
 | `T110` | `R-33` 后端写路径：`UploadType.FOLDER_COVER` + `/upload/favorite-cover/`；`PUT|DELETE /api/v1/favorite-folders/{id}/cover`；权限 / 类型 / ≤2MB / 旧文件在替换、恢复、删夹后清理 | 不改创建收藏夹端点；不写 `content_media`；旧文件只删 `/upload/favorite-cover/` 前缀；替换/恢复的 DB 写与文件清理顺序照 `AvatarService`（失败删新文件、成功后删旧文件）；删夹清理走 `AfterCommit` | `FavoriteFolderCoverWriteTests`（上传落盘+DB+读侧 / 替换删旧 / 恢复删旧 + 回自动 / 删夹删文件 + 另一夹封面存活 / 401 / 403 / 404 / 空文件 / 坏后缀 / >2MB / 另一用户不受影响）+ `FavoriteTransactionTests` 的删夹回滚不删封面 + `UploadType` 非法目录断言 + 反向注入（去掉归属校验 / 去掉旧文件清理 / 去掉大小校验）| **已完成（2026-11-06）**：`FavoriteFolderCoverWriteTests` **8 例**、`FavoriteTransactionTests` **3 例**全绿；反向注入「去掉归属校验」⇒ 403 变 200（1 红）、「去掉替换删旧文件」⇒ 旧文件仍在（1 红）。 |
 | `T111` | `R-33` 契约与文档收口：`OpenApiConfig` 可空登记、spec 快照、端点清单 74→76 / 非 GET 45→47、`IdempotencyScope`、限流权重表；`favorite.md` / `favorite-需求.md` / `接口契约.md` / `前端.md` / `GAP-17` / `FURTHER_ISSUES`（`F-35`）/ 已知代价；`CURRENT_INTEGRATION` 回写 | 只增不改号；代码注释只引 `architecture/**` / `archive/**`；`GAP-17` 同步修正“四宫格”为“单封面”；前端任务另窗，**不写成已完成** | 三道文档门禁 0 违规；后端全量（`DB_POOL_MAX_SIZE=4`）0 失败；subagent review 的 P0/P1 全修或留痕 | **已完成（2026-11-06）**：文档门禁 0 违规；后端全量 **1021** / 0 失败；review 0 P0 / 2 P1 全修 + 6 P2 修 5 / 接受 1（归属校验复制）。前端未做，`GAP-17` 标“前端待接”。 |
 | `T112` | `R-34` 空间收藏 tab 成为唯一浏览器：抽 `FolderRail` / `FolderCover` / `FolderCard` / 选中夹头部 / 条目网格；self/public 数据源、私密夹、稍后再看左栏视图、封面展示 | 不改后端 / 不加端点；**别人的页面绝不调用我的端点**；退出 / 换号清空私密数据；封面只读；不做 CRUD / 排序 / 批量；`FavoriteDialog` 不加封面 | `favoriteLibrary` 适配器 / 数据源用例（self 含私密、public 不含）+ `typecheck` / `test` / `build`；真浏览器 self / 别人 / 匿名三态 | **已完成（2026-11-06）** |
-| `T113` | `/space/me` + 顶栏「收藏」直连 + `/favorites`、`/watchlater` 软弃用重定向壳（旧 query 映射） | 不硬删 `favorites.html` 入口；不改后端转发 / 限流清单（`/space/me` 走既有 `/space/{id}` 转发）；旧链接不 404；跨应用整页跳转用 `location.replace` | `/space/me` 登录 / 匿名 / 已登录、旧 URL 映射用例 + 真浏览器；`typecheck` / `build` | **已完成（2026-11-06）** |
+| `T113` | `/space/me` + 顶栏「收藏」直连 + `/favorites`、`/watchlater` 软弃用重定向壳（旧 query 映射） | 不硬删 `favorites.html` 入口；不改后端转发 / 限流清单（`/space/me` 走既有 `/space/{id}` 转发）；旧链接不 404；跨应用整页跳转用 `location.replace` | `/space/me` 登录 / 匿名 / 已登录、旧 URL 映射用例 + 真浏览器；`typecheck` / `build` | **已完成（2026-11-06；旧链接 404 口径由 `R-36` 推翻）** |
 | `T114` | 空间主页 tab 收藏区块：`收藏 N` + 最多 10 张夹卡 + 封面 + 查看更多；self 含私密（带标记），别人公开 | 不动投稿预览 / 动态 / 投稿；夹列表失败不拖垮主页；无夹不渲染；封面只读 | 真浏览器（3 夹卡 / 私密标记 / 空夹占位 / 查看更多）；⚠️ `slice(0,10)` 上限与 `isSelf` 判定**无 DOM 单测**（明写，不冒充已验）+ `typecheck` / `build` | **已完成（2026-11-06）** |
 | `T115` | 收口：`GAP-17` / `前端.md` 页面矩阵 / `CURRENT_FRONTEND` 入口映射 / `favorite.md` §十一 口径 / `CURRENT_INTEGRATION` 回写；三道文档门禁 + 前端全量 + subagent review + 真浏览器（需要时 `UPLOAD_ROOT=.tmp\e2e-media`） | 只增不改号；代码注释只引 `architecture/**` / `archive/**`；旧入口删除另窗；发现问题先登记 `I-##` 或停下问 | 三道门禁 0 违规；前端全绿；review P0/P1 全修；真浏览器六步（self / 别人 / 匿名、私密消失、封面占位、稍后再看、旧链接重定向、主页区块） | **已完成（2026-11-06）**：门禁 0 违规；前端 394 / typecheck / build；E2E 40 项；review 1 P1 已修 + P2 修 2。 |
 | `T116` | `R-35` 前端数据面：`updateMyFolder` / `uploadMyFolderCover` / `resetMyFolderCover`；`hasCustomCover` 进 `LibraryFolderVM`（self / public 两适配器）；纯函数 `folderEdit`（名称 trim / ≤20 / 空值、只提交变化字段、公开→`isPrivate`） | 不改后端 / 不加迁移；公开面 VO 没有 `hasCustomCover` ⇒ 一律 `false`，不拿它做编辑判断；只提交用户真正改过的字段（两个都没改 ⇒ 不发请求） | `folderEdit` 单测（trim / 空 / 超长 / 只改名 / 只改公开 / 两者 / 无变化）+ 适配器测试（`true` / `false` / 缺省）+ `typecheck`；反向注入：去掉 trim 或去掉 20 上限各红一条 | **已完成（2026-11-07）**：3 个 API + `hasCustomCover` 两适配器；`folderEdit` 纯函数（含"名字没改不校验"的旧长名守卫）；单测 **11** 例，前端 **405** 全绿；typecheck 绿。 |
 | `T117` | `R-35` 交互面：`FolderRail` self 左栏 hover / focus ⋮ + 菜单（仅「编辑信息」）；`FolderEditDialog`（封面点击选图 → 复用 `CoverCropper` 16:9 → 裁剪确认即上传；恢复自动封面仅 `hasCustomCover`；名称 / 公开；简介只读禁用占位；错误 / 429 内联）；`SpacePage` 接线（改名 / 公开就地更新、封面后重拉 folders、保持选中夹、public / 匿名不渲染） | 不按钮套按钮；不改 `FavoriteDialog` / 主页夹卡 / 左栏「稍后再看」；封面成功后必须重拉 `GET /favorite-folders`（上传响应无 URL）；嵌套裁剪层要处理 `body overflow` 与 Escape，别让关裁剪层后编辑弹窗背后可滚 / 一起关掉；取消不改名称与公开，但**已上传的封面不回滚**（弹窗内明写） | 真浏览器 self / public / anonymous：hover 出 ⋮、菜单、改名 / 公开、默认夹可编辑、封面上传 → 裁剪 → 头部 / 主页夹卡更新、恢复自动、失败 / 429 提示、0 console error + `typecheck` / `test` / `build`；⚠️ DOM 交互没有 `@vue/test-utils`，回写明写"无 DOM 单测" | **已完成（2026-11-07）**：⋮ + 菜单（键盘焦点回收）/ 编辑弹窗 / 封面裁剪上传 + 恢复 / 默认夹可编辑；`foldersMutationVersion` 守卫封面后重拉；真浏览器 **50/50**（self / public / anonymous、取消不回滚封面、非图片拦截、默认夹、0 console error）；`typecheck` / `test` **405** / `build` 绿。⚠️ 菜单与弹窗 DOM 交互**无 DOM 单测**。 |
 | `T118` | 收口：`GAP-17` / `favorite.md` §十一 / `前端.md` 页面矩阵 / `CURRENT_INTEGRATION` 回写；三道文档门禁 + 前端全量 + subagent review + 真浏览器 | 只增不改号；代码注释只引 `architecture/**` / `archive/**`；review P0/P1 全修；发现问题先登记 `I-##` 或停下问 | 门禁 0 违规；前端全绿；review 报告留痕；`GAP-17` 状态改为"已销账（编辑 / 封面上传 / 恢复）" | **已完成（2026-11-07）**：`GAP-17` 销账 / `favorite.md` §十一 / `favorite-需求.md` / `前端.md` / `F-35` 行为面更新；三道门禁 0 违规；review **0 P0 / 0 P1 / 9 P2**，修 6（版本守卫、旧自定义 URL 占位、嵌套 overflow 计数锁、菜单焦点、旧长名、测试 oracle + 规则复用），2 条接受（`R-35` 注释与仓内先例一致；"恢复失败入口消失"不成立），登记台时序已修。 |
+| `T119` | `R-36` 删除收藏夹前端：`deleteMyFolder` + 左栏 ⋮「删除」（默认夹不渲染）+ `FolderDeleteConfirm` + `SpacePage` 删除后状态收口（本地移除 / 当前夹被删自动选默认夹或下一个 / 无夹清空 / 在途条目作废 / 403·409 重拉 + toast / 404 按成功） | 零后端 / 零迁移 / 零新端点；不改 `FolderEditDialog` 封面语义；不做批量删除 / 撤销 / 主页夹卡入口；默认夹永远不渲染删除；DOM 交互无 jsdom 明写 | 纯函数单测（默认夹不可删 / 删除后落点 / 回包时仍活跃）+ API 层断言 + `typecheck` / `test` / `build` + 真浏览器（删自建夹 / 默认夹无删除 / 当前夹被删落点 / 404 跨标签页 / 403 伪造 / 429）+ 0 console error | **已完成（2026-11-07）**：`deleteMyFolder` + `folderDelete` 纯函数 / `FolderDeleteConfirm`（仅标题）/ 确认后关弹窗再执行；404 按已删、403·409 toast + 重拉、429 / 网络保留列表；当前夹被删自动选默认 / 下一个，在途条目与 folders 响应按版本作废；前端 **413** / `typecheck` / `build`；真浏览器（登录 / ⋮ 菜单 / 默认夹无删除 / 删除后落点 / 404 跨标签按成功 / 主页 `收藏 2` / 0 console error）。⚠️ 403 伪造与 429 未造故障（只靠 code review）；DOM 交互无 jsdom。 |
+| `T120` | `R-36` 旧入口清理：删除 `favorites.html` / `FavoritesApp.vue` / `entries/favorites.main.ts` / `routers/favorites.ts` / `LegacyFavoriteRedirect` / `legacyFavoriteRedirect`；Vite 映射与 build input、`WebMvcConfig` 两条 forward、`RateLimitFilter` 三条跳过、`GlobalExceptionHandler.STATIC_EXACT` 的 `/favorites.html`、`StaticForwardingContractTests` 全部跟随；`/favorites`、`/watchlater` 改为 404 | 旧链接不保留重定向（按 `R-36` 拍板）；不改后端业务 / 端点 / 迁移；代码注释只引 `architecture/**` / `archive/**`；文档只增不改号 | `StaticForwardingContractTests` 改为 404 断言 + `npm run build` 产物无 `favorites.html` + `npm run stage` 清静态根 + 8080 冒烟（`/favorites`、`/watchlater`、`/favorites.html` 404，`/space/me?tab=folders` 200）+ 三道文档门禁 | **已完成（2026-11-07）**：旧入口与重定向壳删除；Vite / WebMvcConfig / 限流 / 异常 / 契约测试跟随；后端全量 **981 / 0 失败**（`DB_POOL_MAX_SIZE=4`）；8080 冒烟三条旧链接 404、`/space/me?tab=folders` 200。 |
 | — | *（本窗第一件事：跑基线 + 列联调清单，见 §一 / §2.1）* | — | — | — |
 
 > **R-27 回写（2026-11-01）**：`T80`–`T85` 已完成。后端 `V11` + 3 端点 + 生效 `avatarUrl` + 公开批量读；前端默认头像稳定 URL、空间页弹窗 + 1:1 裁剪、评论 / 动态 / 关注 / 图文作者批量接线。
@@ -319,12 +322,31 @@
 > **未做 / 下窗**：删除收藏夹（另开）；旧 `favorites.html` 入口与 WebMvcConfig / 限流 / 契约测试清理（`F-35` 剩余项）。
 > E2E 用户 257（无删除用户端点）及其默认夹留在 dev 库；夹具夹 / 自定义封面已删（上传→恢复会删旧文件）。
 
+> **R-36 / T119–T120 回写（2026-11-07）**：收藏夹删除入口落空间收藏 tab self 左栏 ⋮。
+> **T119**：`deleteMyFolder` + `folderDelete` 纯函数（默认夹不可删 / 删除后落点 / 回包时仍活跃）；
+> `FolderDeleteConfirm` 只显示标题，确认后**先关弹窗再执行**；`404` 按已删成功、`403`/`409` toast + 重拉、
+> `429` / 网络保留列表；当前夹被删自动选默认 / 下一个，`itemsRequestId` 与 `foldersMutationVersion`
+> 作废在途响应。**P1 修复**：`stillActive` 改为回包后按当前路由重算（请求期间切夹 / 切稍后再看 / 切主页
+> 不会被拉回被删夹的替代夹）。
+> **T120**：删除旧 `favorites.html` / `FavoritesApp` / `entries` / `routers/favorites` /
+> `LegacyFavoriteRedirect` / `legacyFavoriteRedirect`；Vite / `WebMvcConfig` / `RateLimitFilter` /
+> `GlobalExceptionHandler` / `StaticForwardingContractTests` 全部跟随；`/favorites`、`/watchlater`、
+> `/favorites.html` 均 404，`/space/me?tab=folders` 200。
+> **验证**：前端 **413** / `typecheck` / `build`；后端默认集 **981 / 0 失败**（`DB_POOL_MAX_SIZE=4`）；
+> 真浏览器：登录 / ⋮ 菜单（默认夹无删除）/ 删除后落点 / 404 跨标签按成功 / 主页 `收藏 2` / 0 console error；
+> 三道文档门禁 0 违规。**review**：0 P0 / 1 P1 / 5 P2；P1 已修（回包后重算 `stillActive`），
+> P2 修 4（限流反向验证、落点夹具判别力、F-35 摘要不重复、陈旧“重定向壳”引用），1 条接受
+> （`CURRENT_INTEGRATION` 体量已登记 `F-33`）。
+> **未验 / 备注**：403 伪造与 429 分支只靠 code review；DOM 交互无 jsdom；E2E 账号 258 与 `E2E空夹` 留在 dev 库
+> （无删除用户端点）；8080 冒烟前发现 `target/classes/static/favorites.html` 是上一轮构建残留，
+> 手工删除后 404（源码 `src/main/resources/static` 已由 `npm run stage` 清干净，`mvnw clean` 后不会复现）。
+
 ---
 
 ## 四、结转与留池
 
-* **反面清单的唯一事实源** = [FURTHER_ISSUES.md](./FURTHER_ISSUES.md)（现 12 行：`F-10` / `F-14` / `F-18` /
-  `F-21` / `F-26` / `F-28` / `F-30` / `F-31` / `F-32` / `F-33` / `F-34` / `F-35`），每行带**推翻条件**；开窗时逐行核销一次，不许静默跳过。
+* **反面清单的唯一事实源** = [FURTHER_ISSUES.md](./FURTHER_ISSUES.md)（现 11 行：`F-10` / `F-14` / `F-18` /
+  `F-21` / `F-26` / `F-28` / `F-30` / `F-31` / `F-32` / `F-33` / `F-34`），每行带**推翻条件**；开窗时逐行核销一次，不许静默跳过。
 * **已核销只留一行摘要**（含短版推翻条件）：旧池全文（`F-01`–`F-27`）已归档到 `archive/backend-2026-10-30/`，
   新池的「已核销」表只为"代码 / 文档引用的编号"保一条可解析的摘要（链：编号 → 摘要 → 已知代价台账）。
 * 需要拍板的 `R-##` → 本文件；**执行中发现的问题** → [CURRENT_ISSUES](./CURRENT_ISSUES.md)（`I-##`）；

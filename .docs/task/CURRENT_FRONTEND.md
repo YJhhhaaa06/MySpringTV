@@ -94,13 +94,13 @@ npm run stage                                                # dist → ../src/m
 | `opus.html` | `/opus/:id`（图片两态是页面内状态，无路由） | 详情 + 评论 + 点赞/收藏（**无投币**，GAP-26） |
 | `search.html` | `/search?keyword=`（tab / 排序用 query） | `GET /contents?keyword=`（+ `type` / `order`，GAP-10） |
 | `space.html` | `/space/:id`（tab / 翻页 / 夹 / 关注粉丝用 query） | `GET /users/{id}` + 收藏夹 + `/following|followers` |
-| `favorites.html`（`R-34` 起软弃用） | `/favorites`、`/watchlater` → **薄重定向壳**（query 平移后整页跳到 `/space/{uid}?tab=folders`） | 无（页面不再发业务请求） |
 | `history.html` | `/history?page=` | `GET /history`（**只读**：无删除/清空，已知代价） |
 | `dynamic.html` | `/dynamic?page=` | `GET /feed`（**需登录**）+ 关注/粉丝 |
 | `creator.html` | `/creator`（投稿）· `/creator/manage` · `/creator/edit/:id` | `POST /uploads/{type}` + `POST /contents`（JSON 清单）· `GET /contents/{id}` 取回 · `PUT /contents/{id}` 整份覆盖 |
 
 - **跨应用**一律 `<a href="/video/77" target="_blank" rel="noopener">`（新标签、可中键、可复制）。
   **唯一例外**：播放页相关推荐走同标签 SPA（`new-tab=false` + `router.push`）—— B 站就这么做。
+- `favorites.html` 已于 2026-11-07 退役（`R-36`）：`/favorites`、`/watchlater` 直接 404；原重定向壳与 `LegacyFavoriteRedirect` 已删除。
 - **应用内**每个入口一个 `createWebHistory` 实例，切 tab 只改 URL；页面之间**不共享内存状态**，登录态从 `localStorage` 读 `token`（后端是 `Authorization: Bearer`，不是 Cookie）。
 - ⚠️ **history 模式要服务端 fallback**：`/video/77` 必须落到 `video.html`。生产用 **`WebMvcConfig#addViewControllers` + forward**（不是 redirect、不是 `@Controller` —— 后者会进端点登记簿 / spec，还要为默认拒绝开 `@Public`）；dev 侧是 `vite.config.ts` 的 `htmlHistoryFallback()`，挂在 `configureServer` **与** `configurePreviewServer` 上。
 - ⚠️ **dev 代理要转发两段**：`/api` **和** `/upload`（封面是后端静态路径，只代理 `/api` 会让图片全 404）。
