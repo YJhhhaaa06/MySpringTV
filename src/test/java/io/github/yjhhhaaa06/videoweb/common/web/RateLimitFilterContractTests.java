@@ -290,6 +290,8 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
             hitSkippedAndAssertUntouched("/assets/t25-missing.js");
             hitSkippedAndAssertUntouched("/actuator/health");
             hitSkippedAndAssertUntouched("/upload/" + UPLOAD_PROBE);
+            // 默认头像 SVG（R-27）：静态资源，缺文件也 404 无体；不能扣任何桶
+            hitSkippedAndAssertUntouched("/avatars/t25-missing.svg");
             // /favicon.ico：文件不存在 ⇒ NoResourceFoundException ⇒ T56 起回 **404 无体**
             hitSkippedAndAssertUntouched("/favicon.ico");
             hitSkippedAndAssertUntouched("/favicon.svg");

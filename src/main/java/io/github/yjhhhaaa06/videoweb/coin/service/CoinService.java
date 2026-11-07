@@ -119,14 +119,21 @@ public class CoinService {
      *
      * <h2>两台原子条件写（没有"先读后写"的窗口）</h2>
      * <pre>
-     * INSERT IGNORE INTO content_coin … VALUES (?, ?, 0);          -- 只保证行存在
+     * INSERT INTO content_coin … VALUES (?, ?, 0)
+     *   ON DUPLICATE KEY UPDATE amount = amount;                  -- 只保证行存在（撞重直接拿 X 锁）
      * UPDATE content_coin SET amount = amount + ? … AND amount + ? &lt;= 2;  -- 0 行 ⇒ 409
      * UPDATE users SET coin_deci = coin_deci - ? WHERE … AND coin_deci &gt;= ?;  -- 0 行 ⇒ 400
      * </pre>
      * 并发两次各投 1 枚不会突破封顶 2，也不会把余额扣成负数。
      *
+     * <p>★ 第一条**必须是 ODKU、不能是 {@code INSERT IGNORE}**：撞唯一键时后者只加共享锁，
+     * 紧随的累加要把同一行升级成排他锁，两个事务同时停在这个升级点上会互等 ⇒ InnoDB
+     * {@code 1213} ⇒ 500。{@code amount = amount} 是空操作，存在的唯一理由就是让撞重
+     * 直接拿排他锁（详见 {@code ContentCoinDao#ensureRow} 与
+     * {@code architecture/domain/coin/coin.md} §四.1）。
+     *
      * <h2>★ 异常即整笔回滚</h2>
-     * 封顶 / 余额不足都在**已有写之后**抛出（第 5 步的 {@code INSERT IGNORE} 与累加已发生），
+     * 封顶 / 余额不足都在**已有写之后**抛出（第 5 步的 upsert 与累加已发生），
      * 靠 {@code @Transactional} 把它们一起撤掉 ⇒ 被拒的投币**不落 {@code amount = 0} 行、
      * 也不扣款、不动作者余额、不动 {@code coin_count}**（验收②「零副作用」）。
      * ⚠️ 这正是为什么本方法不能"分几段事务"或把扣款放在事务外：那会留下半套数据。
@@ -159,9 +166,9 @@ public class CoinService {
             throw new ParamException(ErrorCode.COIN_SELF_FORBIDDEN, "不能给自己投币");
         }
 
-        // ⑤ 封顶：先保证行存在，再条件累加。影响 0 行 ⇒ 已满（或这一次加完会超 2）。
+        // ⑤ 封顶：先保证行存在（撞重时顺带拿排他锁），再条件累加。影响 0 行 ⇒ 已满。
         //    ★ 必须在扣款之前（5 先于 6）：「已满 + 余额不足」要答 409，不是 400。
-        contentCoinDao.insertIgnoreZero(userId, contentId);
+        contentCoinDao.ensureRow(userId, contentId);
         if (contentCoinDao.addAmount(userId, contentId, count) == 0) {
             throw new ConflictException(ErrorCode.COIN_ALREADY_FULL, "对本稿件投币枚数已用完");
         }
@@ -169,8 +176,8 @@ public class CoinService {
         // ⑥ 余额：条件扣款是"够不够"的唯一判据（0 行 ⇒ 硬币不足）。禁止先查余额再减。
         // ⑦ 作者收益 +count 个十分位（= count 枚的 1/10），计数 +count。
         //    ★ ⑥⑦ 各锁 users 一行，**必须按 id 升序取锁**：A→B 与 B→A 并发互投时，
-        //      固定"投票者先、作者后"会成环 ⇒ InnoDB 1213 ⇒ 500（与设计 §九 #5 的
-        //      content_coin 锁升级窗口不是同一对语句）。先入账后扣款不影响语义 ——
+        //      固定"投票者先、作者后"会成环 ⇒ InnoDB 1213 ⇒ 500（这与 content_coin 上
+        //      已被 ensureRow 消掉的锁升级窗口不是同一对语句）。先入账后扣款不影响语义 ——
         //      扣款 0 行抛异常 ⇒ 整笔回滚，作者收益不会残留。
         int costDeci = count * DECI_PER_COIN;
         Long authorId = content.authorId();
@@ -196,7 +203,7 @@ public class CoinService {
         //    - 必须在事务内：监听器是 @TransactionalEventListener(AFTER_COMMIT)，
         //      事务外/提交后发布会被静默丢弃（fallbackExecution 默认 false）；
         //    - 必须在所有写之后：newAmount 要反映本次投币后的**累计枚数**（精确回放用）。
-        //    newAmount 必然非 null（同事务内 insertIgnoreZero 保证了行存在、addAmount 已命中）。
+        //    newAmount 必然非 null（同事务内 ensureRow 保证了行存在、addAmount 已命中）。
         Integer newAmount = contentCoinDao.findAmount(userId, contentId);
         events.publishEvent(new CoinChangedEvent(userId, contentId, newAmount, count));
 

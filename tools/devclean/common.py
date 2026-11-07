@@ -73,6 +73,14 @@ def run_mysql(conn: DbConn, sql: str, *, timeout: int = 600) -> str:
 
     口令走 `MYSQL_PWD` 环境变量，不出现在命令行 / 进程表里（与 backup.py 同口径）。
     任何非零退出**响亮失败**（不静默吞错）——静默会让"以为清了其实没清"变成看不见的事故。
+
+    ★ **必须自己按 UTF-8 解 stdout，不能用 `text=True`**（2026-11-04 修）：
+      `text=True` 走 `locale.getpreferredencoding()`，Windows 中文机 = **cp936**；而本函数给客户端传了
+      `--default-character-set=utf8mb4`，**输出一定是 UTF-8** ⇒ 中文标签第一行就 `UnicodeDecodeError`。
+      更坑的是：解码发生在 `subprocess` 的**读线程**里，线程一死 `proc.stdout` 变成 **None**，
+      报错退化成调用方 `parse_pairs(None)` 的 `AttributeError: 'NoneType' ... 'splitlines'`——
+      **真正的原因（编码）在 traceback 里只是一段"Exception in thread"，很容易被当成第二条错误**。
+      改成 `capture_output` 拿 bytes + 自己 `.decode("utf-8")`：失败点落在本函数的这一行，不再被线程吞掉。
     """
     exe = require_mysql()
     cmd = [
@@ -88,14 +96,14 @@ def run_mysql(conn: DbConn, sql: str, *, timeout: int = 600) -> str:
         sql,
     ]
     proc = subprocess.run(
-        cmd, capture_output=True, text=True, timeout=timeout,
+        cmd, capture_output=True, timeout=timeout,
         env=dict(os.environ, MYSQL_PWD=conn.password),
     )
     if proc.returncode != 0:
-        raise RuntimeError(
-            f"mysql 执行失败（退出码 {proc.returncode}）:\n{(proc.stderr or proc.stdout).strip()}"
-        )
-    return proc.stdout
+        detail = (proc.stderr or proc.stdout or b"").decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"mysql 执行失败（退出码 {proc.returncode}）:\n{detail}")
+    # 严格解：stdout 被 parse_pairs 当"键"用，静默替换会把标签改成 U+FFFD ⇒ 计数查不到却显示 0。
+    return proc.stdout.decode("utf-8")
 
 
 def parse_pairs(stdout: str) -> list[tuple[str, int]]:

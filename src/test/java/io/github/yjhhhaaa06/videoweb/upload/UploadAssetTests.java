@@ -111,7 +111,7 @@ class UploadAssetTests extends AbstractHttpIntegrationTest {
         String token = registerAndGetToken("13800000303", "asset-type", PASSWORD);
         long before = mediaFileCount();
 
-        for (String type : new String[]{"VIDEO", "avatar"}) {
+        for (String type : new String[]{"VIDEO", "avatar", "favorite-cover"}) {
             ResponseEntity<String> resp = upload(type, resource(pngBytes(), "a.png"), "image/png", token);
             assertThat(resp.getStatusCode().value()).as(type).isEqualTo(400);
             assertThat(Envelope.msg(resp)).isEqualTo("type 不合法，应为 video/image/cover");

@@ -35,6 +35,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+# ── tools/README.md §3.1：本文件不 import `common`（只做编排，不需要连接参数），
+#    所以那三行 UTF-8 强制得自己写 —— 否则编排器自己打印的行在中文 Windows 上是 cp936，
+#    与子脚本的 UTF-8 混在同一个控制台里，一部分正常一部分花。
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 HERE = Path(__file__).resolve().parent
 TOOLS = HERE.parent
 BACKUP_PY = TOOLS / "backup.py"

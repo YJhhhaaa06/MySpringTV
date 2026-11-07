@@ -14,6 +14,7 @@ import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteItemVO;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteFolderVO;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteStatusVO;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.PublicFavoriteFolderVO;
+import io.github.yjhhhaaa06.videoweb.favorite.service.FavoriteFolderCoverService;
 import io.github.yjhhhaaa06.videoweb.favorite.service.FavoriteService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -24,7 +25,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -120,9 +123,12 @@ public class FavoriteController {
     private static final int FAVORITE_PAGE_SIZE_DEFAULT = 100;
 
     private final FavoriteService favoriteService;
+    private final FavoriteFolderCoverService folderCoverService;
 
-    public FavoriteController(FavoriteService favoriteService) {
+    public FavoriteController(FavoriteService favoriteService,
+                              FavoriteFolderCoverService folderCoverService) {
         this.favoriteService = favoriteService;
+        this.folderCoverService = folderCoverService;
     }
 
     // ==================== 夹 CRUD（T2；`T58` 起写 = POST/PUT/DELETE） ====================
@@ -188,6 +194,49 @@ public class FavoriteController {
     @DeleteMapping("/api/v1/favorite-folders/{id}")
     public ResponseEntity<Void> removeFolder(@CurrentUserId long userId, @PathVariable("id") long folderId) {
         favoriteService.deleteFolder(userId, folderId);
+        return ResponseEntity.noContent().build();
+    }
+
+    // ==================== 收藏夹封面（R-33：自定义上传 / 恢复自动） ====================
+
+    /**
+     * 自定义封面上传（{@code PUT /api/v1/favorite-folders/{id}/cover}，{@code R-33}）。
+     *
+     * <p>multipart 字段名 {@code file}（与头像端点同形）；服务端收前端 **16:9 裁剪产物**，
+     * 只校验类型 + ≤2MB，**不重编码 / 不强制尺寸**。成功 = {@code 200 + 无 data}
+     * （与改名 / 私密开关同口径）；旧自定义文件在写库成功后删除。
+     *
+     * <p>失败面：空文件 / 非图片后缀 / 非 `image/` 类型 / &gt;2MB ⇒ 400；夹不存在 ⇒ 404；
+     * 不是自己的夹 ⇒ 403；未登录 ⇒ 401。**失败路径不留本次落盘文件**。
+     *
+     * @param folderId 路径变量 {@code {id}}：目标夹（默认夹 / 私密夹都可设）
+     * @param file     裁剪后的图片（jpg / png / jpeg）
+     */
+    @RequiresLogin
+    @PutMapping("/api/v1/favorite-folders/{id}/cover")
+    public ApiResponse<Void> uploadCover(@CurrentUserId long userId,
+                                         @PathVariable("id") long folderId,
+                                         @RequestPart("file") MultipartFile file) {
+        folderCoverService.upload(userId, folderId, file);
+        return ApiResponse.success();
+    }
+
+    /**
+     * 恢复自动封面（{@code DELETE /api/v1/favorite-folders/{id}/cover}，{@code R-33}）。
+     *
+     * <p>写 {@code cover_ref = NULL} 并删旧自定义文件；下次读取回到「夹内最新一条收藏」。
+     * 成功 = {@code 204} 无 body，**幂等**（本来就没有自定义封面同样 204）。
+     *
+     * <p>⚠️ 这是"清除自定义选择"，不是"删除收藏夹"：路径带 {@code /cover} 子资源，
+     * 与 {@code DELETE /api/v1/favorite-folders/{id}} 是两条端点。
+     *
+     * @param folderId 路径变量 {@code {id}}：目标夹；不存在 → 404、不是我的 → 403
+     */
+    @RequiresLogin
+    @DeleteMapping("/api/v1/favorite-folders/{id}/cover")
+    public ResponseEntity<Void> resetCover(@CurrentUserId long userId,
+                                           @PathVariable("id") long folderId) {
+        folderCoverService.clear(userId, folderId);
         return ResponseEntity.noContent().build();
     }
 

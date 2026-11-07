@@ -76,7 +76,7 @@ class ContentIndexCooldownTests {
         stubIndexMissingAndDbFailing();
 
         for (int i = 0; i < 3; i++) {
-            assertThat(cache.getRecommendByFilter(null, null, 10))
+            assertThat(cache.getRecommendPage(null, null, null, 10).list())
                     .as("重建失败 ⇒ 降级为空推荐，不 500")
                     .isEmpty();
         }
@@ -90,12 +90,12 @@ class ContentIndexCooldownTests {
         ContentCache cache = contentCache(Duration.ofMillis(150));
         stubIndexMissingAndDbFailing();
 
-        cache.getRecommendByFilter(null, null, 10);
+        cache.getRecommendPage(null, null, null, 10);
         verify(contentDao, times(1)).findAllContent();
 
         Thread.sleep(400); // 越过冷却窗口
 
-        cache.getRecommendByFilter(null, null, 10);
+        cache.getRecommendPage(null, null, null, 10);
         verify(contentDao, times(2)).findAllContent();
     }
 
@@ -107,7 +107,7 @@ class ContentIndexCooldownTests {
         // findAllContent 默认返回空列表 = 装载成功 ⇒ 每次都应照常重建（冷却不生效）
 
         for (int i = 0; i < 3; i++) {
-            cache.getRecommendByFilter(null, null, 10);
+            cache.getRecommendPage(null, null, null, 10);
         }
 
         verify(contentDao, times(3)).findAllContent();
@@ -122,7 +122,7 @@ class ContentIndexCooldownTests {
                 .when(indexOps).rebuildIndexes(any(), any());
 
         for (int i = 0; i < 3; i++) {
-            cache.getRecommendByFilter(null, null, 10);
+            cache.getRecommendPage(null, null, null, 10);
         }
 
         verify(contentDao, times(1)).findAllContent();

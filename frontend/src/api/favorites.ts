@@ -11,15 +11,42 @@
  * <p>⚠️ 空间的 `GET /favorite-folders/{id}/items` 是另一条端点（只公开夹、匿名可看），
  * 别为了"少写一个函数"混用。
  */
-import type { MyFolderVM, PageVM, VideoCardVM } from '../types/ui'
+import type { FolderEditPatch, LibraryFolderVM, PageVM, VideoCardVM } from '../types/ui'
 import { toMyFolder, toWatchLaterCard } from './adapters/favorites'
 import { toFavoriteItemCard } from './adapters/space'
-import { deleteJson, getJson, putJson } from './http'
+import { deleteJson, getJson, putForm, putJson } from './http'
 
 /** `GET /favorite-folders`：我的全部夹（含默认夹与私密夹） */
-export async function loadMyFolders(): Promise<MyFolderVM[]> {
+export async function loadMyFolders(): Promise<LibraryFolderVM[]> {
   const folders = await getJson('/api/v1/favorite-folders')
   return (folders ?? []).map((folder) => toMyFolder(folder))
+}
+
+/**
+ * `PUT /favorite-folders/{id}`：改名 / 改公开（**部分更新**，只传变化字段）。
+ *
+ * <p>⚠️ 后端两个字段都不给会 400；调用方先用 `folderEditPatch` 算出"有没有变化"，
+ * 空 patch 不要发请求。
+ */
+export function updateMyFolder(folderId: number, patch: FolderEditPatch): Promise<undefined> {
+  return putJson('/api/v1/favorite-folders/{id}', patch, { path: { id: folderId } })
+}
+
+/**
+ * `PUT /favorite-folders/{id}/cover`：上传自定义封面（multipart `file`）。
+ *
+ * <p>服务端只回 200 无体、**不返回新 URL** ⇒ 成功后必须重拉 `GET /favorite-folders`
+ * 才能拿到生效 `coverUrl`（自定义文件是新的 UUID）。
+ */
+export function uploadMyFolderCover(folderId: number, file: File): Promise<undefined> {
+  const form = new FormData()
+  form.append('file', file)
+  return putForm('/api/v1/favorite-folders/{id}/cover', form, { path: { id: folderId } })
+}
+
+/** `DELETE /favorite-folders/{id}/cover`：恢复自动封面（204 幂等，不返回体）。 */
+export function resetMyFolderCover(folderId: number): Promise<undefined> {
+  return deleteJson('/api/v1/favorite-folders/{id}/cover', { path: { id: folderId } })
 }
 
 /** `GET /favorites?folderId=&page=&pageSize=`：**我的**某个夹的条目（Page） */

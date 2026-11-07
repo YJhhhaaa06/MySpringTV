@@ -5,7 +5,7 @@
 > **不展开**横切机制（缓存三态 / 事务 / 鉴权 / 限流 / 事件），去向见文末 [§边界与去向](#边界与去向机制外链)。
 >
 > 📌 **落点纪律（2026-10-19 确认）**：本域**开工就建**本篇与 [coin-需求](./coin-需求.md) —— 它们是
-> **活的事实源**（**执行中随代码改**、收口时即终态）；**执行态**在 `task/CURRENT_TASKS.md` 的 `T#` 回写里；
+> **活的事实源**（**执行中随代码改**、收口时即终态）；**执行态**在 `task/CURRENT_INTEGRATION.md` 的 `T#` 回写里；
 >**过程物**（设计讨论 / 方案比较 / 否决记录）在**收口时**才归档到 `archive/coin-<归档日>/`（只读追溯）。
 > ★ **代码注释只许引用本篇路径**，**不得引用 `task/` 登记台**（登记台每期重建 ⇒ 引用即悬空）。
 
@@ -102,8 +102,9 @@ CREATE TABLE IF NOT EXISTS `content_coin` (
 **并发正确性**（两处都是**原子条件写**，没有"先读后写"的窗口）：
 
 ```sql
--- 封顶：先保证行存在，再条件累加（影响 0 行 ⇒ 409）
-INSERT IGNORE INTO content_coin (user_id, content_id, amount) VALUES (?, ?, 0);
+-- 封顶：先保证行存在（撞重时顺带拿排他锁），再条件累加（影响 0 行 ⇒ 409）
+INSERT INTO content_coin (user_id, content_id, amount) VALUES (?, ?, 0)
+  ON DUPLICATE KEY UPDATE amount = amount;                   -- 空操作，只为拿锁
 UPDATE content_coin SET amount = amount + ?
  WHERE user_id = ? AND content_id = ? AND amount + ? <= 2;
 
@@ -113,6 +114,20 @@ UPDATE users SET coin_deci = coin_deci - ?
 ```
 
 ⇒ 并发两次各投 1 枚**不会突破封顶 2**，也**不会把余额扣成负数**。
+
+★ **第一条为什么必须是 ODKU、不能是 `INSERT IGNORE`**：普通 INSERT 撞唯一键时 InnoDB 只对命中记录
+加**共享锁**，紧随的条件 UPDATE 要把同一行升级成排他锁；两个事务同时停在升级点上就互等 ⇒
+`1213` ⇒ 被 `handleDataAccess` 兜成 **500 `SYSTEM_DATABASE`**（2026-11-02 实测：`CoinAddTests`
+并发用例出现 `[200, 500]`，受害语句正是那条条件累加）。ODKU 撞重**直接加排他锁**，没有升级
+这一步，后来者只是排队。`amount = amount` 是空操作，**不承担任何业务** —— 封顶判据仍只在
+第二条 UPDATE 的 `WHERE` 上，`0 行 ⇒ 409` 的语义不变。
+
+⚠️ **反过来说：不要把封顶条件挪进 ODKU 的 `IF(amount + ? <= 2, …)`。** 那样行仍然"匹配"，
+受影响行数在 `useAffectedRows=false`（Connector/J 默认）下会报 1，与"插入成功"无法区分
+⇒ 409 判定失效、还会照常扣款并累加 `coin_count`（破坏 `coin_count == SUM(amount)`）。
+history 域踩过同源的坑（`history.md` §四.2），所以那边留着 `INSERT IGNORE` 拿 `1/0`；
+coin 不看返回值，才换得动。
+
 ★ 余额列**不是** `unsigned`（`int`）—— 扣款由条件守卫，语义是"够不够"，不需要 CAST 技巧。
 
 **事务**：投币是 `@Transactional`（关系行 + 两条计数列 + **两个用户**的余额必须同进同退）；
@@ -239,7 +254,6 @@ UPDATE users SET coin_deci = coin_deci + 10, last_sign_date = :today
 | 2 | `coin_count` 无 − 路径 ⇒ 与 `like_count` 口径不同（后者有 T34 守卫） | 有意差异（不可取消）；推翻 = 若将来允许取消投币 ⇒ 须补守卫 |
 | 3 | **签到 / 投币无通知作者机制**；**无硬币明细页**、**无 UP主获币面板** | 本期已裁剪（见 [coin-需求 §六](./coin-需求.md)）；推翻 = 需要这些叙事时另开 |
 | 4 | 余额列 `int` 而非 `unsigned` | 语义需要"扣到负数前拦住"，靠条件守卫；给 `unsigned` 会让 `CAST` 技巧渗进来 |
-| 5 | **并发首次投币的理论死锁窗口**：`insertIgnoreZero` 在已存在行上取共享锁，紧随的条件 `UPDATE` 要升级排他锁 ⇒ 两个事务同时做这两步时存在 InnoDB `1213` 死锁、其中一个答 500 的可能（`INSERT ... ON DUPLICATE KEY UPDATE` 是同族的经典死锁形态）。**未实测复现**（T38/T42 的并发用例多次运行全绿，窗口在两条语句之间的微秒级） | 本仓无真实流量；改为 ODKU 或加重试都要额外语义/代码。推翻 = 真实并发下出现 1213 ⇒ 届时改 `INSERT … ON DUPLICATE KEY UPDATE amount = amount`（把共享锁提前成排他锁）或对 1213 做一次重试 |
 
 ---
 
@@ -279,7 +293,7 @@ GAP-01 后同面的 `play/like/comment` 键存在（按面可空），别把"没
 
 > ★ 本表**每号一行**，是本域代码 / 测试 / 文档注释里 `F-##` / `R-##` / `T#` 的**活解析入口**。
 > **逐条论证**随正文进 git；**收编只许一行结论**（纪律见 `AGENTS.md`「文档与引用纪律」）。
-> ⚠️ 未完成的任务**不收编**（滚动见 `task/CURRENT_TASKS.md`）。
+> ⚠️ 未完成的任务**不收编**（滚动见 `task/CURRENT_INTEGRATION.md`）。
 > ⚠️ **表里的端点路径是"当时"的形态**：`T58` 起全站资源化为 `/api/v1/**`（`T59` 又统一了入参 / 出参形状）。
 > 本表**不逐行改写** —— 改了就把"留痕"改成假记录；**当前路径以 [接口契约](../../tech/api/接口契约.md) §2.3
 > 与 `src/test/resources/api/openapi.yaml` 为准**。
@@ -318,4 +332,4 @@ GAP-01 后同面的 `play/like/comment` 键存在（按面可空），别把"没
 | 跨域边与 ArchUnit 规则 | [模块边界与依赖](../../tech/module-boundary/模块边界与依赖.md) |
 | schema 演进纪律（V1 冻结 / 迁移文件逐字节冻结） | [数据与Schema演进](../../tech/data-evolution/数据与Schema演进.md) |
 | 未处置的候选（硬币明细页 / UP主获币面板 / 通知） | `task/FURTHER_ISSUES.md` |
-| 本期做哪些、任务怎么拆 | `task/CURRENT_NEEDS.md` · `task/CURRENT_TASKS.md` |
+| 本期做哪些、任务怎么拆 | `task/CURRENT_INTEGRATION.md` |

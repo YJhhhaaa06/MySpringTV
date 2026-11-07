@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { gridColumns, gridPreview, isEditableTarget, rotateBy, stepIndex } from '../../api/opusImages'
+import { feedGridColumns, gridColumns, gridPreview, isEditableTarget, rotateBy, stepIndex } from '../../api/opusImages'
 import AppIcon from '../common/AppIcon.vue'
 
 /**
- * 图文详情的图片区：**九宫格 ↔ 放大态** 两种形态，点图片 / 收起互相切换。
+ * 图文图片区：**九宫格 ↔ 放大态** 两种形态，点图片 / 收起互相切换。
+ *
+ * <p>两个消费方：**图文详情页**（正文下方）与**动态卡的图文形态**（B 站动态卡点图同样是原地放大，
+ * 不跳详情）。共用同一套查看器，避免"详情能看大图、动态只能跳走"的两套交互。
  *
  * <h2>两种形态（B 站 2026-10 实拍）</h2>
  * <ul>
@@ -18,7 +21,16 @@ import AppIcon from '../common/AppIcon.vue'
  * <p>全部是**前端交互**：图片 URL 来自 `ContentDetailVO.imageUrls`，没有新接口。
  * <p>图片 404 / 解码失败 ⇒ 灰底 + 文档图标占位（与卡片封面同一口径，不画破图）。
  */
-const props = defineProps<{ images: string[]; title: string }>()
+const props = defineProps<{
+  images: string[]
+  title: string
+  /**
+   * 九宫格版式：`opus` = 图文详情（最多 3 列，单图 16:10）；
+   * `feed` = 动态卡（2–4 张两列、4 张 2×2，单图沿用 4:3）。
+   * 放大态 / 全屏查看器两者完全共用。
+   */
+  variant?: 'opus' | 'feed'
+}>()
 
 const mode = ref<'grid' | 'zoom'>('grid')
 const activeIndex = ref(0)
@@ -33,7 +45,10 @@ let lightboxTrigger: HTMLElement | null = null
 const broken = reactive(new Set<string>())
 
 const preview = computed(() => gridPreview(props.images))
-const columns = computed(() => gridColumns(props.images.length))
+const columns = computed(() =>
+  props.variant === 'feed' ? feedGridColumns(props.images.length) : gridColumns(props.images.length),
+)
+const isFeed = computed(() => props.variant === 'feed')
 const currentImage = computed(() => props.images[activeIndex.value] ?? '')
 
 function markBroken(url: string): void {
@@ -170,7 +185,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section v-if="images.length" class="opus-images" aria-label="图文图片">
+  <section v-if="images.length" class="opus-images" :class="{ 'is-feed': isFeed }" aria-label="图文图片">
     <template v-if="mode === 'grid'">
       <div class="opus-images__grid" :class="`opus-images__grid--${columns}`">
         <button
@@ -349,6 +364,11 @@ onUnmounted(() => {
 
 .opus-images__grid--1 .opus-images__tile {
   aspect-ratio: 16 / 10;
+}
+
+/* 动态卡：单图沿用卡片既有的 4:3 裁切（详情页是 16:10）；只换版式，不动放大态 */
+.opus-images.is-feed .opus-images__grid--1 .opus-images__tile {
+  aspect-ratio: 4 / 3;
 }
 
 .opus-images__tile img {

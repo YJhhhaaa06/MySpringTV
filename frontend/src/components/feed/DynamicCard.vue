@@ -1,35 +1,65 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { DynamicCardVM } from '../../types/ui'
 import { formatCount } from '../../api/adapters/format'
 import AppIcon from '../common/AppIcon.vue'
+import UserAvatar from '../common/UserAvatar.vue'
+import OpusImageGallery from '../opus/OpusImageGallery.vue'
+import CommentSection from '../video/CommentSection.vue'
 
 /**
  * 动态卡（B 站 2026-10 版式，参照 `.screenshots/bilibili-2026-10-26/dynamic-feed-all`）：
  *
  * <pre>
- * [头像] UP 主
- *        刚刚 · 投稿了视频
- * ┌────────────────────────────────────────────┐
- * │ 封面(16:9) │ 标题（两行）                    │
- * │            │ 简介（两行）                    │
- * │            │ ▷ 播放量   💬 评论数             │
- * └────────────────────────────────────────────┘
- *        点赞（有数字时带数字）        评论
+ * 视频：[头像] UP 主
+ *              刚刚 · 投稿了视频
+ *      ┌────────────────────────────────────────────┐
+ *      │ 封面(16:9) │ 标题（两行）                    │
+ *      │            │ 简介（两行）                    │
+ *      │            │ ▷ 播放量                        │
+ *      └────────────────────────────────────────────┘
+ *      点赞                评论（带数字）
+ * 图文：[头像] UP 主
+ *              刚刚 · 发布了图文 / 发布了动态
+ *      标题（可选）
+ *      正文（折叠 6 行，可展开）
+ *      [图] [图] [图]（≤9，第 9 张 +N；点图 = 卡内放大）
+ *      点赞（有数字时带数字）        评论（可展开评论区）
  * </pre>
+ *
+ * <h2>★ 图片是内容，不是跳详情的入口</h2>
+ * B 站动态卡点图片是**原地放大**（工具条：收起 / 查看大图 / 左右旋转 + 大图 + 缩略图条），
+ * 只有标题 / 正文才跳详情。这一层直接复用图文详情的 `OpusImageGallery`：
+ * 同一套九宫格 ↔ 放大态 ↔ 全屏查看大图，不在这里另写一份查看器。
+ * 视频卡的封面**仍然**跳播放页（那是"内容卡"，不是图集）。
  *
  * <h2>★ 操作栏只有两个按钮，这是**故意**的</h2>
  * B 站还有「转发」：本仓没有转发域（没有表、没有端点）⇒ **不渲染**（有点不动的按钮 = 撒谎）。
- * 「评论」不是独立动作：本仓的评论在播放页，所以它是一个跳到 `/video/{id}#comments` 的链接。
+ * 「评论」自 `R-31` 起是**卡内展开**：挂载 `CommentSection`（懒加载、页面保证同时只开一个），
+ * 不再跳 `/video/{id}#comments`；详情页的评论区不动。
  * 「点赞」走真接口（`PUT|DELETE /contents/{id}/like`），成功后由页面回读 like-count 对齐。
  *
  * <h2>计数口径</h2>
- * - 播放量：**图文不显示**（`play_count` 对图文结构性恒 0，GAP-05）；
- * - 评论数：块内显示（0 也显示，B 站同）；
+ * - 播放量：**图文不显示**（`play_count` 对图文结构性恒 0，GAP-05）；视频在内容块右下；
+ * - 评论数：**一律只在操作栏的「评论」按钮旁显示**（0 也显示，B 站同），视频 / 图文同一口径 ——
+ *   视频卡曾经把它画在内容块右下，导致「数字离入口很远、点评论还要回头找」，
+ *   也把「播放量 / 评论数」两个不同维度的数字并排成一组（B 站内容块右下是播放量 + **弹幕**，
+ *   不是评论；本仓没有弹幕域 ⇒ 那里只留播放量，不拿评论数冒充）；
  * - 点赞数：**> 0 才显示**（B 站 0 赞时只写「点赞」），点过赞后一定显示。
  */
-const props = defineProps<{ item: DynamicCardVM; busy?: boolean }>()
-defineEmits<{ (event: 'toggle-like'): void }>()
+const props = defineProps<{
+  item: DynamicCardVM
+  busy?: boolean
+  /** 作者头像 URL（`R-27` 批量端点）；null ⇒ UserAvatar 按 userId 回落 */
+  avatarUrl?: string | null
+  /** 评论区是否展开（受控：页面保证同时只开一个） */
+  commentsOpen?: boolean
+}>()
+const emit = defineEmits<{
+  (event: 'toggle-like'): void
+  (event: 'toggle-comments'): void
+  (event: 'comment-count-changed', count: number): void
+}>()
 
 /** 封面 404 / 解码失败也走占位块（dev 数据会撞到），逻辑与 `VideoCard` 一致 */
 const coverBroken = ref(false)
@@ -44,6 +74,53 @@ const showCover = computed(() => Boolean(props.item.coverUrl) && !coverBroken.va
 const showLikeCount = computed(
   () => props.item.likeCount !== null && (props.item.likeCount > 0 || props.item.liked === true),
 )
+
+// ── 图文：正文折叠 / 图集（B 站式；视频不走这里） ─────────────────────
+
+const expanded = ref(false)
+const canExpand = ref(false)
+const textEl = ref<HTMLElement | null>(null)
+
+/**
+ * ★ 只在**折叠态**量：展开后 `scrollHeight == clientHeight`，
+ * 再量会把「收起」按钮误判成"没有溢出"而撤掉。
+ */
+function measure(): void {
+  const element = textEl.value
+  if (!element) {
+    canExpand.value = false
+    return
+  }
+  canExpand.value = !expanded.value && element.scrollHeight > element.clientHeight + 1
+}
+
+function onResize(): void {
+  if (!expanded.value) measure()
+}
+
+watch(
+  () => [props.item.id, props.item.description] as const,
+  async () => {
+    expanded.value = false
+    await nextTick()
+    measure()
+  },
+)
+
+onMounted(() => {
+  window.addEventListener('resize', onResize)
+  void nextTick(measure)
+})
+onBeforeUnmount(() => window.removeEventListener('resize', onResize))
+
+function toggleExpanded(): void {
+  expanded.value = !expanded.value
+  if (!expanded.value) void nextTick(measure)
+}
+
+function onCommentCountChanged(count: number): void {
+  emit('comment-count-changed', count)
+}
 </script>
 
 <template>
@@ -56,7 +133,12 @@ const showLikeCount = computed(
         rel="noopener"
         :title="`${item.authorName} 的空间`"
         :aria-label="`${item.authorName} 的空间`"
-      >{{ item.authorInitial }}</a>
+      ><UserAvatar
+        :avatar-url="avatarUrl ?? null"
+        :user-id="item.authorId"
+        :initial="item.authorInitial"
+        :size="52"
+      /></a>
       <div class="dyn-card__ident">
         <a class="dyn-author" :href="item.authorHref" target="_blank" rel="noopener">{{ item.authorName }}</a>
         <p class="dyn-meta">
@@ -67,7 +149,8 @@ const showLikeCount = computed(
       </div>
     </header>
 
-    <a class="dyn-body" :href="item.href" target="_blank" rel="noopener" :aria-label="item.title">
+    <!-- 视频：封面 + 信息（B 站视频动态卡；版式不动） -->
+    <a v-if="!item.isPost" class="dyn-body" :href="item.href" target="_blank" rel="noopener" :aria-label="item.title">
       <span class="dyn-cover">
         <img
           v-if="showCover"
@@ -78,13 +161,7 @@ const showLikeCount = computed(
           decoding="async"
           @error="coverBroken = true"
         />
-        <!-- 纯文字图文：封面位换成文字纸片（正文在右侧，避免重复）；视频缺封面仍用 TV 占位 -->
-        <span v-else-if="item.isPost" class="dyn-cover__text" aria-hidden="true">
-          <span class="dyn-cover__quote">“</span>
-          <AppIcon name="article" :size="28" />
-        </span>
         <span v-else class="dyn-cover__fallback" aria-hidden="true"><AppIcon name="tv" :size="30" /></span>
-        <span v-if="item.isPost" class="dyn-cover__type">图文</span>
         <span v-if="item.durationText" class="dyn-cover__duration">{{ item.durationText }}</span>
       </span>
 
@@ -96,17 +173,41 @@ const showLikeCount = computed(
             <AppIcon name="play" :size="18" />
             <span>{{ item.playCountText }}</span>
           </span>
-          <span
-            v-if="item.commentCount !== null"
-            class="dyn-stat"
-            :title="`评论 ${formatCount(item.commentCount)}`"
-          >
-            <AppIcon name="comment" :size="18" />
-            <span>{{ formatCount(item.commentCount) }}</span>
-          </span>
         </span>
       </span>
     </a>
+
+    <!-- 图文：正文 + 图集（B 站式；太长折叠、展开按钮在链接外，避免嵌套交互元素） -->
+    <div v-else class="dyn-post">
+      <a class="dyn-post__link" :href="item.href" target="_blank" rel="noopener" :aria-label="item.title">
+        <h3 v-if="item.hasTitle" class="dyn-post__title">{{ item.title }}</h3>
+        <p
+          v-if="item.description"
+          ref="textEl"
+          class="dyn-post__text"
+          :class="{ 'is-clamped': !expanded }"
+        >{{ item.description }}</p>
+      </a>
+      <!-- ★ 展开/收起必须在正文之后、图集之前：放到图集下面会被图片挤到首屏外，
+           用户只看到省略号却找不到展开入口（真浏览器验收抓到） -->
+      <button
+        v-if="canExpand"
+        class="dyn-post__toggle"
+        type="button"
+        :aria-expanded="expanded"
+        @click="toggleExpanded"
+      >
+        {{ expanded ? '收起' : '展开' }}
+      </button>
+      <!-- 图集：与图文详情共用同一套「九宫格 ↔ 放大态 ↔ 全屏查看大图」。
+           点图**不跳详情**（B 站同），跳详情只走上面的标题 / 正文链接。 -->
+      <OpusImageGallery
+        v-if="item.imageUrls.length"
+        variant="feed"
+        :images="item.imageUrls"
+        :title="item.title"
+      />
+    </div>
 
     <footer class="dyn-actions">
       <button
@@ -121,11 +222,29 @@ const showLikeCount = computed(
         <span>{{ item.liked === true ? '已点赞' : '点赞' }}</span>
         <span v-if="showLikeCount" class="dyn-action__count">{{ formatCount(item.likeCount) }}</span>
       </button>
-      <a class="dyn-action" :href="`${item.href}#comments`" target="_blank" rel="noopener">
+      <button
+        class="dyn-action"
+        :class="{ 'is-open': commentsOpen === true }"
+        type="button"
+        :aria-expanded="commentsOpen === true"
+        @click="$emit('toggle-comments')"
+      >
         <AppIcon name="comment" :size="20" />
         <span>评论</span>
-      </a>
+        <!-- 评论数紧跟入口（视频 / 图文同一口径）：数字在这里，用户点之前就能看到「有几条」 -->
+        <span v-if="item.commentCount !== null" class="dyn-action__count">{{ formatCount(item.commentCount) }}</span>
+      </button>
     </footer>
+
+    <!-- 评论内联（`R-31`）：懒加载 —— 只有展开的那张卡才挂载 / 发请求 -->
+    <div v-if="commentsOpen" class="dyn-comments">
+      <CommentSection
+        :content-id="item.id"
+        :comment-enabled="item.commentEnabled"
+        :initial-count="item.commentCount"
+        @count-changed="onCommentCountChanged"
+      />
+    </div>
   </article>
 </template>
 
@@ -144,17 +263,10 @@ const showLikeCount = computed(
 }
 
 .dyn-avatar {
-  display: flex;
-  width: 52px;
-  height: 52px;
+  display: block;
   flex: none;
-  align-items: center;
-  justify-content: center;
   border-radius: 50%;
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--text-inverse);
-  background: linear-gradient(135deg, var(--brand-pink) 0%, var(--brand-blue) 100%);
+  line-height: 0;
 }
 
 .dyn-card__ident {
@@ -231,41 +343,59 @@ const showLikeCount = computed(
   background: linear-gradient(135deg, #f1f2f3 0%, #e3e5e7 100%);
 }
 
-/* 纯文字图文的封面位：与网格卡同一套「文字纸片」语言（正文在右侧，这里只放引号 + 文档图标） */
-.dyn-cover__text {
-  position: relative;
-  display: flex;
-  width: 100%;
-  height: 100%;
-  align-items: center;
-  justify-content: center;
-  color: var(--brand-blue);
-  background:
-    radial-gradient(circle at 88% 8%, rgba(0, 174, 236, 0.1), transparent 45%),
-    linear-gradient(135deg, #fbfcfd 0%, #eef4f9 100%);
+/* ── 图文：正文 + 图集（B 站式；缩进对齐 UP 主名字） ───────────── */
+.dyn-post {
+  margin: 12px 0 0 64px;
 }
 
-.dyn-cover__quote {
-  position: absolute;
-  top: 2px;
-  right: 12px;
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: 54px;
-  line-height: 1;
-  color: var(--brand-blue);
-  opacity: 0.16;
+.dyn-post__link {
+  display: block;
 }
 
-.dyn-cover__type {
-  position: absolute;
-  top: 6px;
-  left: 6px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  font-size: 12px;
-  line-height: 16px;
+.dyn-post__title {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 24px;
   color: var(--text-1);
-  background: rgba(255, 255, 255, 0.86);
+  word-break: break-word;
+}
+
+.dyn-post__text {
+  margin-top: 6px;
+  font-size: 15px;
+  line-height: 24px;
+  color: var(--text-1);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 折叠 6 行；展开后去掉 clamp（`white-space: pre-wrap` 下 line-clamp 仍按行数算） */
+.dyn-post__text.is-clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+  overflow: hidden;
+}
+
+.dyn-post__toggle {
+  margin-top: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--brand-blue);
+  cursor: pointer;
+}
+
+.dyn-post__toggle:hover {
+  text-decoration: underline;
+}
+
+/* 图集：共用 `OpusImageGallery`（根节点自带 8px/24px 外边距，卡片里不需要底边距）。
+   列数与单图比例由 `variant="feed"` 决定（2–4 张两列、单图 4:3），不在这里改。 */
+.dyn-post :deep(.opus-images) {
+  margin: 10px 0 0;
 }
 
 .dyn-cover__duration {
@@ -343,9 +473,14 @@ const showLikeCount = computed(
   align-items: center;
   justify-content: center;
   gap: 6px;
+  border: 0;
   border-radius: var(--radius);
+  background: transparent;
+  font: inherit;
   font-size: 14px;
   color: var(--text-2);
+  cursor: pointer;
+  text-decoration: none;
   transition: color 0.15s ease, background-color 0.15s ease;
 }
 
@@ -363,8 +498,20 @@ const showLikeCount = computed(
   color: var(--brand-pink);
 }
 
+.dyn-action.is-open {
+  color: var(--brand-blue);
+  background: var(--brand-blue-bg);
+}
+
 .dyn-action__count {
   font-variant-numeric: tabular-nums;
+}
+
+/* 评论内联（`R-31`）：只在展开时挂载；分隔线 + 与正文同缩进 */
+.dyn-comments {
+  margin: 8px 0 0 64px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-2);
 }
 
 @media (max-width: 760px) {
@@ -373,7 +520,9 @@ const showLikeCount = computed(
   }
 
   .dyn-body,
-  .dyn-actions {
+  .dyn-actions,
+  .dyn-post,
+  .dyn-comments {
     margin-left: 0;
   }
 }

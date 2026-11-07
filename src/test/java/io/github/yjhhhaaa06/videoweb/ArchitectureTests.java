@@ -187,7 +187,7 @@ class ArchitectureTests {
      * <p>由来：{@code /feed} 的读编排原本落在 content 的 service 包，形成
      * {@code content ⇄ feed} 双向环；S9 把编排整体迁到 feed 域消掉环
      * （feed.md §八"依赖方向与消环"）。但那次"消环"只靠**约定**守住——
-     * 遗留台账 C1 于 2026-10-03 补记"无规则禁止重新引入"（登记 {@code FURTHER_ISSUES.md} F-03），
+     * 遗留台账 C1 于 2026-10-03 补记"无规则禁止重新引入"（登记 {@code F-03}，结论见 {@code 模块边界与依赖.md} 规则 5），
      * 本条把欠下的钉子补上（T35）。通知 feed 的**正道**是发领域事件
      * （content 的 {@code ContentPublishedEvent} / follow 的 {@code FollowChangedEvent}），
      * 由 {@code feed.event} 订阅；任何域直连 feed 的 service / mq / cache 都等于把环接回去。

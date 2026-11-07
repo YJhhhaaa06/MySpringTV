@@ -213,8 +213,13 @@ watch(
   padding-top: 8px;
 }
 
+/* ★ 表头与数据行必须是**同一套列宽**才对齐：
+ * 这里曾用 flex + `.works-main { flex: 1 }`，表头没有那个撑开元素 ⇒
+ * 表头四列只占文字宽度挤在左边、数据行后三列被推到最右（真浏览器里整行错位）。
+ * 改成 grid：列宽只在一处声明，表头行与数据行共用。 */
 .works-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 90px 140px 150px;
   align-items: center;
   gap: 16px;
   padding: 12px 8px;
@@ -238,7 +243,6 @@ watch(
 .works-main {
   display: flex;
   min-width: 0;
-  flex: 1 1 auto;
   align-items: center;
   gap: 12px;
 }
@@ -324,22 +328,18 @@ watch(
   color: var(--text-4);
 }
 
+/* 列宽不在这里写：由 `.works-row` 的 grid-template-columns 统一决定，
+ * 表头与数据行共用同一份，改一处即两行同时生效。 */
 .works-col--num {
-  width: 90px;
-  flex: none;
   text-align: right;
 }
 
 .works-col--date {
-  width: 140px;
-  flex: none;
   color: var(--text-3);
 }
 
 .works-col--ops {
   display: flex;
-  width: 150px;
-  flex: none;
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
@@ -368,16 +368,14 @@ watch(
 }
 
 @media (max-width: 860px) {
-  .works-col--num {
-    display: none;
+  /* 窄屏撤掉两列 ⇒ 列模板也要跟着撤，否则 1fr 会把「操作」挤到中间的空白列里 */
+  .works-row {
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
+  .works-col--num,
   .works-col--date {
     display: none;
-  }
-
-  .works-col--ops {
-    width: auto;
   }
 }
 </style>

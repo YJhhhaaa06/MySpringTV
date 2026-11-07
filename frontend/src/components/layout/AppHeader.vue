@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { sessionState, signOut } from '../../auth/session'
-import { formatCoinInt } from '../../api/adapters/format'
+import { sessionState } from '../../auth/session'
 import { CREATOR_HREF, HEADER_ACTIONS, HEADER_NAV } from '../../constants/features'
 import LoginModal from '../auth/LoginModal.vue'
 import AppIcon from '../common/AppIcon.vue'
 import SearchBox from './SearchBox.vue'
+import UserMenu from './UserMenu.vue'
 
 /**
  * 顶栏（B 站 2026 布局：半透明浮在 banner 上，滚动后变白）。
@@ -63,21 +63,7 @@ onUnmounted(() => {
       </div>
 
       <div class="app-header__actions">
-        <div v-if="sessionState.status === 'authenticated' && sessionState.user" class="user-chip">
-          <a
-            class="user-chip__link"
-            :href="sessionState.user.spaceHref"
-            :title="`${sessionState.user.name} 的空间`"
-          >
-            <span class="avatar">{{ sessionState.user.initial }}</span>
-          </a>
-          <div class="user-menu">
-            <p class="user-menu__name">{{ sessionState.user.name }}</p>
-            <!-- 硬币按 B 站口径取整（后端是一位小数，只有投币弹层显示小数） -->
-            <p class="user-menu__meta">硬币 {{ formatCoinInt(sessionState.user.coin) }}</p>
-            <button class="user-menu__logout" type="button" @click="signOut">退出登录</button>
-          </div>
-        </div>
+        <UserMenu v-if="sessionState.status === 'authenticated' && sessionState.user" />
         <button
           v-else
           class="login-btn"
@@ -267,80 +253,7 @@ onUnmounted(() => {
   background: var(--brand-pink-dark);
 }
 
-/* 登录后的用户区（hover 出下拉） */
-.user-chip {
-  position: relative;
-  height: 40px;
-  display: flex;
-  align-items: center;
-}
-
-.user-chip__link {
-  display: block;
-  border-radius: 50%;
-  line-height: 0;
-}
-
-.avatar {
-  display: flex;
-  width: 34px;
-  height: 34px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-inverse);
-  background: linear-gradient(135deg, var(--brand-pink) 0%, var(--brand-blue) 100%);
-  text-shadow: none;
-}
-
-.user-menu {
-  position: absolute;
-  top: 44px;
-  right: 0;
-  display: none;
-  width: 172px;
-  padding: 12px;
-  border: 1px solid var(--line-1);
-  border-radius: var(--radius);
-  background: var(--bg-0);
-  box-shadow: var(--shadow-2);
-  text-shadow: none;
-  color: var(--text-1);
-}
-
-.user-chip:hover .user-menu,
-.user-chip:focus-within .user-menu {
-  display: block;
-}
-
-.user-menu__name {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-1);
-}
-
-.user-menu__meta {
-  margin-top: 2px;
-  font-size: 12px;
-  color: var(--text-3);
-}
-
-.user-menu__logout {
-  width: 100%;
-  height: 30px;
-  margin-top: 10px;
-  border-radius: var(--radius-sm);
-  font-size: 13px;
-  color: var(--text-2);
-  background: var(--bg-1);
-}
-
-.user-menu__logout:hover {
-  color: var(--text-1);
-  background: var(--bg-2);
-}
+/* 登录后的用户区在 UserMenu.vue（R-30）：卡片要能稳定打开，交互逻辑不再散在顶栏里 */
 
 @media (max-width: 1200px) {
   .app-header__nav {

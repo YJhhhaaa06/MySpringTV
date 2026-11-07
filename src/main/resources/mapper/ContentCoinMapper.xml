@@ -8,17 +8,24 @@
   namespace 必须与 ContentCoinDao 全限定名一致。
   本表是"单行聚合、不可取消"：一行 = 一个人对一条内容的累计枚数（1~2），没有删除语句。
 
-  ★ 两台原子条件写中的"封顶"那一台在这里（insertIgnoreZero + addAmount）；
+  ★ 两台原子条件写中的"封顶"那一台在这里（ensureRow + addAmount）；
     "余额"那一台在 UserMapper.xml 的 deductCoinDeci。两者都不能改成"先读后写"。
 -->
 <mapper namespace="io.github.yjhhhaaa06.videoweb.coin.dao.ContentCoinDao">
 
     <!-- 只保证行存在，**不承担封顶**（封顶在下面 addAmount 的 WHERE 上）。
-         INSERT IGNORE 对已存在行 = 0 行、不报错；判据是唯一键 uk_user_content。
-         ⚠️ 若把它改成普通 INSERT，重复投币会撞唯一键抛 DuplicateKeyException ⇒ 500/409 错位。 -->
-    <insert id="insertIgnoreZero">
-        insert ignore into content_coin (user_id, content_id, amount)
+         ★ `on duplicate key update amount = amount` 是**空操作**，不是业务逻辑：它唯一的
+           作用是让"撞唯一键"这一步从 **S 锁**变成 **X 锁** —— 普通 INSERT 撞重只对命中记录
+           加共享锁，紧随的条件累加要把它升级成排他锁，两个事务同时停在升级点上就互等
+           ⇒ InnoDB 1213 ⇒ 500（实测，见 coin.md §四.1）。
+         ⚠️ 不许改回 `insert ignore`：同上，撞重取 S 锁 ⇒ 死锁窗口回来。
+         ⚠️ 不许改成普通 INSERT：重复投币会撞唯一键抛 DuplicateKeyException ⇒ 500/409 错位。
+         ⚠️ 返回值**没有业务含义**（insert⇒1；撞重在 useAffectedRows=false 下也报 1），
+           调用方不看它。"投上了没有"只由 addAmount 的影响行数回答。 -->
+    <insert id="ensureRow">
+        insert into content_coin (user_id, content_id, amount)
         values (#{userId}, #{contentId}, 0)
+        on duplicate key update amount = amount
     </insert>
 
     <!-- 条件累加：加完仍 ≤ 2 才写（`&lt;=` 是 XML 转义，SQL 里就是 `<=`）。

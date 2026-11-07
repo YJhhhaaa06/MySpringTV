@@ -4,7 +4,8 @@ import { toSearchResult } from './search'
 
 type ContentVO = components['schemas']['ContentVO']
 
-const now = new Date('2026-10-25T12:00:00')
+/** 上海正午（**带偏移**：`createTime` 按 +08:00 解释，夹具必须同源） */
+const now = new Date('2026-10-25T12:00:00+08:00')
 
 function content(id: number): ContentVO {
   return { id, title: `标题${id}`, authorId: 1, authorName: 'UP', coverUrl: '/c.png', type: 1 }

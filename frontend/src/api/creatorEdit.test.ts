@@ -81,6 +81,23 @@ describe('详情 → 草稿', () => {
     ])
     expect(draft.images.every((image) => image.isNew === false)).toBe(true)
   })
+
+  it('★ R-31：标题为魔串「无标题」⇒ titleless=true、编辑框标题为空（不把魔串当真标题）', () => {
+    const draft = toEditableContent(postDetail({ title: '「无标题」' }))
+    expect(draft.titleless).toBe(true)
+    expect(draft.title).toBe('')
+
+    // 少一个直角括号就不是魔串：真标题「无标题」必须照常回填
+    const noBrackets = toEditableContent(postDetail({ title: '无标题' }))
+    expect(noBrackets.titleless).toBe(false)
+    expect(noBrackets.title).toBe('无标题')
+  })
+
+  it('★ R-31：视频不套用无标题约定（同名标题仍是真标题）', () => {
+    const draft = toEditableContent(videoDetail({ title: '「无标题」' }))
+    expect(draft.titleless).toBe(false)
+    expect(draft.title).toBe('「无标题」')
+  })
 })
 
 describe('草稿 → 覆盖载荷', () => {
@@ -104,6 +121,11 @@ describe('草稿 → 覆盖载荷', () => {
     const payload = toUpdatePayload(draft)
     expect(payload.media).toEqual({ imageUrls: ['/upload/image/2.jpg', '/upload/image/1.jpg'] })
     expect('videoUrl' in (payload.media ?? {})).toBe(false)
+  })
+
+  it('★ R-31：titleless ⇒ 保存载荷写回魔串「无标题」（不是空串）', () => {
+    const draft = toEditableContent(postDetail({ title: '「无标题」' }))
+    expect(toUpdatePayload(draft).title).toBe('「无标题」')
   })
 
   it('图文无封面 ⇒ 不带 coverUrl 键；文案去首尾空白但仍整体替换', () => {
@@ -143,6 +165,12 @@ describe('编辑校验', () => {
     const draft = toEditableContent(postDetail({ title: '   ', categoryId: 12 }))
     expect(validateEdit(draft).map((error) => error.field)).toEqual(['title', 'categoryId'])
   })
+
+  it('★ R-31：titleless 的图文不校验标题；取消勾选才要求填', () => {
+    const draft = { ...toEditableContent(postDetail()), title: '', titleless: true }
+    expect(validateEdit(draft)).toEqual([])
+    expect(validateEdit({ ...draft, titleless: false }).map((error) => error.field)).toContain('title')
+  })
 })
 
 describe('长按换序的落点：swapImages', () => {
@@ -168,6 +196,14 @@ describe('脏判定（保存按钮可用性）', () => {
     const draft = toEditableContent(postDetail())
     draft.images[0]!.isNew = true
     expect(isDirty(original, draft)).toBe(false)
+  })
+
+  it('★ R-31：标题在「真标题 ↔ 魔串」之间切换算脏；两边都 titleless 不算', () => {
+    const original = toEditableContent(postDetail({ title: '真标题' }))
+    const titleless = { ...original, title: '', titleless: true }
+    expect(isDirty(original, titleless)).toBe(true)
+    expect(isDirty(titleless, { ...titleless })).toBe(false)
+    expect(isDirty(titleless, { ...titleless, titleless: false })).toBe(true)
   })
 
   it('换序 / 换封面 / 改标题都算脏', () => {

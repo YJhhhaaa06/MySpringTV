@@ -71,16 +71,21 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
 
-/** 源图里能放下的**最大 16:9 矩形**（`zoom = 1` 时裁剪窗就是它）。 */
-export function maxCropSize(image: Size): Size {
-  if (!isPositive(image.width) || !isPositive(image.height)) {
+/**
+ * 源图里能放下的**最大目标比例矩形**（`zoom = 1` 时裁剪窗就是它）。
+ *
+ * <p>`aspect` 默认 16:9（封面）；头像传 `1`（见 `avatarCrop.ts`）。所有几何函数都把这个参数
+ * 透传下去，组件里没有第二套数学。
+ */
+export function maxCropSize(image: Size, aspect: number = COVER_ASPECT): Size {
+  if (!isPositive(image.width) || !isPositive(image.height) || !isPositive(aspect)) {
     return { width: 0, height: 0 }
   }
-  const heightFromWidth = image.width / COVER_ASPECT
+  const heightFromWidth = image.width / aspect
   if (heightFromWidth <= image.height) {
     return { width: image.width, height: heightFromWidth }
   }
-  return { width: image.height * COVER_ASPECT, height: image.height }
+  return { width: image.height * aspect, height: image.height }
 }
 
 /** 缩放倍数归一（非数字 / 越界都夹回 `COVER_MIN_ZOOM..COVER_MAX_ZOOM`）。 */
@@ -99,9 +104,13 @@ export function fitCropState(): CoverCropState {
  * <p>裁剪窗与源图等高 / 等宽时该轴只有唯一解（0.5），`clamp` 的 `min > max` 分支返回中点，
  * 避免浮点误差把中心推出去。
  */
-export function clampCropState(state: CoverCropState, image: Size): CoverCropState {
+export function clampCropState(
+  state: CoverCropState,
+  image: Size,
+  aspect: number = COVER_ASPECT,
+): CoverCropState {
   const zoom = clampZoom(state.zoom)
-  const size = maxCropSize(image)
+  const size = maxCropSize(image, aspect)
   if (size.width <= 0 || size.height <= 0) {
     return { zoom, centerX: 0.5, centerY: 0.5 }
   }
@@ -114,10 +123,14 @@ export function clampCropState(state: CoverCropState, image: Size): CoverCropSta
   }
 }
 
-/** 裁剪窗在源图像素里的矩形（**恒为 16:9**，且不越出源图）。 */
-export function cropRect(image: Size, state: CoverCropState): CropRect {
-  const safe = clampCropState(state, image)
-  const size = maxCropSize(image)
+/** 裁剪窗在源图像素里的矩形（**恒为 `aspect` 比例**，且不越出源图）。 */
+export function cropRect(
+  image: Size,
+  state: CoverCropState,
+  aspect: number = COVER_ASPECT,
+): CropRect {
+  const safe = clampCropState(state, image, aspect)
+  const size = maxCropSize(image, aspect)
   if (size.width <= 0 || size.height <= 0) {
     return { x: 0, y: 0, width: 0, height: 0 }
   }
@@ -136,8 +149,13 @@ export function cropRect(image: Size, state: CoverCropState): CropRect {
  *
  * <p>`scale` 取两轴较大值 ⇒ 舞台比例哪怕有 1px 误差也不会露底（多出的部分被舞台裁掉）。
  */
-export function stageLayout(image: Size, stage: Size, state: CoverCropState): StageLayout {
-  const rect = cropRect(image, state)
+export function stageLayout(
+  image: Size,
+  stage: Size,
+  state: CoverCropState,
+  aspect: number = COVER_ASPECT,
+): StageLayout {
+  const rect = cropRect(image, state, aspect)
   if (!isPositive(rect.width) || !isPositive(rect.height) || !isPositive(stage.width) || !isPositive(stage.height)) {
     return { scale: 1, offsetX: 0, offsetY: 0 }
   }
@@ -161,10 +179,11 @@ export function dragBy(
   state: CoverCropState,
   dx: number,
   dy: number,
+  aspect: number = COVER_ASPECT,
 ): CoverCropState {
-  const layout = stageLayout(image, stage, state)
-  if (!isPositive(layout.scale)) return clampCropState(state, image)
-  const rect = cropRect(image, state)
+  const layout = stageLayout(image, stage, state, aspect)
+  if (!isPositive(layout.scale)) return clampCropState(state, image, aspect)
+  const rect = cropRect(image, state, aspect)
   return clampCropState(
     {
       zoom: state.zoom,
@@ -172,6 +191,7 @@ export function dragBy(
       centerY: (rect.y + rect.height / 2 - dy / layout.scale) / image.height,
     },
     image,
+    aspect,
   )
 }
 
@@ -187,10 +207,13 @@ export function zoomAround(
   state: CoverCropState,
   zoom: number,
   anchor: Point,
+  aspect: number = COVER_ASPECT,
 ): CoverCropState {
-  const before = cropRect(image, state)
-  const layout = stageLayout(image, stage, state)
-  if (!isPositive(before.width) || !isPositive(layout.scale)) return clampCropState(state, image)
+  const before = cropRect(image, state, aspect)
+  const layout = stageLayout(image, stage, state, aspect)
+  if (!isPositive(before.width) || !isPositive(layout.scale)) {
+    return clampCropState(state, image, aspect)
+  }
   const center = { x: before.x + before.width / 2, y: before.y + before.height / 2 }
   const offsetX = anchor.x - stage.width / 2
   const offsetY = anchor.y - stage.height / 2
@@ -198,7 +221,7 @@ export function zoomAround(
   const source = { x: center.x + offsetX / layout.scale, y: center.y + offsetY / layout.scale }
 
   const next = clampZoom(zoom)
-  const size = maxCropSize(image)
+  const size = maxCropSize(image, aspect)
   const width = size.width / next
   const height = size.height / next
   // 缩放后要让同一个源图像素仍落在锚点下 ⇒ 反解新的裁剪窗中心
@@ -207,6 +230,7 @@ export function zoomAround(
   return clampCropState(
     { zoom: next, centerX: nextCenterX / image.width, centerY: nextCenterY / image.height },
     image,
+    aspect,
   )
 }
 

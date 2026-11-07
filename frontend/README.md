@@ -1,6 +1,7 @@
 # MySpringTV 前端（仿哔哩哔哩网页版）
 
-> 口径与 GAP 台账在 `.docs/task/CURRENT_FRONTEND.md`（**唯一入口**）；
+> 阶段任务与判据在 `.docs/task/CURRENT_INTEGRATION.md`（**当前入口**）；GAP 差异清单在
+> `.docs/task/CURRENT_FRONTEND_GAPS.md`；
 > 应用层设计（入口 / 路由 / 类型三层 / 端点矩阵 / 降级约定 / 请求层约定）在
 > `.docs/architecture/frontend/前端.md`。本文件只写"怎么跑"。
 
@@ -30,6 +31,8 @@ cd ..
   `/history`、`/dynamic`、`/creator`（含应用内路由 `/creator/manage`、`/creator/edit/:id`）、`/placeholder/**`
   由 `WebMvcConfig#addViewControllers` **forward** 到对应入口 HTML
   （地址栏 URL 不变）；与 dev 侧 `vite.config.ts` 的 `htmlHistoryFallback` 是**同一张映射表**，两处要同步改。
+  ⚠️ `R-34` 起 `/favorites`、`/watchlater` 只保留**重定向壳**：query 平移后整页跳到
+  `/space/{uid}?tab=folders`（`/space/me` 用于顶栏「收藏」的登录态解析）。
 - `/assets/**` 是构建产物；它在限流跳过清单里（HTML 外壳同理）——页面里的 `/api/v1/**` 照常过闸。
 - `src/main/resources/static/` **不入库**：它是 `npm run stage` 的产物。⇒ 新克隆的仓库在
   stage 之前，8080 的页面入口是 **404**（不是旧页面）；要开发就用 `npm run dev`。

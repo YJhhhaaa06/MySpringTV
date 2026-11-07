@@ -22,8 +22,10 @@ import java.util.List;
  * 对外 JSON 的键 = 本类属性名（由 Getter 名推导）：
  * {@code id / authorId / type / title / description / categoryId / commentEnabled /
  * authorName / coverUrl / videoUrl / imageUrls / durationSeconds / createTime}。
- * 其中 {@code videoUrl} / {@code imageUrls} 只在 {@code ContentDetailVO} 上出现
- * （列表 VO 用 {@code @JsonIgnore} 屏蔽，见 {@code ContentVO}）；{@code durationSeconds}
+ * 其中 {@code videoUrl} 只在 {@code ContentDetailVO} 上出现（列表 VO 用 {@code @JsonIgnore} 屏蔽）；
+ * {@code imageUrls} 自 `R-31`（2026-11-03）起也在 {@code ContentVO} 上出现——
+ * 图文的图集是**卡片正文**（动态卡直接展示），不是"详情才需要的播放资源"，且本类本来就带着它
+ * （透出零额外读）。{@code durationSeconds}
  * 是 T46 新增的**所有内容响应共有**的键（列表也带 —— 它是慢变字段，不是计数）。
  * 旧 pytest 对 {@code title} / {@code videoUrl} / {@code imageUrls} / {@code authorName} /
  * {@code commentEnabled} 有逐字断言，故**属性名不得改**。

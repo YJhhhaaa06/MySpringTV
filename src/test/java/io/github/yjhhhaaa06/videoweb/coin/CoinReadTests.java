@@ -166,7 +166,7 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
         assertThat(coinCountOf(contentId)).as("前置：DB 计数为 1").isEqualTo(1);
 
         // ---- /start（登录）：interaction.coin 仍恒 null；coinCount 键不存在 ----
-        JsonNode startItem = itemOf(Envelope.data(get("/api/v1/contents/recommended", voter.token())), contentId);
+        JsonNode startItem = itemOf(Envelope.data(get("/api/v1/contents/recommended", voter.token())).path("list"), contentId);
         assertThat(startItem.path("interaction").isObject())
                 .as("登录 ⇒ interaction 仍是对象").isTrue();
         assertThat(startItem.path("interaction").path("coin").isNull())
@@ -191,12 +191,12 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
     }
 
     // ========================================================================
-    // 5. /profile：coin 恒 null；只带 playCount（GAP-01）
+    // 5. /profile：coin 恒 null；三维计数都查（R-31）
     // ========================================================================
 
     @Test
-    @DisplayName("主页：条目 interaction.coin 恒 null；只有 playCount，coin/favorite 键不存在")
-    void 主页coin恒null且不带计数() {
+    @DisplayName("主页：条目 interaction.coin 恒 null；like/comment/play 三维都查（夹具无赞无评论 ⇒ 真实 0，不是 null）")
+    void 主页coin恒null且带三维计数() {
         TestUser author = registerUser("13900004005", "coinread_profile_author");
         TestUser voter = registerUser("13900004015", "coinread_profile_voter");
         setCoinDeci(voter.id(), 10);
@@ -214,9 +214,13 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
                 .as("★ 主页条目不带投币维 ⇒ coin 恒 null").isTrue();
         assertThat(item.has("coinCount")).as("★ 没有展示位 ⇒ 连字段都不加").isFalse();
         assertThat(item.has("favoriteCount")).as("★ 没有展示位 ⇒ 连字段都不加").isFalse();
-        assertThat(item.path("likeCount").isNull()).as("主页投稿网格不查赞维 ⇒ null").isTrue();
-        assertThat(item.path("commentCount").isNull()).as("主页投稿网格不查评论维 ⇒ null").isTrue();
-        assertThat(item.path("playCount").isNumber()).as("主页投稿网格只带播放量（GAP-01）").isTrue();
+        assertThat(item.path("likeCount").isNumber())
+                .as("R-31：同一响应服务空间动态时间线 ⇒ 赞维必查（夹具没点赞 ⇒ 真实 0，不是 null）").isTrue();
+        assertThat(item.path("likeCount").asLong()).as("独立口径：夹具零点赞").isZero();
+        assertThat(item.path("commentCount").isNumber())
+                .as("R-31：同一响应服务空间动态时间线 ⇒ 评论维必查（夹具没评论 ⇒ 真实 0，不是 null）").isTrue();
+        assertThat(item.path("commentCount").asLong()).as("独立口径：夹具零评论").isZero();
+        assertThat(item.path("playCount").isNumber()).as("主页面子带播放量（GAP-01）").isTrue();
     }
 
     // ========================================================================
@@ -240,7 +244,7 @@ class CoinReadTests extends AbstractCoinIntegrationTest {
                 .as("视频详情：coin 是数量（未投过 ⇒ 0）").isTrue();
 
         // 列表面（/start）
-        JsonNode listInteraction = itemOf(Envelope.data(get("/api/v1/contents/recommended", viewer.token())), contentId)
+        JsonNode listInteraction = itemOf(Envelope.data(get("/api/v1/contents/recommended", viewer.token())).path("list"), contentId)
                 .path("interaction");
         assertThat(keysOf(listInteraction))
                 .as("★ 列表面子对象键集：同样恰好四维（coin 键在、值是 null）")

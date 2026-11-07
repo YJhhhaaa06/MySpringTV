@@ -34,7 +34,12 @@
 ## 刻意不纳入的表（如实声明，不是漏项）
 
 * `users` / `coupon` —— 见红线 1 / 2；
-* `video` / `videoinfo` —— TV 遗留表，**在本仓无任何消费者**（用户 2026-10-17 确认），不属"开发期造的数据"。
+* `video` / `videoinfo` —— TV 遗留表，**在本仓无任何消费者**（用户 2026-10-17 确认），不属"开发期造的数据"；
+* `content_coin` —— **这不是漏项，是不得已**（2026-11-04 定）：投币不可取消，`content.coin_count` 与
+  `users.coin_deci` 都依赖行留存。`coin_count` 还能用 `SUM(amount)` 重算，但
+  `coin_deci = 签到次数 × 10 + 该作者收到的币`里的**"签到次数"没有持久化列**（只存 `last_sign_date`）
+  ⇒ **一旦删掉投币行，`coin_deci` 就再也算不回来**（`recount.py` 的 7 列也不含它）。
+  代价是悬挂投币行会留在库里——对开发数据的唯一影响 = 相关内容的展示硬币数偏大几枚。
 
 ## 已知边界
 
@@ -118,6 +123,18 @@ STEPS: list[tuple[str, str, str]] = [
 
     ("coupon_order", "悬挂的抢券订单（仅用户维度；coupon 表不在此列）",
      "NOT EXISTS (SELECT 1 FROM users u WHERE u.id = coupon_order.user_id)"),
+
+    # ↓ 2026-11-04 补：这两张表建在本脚本之后（V6 / V10），原清单漏了（`content_coin` 不在此列，理由见文末）。
+    #   `watch_history` 只存进度、**任何计数都不从它派生** ⇒ 删了不影响任何展示数字；
+    #   `content_play_dedup` 是"每人·每内容·每自然日一次"的去重账本，`content.play_count`
+    #   是**累加**出来的、不从账本重算 ⇒ 删悬挂行同样不改变计数值（用户已不存在，不会再有它的播放）。
+    ("watch_history", "悬挂的观看进度（内容 / 用户任一不存在）",
+     "NOT EXISTS (SELECT 1 FROM content c WHERE c.id = watch_history.content_id)"
+     " OR NOT EXISTS (SELECT 1 FROM users u WHERE u.id = watch_history.user_id)"),
+
+    ("content_play_dedup", "悬挂的播放去重账本（用户 / 内容任一不存在）",
+     "NOT EXISTS (SELECT 1 FROM users u WHERE u.id = content_play_dedup.user_id)"
+     " OR NOT EXISTS (SELECT 1 FROM content c WHERE c.id = content_play_dedup.content_id)"),
 ]
 
 # 脚本**绝不触碰**的表（护栏：apply 前后行数必须一致）。

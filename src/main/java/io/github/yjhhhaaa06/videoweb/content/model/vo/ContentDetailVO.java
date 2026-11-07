@@ -9,8 +9,9 @@ import io.github.yjhhhaaa06.videoweb.interaction.model.vo.InteractionStatusVO;
  *
  * <p>与父类（{@link ContentCacheDTO}）的差异：内嵌子对象 {@link #interaction}（互动态）
  * 与**五个平铺的公共计数**（{@code likeCount} / {@code commentCount} / {@code favoriteCount} /
- * {@code coinCount} / {@code playCount}，前四个 T43 定形、播放量为 T48 第 5 个）。**媒体字段
- * （videoUrl / imageUrls）在详情里是要返回的**——这正是它与 {@link ContentVO}（列表，屏蔽媒体）的区别。
+ * {@code coinCount} / {@code playCount}，前四个 T43 定形、播放量为 T48 第 5 个）。**`videoUrl`
+ * 在详情里才返回**——这正是它与 {@link ContentVO}（列表，屏蔽播放地址）的主要区别；
+ * `imageUrls` 自 `R-31` 起两边都返回（列表的图文卡要用图集，且缓存载荷本来就有）。
  *
  * <h2>★ 对外 JSON 键集 = 父类全部键 + {@code interaction} + 五个公共计数（T10 / T40 / T43 / T48）</h2>
  * 顶层 {@code isLiked} / {@code isFollowed} **已于 T10 搬进** {@code interaction} 子对象

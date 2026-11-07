@@ -41,9 +41,15 @@ import java.util.regex.Pattern;
 @Service
 public class FileUploadService {
 
-    /** 上传 URL 形状：{@code /upload/{video|image|cover}/{文件名}}（与 {@link UploadType#getDir()} 三选一对应）。 */
+    /**
+     * 上传 URL 形状：{@code /upload/{video|image|cover|avatar}/{文件名}}。
+     *
+     * <p>★ {@code avatar} 只参与"URL → 磁盘路径 / 删除"的解析，**不**让
+     * {@code /api/v1/uploads/{type}} 接受它（{@link UploadType#fromDir} 刻意跳过 AVATAR）。
+     * 这样 {@code deleteFileByUrl} 能清理旧头像，而通用上传口仍然只服务内容媒体。
+     */
     private static final Pattern UPLOAD_URL_PATTERN =
-            Pattern.compile("^/upload/(video|image|cover)/([A-Za-z0-9._-]+)$");
+            Pattern.compile("^/upload/(video|image|cover|avatar|favorite-cover)/([A-Za-z0-9._-]+)$");
 
     private final UploadProperties props;
 
@@ -100,7 +106,7 @@ public class FileUploadService {
     }
 
     /**
-     * 按上传 URL（{@code /upload/{video|image|cover}/{文件名}}）删除物理文件，尽力而为。
+     * 按上传 URL（{@code /upload/{video|image|cover|avatar}/{文件名}}）删除物理文件，尽力而为。
      * URL 非法或文件不存在时静默忽略（作者换源 / 删图清理旧文件用）。
      *
      * <h2>★ 这是《遗留台账》A7 的补回实现</h2>
@@ -123,7 +129,7 @@ public class FileUploadService {
     }
 
     /**
-     * 上传 URL（{@code /upload/{video|image|cover}/{文件名}}）→ **磁盘绝对路径**；
+     * 上传 URL（{@code /upload/{video|image|cover|avatar}/{文件名}}）→ **磁盘绝对路径**；
      * URL 非法（形状不匹配 / 含 {@code ..} 逃逸）时返回 {@code null}。
      *
      * <h2>★ 为什么是 {@code public}（S8 起）</h2>
@@ -156,11 +162,15 @@ public class FileUploadService {
     }
 
     /**
-     * 上传 URL → 上传类型（{@code video / image / cover}）；非法 URL 返回 {@code null}。
+     * 上传 URL → **内容媒体**上传类型（{@code video / image / cover}）；非法 URL 或
+     * {@code /upload/avatar/...} 返回 {@code null}。
      *
      * <p>与 {@link #resolveAbsolutePath} 共用同一个形状正则：清单提交时要校验
      * "这个 URL 是不是放在该角色期望的目录里"（例如把 {@code /upload/image/x.jpg}
      * 当视频提交）。两份正则必然漂移，故形状判定只留这一处。
+     *
+     * <p>★ 头像 URL 在这里**必须**返回 {@code null}：它不是内容媒体，
+     * {@code ContentMediaManifestService#requireType} 据此拒绝把头像绑定进内容清单。
      */
     public UploadType typeOfUrl(String url) {
         if (url == null) {
@@ -184,11 +194,22 @@ public class FileUploadService {
         return path != null && new File(path).isFile();
     }
 
-    /** 校验：contentType 非空 **且** 扩展名合法，否则 {@code "文件类型不支持"}（TV 逐字）。 */
+    /**
+     * 校验：contentType 非空 **且** 扩展名合法，否则 {@code "文件类型不支持"}（TV 逐字）。
+     *
+     * <p>★ {@code AVATAR} 额外要求 contentType 以 {@code image/} 开头（`R-27`）：
+     * 只判后缀时，{@code a.jpg + text/plain} 会通过并落成一张打不开的"头像"。
+     * 只收紧头像分支，不改变既有 image / cover 口径（那是另一笔账）。
+     */
     private void validate(MultipartFile file, UploadType type) {
         String contentType = file.getContentType();
         String fileName = file.getOriginalFilename();
-        if (contentType == null || !type.isSuffixValid(fileName)) {
+        // AVATAR / FOLDER_COVER 都是"图片单值资源"：只判后缀时 a.jpg + text/plain 会通过并落成
+        // 一张打不开的图。只收紧这两个分支，不改变既有 image / cover 口径。
+        boolean imageOnly = type == UploadType.AVATAR || type == UploadType.FOLDER_COVER;
+        if (contentType == null
+                || !type.isSuffixValid(fileName)
+                || (imageOnly && !contentType.startsWith("image/"))) {
             throw new ParamException(ErrorCode.UPLOAD_TYPE_INVALID, "文件类型不支持");
         }
     }

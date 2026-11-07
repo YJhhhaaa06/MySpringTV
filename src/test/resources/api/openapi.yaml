@@ -23,7 +23,7 @@ servers:
 paths:
   /api/v1/admin/comments/{id}:
     delete:
-      operationId: delete_2
+      operationId: delete_3
       parameters:
       - in: path
         name: id
@@ -275,7 +275,7 @@ paths:
       - comment-controller
   /api/v1/comments/{id}:
     delete:
-      operationId: delete_1
+      operationId: delete_2
       parameters:
       - in: path
         name: id
@@ -609,6 +609,16 @@ paths:
       operationId: start
       parameters:
       - in: query
+        name: cursor
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: pageSize
+        required: false
+        schema:
+          type: string
+      - in: query
         name: type
         required: false
         schema:
@@ -623,7 +633,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ApiResponseListContentVO"
+                $ref: "#/components/schemas/ApiResponseRecommendPageVO"
           description: OK
         "400":
           $ref: "#/components/responses/ParamInvalid"
@@ -1462,6 +1472,80 @@ paths:
           $ref: "#/components/responses/InternalError"
       tags:
       - favorite-controller
+  /api/v1/favorite-folders/{id}/cover:
+    delete:
+      operationId: resetCover
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        "204":
+          description: 已生效，无响应体
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - favorite-controller
+    put:
+      operationId: uploadCover
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+              required:
+              - file
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - favorite-controller
   /api/v1/favorite-folders/{id}/items:
     get:
       operationId: publicFolderItems
@@ -1664,6 +1748,11 @@ paths:
         required: false
         schema:
           type: string
+      - in: query
+        name: beforeContentId
+        required: false
+        schema:
+          type: string
       responses:
         "200":
           content:
@@ -1747,6 +1836,41 @@ paths:
       tags:
       - follow-controller
   /api/v1/history:
+    delete:
+      operationId: delete_1
+      parameters:
+      - in: query
+        name: contentIds
+        required: false
+        schema:
+          type: array
+          items:
+            type: integer
+            format: int64
+      - in: query
+        name: all
+        required: false
+        schema:
+          type: boolean
+      responses:
+        "204":
+          description: 已生效，无响应体
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - history-controller
     get:
       operationId: list_1
       parameters:
@@ -1835,7 +1959,7 @@ paths:
       - user-controller
   /api/v1/uploads/{type}:
     post:
-      operationId: upload
+      operationId: upload_1
       parameters:
       - in: path
         name: type
@@ -1908,6 +2032,32 @@ paths:
           $ref: "#/components/responses/InternalError"
       tags:
       - user-controller
+  /api/v1/users/avatars:
+    get:
+      operationId: batch
+      parameters:
+      - in: query
+        name: userIds
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseListUserAvatarVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - avatar-controller
   /api/v1/users/me:
     get:
       operationId: me
@@ -1928,6 +2078,79 @@ paths:
           $ref: "#/components/responses/InternalError"
       tags:
       - user-controller
+  /api/v1/users/me/avatar:
+    put:
+      operationId: upload
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+              required:
+              - file
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseUserAvatarVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - avatar-controller
+  /api/v1/users/me/avatar/default:
+    put:
+      operationId: chooseDefault
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateDefaultAvatarRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseUserAvatarVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - avatar-controller
   /api/v1/users/me/check-ins:
     post:
       operationId: signIn
@@ -1970,6 +2193,40 @@ paths:
           $ref: "#/components/responses/InternalError"
       tags:
       - coupon-controller
+  /api/v1/users/me/history-recording:
+    put:
+      operationId: updateHistoryRecording
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateHistoryRecordingRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseHistoryRecordingVO"
+          description: OK
+        "400":
+          $ref: "#/components/responses/ParamInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      tags:
+      - user-controller
   /api/v1/users/me/password:
     put:
       operationId: changePassword
@@ -2591,6 +2848,19 @@ components:
             $ref: "#/components/schemas/ApiFieldError"
         msg:
           type: string
+    ApiResponseHistoryRecordingVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          $ref: "#/components/schemas/HistoryRecordingVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
     ApiResponseListAdminContentVO:
       type: object
       properties:
@@ -2600,21 +2870,6 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AdminContentVO"
-        errors:
-          type: array
-          items:
-            $ref: "#/components/schemas/ApiFieldError"
-        msg:
-          type: string
-    ApiResponseListContentVO:
-      type: object
-      properties:
-        code:
-          type: string
-        data:
-          type: array
-          items:
-            $ref: "#/components/schemas/ContentVO"
         errors:
           type: array
           items:
@@ -2675,6 +2930,21 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/PublicFavoriteFolderVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponseListUserAvatarVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/UserAvatarVO"
         errors:
           type: array
           items:
@@ -2825,6 +3095,19 @@ components:
             $ref: "#/components/schemas/ApiFieldError"
         msg:
           type: string
+    ApiResponseRecommendPageVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          $ref: "#/components/schemas/RecommendPageVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
     ApiResponseRestoreResult:
       type: object
       properties:
@@ -2858,6 +3141,19 @@ components:
           type: string
         data:
           $ref: "#/components/schemas/UploadedAssetVO"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiFieldError"
+        msg:
+          type: string
+    ApiResponseUserAvatarVO:
+      type: object
+      properties:
+        code:
+          type: string
+        data:
+          $ref: "#/components/schemas/UserAvatarVO"
         errors:
           type: array
           items:
@@ -2936,6 +3232,11 @@ components:
         contentId:
           type: integer
           format: int64
+        createTime:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: "null"
         likeCount:
           type: integer
           format: int32
@@ -2991,6 +3292,11 @@ components:
         contentId:
           type: integer
           format: int64
+        createTime:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: "null"
         isLiked:
           type: boolean
         likeCount:
@@ -3123,6 +3429,12 @@ components:
         id:
           type: integer
           format: int64
+        imageUrls:
+          anyOf:
+          - type: array
+            items:
+              type: string
+          - type: "null"
         interaction:
           anyOf:
           - $ref: "#/components/schemas/InteractionStatusVO"
@@ -3295,6 +3607,12 @@ components:
     FavoriteFolderVO:
       type: object
       properties:
+        coverUrl:
+          anyOf:
+          - type: string
+          - type: "null"
+        hasCustomCover:
+          type: boolean
         id:
           type: integer
           format: int64
@@ -3387,6 +3705,11 @@ components:
         progress:
           type: integer
           format: int32
+    HistoryRecordingVO:
+      type: object
+      properties:
+        historyRecording:
+          type: boolean
     InteractionStatusVO:
       type: object
       properties:
@@ -3640,6 +3963,8 @@ components:
     ProfileVO:
       type: object
       properties:
+        avatarUrl:
+          type: string
         contentPage:
           $ref: "#/components/schemas/PageResultContentVO"
         followCount:
@@ -3660,6 +3985,10 @@ components:
     PublicFavoriteFolderVO:
       type: object
       properties:
+        coverUrl:
+          anyOf:
+          - type: string
+          - type: "null"
         id:
           type: integer
           format: int64
@@ -3668,6 +3997,17 @@ components:
           format: int32
         name:
           type: string
+    RecommendPageVO:
+      type: object
+      properties:
+        list:
+          type: array
+          items:
+            $ref: "#/components/schemas/ContentVO"
+        nextCursor:
+          anyOf:
+          - type: string
+          - type: "null"
     RegisterRequest:
       type: object
       properties:
@@ -3729,6 +4069,14 @@ components:
           $ref: "#/components/schemas/MediaManifest"
         title:
           type: string
+    UpdateDefaultAvatarRequest:
+      type: object
+      properties:
+        avatarId:
+          type: integer
+          format: int32
+      required:
+      - avatarId
     UpdateFavoriteFolderRequest:
       type: object
       properties:
@@ -3736,6 +4084,13 @@ components:
           type: boolean
         name:
           type: string
+    UpdateHistoryRecordingRequest:
+      type: object
+      properties:
+        historyRecording:
+          type: boolean
+      required:
+      - historyRecording
     UploadedAssetVO:
       type: object
       properties:
@@ -3746,13 +4101,25 @@ components:
           - type: "null"
         url:
           type: string
+    UserAvatarVO:
+      type: object
+      properties:
+        avatarUrl:
+          type: string
+        userId:
+          type: integer
+          format: int64
     UserInfoVO:
       type: object
       properties:
         admin:
           type: boolean
+        avatarUrl:
+          type: string
         coin:
           type: number
+        historyRecording:
+          type: boolean
         id:
           type: integer
           format: int64

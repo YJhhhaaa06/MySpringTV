@@ -64,7 +64,8 @@ describe('toVideoDetail', () => {
     expect(vm.isPost).toBe(false)
     expect(vm.durationSeconds).toBe(754)
     expect(vm.durationText).toBe('12:34')
-    expect(vm.dateText).toBe('2026-05-09 19:43')
+    // 服务端串 2026-05-09 19:43（上海）⇒ TZ=UTC 测试机看到 11:43（T72：按 +08:00 解析、按本地呈现）
+    expect(vm.dateText).toBe('2026-05-09 11:43')
   })
 
   it('图文：即使回填了 videoUrl 也不当视频播，改用图片列表（且没有时长/进度）', () => {
@@ -100,7 +101,8 @@ describe('toVideoDetail', () => {
 describe('toOpusDetail', () => {
   it('★ 只改发布时间口径：B 站图文详情是 `YYYY年M月D日 HH:mm`，其余字段与视频详情同源', () => {
     const vm = toOpusDetail(detail({ type: 2, createTime: '2026-10-22T06:02:00' }))
-    expect(vm.dateText).toBe('2026年10月22日 06:02')
+    // 同一口径：上海 06:02 ⇒ TZ=UTC 测试机 前一日 22:02
+    expect(vm.dateText).toBe('2026年10月21日 22:02')
     // 其余字段不是另起一套映射：isPost / 三个计数 / 图片列表都照旧
     expect(vm.isPost).toBe(true)
     expect(vm.stats.like).toBe(12_345)

@@ -1,5 +1,5 @@
 import type { components } from '../types/api'
-import { cleanDescription, formatDuration } from './adapters/format'
+import { TITLELESS_SENTINEL, cleanDescription, formatDuration, isTitleless } from './adapters/format'
 import { CONTENT_TYPE_POST } from './contentTypes'
 import {
   POST_DESCRIPTION_MAX,
@@ -37,6 +37,8 @@ export interface EditableContent {
   id: number
   isPost: boolean
   title: string
+  /** `R-31`：图文「不使用标题」（取回时按魔串识别；视频恒 false） */
+  titleless: boolean
   description: string
   categoryId: number
   coverUrl: string | null
@@ -58,10 +60,13 @@ export type UpdateContentPayload = components['schemas']['UpdateContentRequest']
  */
 export function toEditableContent(detail: components['schemas']['ContentDetailVO']): EditableContent {
   const isPost = detail.type === CONTENT_TYPE_POST
+  // 魔串不在编辑框里显示成真标题：勾选态就是"没有标题"，取消勾选必须重新填。
+  const titleless = isPost && isTitleless(detail.title)
   return {
     id: detail.id ?? 0,
     isPost,
-    title: detail.title ?? '',
+    title: titleless ? '' : detail.title ?? '',
+    titleless,
     description: cleanDescription(detail.description),
     categoryId: detail.categoryId ?? 0,
     coverUrl: detail.coverUrl?.trim() || null,
@@ -81,7 +86,7 @@ export function toEditableContent(detail: components['schemas']['ContentDetailVO
  */
 export function toUpdatePayload(draft: EditableContent): UpdateContentPayload {
   return {
-    title: draft.title.trim(),
+    title: draft.titleless ? TITLELESS_SENTINEL : draft.title.trim(),
     description: draft.description.trim(),
     categoryId: draft.categoryId,
     media: draft.isPost
@@ -103,7 +108,7 @@ export function toUpdatePayload(draft: EditableContent): UpdateContentPayload {
  */
 export function validateEdit(draft: EditableContent): UploadFieldError[] {
   const errors: UploadFieldError[] = []
-  const titleError = checkTitle(draft.title)
+  const titleError = draft.titleless ? null : checkTitle(draft.title)
   if (titleError) errors.push(titleError)
   const categoryError = checkCategory(draft.categoryId)
   if (categoryError) errors.push(categoryError)
@@ -147,7 +152,10 @@ export function swapImages<T>(items: ReadonlyArray<T>, from: number, to: number)
  * 不影响提交）。作者换了封面又换回原图 ⇒ 不算改动，保存按钮保持禁用。
  */
 export function isDirty(original: EditableContent, draft: EditableContent): boolean {
-  if (draft.title.trim() !== original.title.trim()) return true
+  // 比较"将要提交的标题"：勾选态是魔串，取消勾选后必须填新标题才算改过
+  const titleOf = (item: EditableContent): string =>
+    item.titleless ? TITLELESS_SENTINEL : item.title.trim()
+  if (titleOf(draft) !== titleOf(original)) return true
   if (draft.description.trim() !== original.description.trim()) return true
   if (draft.categoryId !== original.categoryId) return true
   if ((draft.coverUrl ?? null) !== (original.coverUrl ?? null)) return true

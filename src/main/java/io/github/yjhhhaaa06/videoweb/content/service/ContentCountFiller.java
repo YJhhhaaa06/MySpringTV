@@ -23,7 +23,8 @@ import java.util.Set;
  * <h2>★ 按面按需</h2>
  * 维度集合由**调用点的编译期常量**给出（见 {@link ContentCountField}），本类只透传：
  * <ul>
- *   <li>网格卡片（首页 / 搜索 / 相关推荐 / 空间投稿）⇒ {@code {PLAY}}；</li>
+ *   <li>网格卡片（首页 / 搜索 / 相关推荐）⇒ {@code {PLAY}}；</li>
+ *   <li>空间 {@code contentPage}（同一响应服务网格 + 动态时间线）⇒ {@code {LIKE, COMMENT, PLAY}}；</li>
  *   <li>动态卡片（feed）⇒ {@code {LIKE, COMMENT, PLAY}}。</li>
  * </ul>
  * 未请求的维度**保持 {@code null}**（= "本面不查"），不写成 0 —— 0 是真实值，

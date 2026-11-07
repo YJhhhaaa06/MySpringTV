@@ -51,7 +51,12 @@ public interface UserDao {
      */
     User findByPhoneForLogin(@Param("phone") String phone);
 
-    /** 按 id 查用户（资料用，不含 hashedPassword）。TV: {@code getUserForProfileById}。 */
+    /**
+     * 按 id 查用户（资料用，不含 hashedPassword）。TV: {@code getUserForProfileById}。
+     *
+     * <p>`R-27` 起列集含 {@code avatar_ref}：资料出口要解析出生效 `avatarUrl`。
+     * 它仍是**单列窄查询**，不把签到 / 开关等其它新列一起拖出来。
+     */
     User findByIdForProfile(@Param("id") long id);
 
     /** 手机号是否已被使用。TV: {@code isPhoneUsed}。 */
@@ -278,4 +283,59 @@ public interface UserDao {
      * 把签到日暴露成 VO 字段。
      */
     LocalDate findLastSignDate(@Param("userId") long userId);
+
+    // ========================================================================
+    // 以下 2 个方法由「记录浏览历史」开关（`R-25` / `T73`）补入：
+    // `users.history_recording` 由 user 域维护（先例 = 上面的 coin_deci / last_sign_date）。
+    // ★ history 域**不读**这一列 —— 服务端不强制该开关，见
+    //   architecture/domain/history/history-已知代价.md。
+    // ========================================================================
+
+    /**
+     * 「记录浏览历史」开关（单列窄查询，{@code tinyint(1)} ⇒ {@link Boolean}）。
+     *
+     * <p>刻意返回包装类型：无行 ⇒ {@code null}。写成 {@code boolean} 会在 MyBatis 返回 null 时拆箱 NPE，
+     * 而"用户刚被删"是**可能发生**的读结果（同 {@link #findCoinDeci} 的口径）。
+     * 调用方口径：{@code null} 按 {@code true}（开）处理 —— DB 默认就是开，不能因为一次读空把开关误关。
+     */
+    Boolean findHistoryRecording(@Param("userId") long userId);
+
+    /**
+     * 写「记录浏览历史」开关。
+     *
+     * <p>{@code update users set history_recording = ? where id = ?}：单条 UPDATE，
+     * <b>天然幂等</b>（同一个值写两遍结果一样）⇒ 重试安全，不需要幂等键。
+     *
+     * <p>⚠️ 只改一个**偏好**，不承担"关掉之后不会再记录"的保证 —— 那是客户端义务
+     * （{@code R-25}）。服务端的任何 history 写端点都**不**读这一列。
+     *
+     * @return 影响行数（0 = 用户不存在）
+     */
+    int updateHistoryRecording(@Param("userId") long userId, @Param("recording") boolean recording);
+
+    // ========================================================================
+    // 以下 2 个方法由头像域（`R-27` / `T80`）补入：
+    // `users.avatar_ref` 由 user 域维护（先例 = V5 coin_deci、V9 history_recording）。
+    // ⚠️ 头像**不进**评论 / feed / 内容缓存；作者快照面走批量端点按 userId 实时读。
+    // ========================================================================
+
+    /**
+     * 写头像选择（`default:N` 或 `/upload/avatar/...`）。
+     *
+     * <p>单条 UPDATE ⇒ 天然幂等（同一个 ref 写两遍结果一样）。调用方必须在写之前
+     * 读过旧的 {@code avatar_ref}，以便写成功后删除旧的自定义文件。
+     *
+     * @return 影响行数（0 = 用户不存在 ⇒ 401 / 本次上传的新文件需补偿删除）
+     */
+    int updateAvatarRef(@Param("userId") long userId, @Param("avatarRef") String avatarRef);
+
+    /**
+     * 批量读头像选择（**只选 id / avatar_ref**，作者快照面的批量端点用）。
+     *
+     * <p>{@code ORDER BY id} 只为输出稳定；调用方最终按 userId 建 Map，不依赖顺序。
+     * 不存在的 id 自然不在结果里 ⇒ 批量端点"缺 id 不返回条目"。
+     *
+     * @param ids 非空且去重（调用方保证：空 {@code IN ()} 是非法 SQL）
+     */
+    List<User> findAvatarRefsByIds(@Param("ids") List<Long> ids);
 }

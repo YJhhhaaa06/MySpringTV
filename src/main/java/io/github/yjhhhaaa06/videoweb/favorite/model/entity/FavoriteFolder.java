@@ -13,7 +13,8 @@ import lombok.NoArgsConstructor;
  *   <li>{@code id} / {@code userId} —— 归属校验（不是我的 ⇒ 403）；</li>
  *   <li>{@code isDefault} —— ★ 删除前判"默认夹"（R-02 红线：默认夹不可删）；</li>
  *   <li>{@code name} —— 随行读出（日志 / 断言可读性），本期不改名逻辑不消费旧值；</li>
- *   <li>{@code isPrivate} —— 一期建表就带的列（R-05），本行映射随带读出。</li>
+ *   <li>{@code isPrivate} —— 一期建表就带的列（R-05），本行映射随带读出；</li>
+ *   <li>{@code coverRef} —— V12（R-33）的自定义封面相对 URL；删夹时用它清理旧文件。</li>
  * </ul>
  * <b>不映射</b> {@code description}（favorite-需求.md标「待定」）/ {@code create_time} / {@code update_time}
  * —— 一期没有消费方，按"不提前搬无主字段"的纪律留空（补时改本类 + resultMap 两处）。
@@ -44,6 +45,14 @@ public class FavoriteFolder {
 
     /** 默认夹：0 自建 / 1 默认。★ **默认夹不可删除**，故它是删除路径的判据。 */
     private Boolean isDefault;
+
+    /**
+     * 自定义封面相对 URL（{@code /upload/favorite-cover/...}）；{@code null} = 未设自定义。
+     *
+     * <p>只在写路径（替换 / 恢复 / 删夹前清理旧文件）与读路径的「自定义优先」判定消费。
+     * ⚠️ 它**不是**对外字段：VO 用 {@code coverUrl}（生效封面）+ {@code hasCustomCover} 表达。
+     */
+    private String coverRef;
 
     /** 是否默认夹（{@code null} 视为否 —— 列是 NOT NULL，此守卫只为防映射缺失时的 NPE）。 */
     public boolean defaultFolder() {

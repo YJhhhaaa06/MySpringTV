@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { components } from '../../types/api'
+import { resetServerClock, syncServerClock } from '../serverClock'
+import { toDynamicCard } from './feed'
+import { toSearchResult } from './search'
+import { toSpaceWorks } from './space'
 import { toVideoCard } from './videoCard'
 
 type ContentVO = components['schemas']['ContentVO']
@@ -25,7 +29,8 @@ function content(overrides: Partial<Record<keyof ContentVO, unknown>> = {}): Con
   } as ContentVO
 }
 
-const now = new Date('2026-10-25T12:00:00')
+/** 上海正午（**带偏移**：`createTime` 按 +08:00 解释，夹具必须同源） */
+const now = new Date('2026-10-25T12:00:00+08:00')
 
 describe('toVideoCard', () => {
   it('从 ContentVO 映射出卡片：id / 标题 / 跨应用链接 / 作者占位链接', () => {
@@ -113,3 +118,52 @@ describe('toVideoCard', () => {
   })
 })
 
+
+/**
+ * ★ 「现在」的来源：**跨适配器**的接线测试（漏改一个就红）。
+ *
+ * <p>四个卡片适配器各自有一个 `now` 默认值，"现在"的唯一来源就是它们。
+ * 只要有一个还写着 `new Date()`，那条链路就会退回浏览器时钟 —— 而只看单适配器的用例
+ * 仍全绿（每条用例本来就显式传 `now`）。所以这里在同一次锚定下把四条都点一遍。
+ *
+ * <p>端点层是否有自己的时钟由 `../endpoints.test.ts` 单独钉（那边走假网络层）。
+ */
+describe('「现在」的来源（跨适配器接线）', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+    resetServerClock()
+  })
+
+  /** 锚点 = 上海 2026-10-25 12:00；再把系统时间改到 2020（用浏览器钟会算出"未来"）。 */
+  function anchorToShanghaiNoon(): void {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.spyOn(performance, 'now').mockReturnValue(1_000)
+    syncServerClock('Sun, 25 Oct 2026 04:00:00 GMT')
+    vi.setSystemTime(new Date('2020-01-01T00:00:00Z'))
+  }
+
+  /** 上海 09:00 ⇒ 距锚点 3 小时。 */
+  const createdAt = '2026-10-25T09:00:00'
+  const pageOf = (iso: string) => ({
+    list: [content({ createTime: iso })],
+    page: 1,
+    pageSize: 10,
+    total: 1,
+    totalPages: 1,
+  }) as unknown as components['schemas']['PageResultContentVO']
+
+  it('★ 不传 now ⇒ 四条链路都按 Date 头算，而不是按被改过的系统时间', () => {
+    anchorToShanghaiNoon()
+    expect(toVideoCard(content({ createTime: createdAt })).dateText).toBe('3小时前')
+    expect(toDynamicCard(content({ createTime: createdAt })).timeText).toBe('3小时前')
+    expect(toSpaceWorks(pageOf(createdAt)).items[0]?.dateText).toBe('3小时前')
+    expect(toSearchResult(pageOf(createdAt), '关键词').items[0]?.dateText).toBe('3小时前')
+  })
+
+  it('显式传 now ⇒ 以传入值为准（用例可复算，不受锚点影响）', () => {
+    anchorToShanghaiNoon()
+    expect(toVideoCard(content({ createTime: createdAt }), new Date('2026-10-25T10:00:00+08:00')).dateText)
+      .toBe('1小时前')
+  })
+})

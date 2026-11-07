@@ -51,7 +51,8 @@ import static org.mockito.Mockito.verify;
  *   <li><b>只回填 miss 的 (id, field)</b>：预热 play 键为 999、只让 like / comment 冷读 ⇒
  *       play 键必须仍是 999；改成"回填全部"会被列快照 3 覆盖 ⇒ 红。</li>
  *   <li><b>只读被请求的维度</b>：网格卡片只请求 {@code PLAY} ⇒ like / comment 键**一个都不许建**；
- *       改成"固定读五维"⇒ 红。</li>
+ *       改成"固定读五维"⇒ 红。★ `R-31` 起 `/users/{id}.contentPage` 是**例外**：
+ *       同一端点服务空间网格 + 动态时间线 ⇒ 三维全请求（见 <em>网格面与空间面计数矩阵</em>）。</li>
  *   <li><b>不做单飞</b>：并发两次批量读 ⇒ DB **恰好 2 次**；若加了单飞会合并成 1 次 ⇒ 红。</li>
  *   <li><b>Redis 失败不回填</b>：pipeline 抛 {@link CacheUnavailableException} ⇒ 一趟 IN 直查、
  *       零 SET；改成"降级后仍回填" ⇒ 红。</li>
@@ -91,7 +92,7 @@ class ContentListCountTests extends AbstractContentIntegrationTest {
         jdbcTemplate.update("UPDATE content SET play_count = 22 WHERE id = ?", c2);
         jdbcTemplate.update("UPDATE content SET play_count = 33 WHERE id = ?", c3);
 
-        JsonNode list = Envelope.data(get("/api/v1/contents/recommended", null));
+        JsonNode list = Envelope.data(get("/api/v1/contents/recommended", null)).path("list");
 
         // 独立 oracle：三条播放量分别等于 DB 列
         assertThat(itemOf(list, c1).path("playCount").asLong()).isEqualTo(11L);
@@ -120,7 +121,8 @@ class ContentListCountTests extends AbstractContentIntegrationTest {
         long contentId = insertVideoContent(authorId, "载荷不含计数");
         jdbcTemplate.update("UPDATE content SET play_count = 9 WHERE id = ?", contentId);
 
-        Envelope.data(get("/api/v1/contents/recommended", null));
+        assertThat(get("/api/v1/contents/recommended", null).getStatusCode().value())
+                .as("触发一次列表读（顺带证明端点没被改坏）").isEqualTo(200);
 
         String cached = cachedContentJson(contentId);
         assertThat(cached).as("前置：载荷已缓存").isNotNull();
@@ -130,11 +132,11 @@ class ContentListCountTests extends AbstractContentIntegrationTest {
                         "favoriteCount", "coinCount");
     }
 
-    // ==================== 端点矩阵：网格面只带播放量 ====================
+    // ==================== 端点矩阵：搜索网格只带播放量；空间 contentPage 三维 ====================
 
     @Test
-    @DisplayName("★网格面矩阵：搜索 / 空间投稿只填 play；like/comment 列非零也必须为 null")
-    void 网格面只填播放量() {
+    @DisplayName("★按面计数矩阵：搜索网格只填 play；空间 contentPage 三维全填（R-31：同一端点服务网格 + 时间线）")
+    void 网格面与空间面计数矩阵() {
         registerAndGetToken(AUTHOR_PHONE, AUTHOR);
         long authorId = userIdOf(AUTHOR_PHONE);
         long contentId = insertVideoContent(authorId, "gridmatrix 网格矩阵内容");
@@ -154,11 +156,11 @@ class ContentListCountTests extends AbstractContentIntegrationTest {
         JsonNode profileItem = itemOf(
                 Envelope.data(get("/api/v1/users/" + authorId, null)).path("contentPage").path("list"), contentId);
         assertThat(profileItem.path("playCount").asLong())
-                .as("主页投稿网格带播放量；oracle = DB 列").isEqualTo(21L);
-        assertThat(profileItem.path("likeCount").isNull())
-                .as("主页投稿网格不查赞维 ⇒ null（列里是 3）").isTrue();
-        assertThat(profileItem.path("commentCount").isNull())
-                .as("主页投稿网格不查评论维 ⇒ null（列里是 5）").isTrue();
+                .as("空间 contentPage 带播放量；oracle = DB 列").isEqualTo(21L);
+        assertThat(profileItem.path("likeCount").asLong())
+                .as("R-31：同一响应服务动态时间线 ⇒ 赞维必查；oracle = DB 列 3").isEqualTo(3L);
+        assertThat(profileItem.path("commentCount").asLong())
+                .as("R-31：同上；oracle = DB 列 5").isEqualTo(5L);
     }
 
     // ==================== 聚合层：有选择回填 / 不做单飞 / 失败 / 脏值 / 缺行 ====================

@@ -45,13 +45,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>扣款改成"先 {@code findCoinDeci} 再 {@code updateCoinDeci}" ⇒ 余额不足用例会写出负数/脏数据；</li>
  *   <li>去掉 Service 的 {@code @Transactional} ⇒ 余额不足用例会留下 {@code amount = 1} 的行
  *       （⚠️ 不是"两个世界都写了"这种无鉴别力的场面：没有 Spring 事务时 MyBatis 的每次 mapper 调用
- *       各自提交 ⇒ {@code insertIgnoreZero} 落 {@code amount=0} 行、{@code addAmount} 把它改成 1、
+ *       各自提交 ⇒ {@code ensureRow} 落 {@code amount=0} 行、{@code addAmount} 把它改成 1、
  *       扣款 0 行抛异常，后面的 {@code updateCoinDeci(author)} / {@code updateCoinCount} **压根不执行**
  *       ⇒ {@code coin_count} 仍为 0。用例红在"关系行"与"计数"两条断言上）。</li>
  * </ul>
  *
- * <p>★ {@link #已满再投被拒()} **不是**事务证明：封顶失败时前面没有成功写可回滚（{@code INSERT IGNORE}
- * 命中已存在行是 no-op、条件累加影响 0 行）。它证明的是"409 拒单零副作用"；事务的鉴别力在
+ * <p>★ {@link #已满再投被拒()} **不是**事务证明：封顶失败时前面没有成功写可回滚（{@code ensureRow}
+ * 命中已存在行是空操作、条件累加影响 0 行）。它证明的是"409 拒单零副作用"；事务的鉴别力在
  * {@link #余额不足时整笔回滚()}（封顶写已落库）与 {@code CoinCacheTests#写路径最后一步失败后…}
  * （最后一步打桩，见 {@code AGENTS.md}「测试纪律」④）。
  *
@@ -198,7 +198,7 @@ class CoinAddTests extends AbstractCoinIntegrationTest {
         assertThat(Envelope.code(resp)).isEqualTo("COIN_INSUFFICIENT");
         assertThat(Envelope.msg(resp)).as("文案冻结：「硬币不足」").isEqualTo("硬币不足");
 
-        // ★ 零副作用 = 封顶写（INSERT IGNORE + 条件累加）已发生，但被事务一起撤回。
+        // ★ 零副作用 = 封顶写（ensureRow + 条件累加）已发生，但被事务一起撤回。
         //   去掉 @Transactional ⇒ 这里会看到 amount = 1 的行（coin_count 仍为 0 —— 计数写在扣款之后，
         //   压根没执行；见类注释的反向验证口径）。
         assertThat(countCoinRows()).as("被拒的投币不落 amount = 0/1 行").isZero();

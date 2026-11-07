@@ -18,6 +18,8 @@
     <resultMap id="userResultMap" type="io.github.yjhhhaaa06.videoweb.user.model.entity.User">
         <id property="id" column="id"/>
         <result property="username" column="username"/>
+        <!-- R-27：存储值是选择（default:N / /upload/avatar/...），出口由 AvatarRefs 解析成 URL -->
+        <result property="avatarRef" column="avatar_ref"/>
         <result property="hashedPassword" column="hashed_password"/>
         <result property="phone" column="phone"/>
         <result property="followerCount" column="follower_count"/>
@@ -48,7 +50,7 @@
       减少明文口令散列在内存/日志中的暴露面。
     -->
     <select id="findByIdForProfile" resultMap="userResultMap">
-        select id, username, phone, follower_count, follow_count, role
+        select id, username, avatar_ref, phone, follower_count, follow_count, role
         from users where id = #{id}
     </select>
 
@@ -199,6 +201,40 @@
     <!-- 最近签到日（单列，date）。无行 / 未签到 ⇒ null，两种 null 在签到判定上等价。 -->
     <select id="findLastSignDate" resultType="java.time.LocalDate">
         select last_sign_date from users where id = #{userId}
+    </select>
+
+    <!-- 记录浏览历史开关（R-25；V9 的列）。包装 Boolean：无行 ⇒ null ⇒ 调用方按"开"处理。
+         ★ history 域**不读**这一列 —— 服务端不强制该开关（刻意，见 history-已知代价.md）。 -->
+    <select id="findHistoryRecording" resultType="java.lang.Boolean">
+        select history_recording from users where id = #{userId}
+    </select>
+
+    <!-- 写开关：单条 UPDATE ⇒ 天然幂等（同值重写结果一样），重试安全。 -->
+    <update id="updateHistoryRecording">
+        update users set history_recording = #{recording} where id = #{userId}
+    </update>
+
+    <!-- ======================================================================
+         R-27（头像域）补入的 2 条。
+         ⚠️ avatar_ref 是"选择"不是 URL：default:N / /upload/avatar/...；
+            NULL = 从没选过（出口按 userId % 6 回落默认）。
+         ====================================================================== -->
+
+    <!-- 写头像选择。单条 UPDATE ⇒ 天然幂等；调用方先读旧值以删除旧的自定义文件。
+         0 行 ⇒ 用户不存在 ⇒ 401（本次新文件由调用方补偿删除）。 -->
+    <update id="updateAvatarRef">
+        update users set avatar_ref = #{avatarRef} where id = #{userId}
+    </update>
+
+    <!-- 批量读头像选择（只选 id / avatar_ref，作者快照面的批量端点用）。
+         ★ 不扩 findUsersByIds 的列集：关注列表不显示头像字段（GAP-25 由批量端点填）。
+         ORDER BY id 只为输出稳定。 -->
+    <select id="findAvatarRefsByIds" resultMap="userResultMap">
+        select id, avatar_ref from users where id in
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+        order by id
     </select>
 
 </mapper>

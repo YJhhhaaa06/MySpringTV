@@ -84,6 +84,9 @@ class PayloadShapeContractTests extends AbstractIntegrationTest {
         auditResult.setScanTime(FIXED_TIME);
         MediaAuditItem auditItem = new MediaAuditItem();
         auditItem.setLastVerifyTime(FIXED_TIME);
+        // GAP-12：评论时间也走同一条时间契约（新增 VO 字段不会自动进本清单，必须显式登记）
+        CommentVO commentTime = new CommentVO();
+        commentTime.setCreateTime(FIXED_TIME);
 
         Map<String, Object> cases = new LinkedHashMap<>();
         cases.put("ContentVO.createTime", content);
@@ -94,6 +97,7 @@ class PayloadShapeContractTests extends AbstractIntegrationTest {
         cases.put("CouponOrderVO.createTime", couponOrder);
         cases.put("MediaAuditResult.scanTime", auditResult);
         cases.put("MediaAuditItem.lastVerifyTime", auditItem);
+        cases.put("CommentVO.createTime", commentTime);
 
         Map<String, String> fields = Map.of(
                 "ContentVO.createTime", "createTime",
@@ -103,7 +107,8 @@ class PayloadShapeContractTests extends AbstractIntegrationTest {
                 "CouponVO.beginTime", "beginTime",
                 "CouponOrderVO.createTime", "createTime",
                 "MediaAuditResult.scanTime", "scanTime",
-                "MediaAuditItem.lastVerifyTime", "lastVerifyTime");
+                "MediaAuditItem.lastVerifyTime", "lastVerifyTime",
+                "CommentVO.createTime", "createTime");
 
         cases.forEach((label, vo) -> {
             JsonNode node = mapper.readTree(mapper.writeValueAsString(vo)).path(fields.get(label));

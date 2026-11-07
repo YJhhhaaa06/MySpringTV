@@ -155,4 +155,10 @@ public abstract class AbstractFeedIntegrationTest extends AbstractContentIntegra
     protected ResponseEntity<String> getFeed(String token, int page, int pageSize) {
         return get("/api/v1/feed?page=" + page + "&pageSize=" + pageSize, token);
     }
+
+    /** 带快照锚点（{@code beforeContentId}）的一页；{@code rawAnchor} 原样拼进 query（用于非法值用例）。 */
+    protected ResponseEntity<String> getFeed(String token, int page, int pageSize, String rawAnchor) {
+        return get("/api/v1/feed?page=" + page + "&pageSize=" + pageSize
+                + "&beforeContentId=" + rawAnchor, token);
+    }
 }

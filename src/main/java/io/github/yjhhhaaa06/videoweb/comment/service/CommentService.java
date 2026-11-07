@@ -344,6 +344,9 @@ public class CommentService {
         vo.setReplyToUserId(node.getReplyToUserId());
         vo.setReplyToUsername(node.getReplyToUsername());
         vo.setReplyCount(node.getReplyCount());
+        // ★ 手写逐字段拷贝：CommentCacheDTO 加字段时必须在此同步（GAP-12）。
+        //   漏这行 = 缓存里有值、响应里恒 null，DB 与缓存都"看起来正常"。
+        vo.setCreateTime(node.getCreateTime());
         Boolean liked = likedMap.get(node.getCommentId());
         vo.setIsLiked(liked != null && liked);
         if (node.getChildren() != null) {

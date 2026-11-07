@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.favorite.dao;
 
 import io.github.yjhhhaaa06.videoweb.content.model.ContentFavoriteCount;
+import io.github.yjhhhaaa06.videoweb.favorite.model.FolderLatestContent;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteFolderBriefVO;
 import io.github.yjhhhaaa06.videoweb.favorite.model.vo.FavoriteItemVO;
 import org.apache.ibatis.annotations.Mapper;
@@ -184,6 +185,29 @@ public interface FavoriteItemDao {
     // ========================================================================
     // 夹内分页（T6：GET /api/v1/favorites）
     // ========================================================================
+
+    /**
+     * 一组夹各自的**最新一条收藏**（R-33 自动封面，2026-11-06）。
+     *
+     * <p>一条窗口查询（{@code ROW_NUMBER() PARTITION BY folder_id}）取回
+     * {@code folderId → contentId}；调用方再经 {@code ContentService.loadContentVOs}
+     * 批量取 {@code coverUrl} —— **本 SQL 不碰 content 表**（I-07 ③），
+     * "能不能装出来"与"封面 URL"整体由 content 装载契约回答。
+     *
+     * <h2>三条口径（改动前先读）</h2>
+     * <ol>
+     *   <li><b>排序与夹内列表同一契约</b>：{@code create_time DESC, id DESC}
+     *       （{@code datetime} 秒精度 ⇒ 同秒多条必须用 id 做稳定 tie-breaker）；</li>
+     *   <li>★ <b>不过滤内容有效性</b>：最新一条失效时**仍然返回它的 contentId** ——
+     *       调用方经装载契约拿不到就是 {@code null} 占位，**不向前回退**
+     *       （R-33 拍板："最新一条收藏被下架 ⇒ 视频不见了封面"）；
+     *   <li>⚠️ 空 {@code folderIds} 会生成 {@code IN ()} 语法错 —— 调用方必须先判空。</li>
+     * </ol>
+     *
+     * @param folderIds 一组夹 id（**非空**；调用方保证）
+     * @return 每个夹的最新一条收藏；空夹不出现在结果里
+     */
+    List<FolderLatestContent> findLatestContentIdByFolderIds(@Param("folderIds") List<Long> folderIds);
 
     /**
      * 夹内收藏记录总数（T6，{@code GET /api/v1/favorites} 的 {@code total}）——

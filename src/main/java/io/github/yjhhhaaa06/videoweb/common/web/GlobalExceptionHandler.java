@@ -69,7 +69,7 @@ public class GlobalExceptionHandler {
      *
      * <p>⚠️ 与 {@code RateLimitFilter} 的跳过前缀**同集合但不是同一份**（见 {@link #handleNoResource}）。
      */
-    private static final List<String> STATIC_PREFIXES = List.of("/assets/", "/upload/");
+    private static final List<String> STATIC_PREFIXES = List.of("/assets/", "/upload/", "/avatars/");
 
     private final ApiErrorWriter errorWriter;
 

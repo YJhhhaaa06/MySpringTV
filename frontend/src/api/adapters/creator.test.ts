@@ -53,6 +53,12 @@ describe('稿件行', () => {
     expect(work.editHref).toBe('/creator/edit/92')
   })
 
+  it('★ 发布时间是契约 §2.7 的时间出口之一：按 +08:00 解释、按本地呈现（T72）', () => {
+    // 夹具 createTime 是上海 2026-10-29 08:05；TZ=UTC 测试机 ⇒ 00:05。
+    // 若这里退回 `new Date(item.createTime)` 直拼，会印成 08:05（比用户的钟快 8 小时）。
+    expect(toCreatorWork(content()).createdAtText).toBe('2026-10-29 00:05')
+  })
+
   it('缺封面 / 缺标题 / 缺发布时间的降级：不编内容', () => {
     // 发布时间在 spec 里是非空 string；运行时缺失只可能是空串 / 非法值，两条都按"不显示"处理
     const work = toCreatorWork(content({ title: '   ', coverUrl: null, createTime: '' }))

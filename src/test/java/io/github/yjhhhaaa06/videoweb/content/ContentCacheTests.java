@@ -221,7 +221,7 @@ class ContentCacheTests extends AbstractContentIntegrationTest {
 
         assertThat(redis.keys(CONTENT_INDEX_PREFIX + "*")).as("前置：索引确实不存在").isNullOrEmpty();
 
-        assertThat(idsOf(Envelope.data(get("/api/v1/contents/recommended", null)))).contains(contentId);
+        assertThat(idsOf(Envelope.data(get("/api/v1/contents/recommended", null)).path("list"))).contains(contentId);
         assertThat(redis.keys(CONTENT_INDEX_PREFIX + "*")).as("重建后索引 key 应存在").isNotEmpty();
     }
 
@@ -236,8 +236,9 @@ class ContentCacheTests extends AbstractContentIntegrationTest {
 
         ResponseEntity<String> resp = get("/api/v1/contents/recommended", null);
         assertThat(resp.getStatusCode().value()).as("索引不可用 ⇒ 空推荐，而不是 500").isEqualTo(200);
-        assertThat(Envelope.data(resp).isArray()).isTrue();
-        assertThat(Envelope.data(resp).size()).isZero();
+        assertThat(Envelope.data(resp).path("list").isArray()).as("游标信封：data.list").isTrue();
+        assertThat(Envelope.data(resp).path("list").size()).isZero();
+        assertThat(Envelope.data(resp).path("nextCursor").isNull()).as("降级同样报\"已到底\"").isTrue();
     }
 
     // ========================================================================

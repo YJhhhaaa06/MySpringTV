@@ -105,7 +105,7 @@ class SingleFlightCacheTests extends AbstractContentIntegrationTest {
         clearRedis();
         doAnswer(slowReturn(List.of())).when(contentDao).findAllContent();
 
-        runConcurrently(() -> contentCache.getRecommendByFilter(null, null, 10));
+        runConcurrently(() -> contentCache.getRecommendPage(null, null, null, 10));
 
         verify(contentDao, times(1)).findAllContent();
     }

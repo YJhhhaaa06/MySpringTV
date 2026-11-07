@@ -9,9 +9,11 @@ import { formatCount } from '../../api/adapters/format'
 import { requireLogin } from '../../auth/loginPrompt'
 import { sessionState } from '../../auth/session'
 import { showToast } from '../../common/toast'
+import { useUserAvatars } from '../../composables/useUserAvatars'
 import AppIcon from '../common/AppIcon.vue'
 import EmptyState from '../common/EmptyState.vue'
 import Pagination from '../common/Pagination.vue'
+import UserAvatar from '../common/UserAvatar.vue'
 
 /**
  * 空间页的「关注 / 粉丝」面板（B 站 `/{uid}/relation/following` 的对应物）。
@@ -23,8 +25,9 @@ import Pagination from '../common/Pagination.vue'
  *
  * <h2>★ 降级（GAP-25，界面上不假装有）</h2>
  * `FollowUserVO` 只有 `userId / username / isFollowed / isSelf`：
- * - 没有头像 ⇒ 首字 + 渐变底；没有签名 ⇒ **不渲染**（B 站那句「这个人很神秘」是
- *   B 站自己的默认签名，我们连"有没有签名"都不知道，写上去就是编）；
+ * - **头像**经 `GET /users/avatars` 批量读（`R-27`），不扩 `FollowUserVO` 字段；
+ * - 没有签名 ⇒ **不渲染**（B 站那句「这个人很神秘」是 B 站自己的默认签名，
+ *   我们连"有没有签名"都不知道，写上去就是编）；
  * - 没有分组 / 最近关注 / 最常访问 / 关键词搜索 / 批量操作 ⇒ 一个都不摆
  *   （这些在 B 站各自有端点，本仓没有）。
  *
@@ -52,6 +55,10 @@ const emit = defineEmits<{
 const relation = ref<RelationPageVM | null>(null)
 const loading = ref(false)
 const error = ref('')
+
+/** 关注/粉丝列表的作者头像（`R-27` 批量读；页面只拿得到 userId）。 */
+const avatarIds = computed(() => (relation.value?.items ?? []).map((user) => user.id))
+const { avatars } = useUserAvatars(avatarIds)
 /** 正在请求关注/取关的用户（同一人只发一次；其余人不受影响） */
 const busy = reactive(new Set<number>())
 
@@ -205,7 +212,12 @@ async function signIn(): Promise<void> {
                 class="relation-card__avatar"
                 :to="{ name: 'space', params: { id: user.id } }"
                 :title="`${user.name} 的空间`"
-              >{{ user.initial }}</RouterLink>
+              ><UserAvatar
+                :avatar-url="avatars.get(user.id) ?? null"
+                :user-id="user.id"
+                :initial="user.initial"
+                :size="60"
+              /></RouterLink>
               <div class="relation-card__body">
                 <RouterLink
                   class="relation-card__name"
@@ -334,17 +346,10 @@ async function signIn(): Promise<void> {
 }
 
 .relation-card__avatar {
-  display: flex;
-  width: 60px;
-  height: 60px;
+  display: block;
   flex: none;
-  align-items: center;
-  justify-content: center;
   border-radius: 50%;
-  font-size: 22px;
-  font-weight: 600;
-  color: var(--text-inverse);
-  background: linear-gradient(135deg, var(--brand-pink) 0%, var(--brand-blue) 100%);
+  line-height: 0;
 }
 
 .relation-card__body {
