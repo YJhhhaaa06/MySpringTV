@@ -43,9 +43,9 @@ public class WebMvcConfig implements WebMvcConfigurer {
      * <h2>为什么必须补</h2>
      * 前端是「MPA 外壳 + 应用内 SPA」（口径见 {@code architecture/frontend/前端.md} §一）：
      * 每个入口一个 HTML、应用内用 {@code createWebHistory}。打包产物里只有
-     * {@code index.html / search.html / video.html / opus.html / space.html / favorites.html / history.html / dynamic.html / creator.html}
+     * {@code index.html / search.html / video.html / opus.html / space.html / history.html / dynamic.html / creator.html}
      * 这几个**文件名**，而用户地址栏里是 {@code /search}、{@code /video/92}、{@code /opus/91}、
-     * {@code /watchlater}、{@code /dynamic}、{@code /creator}
+     * {@code /dynamic}、{@code /creator}
      * —— 没有这层转发，刷新深链就是 404。
      * dev / preview 侧由 {@code vite.config.ts} 的 {@code htmlHistoryFallback}
      * 承担**同一张映射表**；两处必须同步改（TS 与 Java 之间没法互相校验，靠这条注释 + review）。
@@ -83,9 +83,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
         // 图文详情（2026-10-27）：`/opus/{id}` → opus.html（B 站图文类的标准链接形状）
         registry.addViewController("/opus/{id}").setViewName("forward:/opus.html");
         registry.addViewController("/space/{id}").setViewName("forward:/space.html");
-        registry.addViewController("/favorites").setViewName("forward:/favorites.html");
-        // 稍后再看：独立 URL、复用收藏页入口（2026-10-26 晚）
-        registry.addViewController("/watchlater").setViewName("forward:/favorites.html");
+        // 旧收藏页已退役（2026-11-07）：`/favorites`、`/watchlater` 不再转发到 HTML 外壳，
+        // 直接落 404；收藏夹内容的唯一入口 = `/space/{id}?tab=folders`。
         registry.addViewController("/history").setViewName("forward:/history.html");
         // 动态（2026-10-27）：`/dynamic` → dynamic.html（`GET /feed` 的页面）
         registry.addViewController("/dynamic").setViewName("forward:/dynamic.html");

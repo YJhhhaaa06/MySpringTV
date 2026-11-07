@@ -115,8 +115,8 @@ Object.assign(registry, {
   // ★ `space`（UP 空间）已于 2026-10-25 交付（`space.html` + `/space/:id`）⇒ 从本注册表移除。
   //   `/placeholder/space` 因此落到「页面不存在」，真链接在 `adapters/links.ts#spaceHref`。
   // ★ `history` 已于 2026-10-26 交付（`history.html`）⇒ 同样移除；真链接是 `/history`。
-  // ★ `favorites` 已于 2026-10-26 交付，但 2026-11-06（`R-34`）**软弃用**：收藏夹唯一入口
-  //   收敛到个人空间收藏 tab（`/space/me?tab=folders`）；旧 `/favorites` 只留重定向壳。
+  // ★ `favorites` 已于 2026-10-26 交付，2026-11-07（`R-36`）**退役**：收藏夹唯一入口
+  //   收敛到个人空间收藏 tab（`/space/me?tab=folders`）；旧 `/favorites` 直接 404。
   // ★ `feed`（动态页）已于 2026-10-27 交付（`dynamic.html` + `/dynamic`）⇒ 同样移除；
   //   真链接是 `/dynamic`（顶栏 `HEADER_ACTIONS`），不再走占位页。
   // ★ `upload`（创作中心）已于 2026-10-28 交付（`creator.html` + `/creator`）⇒ 同样移除；
@@ -167,7 +167,7 @@ export const HEADER_ACTIONS: ReadonlyArray<{
   { label: '消息', icon: 'message', href: featureUrl('message'), placeholder: true },
   { label: '动态', icon: 'dynamic', href: '/dynamic' },
   // 收藏夹的唯一查看入口 = 个人空间收藏 tab（R-34）；`/space/me` 由空间应用解析登录态后
-  // replace 成数字 uid。旧 `/favorites` 只留重定向壳，不再从顶栏进入。
+  // replace 成数字 uid。旧 `/favorites` 已退役（404），不再从顶栏进入。
   { label: '收藏', icon: 'star', href: '/space/me?tab=folders' },
   { label: '历史', icon: 'clock', href: '/history' },
   { label: '创作中心', icon: 'dashboard', href: CREATOR_HREF },

@@ -18,9 +18,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <h2>它钉住什么</h2>
  * 生产环境把「B 站式地址栏 URL」转发到**对应入口 HTML**：
  * {@code /search → search.html}、{@code /video/{id} → video.html}、{@code /opus/{id} → opus.html}、
- * {@code /space/{id} → space.html}、{@code /favorites → favorites.html}、
- * {@code /watchlater → favorites.html}（同一入口、独立路由）、{@code /history → history.html}、
+ * {@code /space/{id} → space.html}、{@code /history → history.html}、
  * {@code /dynamic → dynamic.html}、{@code /placeholder/** → index.html}、{@code / → index.html}。
+ * 旧收藏页 {@code /favorites} / {@code /watchlater} 已于 2026-11-07 退役：
+ * 不再转发到任何 HTML 外壳，直接 404。
  * 没有这层转发，打包产物上线后**刷新任意深链都是 404**（dev 侧由 Vite 中间件兜着，
  * 所以这个洞只在生产暴露 —— 正是"dev 绿、线上 404"的典型）。
  *
@@ -51,8 +52,6 @@ class StaticForwardingContractTests extends AbstractIntegrationTest {
         // 图文详情（2026-10-27）：/opus/{id} 的页面入口
         assertForward("/opus/77", "/opus.html");
         assertForward("/space/77", "/space.html");
-        assertForward("/favorites", "/favorites.html");
-        assertForward("/watchlater", "/favorites.html");
         assertForward("/history", "/history.html");
         // 动态（2026-10-27）：/feed 的页面入口
         assertForward("/dynamic", "/dynamic.html");
@@ -62,6 +61,14 @@ class StaticForwardingContractTests extends AbstractIntegrationTest {
         assertForward("/creator/manage", "/creator.html");
         assertForward("/creator/edit/42", "/creator.html");
         assertForward("/placeholder/live", "/index.html");
+    }
+
+    @Test
+    @DisplayName("旧收藏页入口已退役：/favorites、/watchlater 直接 404（不转发、不重定向）")
+    void 旧收藏页入口已退役() throws Exception {
+        // 反向验证：把 WebMvcConfig 的两条 forward 加回来 ⇒ forwardedUrl 不再是 null，本用例红。
+        assertRetired("/favorites");
+        assertRetired("/watchlater");
     }
 
     @Test
@@ -89,6 +96,13 @@ class StaticForwardingContractTests extends AbstractIntegrationTest {
         mockMvc.perform(get(path))
                 .andExpect(status().isOk())
                 .andExpect(forwardedUrl(target))
+                .andExpect(redirectedUrl(null));
+    }
+
+    private void assertRetired(String path) throws Exception {
+        mockMvc.perform(get(path))
+                .andExpect(status().isNotFound())
+                .andExpect(forwardedUrl(null))
                 .andExpect(redirectedUrl(null));
     }
 }

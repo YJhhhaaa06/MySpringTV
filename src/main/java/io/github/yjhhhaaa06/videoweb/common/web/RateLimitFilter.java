@@ -115,9 +115,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
             // 浏览器默认请求（文件不存在也是 404）
             "/", "/index.html", "/favicon.ico", "/favicon.svg",
             // 前端 HTML 外壳（`WebMvcConfig#addViewControllers` 的转发目标与入口本身）
+            // 旧收藏页 `/favorites`、`/watchlater` 已于 2026-11-07 退役（直接 404），
+            // 不再是 HTML 外壳 ⇒ 从跳过清单移除。
             "/search", "/search.html",
-            "/favorites", "/favorites.html",
-            "/watchlater",
             "/history", "/history.html",
             "/dynamic", "/dynamic.html",
             // 创作中心（2026-10-28）：HTML 外壳同样是静态文件；页面随后发的 /api/v1/** 才过闸

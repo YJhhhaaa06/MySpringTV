@@ -20,8 +20,6 @@ const pageEntries: ReadonlyArray<readonly [RegExp, string]> = [
   [/^\/opus\/\d+\/?$/, '/opus.html'],
   [/^\/space\/me\/?$/, '/space.html'],
   [/^\/space\/\d+\/?$/, '/space.html'],
-  [/^\/favorites\/?$/, '/favorites.html'],
-  [/^\/watchlater\/?$/, '/favorites.html'],
   [/^\/history\/?$/, '/history.html'],
   [/^\/dynamic\/?$/, '/dynamic.html'],
   // 创作中心（2026-10-28）：**刻意不用 `/upload`** —— `/upload/**` 是后端媒体静态路径
@@ -89,7 +87,6 @@ export default defineConfig({
         video: fileURLToPath(new URL('./video.html', import.meta.url)),
         opus: fileURLToPath(new URL('./opus.html', import.meta.url)),
         space: fileURLToPath(new URL('./space.html', import.meta.url)),
-        favorites: fileURLToPath(new URL('./favorites.html', import.meta.url)),
         history: fileURLToPath(new URL('./history.html', import.meta.url)),
         dynamic: fileURLToPath(new URL('./dynamic.html', import.meta.url)),
         creator: fileURLToPath(new URL('./creator.html', import.meta.url)),
