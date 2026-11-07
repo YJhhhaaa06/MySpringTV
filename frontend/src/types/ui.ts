@@ -261,6 +261,12 @@ export interface SpaceWorksVM {
   totalPages: number
 }
 
+/** `PUT /favorite-folders/{id}` 的部分更新载荷：只放用户真正改过的字段。 */
+export interface FolderEditPatch {
+  name?: string
+  isPrivate?: boolean
+}
+
 /**
  * 收藏夹（空间「收藏」tab 左栏 / 主页夹卡共用）。
  *
@@ -275,6 +281,11 @@ export interface LibraryFolderVM {
   name: string
   itemCount: number
   coverUrl: string | null
+  /**
+   * self：是否设过自定义封面（`R-35`）；公开面 VO 没有这个字段 ⇒ 一律 `false`。
+   * 只用于「恢复自动封面」入口是否显示，公开面不做任何编辑判断。
+   */
+  hasCustomCover: boolean
   /** self：真实私密标记；公开面只会返回公开夹 ⇒ false */
   isPrivate: boolean
   /** 默认夹：self 面真实；公开面 `null`（不知道，也不判断） */

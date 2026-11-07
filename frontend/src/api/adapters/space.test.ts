@@ -95,6 +95,7 @@ describe('toPublicFolder', () => {
       name: '默认收藏夹',
       itemCount: 3,
       coverUrl: '/upload/cover/a.png',
+      hasCustomCover: false,
       isPrivate: false,
       isDefault: null,
     })

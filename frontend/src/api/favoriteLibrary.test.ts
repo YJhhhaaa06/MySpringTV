@@ -30,6 +30,7 @@ const mineFolder: LibraryFolderVM = {
   name: '默认收藏夹',
   itemCount: 2,
   coverUrl: '/upload/favorite-cover/a.jpg',
+  hasCustomCover: true,
   isPrivate: true,
   isDefault: true,
 }
@@ -39,6 +40,7 @@ const publicFolder: LibraryFolderVM = {
   name: '公开收藏夹',
   itemCount: 1,
   coverUrl: null,
+  hasCustomCover: false,
   isPrivate: false,
   isDefault: null,
 }

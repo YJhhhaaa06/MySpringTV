@@ -72,6 +72,8 @@ export function toPublicFolder(folder: components['schemas']['PublicFavoriteFold
     name: folder.name?.trim() || '未命名收藏夹',
     itemCount: folder.itemCount ?? 0,
     coverUrl: folder.coverUrl?.trim() || null,
+    // 公开面 VO 没有 `hasCustomCover`（也不该让访客知道）⇒ 一律 false
+    hasCustomCover: false,
     isPrivate: false,
     isDefault: null,
   }

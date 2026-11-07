@@ -25,6 +25,8 @@ export function toMyFolder(folder: components['schemas']['FavoriteFolderVO']): L
     name: folder.name?.trim() || '未命名收藏夹',
     itemCount: typeof folder.itemCount === 'number' ? folder.itemCount : 0,
     coverUrl: folder.coverUrl?.trim() || null,
+    // `R-35`：只有我的夹列表带这个字段；缺省 / 脏值按 false，不凭它猜"设过自定义"
+    hasCustomCover: folder.hasCustomCover === true,
     isDefault: folder.isDefault === true,
     isPrivate: folder.isPrivate === true,
   }

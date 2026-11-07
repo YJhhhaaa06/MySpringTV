@@ -11,6 +11,7 @@ function folder(fields: Partial<Record<keyof FavoriteFolderVO, unknown>> = {}): 
     name: '默认收藏夹',
     itemCount: 3,
     coverUrl: '/upload/favorite-cover/x.jpg',
+    hasCustomCover: true,
     isDefault: true,
     isPrivate: false,
     ...fields,
@@ -48,6 +49,13 @@ describe('toMyFolder', () => {
     expect(toMyFolder(folder()).coverUrl).toBe('/upload/favorite-cover/x.jpg')
     expect(toMyFolder(folder({ coverUrl: '   ' })).coverUrl).toBeNull()
     expect(toMyFolder(folder({ coverUrl: null })).coverUrl).toBeNull()
+  })
+
+  it('★ hasCustomCover：只有明确 true 才算设过；缺失 / 脏值一律 false', () => {
+    expect(toMyFolder(folder()).hasCustomCover).toBe(true)
+    expect(toMyFolder(folder({ hasCustomCover: false })).hasCustomCover).toBe(false)
+    expect(toMyFolder(folder({ hasCustomCover: undefined })).hasCustomCover).toBe(false)
+    expect(toMyFolder(folder({ hasCustomCover: 'true' })).hasCustomCover).toBe(false)
   })
 })
 
