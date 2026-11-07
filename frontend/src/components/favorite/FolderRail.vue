@@ -2,6 +2,7 @@
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { LibraryFolderVM } from '../../types/ui'
 import AppIcon from '../common/AppIcon.vue'
+import { canDeleteFolder } from './folderDelete'
 
 /**
  * 收藏 tab 左栏：真实收藏夹 + self 专属的「稍后再看」特殊项。
@@ -9,8 +10,9 @@ import AppIcon from '../common/AppIcon.vue'
  * <p>稍后再看**不是收藏夹**：没有封面、不参与夹数 / “收藏 N”，只是同一套右栏视图的
  * 另一个数据源（`GET /watch-later`）。公开面（看别人 / 匿名）不渲染它。
  *
- * <p>`R-35`：self 面每个夹 hover / focus 出 ⋮，菜单只有「编辑信息」。主按钮与 ⋮ 是
- * **两个并列按钮**（不能按钮套按钮）；点外部 / Esc 关闭菜单。
+ * <p>`R-35` / `R-36`：self 面每个夹 hover / focus 出 ⋮，菜单「编辑信息 / 删除」；
+ * **默认夹不渲染删除**（后端 409 仍兜底）。主按钮与 ⋮ 是**两个并列按钮**
+ * （不能按钮套按钮）；点外部 / Esc 关闭菜单。
  */
 defineProps<{
   folders: LibraryFolderVM[]
@@ -27,6 +29,7 @@ const emit = defineEmits<{
   (event: 'select-folder', id: number): void
   (event: 'select-later'): void
   (event: 'edit-folder', id: number): void
+  (event: 'delete-folder', id: number): void
 }>()
 
 const openMenuId = ref<number | null>(null)
@@ -60,6 +63,11 @@ function toggleMenu(id: number, event: MouseEvent): void {
 function chooseEdit(id: number): void {
   openMenuId.value = null
   emit('edit-folder', id)
+}
+
+function chooseDelete(id: number): void {
+  openMenuId.value = null
+  emit('delete-folder', id)
 }
 
 function onDocumentPointerDown(event: PointerEvent): void {
@@ -125,6 +133,15 @@ onBeforeUnmount(() => {
           <div v-if="openMenuId === folder.id" :id="menuId(folder.id)" class="rail-menu" role="menu">
             <button class="rail-menu__item" type="button" role="menuitem" @click="chooseEdit(folder.id)">
               编辑信息
+            </button>
+            <button
+              v-if="canDeleteFolder(folder)"
+              class="rail-menu__item rail-menu__item--danger"
+              type="button"
+              role="menuitem"
+              @click="chooseDelete(folder.id)"
+            >
+              删除
             </button>
           </div>
         </template>
@@ -242,6 +259,10 @@ onBeforeUnmount(() => {
 .rail-menu__item:hover {
   color: var(--brand-blue);
   background: var(--bg-1);
+}
+
+.rail-menu__item--danger:hover {
+  color: #f56c6c;
 }
 
 /* 触屏没有可靠的 hover：⋮ 常显，否则编辑入口不可达 */

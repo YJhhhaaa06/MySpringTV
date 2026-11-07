@@ -17,6 +17,7 @@ import {
   removeLibraryItem,
   removeLibraryLater,
 } from '../api/favoriteLibrary'
+import { deleteMyFolder } from '../api/favorites'
 import { followUser, unfollowUser } from '../api/interactions'
 import { ApiError, describeError } from '../api/http'
 import { formatCount, formatCoinInt } from '../api/adapters/format'
@@ -46,6 +47,8 @@ import FavoriteItemGrid from '../components/favorite/FavoriteItemGrid.vue'
 import FolderHomeSection from '../components/favorite/FolderHomeSection.vue'
 import FolderRail from '../components/favorite/FolderRail.vue'
 import FolderEditDialog from '../components/favorite/FolderEditDialog.vue'
+import FolderDeleteConfirm from '../components/favorite/FolderDeleteConfirm.vue'
+import { canDeleteFolder, isDeletedFolderStillActive, nextFolderAfterDelete } from '../components/favorite/folderDelete'
 import RelationPanel from '../components/space/RelationPanel.vue'
 
 /**
@@ -69,7 +72,7 @@ import RelationPanel from '../components/space/RelationPanel.vue'
  * `GAP-32`，本窗不渲染。
  *
  * <h2>★ 收藏浏览器 = 唯一入口（`R-34`）</h2>
- * `/space/{uid}?tab=folders` 是查看收藏夹内容的唯一入口（旧 `/favorites` 只留重定向壳）。
+ * `/space/{uid}?tab=folders` 是查看收藏夹内容的唯一入口（旧 `/favorites` 已退役，直接 404）。
  * - **self**：`GET /favorite-folders`（含私密夹）+ `GET /favorites?folderId=`，左栏带「私密」标记；
  * - **别人 / 匿名**：`GET /users/{id}/favorite-folders` + `GET /favorite-folders/{id}/items`，只有公开夹；
  * - 左栏底部的「稍后再看」是 **self 专属特殊项**（`?tab=folders&view=later&itemPage=N`），
@@ -511,10 +514,17 @@ let itemsRequestId = 0
 let foldersMutationVersion = 0
 /** 左栏 ⋮ →「编辑信息」打开的夹（null = 弹窗关闭） */
 const editingFolderId = ref<number | null>(null)
+/** 左栏 ⋮ →「删除」打开的夹（null = 确认框关闭） */
+const deletingFolderId = ref<number | null>(null)
+/** 删除请求在途：确认框已关，防止短时间内再开另一个删除 */
+let deleteInFlight = false
 
 const activeFolder = computed(() => folders.value.find((folder) => folder.id === activeFolderId.value) ?? null)
 const editingFolder = computed(
   () => folders.value.find((folder) => folder.id === editingFolderId.value) ?? null,
+)
+const deletingFolder = computed(
+  () => folders.value.find((folder) => folder.id === deletingFolderId.value) ?? null,
 )
 
 /** 主页收藏区块最多摆 10 个夹（B 站两行 + 查看更多）；总数另由 `folders.length` 给 */
@@ -578,11 +588,14 @@ async function loadFolders(force = false): Promise<void> {
   }
   const targetUserId = userId.value
   const targetIsSelf = isSelf.value
+  const version = foldersMutationVersion
   foldersLoading.value = true
   foldersError.value = ''
   try {
     const list = await loadLibraryFolders(targetUserId, targetIsSelf)
     if (userId.value !== targetUserId || isSelf.value !== targetIsSelf) return
+    // 删除 / 改名 / 封面之后，早于这些写请求发出的旧列表不得把已删的夹加回来
+    if (foldersMutationVersion !== version) return
     applyFolders(list)
     foldersLoadedFor.value = scopeKey
     if (targetIsSelf && tab.value === 'folders') void loadLaterTotal()
@@ -590,6 +603,7 @@ async function loadFolders(force = false): Promise<void> {
     await ensureFolderSelection(list, targetIsSelf, targetUserId)
   } catch (exception) {
     if (userId.value !== targetUserId || isSelf.value !== targetIsSelf) return
+    if (foldersMutationVersion !== version) return
     folders.value = []
     foldersLoadedFor.value = ''
     foldersError.value = describeError(exception)
@@ -834,6 +848,7 @@ function clearFolderState(): void {
   removingId.value = null
   laterTotal.value = null
   editingFolderId.value = null
+  deletingFolderId.value = null
 }
 
 // 换人（/space/5 → /space/6）时同步清空，别等异步请求回来才替换
@@ -882,6 +897,93 @@ function openFolderEdit(folderId: number): void {
 
 function closeFolderEdit(): void {
   editingFolderId.value = null
+}
+
+/** self 面左栏 ⋮ →「删除」；默认夹 / 公开面 / 删除在途都不开确认框 */
+function openFolderDelete(folderId: number): void {
+  if (!isSelf.value || deleteInFlight) return
+  const folder = folders.value.find((entry) => entry.id === folderId)
+  if (!folder || !canDeleteFolder(folder)) return
+  deletingFolderId.value = folderId
+}
+
+function closeFolderDelete(): void {
+  deletingFolderId.value = null
+}
+
+/**
+ * 确认删除：先关弹窗，再发请求（`R-36` ②）。
+ *
+ * <p>`404` 是资源型删除的「已删亦视为不存在」⇒ 按成功收口；
+ * `403`（不是自己的夹）/ `409`（默认夹）说明列表与服务器不一致 ⇒ toast 后重拉；
+ * `429` / 网络失败保留列表，让用户重试。
+ */
+async function confirmFolderDelete(): Promise<void> {
+  const folder = deletingFolder.value
+  // 先关闭弹窗再执行（用户拍板：失败用 toast，不在弹窗里内联）
+  deletingFolderId.value = null
+  if (!folder || deleteInFlight) return
+  const targetUserId = userId.value
+  const targetIsSelf = isSelf.value
+  if (editingFolderId.value === folder.id) editingFolderId.value = null
+
+  deleteInFlight = true
+  try {
+    await deleteMyFolder(folder.id)
+    if (userId.value !== targetUserId || isSelf.value !== targetIsSelf) return
+    await afterFolderDeleted(folder.id, targetUserId)
+    showToast('收藏夹已删除')
+  } catch (exception) {
+    if (userId.value !== targetUserId || isSelf.value !== targetIsSelf) return
+    if (exception instanceof ApiError && exception.status === 404) {
+      // 资源型删除：第二次 404 —— 「已删亦视为不存在」，按成功处理
+      await afterFolderDeleted(folder.id, targetUserId)
+      showToast('收藏夹已删除')
+      return
+    }
+    showToast(describeError(exception, '删除收藏夹失败，请稍后重试'), 'error')
+    if (exception instanceof ApiError && (exception.status === 403 || exception.status === 409)) {
+      void loadFolders(true)
+    }
+  } finally {
+    deleteInFlight = false
+  }
+}
+
+/**
+ * 删除成功后的状态收口：本地移除 + 当前夹被删时选下一个夹 / 清空。
+ *
+ * <p>★ `stillActive` 必须在**回包之后**重算：确认时用户可能还停在 A 夹，
+ * 请求期间已切到 B 夹 / 稍后再看 / 主页；此时删除成功只能从列表里移除 A，
+ * **不能**把用户强行拉回 `folder=A` 的替代夹，也不能作废 B 面板的在途条目响应。
+ * 当前仍停在 A 时，先作废 A 的在途条目响应（`itemsRequestId`），再 `router.replace`，
+ * 由 route watcher 重新装载右栏。不重拉 `GET /favorite-folders`：删除的结果是确定的，
+ * 本地移除足够；在途的封面重拉由 `foldersMutationVersion` 淘汰。
+ */
+async function afterFolderDeleted(folderId: number, ownerId: number): Promise<void> {
+  applyFolders(folders.value.filter((folder) => folder.id !== folderId))
+  const stillActive = isDeletedFolderStillActive(
+    tab.value,
+    folderView.value,
+    activeFolderId.value,
+    folderId,
+  )
+  if (!stillActive) return
+
+  itemsRequestId += 1
+  folderItems.value = []
+  folderPage.value = 1
+  folderTotal.value = 0
+  folderTotalPages.value = 0
+  itemsError.value = ''
+
+  if (userId.value !== ownerId) return
+  const next = nextFolderAfterDelete(folders.value, folderId)
+  await router.replace({
+    name: 'space',
+    params: { id: ownerId },
+    query: next ? { tab: 'folders', folder: String(next.id) } : { tab: 'folders' },
+  })
 }
 
 /** 改名 / 公开：后端已成功，就地更新列表，别为一次写再拉一遍 folders */
@@ -1176,6 +1278,7 @@ function goItemPage(page: number): void {
                   @select-folder="openFolder"
                   @select-later="selectLater"
                   @edit-folder="openFolderEdit"
+                  @delete-folder="openFolderDelete"
                 />
 
                 <section class="folder-browser__main">
@@ -1259,6 +1362,14 @@ function goItemPage(page: number): void {
                 @close="closeFolderEdit"
                 @updated="onFolderUpdated"
                 @cover-changed="onFolderCoverChanged"
+              />
+
+              <!-- 删除收藏夹（R-36）：只 self 面、非默认夹；确认后关闭弹窗再发请求 -->
+              <FolderDeleteConfirm
+                v-if="isSelf && deletingFolder"
+                :folder-name="deletingFolder.name"
+                @close="closeFolderDelete"
+                @confirm="confirmFolderDelete"
               />
             </template>
           </section>

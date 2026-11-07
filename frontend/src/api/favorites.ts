@@ -49,6 +49,17 @@ export function resetMyFolderCover(folderId: number): Promise<undefined> {
   return deleteJson('/api/v1/favorite-folders/{id}/cover', { path: { id: folderId } })
 }
 
+/**
+ * `DELETE /favorite-folders/{id}`：删除自建收藏夹（204，不返回体）。
+ *
+ * <p>夹内收藏记录由后端**同事务一并删除**；默认夹会被后端 `409` 拒绝
+ * （前端不渲染删除入口）。资源型删除：第二次仍 `404`（“已删亦视为不存在”）
+ * —— 调用方把 `404` 按“已删”处理，不当失败。
+ */
+export function deleteMyFolder(folderId: number): Promise<undefined> {
+  return deleteJson('/api/v1/favorite-folders/{id}', { path: { id: folderId } })
+}
+
 /** `GET /favorites?folderId=&page=&pageSize=`：**我的**某个夹的条目（Page） */
 export async function loadMyFolderItems(
   folderId: number,
