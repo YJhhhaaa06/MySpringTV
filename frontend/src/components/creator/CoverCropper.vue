@@ -14,6 +14,7 @@ import {
   zoomAround,
 } from '../../api/coverCrop'
 import type { CoverCropState, Size } from '../../api/coverCrop'
+import { lockBodyOverflow, unlockBodyOverflow } from '../../common/modalOverflow'
 import AppIcon from '../common/AppIcon.vue'
 
 /**
@@ -32,14 +33,19 @@ import AppIcon from '../common/AppIcon.vue'
  * 产物文件名走 `coverFileName`（`photo.png` → `photo-cover.jpg`）：它要参与
  * `fileKey` / `draftSignature`，名字与大小不能跟原图撞。
  */
-const props = defineProps<{
-  /** 源图地址（本地文件用 object URL，编辑页的已上传封面用同源 `/upload/**`） */
-  sourceUrl: string | null
-  /** 源文件名（决定裁剪产物名与扩展名） */
-  fileName: string
-  /** 标题（视频 / 图文用同一句也可以传空） */
-  heading?: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    /** 源图地址（本地文件用 object URL，编辑页的已上传封面用同源 `/upload/**`） */
+    sourceUrl: string | null
+    /** 源文件名（决定裁剪产物名与扩展名） */
+    fileName: string
+    /** 标题（视频 / 图文用同一句也可以传空） */
+    heading?: string
+    /** 说明文案：不同封面位的展示尺寸不同，别把「播放器」写死在收藏夹弹窗里 */
+    note?: string
+  }>(),
+  { note: '按 16:9 裁切：框里看到的就是卡片与播放器里看到的' },
+)
 
 const emit = defineEmits<{
   (event: 'close'): void
@@ -236,13 +242,13 @@ function onImageError(): void {
 }
 
 onMounted(() => {
-  document.body.style.overflow = 'hidden'
+  lockBodyOverflow()
   window.addEventListener('keydown', onKeydown)
   dialog.value?.focus()
 })
 
 onBeforeUnmount(() => {
-  document.body.style.overflow = ''
+  unlockBodyOverflow()
   window.removeEventListener('keydown', onKeydown)
   observer?.disconnect()
   observer = null
@@ -263,7 +269,7 @@ onBeforeUnmount(() => {
         <header class="cropper__head">
           <div>
             <h2 id="cropper-title" class="cropper__title">{{ heading || '裁剪封面' }}</h2>
-            <p class="cropper__note">按 16:9 裁切：框里看到的就是卡片与播放器里看到的</p>
+            <p class="cropper__note">{{ note }}</p>
           </div>
           <button class="cropper__close" type="button" aria-label="关闭" @click="close">
             <AppIcon name="close" :size="18" />

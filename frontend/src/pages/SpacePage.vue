@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type {
+  FolderEditPatch,
   LibraryFolderVM,
   SpaceHeaderVM,
   SpaceWorksVM,
@@ -44,6 +45,7 @@ import FavoriteFolderHeader from '../components/favorite/FavoriteFolderHeader.vu
 import FavoriteItemGrid from '../components/favorite/FavoriteItemGrid.vue'
 import FolderHomeSection from '../components/favorite/FolderHomeSection.vue'
 import FolderRail from '../components/favorite/FolderRail.vue'
+import FolderEditDialog from '../components/favorite/FolderEditDialog.vue'
 import RelationPanel from '../components/space/RelationPanel.vue'
 
 /**
@@ -505,8 +507,15 @@ const removingId = ref<number | null>(null)
 const laterTotal = ref<number | null>(null)
 /** 条目请求序号：切夹 / 切视图 / 翻页后，晚到的旧响应不得覆盖新面板 */
 let itemsRequestId = 0
+/** 夹列表版本：封面后的重拉 / 全量重载 / 就地改名共用一个版本，晚到的旧列表不得覆盖新改动 */
+let foldersMutationVersion = 0
+/** 左栏 ⋮ →「编辑信息」打开的夹（null = 弹窗关闭） */
+const editingFolderId = ref<number | null>(null)
 
 const activeFolder = computed(() => folders.value.find((folder) => folder.id === activeFolderId.value) ?? null)
+const editingFolder = computed(
+  () => folders.value.find((folder) => folder.id === editingFolderId.value) ?? null,
+)
 
 /** 主页收藏区块最多摆 10 个夹（B 站两行 + 查看更多）；总数另由 `folders.length` 给 */
 const homeFolders = computed(() => folders.value.slice(0, 10))
@@ -519,6 +528,12 @@ const headerTotal = computed(() => {
 
 function folderScopeKey(): string {
   return `${userId.value}:${isSelf.value ? 'self' : 'public'}`
+}
+
+/** 所有"整体写 folders"的地方都走这里：版本 +1，在途的旧重拉才算得出来自己被淘汰 */
+function applyFolders(list: LibraryFolderVM[]): void {
+  foldersMutationVersion += 1
+  folders.value = list
 }
 
 /**
@@ -568,7 +583,7 @@ async function loadFolders(force = false): Promise<void> {
   try {
     const list = await loadLibraryFolders(targetUserId, targetIsSelf)
     if (userId.value !== targetUserId || isSelf.value !== targetIsSelf) return
-    folders.value = list
+    applyFolders(list)
     foldersLoadedFor.value = scopeKey
     if (targetIsSelf && tab.value === 'folders') void loadLaterTotal()
     else if (!targetIsSelf) laterTotal.value = null
@@ -805,6 +820,7 @@ async function refreshItemsSilently(): Promise<void> {
 /** 清空收藏相关内存态：登录 / 退出 / 换号 / 换人后，上一视角的私密夹与条目不得留在屏上 */
 function clearFolderState(): void {
   itemsRequestId += 1
+  foldersMutationVersion += 1
   folders.value = []
   foldersLoadedFor.value = ''
   foldersError.value = ''
@@ -817,6 +833,7 @@ function clearFolderState(): void {
   itemsError.value = ''
   removingId.value = null
   laterTotal.value = null
+  editingFolderId.value = null
 }
 
 // 换人（/space/5 → /space/6）时同步清空，别等异步请求回来才替换
@@ -854,6 +871,68 @@ function openFolder(folderId: number): void {
 /** 左栏「稍后再看」：只改 query，右栏复用同一套网格 / 分页 */
 function selectLater(): void {
   void router.push({ name: 'space', params: { id: userId.value }, query: { tab: 'folders', view: 'later' } })
+}
+
+/** self 面左栏 ⋮ →「编辑信息」；公开面 / 匿名不渲染入口，这里再守一道 */
+function openFolderEdit(folderId: number): void {
+  if (!isSelf.value) return
+  if (!folders.value.some((folder) => folder.id === folderId)) return
+  editingFolderId.value = folderId
+}
+
+function closeFolderEdit(): void {
+  editingFolderId.value = null
+}
+
+/** 改名 / 公开：后端已成功，就地更新列表，别为一次写再拉一遍 folders */
+function onFolderUpdated(folderId: number, patch: FolderEditPatch): void {
+  applyFolders(
+    folders.value.map((folder) => (folder.id === folderId ? { ...folder, ...patch } : folder)),
+  )
+}
+
+/**
+ * 封面 / 恢复成功后重拉夹列表：上传响应没有 URL，只有这里能拿到新的生效封面。
+ *
+ * <p>只重拉 folders，不动稍后再看计数与条目分页（封面不该把右栏重置到第 1 页）。
+ * 用 `foldersMutationVersion` 淘汰"读早于随后 PUT、回来得却更晚"的旧列表 ——
+ * 否则刚保存的改名 / 公开会被旧列表在屏上回退。被淘汰时最多再追一次。
+ */
+async function refreshFoldersAfterCover(retry = 0): Promise<void> {
+  if (!userId.value) return
+  const targetUserId = userId.value
+  const targetIsSelf = isSelf.value
+  const version = foldersMutationVersion
+  try {
+    const list = await loadLibraryFolders(targetUserId, targetIsSelf)
+    if (userId.value !== targetUserId || isSelf.value !== targetIsSelf) return
+    if (foldersMutationVersion !== version) {
+      if (retry < 1) await refreshFoldersAfterCover(retry + 1)
+      return
+    }
+    applyFolders(list)
+    foldersLoadedFor.value = folderScopeKey()
+  } catch {
+    showToast('封面已更新，但收藏夹列表刷新失败，请刷新页面', 'error')
+  }
+}
+
+function onFolderCoverChanged(folderId: number, hasCustomCover: boolean): void {
+  // 先就地落一个"已知态"：重拉失败时也别让 hasCustomCover 留在旧值
+  applyFolders(
+    folders.value.map((folder) => {
+      if (folder.id !== folderId) return folder
+      const wasCustom = folder.hasCustomCover
+      return {
+        ...folder,
+        hasCustomCover,
+        // 替换自定义封面时旧文件已被服务端删除，重拉前先占位，别让 <img> 打一个必 404 的 URL；
+        // 从自动封面改成自定义时旧自动 URL 仍然有效，可以继续显示到新 URL 回来。
+        coverUrl: hasCustomCover ? (wasCustom ? null : folder.coverUrl) : null,
+      }
+    }),
+  )
+  void refreshFoldersAfterCover()
 }
 
 /** 选中的夹不存在 / 不可见时退回夹列表（左栏仍在，不整页报错） */
@@ -1096,6 +1175,7 @@ function goItemPage(page: number): void {
                   :view="folderView"
                   @select-folder="openFolder"
                   @select-later="selectLater"
+                  @edit-folder="openFolderEdit"
                 />
 
                 <section class="folder-browser__main">
@@ -1171,6 +1251,15 @@ function goItemPage(page: number): void {
                   </template>
                 </section>
               </div>
+
+              <!-- 编辑信息：只 self 面左栏 ⋮ 触发；公开面 / 匿名不渲染 -->
+              <FolderEditDialog
+                v-if="isSelf && editingFolder"
+                :folder="editingFolder"
+                @close="closeFolderEdit"
+                @updated="onFolderUpdated"
+                @cover-changed="onFolderCoverChanged"
+              />
             </template>
           </section>
 
