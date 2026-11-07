@@ -17,8 +17,8 @@
 ## 一、周期头（每窗开读）
 
 * ★ **状态**：2026-10-30 开窗。本窗第一件事 = 补一次全量回归基线（见下）+ 起联调清单。
-* ★ **编号**：任务 **`T76`** 起（`T71`–`T98` 已完结；**已用到 `T115`，下一编号 `T116`**）/
-  决策 **`R-27`** 起（`R-25` = 记录开关、`R-26` = 历史可删 + per-day 口径；**已用到 `R-34`，下一编号 `R-35`**）/ 问题 **`I-33`** 起（`I-31`/`I-32` 已终结；**下一编号 `I-34`**）/ 结转 **`F-30`** 起（**已用到 `F-35`，下一编号 `F-36`**）。
+* ★ **编号**：任务 **`T76`** 起（`T71`–`T98` 已完结；**已用到 `T118`，下一编号 `T119`**）/
+  决策 **`R-27`** 起（`R-25` = 记录开关、`R-26` = 历史可删 + per-day 口径；**已用到 `R-35`，下一编号 `R-36`**）/ 问题 **`I-33`** 起（`I-31`/`I-32` 已终结；**下一编号 `I-34`**）/ 结转 **`F-30`** 起（**已用到 `F-35`，下一编号 `F-36`**）。
   ⚠️ **编号不回收、不复用**：后端期已用的 `I-01`–`I-30` 随归档留在原地，联调期**从 `I-31` 继续**；
   `F-##` 同理（`F-01`–`F-35` 已用，见 [FURTHER_ISSUES](./FURTHER_ISSUES.md)）。
 * ★ **回归基线**：默认集 **980**（2026-11-06，`DB_POOL_MAX_SIZE=4`，`R-33` 后；上一档 962）+ 前端 **383**（`R-32` 后；上一档 377）；
@@ -81,6 +81,7 @@
 | `R-32` | **动态页翻页改无限滚动 + 轮询式「有新动态」**（2026-11-06 拍板；服务端**不做推送**）：① `/dynamic` 全部动态与作者模式都改无限滚动（12/页、哨兵提前 800px、续页骨架、行内重试；到底 = `page >= totalPages`，文案「这次的动态到底了」）；② 后端只加**可选** `beforeContentId` 快照锚点：第 2 页起只看 `id ≤ 首屏首条 id`，`total` = 锚点内条数 ⇒ 新内容插到头部不会让 offset 漂（不去重、不漏条）；**不加端点、不改响应形状、不加迁移**；③ 「有新动态」= **1 分钟轮询** `GET /feed?page=1&pageSize=3`（不带锚点）比首条 id，**无计数**；仅标签页可见时跑、回前台立刻补一次、单飞、401 停、429 退避；点击 = 回顶 + 重拉第 1 页（整批替换，epoch 淘汰在途续页，失败 toast + 保留旧列表）；④ 标题行「刷新」按钮同语义；内联横幅 + 浮层「有新动态」胶囊互斥（横幅不在视口时才出浮层，照 `R-29` 口径）；⑤ 右下「回到顶部」（`scrollY > 800`）；⑥ 不落 localStorage；作者模式不轮询；空列表不轮询 | ① 真实 QPS 下轮询占比过高 / 要未读数 ⇒ 加 head 端点或推送通道；② 要"刷新不丢位置 / 多端同步 / 精确增量" ⇒ 上完整游标信封；③ 空间动态 tab 与作者模式体验割裂被质疑 ⇒ 下一窗接同一套；④ 窗口重建 / 删稿导致"跳 1 条"成为可感问题 ⇒ 改服务端会话快照 |
 | `R-33` | **收藏夹封面**（2026-11-06 用户拍板；推翻 `GAP-17` 长期与 `FURTHER_ISSUES` 的封面留池）：① 三态互斥 = 自定义 / 自动 / 灰底 TV 占位；自动封面 = **夹内最新一条收藏**（视频或图文都算），能经 content 装载契约取到且 `coverUrl` 非空就用它，否则（失效 / 无封面 / 空夹）**直接占位，不回退**；② 自定义封面只在 **`/favorites`** 提供上传：可反复更换、可「恢复自动」、默认夹与私密夹都可设；创建收藏夹弹窗**不提供上传**；`FavoriteDialog` 不显示封面；③ 展示面 = **空间「主页」tab 新增收藏区块（最多 10 个公开夹、两行、查看更多）+ `/favorites` 选中夹头部封面**；空间页 `?tab=folders` 本期不动（合并登记 `F-35`）；④ 接口：`PUT /api/v1/favorite-folders/{id}/cover`（multipart，服务端收 16:9 裁剪产物，**类型 + ≤2MB**）、`DELETE /api/v1/favorite-folders/{id}/cover`（恢复自动，204）；`GET /favorite-folders` / `GET /users/{id}/favorite-folders` 回带生效 `coverUrl`（我的夹另带 `hasCustomCover`）；⑤ 落盘 **`/upload/favorite-cover/`**（不混入 `cover/`：`media_clean.py` 会把未被 `content_media` 引用的 `cover` 文件判孤儿）；旧自定义文件在替换 / 恢复 / 删夹后清理；⑥ **不缓存 folders**：封面读取时现算（一条最新收藏查询 + 一趟 content 批量读）；**不改 `favorite_item` 写路径、不加 `content_type`**；⑦ 前端裁剪固定 **16:9 / 1280×720 JPEG**，原图 ≤10MB、jpg/png/jpeg；占位复用灰 TV 图标；本轮**后端优先**，前端另窗按工作量决定 | ① 要求「最新视频」而非「最新一条收藏」 ⇒ 需给 `favorite_item` 增 `content_type`（或回扫），重开；② 封面需要进缓存 / 列表热路径被质疑慢 ⇒ 再评缓存与失效；③ 需要创建时上传 / 空间收藏 tab 直接编辑 ⇒ 重定入口；④ 服务端要强制尺寸 / 去 EXIF / 内容审核 ⇒ 加 ImageIO 重编码；⑤ 封面孤儿需自动回收 ⇒ 扩 `media_clean.py` 把 `favorite_folder.cover_ref` 当引用源 |
 | `R-34` | **收藏夹查看入口收敛到个人空间收藏 tab**（2026-11-06 用户拍板；`/favorites` 软弃用）：① 唯一查看收藏夹内容的入口 = **`/space/{uid}?tab=folders`**；`/favorites` / `/watchlater` 不再作为独立页面，只保留**薄重定向壳**（旧 query 映射：`folder→folder`、`page→itemPage`、watchlater→`view=later`），新页稳定后另窗清理 HTML 入口 / 转发 / 限流 / 测试；② 顶栏「收藏」直连 **`/space/me?tab=folders`**，解析登录态后 `replace` 成数字 uid；匿名走页面级登录；③ self 走 `GET /favorite-folders` + `GET /favorites?folderId=`（含私密夹），别人走 `GET /users/{id}/favorite-folders` + `GET /favorite-folders/{id}/items`（公开），**绝不混用**；身份判定在 `restoreSession()` 之后用 `currentUserId()`，登录/退出/换号必须清空 folders / items / 选中夹；④ 稍后再看 = 收藏 tab **左栏特殊项**，右栏复用同一套网格 / 分页 / 移出；URL `?tab=folders&view=later&itemPage=N`；只 self 可见、不计入“收藏 N”和夹数；⑤ 封面本窗**只展示**（选中夹头部 + 主页夹卡；`coverUrl=null` 灰 TV 占位、破图 fallback；左栏与 `FavoriteDialog` 不显示）；**不做上传 / 恢复**，`hasCustomCover` 的 UI 留到上传那步；⑥ 空间主页 tab 收藏区块：self 含私密夹并带私密标记、别人只有公开夹；最多 10 张 + 查看更多；无夹不渲染、失败块内联重试；⑦ 不做收藏夹 CRUD / 私密开关 / 批量管理 / 排序 tabs / “播放全部” | ① `/space/{uid}` 无法安全承载 self 私密夹 ⇒ 改独立页；④ 稍后再看需要独立 URL / 独立 tab ⇒ 重开；⑤ 上传 / 恢复提前 ⇒ 重定入口（原“只在 `/favorites` 上传”口径随页面弃用失效）；⑥ 主页 10 张被质疑 ⇒ 调整上限 |
+| `R-35` | **收藏夹信息编辑入口落在空间收藏 tab**（2026-11-07 用户拍板；落地 `R-33` ⑤ / `R-34` ⑤ 的入口口径）：① 仅 self 面左栏每个夹 **hover / focus 出现 ⋮**，菜单只放「编辑信息」（删除夹另开任务）；② 弹窗 = **封面**（点封面选图 → 复用 16:9 / 1280×720 的 `CoverCropper` → 裁剪确认即上传）+ **名称**（≤20，与新建弹窗一致；后端实际允许 100）+ **公开开关**（`isPrivate` 取反）+ **简介只读禁用占位**（`favorite_folder.description` 列 V2 已存在，实体 / VO / DTO 未接；本窗不接后端、不做"可输入但丢弃"）；③ **恢复自动封面做**，仅在 `hasCustomCover=true` 时显示；`hasCustomCover` 补进 `LibraryFolderVM`（公开面 VO 无此字段 ⇒ false）；④ 默认夹可编辑（名称 / 公开 / 封面），**不提供删除**；⑤ 不改后端 / 不加迁移 / 不动 `FavoriteDialog` 与主页夹卡（只读）；⑥ 旧 `favorites.html` 入口与转发 / 限流 / 契约清理**下窗**做；验收 = self / public / anonymous 三态 + 真浏览器 | ① B站实测封面是"保存时一起提交"而非选图即上传 ⇒ 改 pending 模式（取消 = 放弃封面）；② 简介必须可编辑 ⇒ 补后端（列已存在，无需迁移）；③ 要求菜单同时有删除 ⇒ 另开任务；④ 空间收藏 tab 不再承担编辑入口 ⇒ 重定入口 |
 
 > 用户 2026-10-31 在 Chrome 重放上报请求实测：**B站 是服务端强制的**。本仓**刻意不跟**，理由与代价见
 > [history-已知代价](../architecture/domain/history/history-已知代价.md)（不是"没做到"）。
@@ -151,6 +152,9 @@
 | `T113` | `/space/me` + 顶栏「收藏」直连 + `/favorites`、`/watchlater` 软弃用重定向壳（旧 query 映射） | 不硬删 `favorites.html` 入口；不改后端转发 / 限流清单（`/space/me` 走既有 `/space/{id}` 转发）；旧链接不 404；跨应用整页跳转用 `location.replace` | `/space/me` 登录 / 匿名 / 已登录、旧 URL 映射用例 + 真浏览器；`typecheck` / `build` | **已完成（2026-11-06）** |
 | `T114` | 空间主页 tab 收藏区块：`收藏 N` + 最多 10 张夹卡 + 封面 + 查看更多；self 含私密（带标记），别人公开 | 不动投稿预览 / 动态 / 投稿；夹列表失败不拖垮主页；无夹不渲染；封面只读 | 真浏览器（3 夹卡 / 私密标记 / 空夹占位 / 查看更多）；⚠️ `slice(0,10)` 上限与 `isSelf` 判定**无 DOM 单测**（明写，不冒充已验）+ `typecheck` / `build` | **已完成（2026-11-06）** |
 | `T115` | 收口：`GAP-17` / `前端.md` 页面矩阵 / `CURRENT_FRONTEND` 入口映射 / `favorite.md` §十一 口径 / `CURRENT_INTEGRATION` 回写；三道文档门禁 + 前端全量 + subagent review + 真浏览器（需要时 `UPLOAD_ROOT=.tmp\e2e-media`） | 只增不改号；代码注释只引 `architecture/**` / `archive/**`；旧入口删除另窗；发现问题先登记 `I-##` 或停下问 | 三道门禁 0 违规；前端全绿；review P0/P1 全修；真浏览器六步（self / 别人 / 匿名、私密消失、封面占位、稍后再看、旧链接重定向、主页区块） | **已完成（2026-11-06）**：门禁 0 违规；前端 394 / typecheck / build；E2E 40 项；review 1 P1 已修 + P2 修 2。 |
+| `T116` | `R-35` 前端数据面：`updateMyFolder` / `uploadMyFolderCover` / `resetMyFolderCover`；`hasCustomCover` 进 `LibraryFolderVM`（self / public 两适配器）；纯函数 `folderEdit`（名称 trim / ≤20 / 空值、只提交变化字段、公开→`isPrivate`） | 不改后端 / 不加迁移；公开面 VO 没有 `hasCustomCover` ⇒ 一律 `false`，不拿它做编辑判断；只提交用户真正改过的字段（两个都没改 ⇒ 不发请求） | `folderEdit` 单测（trim / 空 / 超长 / 只改名 / 只改公开 / 两者 / 无变化）+ 适配器测试（`true` / `false` / 缺省）+ `typecheck`；反向注入：去掉 trim 或去掉 20 上限各红一条 | **已完成（2026-11-07）**：3 个 API + `hasCustomCover` 两适配器；`folderEdit` 纯函数（含"名字没改不校验"的旧长名守卫）；单测 **11** 例，前端 **405** 全绿；typecheck 绿。 |
+| `T117` | `R-35` 交互面：`FolderRail` self 左栏 hover / focus ⋮ + 菜单（仅「编辑信息」）；`FolderEditDialog`（封面点击选图 → 复用 `CoverCropper` 16:9 → 裁剪确认即上传；恢复自动封面仅 `hasCustomCover`；名称 / 公开；简介只读禁用占位；错误 / 429 内联）；`SpacePage` 接线（改名 / 公开就地更新、封面后重拉 folders、保持选中夹、public / 匿名不渲染） | 不按钮套按钮；不改 `FavoriteDialog` / 主页夹卡 / 左栏「稍后再看」；封面成功后必须重拉 `GET /favorite-folders`（上传响应无 URL）；嵌套裁剪层要处理 `body overflow` 与 Escape，别让关裁剪层后编辑弹窗背后可滚 / 一起关掉；取消不改名称与公开，但**已上传的封面不回滚**（弹窗内明写） | 真浏览器 self / public / anonymous：hover 出 ⋮、菜单、改名 / 公开、默认夹可编辑、封面上传 → 裁剪 → 头部 / 主页夹卡更新、恢复自动、失败 / 429 提示、0 console error + `typecheck` / `test` / `build`；⚠️ DOM 交互没有 `@vue/test-utils`，回写明写"无 DOM 单测" | **已完成（2026-11-07）**：⋮ + 菜单（键盘焦点回收）/ 编辑弹窗 / 封面裁剪上传 + 恢复 / 默认夹可编辑；`foldersMutationVersion` 守卫封面后重拉；真浏览器 **50/50**（self / public / anonymous、取消不回滚封面、非图片拦截、默认夹、0 console error）；`typecheck` / `test` **405** / `build` 绿。⚠️ 菜单与弹窗 DOM 交互**无 DOM 单测**。 |
+| `T118` | 收口：`GAP-17` / `favorite.md` §十一 / `前端.md` 页面矩阵 / `CURRENT_INTEGRATION` 回写；三道文档门禁 + 前端全量 + subagent review + 真浏览器 | 只增不改号；代码注释只引 `architecture/**` / `archive/**`；review P0/P1 全修；发现问题先登记 `I-##` 或停下问 | 门禁 0 违规；前端全绿；review 报告留痕；`GAP-17` 状态改为"已销账（编辑 / 封面上传 / 恢复）" | **已完成（2026-11-07）**：`GAP-17` 销账 / `favorite.md` §十一 / `favorite-需求.md` / `前端.md` / `F-35` 行为面更新；三道门禁 0 违规；review **0 P0 / 0 P1 / 9 P2**，修 6（版本守卫、旧自定义 URL 占位、嵌套 overflow 计数锁、菜单焦点、旧长名、测试 oracle + 规则复用），2 条接受（`R-35` 注释与仓内先例一致；"恢复失败入口消失"不成立），登记台时序已修。 |
 | — | *（本窗第一件事：跑基线 + 列联调清单，见 §一 / §2.1）* | — | — | — |
 
 > **R-27 回写（2026-11-01）**：`T80`–`T85` 已完成。后端 `V11` + 3 端点 + 生效 `avatarUrl` + 公开批量读；前端默认头像稳定 URL、空间页弹窗 + 1:1 裁剪、评论 / 动态 / 关注 / 图文作者批量接线。
@@ -299,6 +303,21 @@
 > 窄屏 / 触屏未验；E2E 的测试用户 256 因无删除用户端点留在 dev 库（夹具夹 / 稍后再看已清）。
 > **subagent review**：0 P0 / **1 P1**（`refreshItemsSilently` 绕过 `itemsRequestId`：退出 / 换人后在途 self 面响应可把私密条目写回公共面）+ 3 P2（失败移出切走后不回滚、主页多发一次 `/watch-later`、T114 验收把"上限"写成有用例）。
 > P1 已修：`refreshItemsSilently` 共用 `itemsRequestId` + `isSelf/userId/folder/view` 四重校验；P2 修 2（失败移出用服务端重读、主页不取稍后再看计数），T114 验收改为**明写无 DOM 单测**。另补：自动选夹的 `router.replace` 也带 `ownerId + isSelf` 守卫（在途换人不会把上一用户的夹 id 带进新页面）。修复后 `typecheck` / `test` **394** / `build` 绿；**未重跑全量 E2E**（夹具夹已清理，改动是防护性分支，正常路径由上一轮 40 项覆盖）。T115 完成。
+
+> **R-35 / T116–T118 回写（2026-11-07）**：收藏夹信息编辑落空间收藏 tab self 左栏。
+> **入口**：hover / focus ⋮ → 菜单仅「编辑信息」；弹窗 = 封面 / 名称（≤20）/ 公开 / 简介只读占位，默认夹可编辑；
+> `FavoriteDialog` 与主页夹卡不动，删除收藏夹不在本窗。
+> **封面**：点封面 → 复用 `CoverCropper` 16:9 / 1280×720 → 裁剪确认**即上传**；`hasCustomCover` 进 VM，
+> 仅自定义时显示「恢复自动封面」；取消不撤销已上传封面（弹窗明写）。**同步**：改名 / 公开就地更新；
+> 封面后重拉 `GET /favorite-folders`（响应无 URL），用 `foldersMutationVersion` 淘汰旧列表；
+> 替换旧自定义封面时先置 `null` 占位（旧文件已被服务端删，避免 `<img>` 打 404）；嵌套弹层改按层计数锁 body。
+> **验证**：前端 **405** 全绿 / `typecheck` / `build`；真浏览器 **50/50**（`localhost:5173` + 运行中的 8080 后端；
+> self / public / anonymous、hover ⋮、改名+公开双向、默认夹、封面裁剪上传+恢复、取消不回滚、非图片拦截、0 console error）。
+> **review**：0 P0 / 0 P1 / 9 P2；修 6（版本守卫、旧自定义 URL 占位、嵌套 overflow 计数锁、菜单键盘焦点、
+> 旧长名不卡死、测试 oracle + 规则复用），2 条接受（`R-35` 注释与仓内 52 处 R/T 先例一致；
+> "恢复失败入口消失"不成立 —— `customCover=false` 只在 await 成功后执行），登记台时序已修。
+> **未做 / 下窗**：删除收藏夹（另开）；旧 `favorites.html` 入口与 WebMvcConfig / 限流 / 契约测试清理（`F-35` 剩余项）。
+> E2E 用户 257（无删除用户端点）及其默认夹留在 dev 库；夹具夹 / 自定义封面已删（上传→恢复会删旧文件）。
 
 ---
 

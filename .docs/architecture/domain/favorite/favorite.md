@@ -73,7 +73,7 @@ content.favorite_count bigint（V2 加列 / V3 回填；冗余列，见 §四）
 | 端点 | 鉴权 | 作用 |
 |---|---|---|
 | `POST /api/v1/favorite-folders` | 登录 | 新建收藏夹（超**个数**上限 ⇒ 400） |
-| `PUT /api/v1/favorite-folders/{id}` | 登录 | 改名 / 简介 / 私密开关（**部分更新**） |
+| `PUT /api/v1/favorite-folders/{id}` | 登录 | 改名 / 私密开关（**部分更新**；简介仍待定） |
 | `PUT /api/v1/favorite-folders/{id}/cover` | 登录 | 自定义封面上传（multipart `file`；替换 / 恢复删旧文件，R-33） |
 | `DELETE /api/v1/favorite-folders/{id}/cover` | 登录 | 恢复自动封面（写 NULL，**204 幂等**，R-33） |
 | `DELETE /api/v1/favorite-folders/{id}` | 登录 | 删除（**默认夹拒删 409**；夹内条目**同事务一并删**） |
@@ -267,9 +267,11 @@ content.favorite_count bigint（V2 加列 / V3 回填；冗余列，见 §四）
   创建收藏夹弹窗**不提供上传**（网页版口径）。文件落 `/upload/favorite-cover/`，
   服务端只校验图片类型 + ≤2MB（前端 16:9 裁剪，服务端不重编码）。
   ⚠️ `R-34`（2026-11-06）起 `/favorites` **软弃用**（收藏夹入口收敛到
-  `/space/{uid}?tab=folders`）⇒ 原“只在 `/favorites` 上传”的入口口径失效；
-  本窗前端**只做展示**（选中夹头部 + 主页夹卡），上传 / 恢复的入口待补，
-  未来应落在空间收藏 tab（见 `task/CURRENT_FRONTEND_GAPS.md` `GAP-17`）。
+  `/space/{uid}?tab=folders`）。`R-35`（2026-11-07）起上传 / 恢复入口落在
+  空间收藏 tab self 左栏：hover / focus ⋮ →「收藏夹信息」弹窗；点封面选图 →
+  16:9 裁剪 → **确认即上传**（`hasCustomCover=true` 时显示「恢复自动封面」）。
+  ⚠️ 选图即上传是 B 站口径：弹窗「取消」只放弃名称 / 公开，**不撤销已上传封面**。
+  简介列 `description` 已建但实体 / 端点 / UI 未接 ⇒ 弹窗里是**只读占位**。
 - **读路径不缓存**：folders 本来就不缓存（§七）；封面每页读取时现算：
   一条 `favorite_item` 窗口查询取每夹最新 contentId + 一趟 content 批量读。
   收藏域 SQL **不 JOIN content 表**（I-07 ③）。
