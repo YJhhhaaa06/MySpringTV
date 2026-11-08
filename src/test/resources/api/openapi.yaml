@@ -3278,6 +3278,8 @@ components:
     CommentVO:
       type: object
       properties:
+        avatarUrl:
+          type: string
         children:
           anyOf:
           - type: array
@@ -3337,6 +3339,8 @@ components:
           type: integer
           format: int64
         authorName:
+          type: string
+        avatarUrl:
           type: string
         categoryId:
           type: integer
@@ -3401,6 +3405,8 @@ components:
           type: integer
           format: int64
         authorName:
+          type: string
+        avatarUrl:
           type: string
         categoryId:
           type: integer
@@ -3661,6 +3667,8 @@ components:
     FollowUserVO:
       type: object
       properties:
+        avatarUrl:
+          type: string
         isFollowed:
           type: boolean
         isSelf:

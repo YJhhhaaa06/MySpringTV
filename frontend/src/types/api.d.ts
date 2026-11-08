@@ -1221,6 +1221,7 @@ export interface components {
             enabled: boolean;
         };
         CommentVO: {
+            avatarUrl?: string;
             children?: components["schemas"]["CommentCacheDTO"][] | null;
             /** Format: int64 */
             commentId?: number;
@@ -1248,6 +1249,7 @@ export interface components {
             /** Format: int64 */
             authorId?: number;
             authorName?: string;
+            avatarUrl?: string;
             /** Format: int32 */
             categoryId?: number;
             /** Format: int64 */
@@ -1279,6 +1281,7 @@ export interface components {
             /** Format: int64 */
             authorId?: number;
             authorName?: string;
+            avatarUrl?: string;
             /** Format: int32 */
             categoryId?: number;
             commentCount?: number | null;
@@ -1385,6 +1388,7 @@ export interface components {
             isFavorited?: boolean;
         };
         FollowUserVO: {
+            avatarUrl?: string;
             isFollowed?: boolean;
             isSelf?: boolean;
             /** Format: int64 */
