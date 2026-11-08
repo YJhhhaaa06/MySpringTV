@@ -4092,8 +4092,6 @@ components:
         id:
           type: integer
           format: int64
-        phone:
-          type: string
         signedToday:
           type: boolean
         username:

@@ -1605,7 +1605,6 @@ export interface components {
             historyRecording?: boolean;
             /** Format: int64 */
             id?: number;
-            phone?: string;
             signedToday?: boolean;
             username?: string;
         };

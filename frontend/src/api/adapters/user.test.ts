@@ -6,7 +6,7 @@ type ProfileVO = components['schemas']['ProfileVO']
 
 describe('toCurrentUser', () => {
   it('用昵称首字做兜底（avatarUrl 缺失时由 UserAvatar 再按 userId 回落）', () => {
-    const user = toCurrentUser({ id: 233, username: 'frontend_demo', phone: '13900000002', admin: false, coin: 3 })
+    const user = toCurrentUser({ id: 233, username: 'frontend_demo', admin: false, coin: 3 })
     expect(user.initial).toBe('F')
     expect(user.name).toBe('frontend_demo')
     expect(user.spaceHref).toBe('/space/233')

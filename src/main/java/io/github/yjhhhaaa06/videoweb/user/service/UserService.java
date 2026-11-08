@@ -230,7 +230,7 @@ public class UserService implements AdminChecker {
         // R-27：DB 存的是"选择"（default:N / /upload/avatar/...），出口统一解析成生效 URL。
         // 未选过 ⇒ 按 userId % 6 回落默认（与前端 UserAvatar 的历史分配一致）。
         String avatarUrl = AvatarRefs.resolveUrl(user.getId(), user.getAvatarRef());
-        return new UserInfoVO(user.getId(), user.getUsername(), user.getPhone(), user.isAdmin(),
+        return new UserInfoVO(user.getId(), user.getUsername(), user.isAdmin(),
                 coin, signedToday, historyRecording, avatarUrl);
     }
 

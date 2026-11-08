@@ -205,7 +205,7 @@ class UserFlowTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("持有效 token 访问 /api/v1/users/me：200 + 用户信息，且不泄露口令散列")
+    @DisplayName("持有效 token 访问 /api/v1/users/me：200 + 用户信息，且不泄露口令散列 / 手机号")
     void 持token访问受保护接口() {
         post("/api/v1/users", Map.of("phone", PHONE, "username", USERNAME, "password", PASSWORD), null);
         String token = Envelope.str(post("/api/v1/sessions",
@@ -216,7 +216,10 @@ class UserFlowTests extends AbstractHttpIntegrationTest {
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(Envelope.str(resp, "username")).isEqualTo(USERNAME);
-        assertThat(Envelope.str(resp, "phone")).isEqualTo(PHONE);
+        // ★ 契约跟随（2026-11-08）：`phone` 已从 UserInfoVO 下线 —— 前端从不消费它
+        //   （`toCurrentUser` 不映射），而本端点每个页面装载都要打一次 ⇒ 等于按 PV 散播手机号。
+        //   断言从"等于注册手机号"翻转为"响应体里不出现手机号"，与下面"不出现口令散列"同一条判据。
+        assertThat(resp.getBody()).doesNotContain(PHONE, "phone");
         // 安全断言：响应体任何位置都不得出现口令散列
         assertThat(resp.getBody()).doesNotContain("hashedPassword", "hashed_password", "$2");
     }

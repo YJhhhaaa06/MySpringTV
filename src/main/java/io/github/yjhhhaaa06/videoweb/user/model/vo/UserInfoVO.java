@@ -3,11 +3,17 @@ package io.github.yjhhhaaa06.videoweb.user.model.vo;
 import java.math.BigDecimal;
 
 /**
- * 当前用户信息。**不含 hashedPassword**。
+ * 当前用户信息。**不含 hashedPassword / phone**。
  *
  * <p>TV 没有独立的 /user/me 接口（前端靠登录响应的 username 维持），
  * 本接口是切片 0 为「持 token 访问受保护接口」验收闭环新增的最小端点。
  * 新增理由与差异登记见《事务边界决策表》U 系列。
+ *
+ * <h2>★ 不返回 {@code phone}（2026-11-08）</h2>
+ * 它是**唯一一个前端从不消费**的字段（{@code toCurrentUser} 根本不映射它，全仓也没有第二处读它），
+ * 而这个端点每个页面装载都要打一次 ⇒ 等于把手机号按页面浏览量散播。
+ * 本端点的职责是"渲染当前用户"，不是"账户详情"；真要展示手机号应另开账户端点（现无消费方）。
+ * 同一条判据此前已用于"不返回 {@code hashedPassword}"——区别只是散列是灾难、手机号是隐私。
  *
  * @param coin       硬币余额，**一位小数的 {@link BigDecimal}**（如 {@code 1.0} / {@code 1.5}）。
  *                   ⚠️ 不用 {@code double}：{@code 0.1} 在二进制浮点下带尾差，而硬币余额需要
@@ -30,7 +36,7 @@ import java.math.BigDecimal;
  *                  DB 里存的是 {@code users.avatar_ref}（选择），解析规则只在
  *                  {@code AvatarRefs} 一处；前端顶栏 / 创作中心 / 评论框直接用它。
  */
-public record UserInfoVO(long id, String username, String phone, boolean admin,
+public record UserInfoVO(long id, String username, boolean admin,
                          BigDecimal coin, boolean signedToday, boolean historyRecording,
                          String avatarUrl) {
 }
