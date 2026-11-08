@@ -36,8 +36,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li><b>未选过 ⇒ 按 userId 回落默认</b>：`GET /users/me` 的 `avatarUrl` 键必须**显式存在**
  *       且等于独立复算的 {@code /avatars/default-(userId%6+1).svg}；</li>
  *   <li><b>自定义上传 = 落盘 + 写 avatar_ref</b>：URL 形状、磁盘字节、DB 值三者一致；</li>
- *   <li>★ <b>替换删旧</b>：第二次上传后旧文件必须不在盘上（只断言 DB 新值会漏掉孤儿）；</li>
- *   <li>★ <b>切默认删旧</b>：从自定义切到 `default:3` 时旧自定义文件被删，DB 写 `default:3`；</li>
+ *   <li>★ <b>替换保留旧</b>（`R-37`）：第二次上传后旧文件**仍在盘上**——旧 URL 要活过读缓存窗口，
+ *       真正回收由 {@code tools/devclean/media_clean.py} 做；</li>
+ *   <li>★ <b>切默认保留旧</b>：从自定义切到 `default:3` 时旧自定义文件保留，DB 写 `default:3`；</li>
  *   <li><b>作用域</b>：另一用户的 `avatar_ref` 仍是 NULL、`/users/me` 仍是自己的回落 URL；</li>
  *   <li><b>拒绝路径零副作用</b>：401 / 空文件 / 坏后缀 / >2MB / 非法默认编号都不落盘、不改库。</li>
  * </ul>
@@ -47,7 +48,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@code target/test-media/avatar}；DB 值直查 {@code users.avatar_ref}。
  *
  * <h2>反向验证（注入 ⇒ 必红）</h2>
- * ① 上传/切默认后不删旧文件 ⇒ "替换删旧 / 切默认删旧" 两条红；
+ * ① 恢复"写完立即删旧文件" ⇒ "替换保留旧 / 切默认保留旧" 两条红（`R-37` 的语义正好相反）；
  * ② `updateAvatarRef` 的 SQL 去掉 `where id=?` ⇒ "另一用户不受影响" 红；
  * ③ 默认回落公式改成 `userId % 6`（少 +1）⇒ "新用户回落" 红；
  * ④ 去掉大小校验 ⇒ ">2MB" 红。
@@ -150,8 +151,8 @@ class AvatarWriteTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("★替换自定义：旧文件被删，新文件生效（只看 DB 新值会漏掉孤儿）")
-    void 替换自定义删旧文件() throws IOException {
+    @DisplayName("★替换自定义：旧文件保留（R-37 延迟回收），新文件生效")
+    void 替换自定义保留旧文件() throws IOException {
         String token = registerAndGetToken("13800004103", "avatar-replace", PASSWORD);
         long userId = userIdOf("13800004103");
 
@@ -162,14 +163,15 @@ class AvatarWriteTests extends AbstractHttpIntegrationTest {
         String second = Envelope.str(uploadAvatar(pngBytes(), "two.png", "image/png", token), "avatarUrl");
         assertThat(second).startsWith("/upload/avatar/").endsWith(".png").isNotEqualTo(first);
 
-        assertThat(firstDisk).as("旧自定义文件必须被删（否则每次换头像都留一份孤儿）").doesNotExist();
+        assertThat(firstDisk).as("R-37：旧文件必须保留（旧 URL 还在读缓存窗口里；由 media_clean.py 回收）")
+                .exists();
         assertThat(diskPathOf(second)).exists();
         assertThat(avatarRefOf(userId)).isEqualTo(second);
     }
 
     @Test
-    @DisplayName("★切换默认：写 default:3，且删除旧的自定义文件")
-    void 切换默认删旧自定义() throws IOException {
+    @DisplayName("★切换默认：写 default:3，且保留旧的自定义文件（R-37）")
+    void 切换默认保留旧自定义() throws IOException {
         String token = registerAndGetToken("13800004104", "avatar-choose", PASSWORD);
         long userId = userIdOf("13800004104");
 
@@ -183,7 +185,7 @@ class AvatarWriteTests extends AbstractHttpIntegrationTest {
         assertThat(Envelope.str(resp, "avatarUrl")).isEqualTo("/avatars/default-3.svg");
 
         assertThat(avatarRefOf(userId)).as("DB 存的是选择，不是最终 URL").isEqualTo("default:3");
-        assertThat(customDisk).as("从自定义切默认时，旧自定义文件必须删除").doesNotExist();
+        assertThat(customDisk).as("R-37：旧自定义文件保留，由 media_clean.py 回收").exists();
 
         assertThat(Envelope.data(get("/api/v1/users/me", token)).path("avatarUrl").asString())
                 .isEqualTo("/avatars/default-3.svg");

@@ -9,7 +9,6 @@ import io.github.yjhhhaaa06.videoweb.upload.model.UploadType;
 import io.github.yjhhhaaa06.videoweb.upload.service.FileUploadService;
 import io.github.yjhhhaaa06.videoweb.user.dao.UserDao;
 import io.github.yjhhhaaa06.videoweb.user.model.AvatarRefs;
-import io.github.yjhhhaaa06.videoweb.user.model.entity.User;
 import io.github.yjhhhaaa06.videoweb.user.model.vo.UserAvatarVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -22,17 +21,21 @@ import org.springframework.web.multipart.MultipartFile;
  * <ul>
  *   <li>只写 {@code users.avatar_ref} 一个列 —— 头像不是内容媒体，**不碰** {@code content_media}；</li>
  *   <li>文件字节交给 {@link FileUploadService}（`/upload/avatar/`），本类负责"先落盘、后写库、失败补偿"；</li>
- *   <li>旧的**自定义**文件在新值落库后删除（只删 {@code /upload/avatar/} 前缀，默认头像文件永不删）。</li>
+ *   <li>★ `R-37` 起**旧文件不再立即删**：延迟 ≥5min（读缓存窗口），实际由
+ *       {@code tools/devclean/media_clean.py} 按 {@code users.avatar_ref} 回收。
+ *       立即删会让"已经发出去的旧 URL"在缓存窗口内 404（裂图），而不是显示旧头像。</li>
  * </ul>
  *
  * <h2>★ 为什么不加 @Transactional</h2>
  * 写库是一条 UPDATE；文件系统与 DB 没有共同事务。加事务只会让"文件已写、事务回滚"的补偿
- * 更难讲清。口径与 upload 域一致：**DB 失败就删新文件**，DB 成功后删旧文件（尽力而为）。
+ * 更难讲清。口径与 upload 域一致：**DB 失败就删本次新文件**；DB 成功后**不删旧文件**
+ * （`R-37` 延迟回收，见上）。
  *
  * <h2>★ 并发口径：LWW + 允许孤儿</h2>
- * 两个并发上传各自读到同一个旧 URL，最后写库的是后到者；两个请求都会尝试删旧文件（幂等），
- * 先到者写入的新文件可能成为孤儿。头像是低频设置，不为它引入 `SELECT ... FOR UPDATE`。
- * 进程在"文件已写、DB 未提交"之间崩溃同样会留孤儿；回收不在本窗（`R-27` 已知代价）。
+ * 两个并发上传各自写一个文件，最后写库的是后到者；先到者写入的文件可能成为孤儿
+ * （`R-37` 起不再删旧文件，孤儿统一由 {@code media_clean.py} 回收）。
+ * 头像是低频设置，不为它引入 `SELECT ... FOR UPDATE`。
+ * 进程在"文件已写、DB 未提交"之间崩溃同样会留孤儿；回收口径同上。
  */
 @Slf4j
 @Service
@@ -70,8 +73,7 @@ public class AvatarService {
             throw new ParamException(ErrorCode.PARAM_INVALID, "头像图片不能超过2M");
         }
 
-        User current = userDao.findByIdForProfile(userId);
-        if (current == null) {
+        if (userDao.findByIdForProfile(userId) == null) {
             throw new UserNotFoundException();
         }
 
@@ -83,7 +85,7 @@ public class AvatarService {
             }
             // R-37：写库成功后立刻失效 JVM 缓存；顺序不能反（先失效再写库，读线程可能回填旧值）。
             avatarUrlResolver.invalidate(userId);
-            deleteOldCustom(current.getAvatarRef());
+            // R-37：**不删旧文件**——旧 URL 可能还在别的实例 / 在途响应的缓存窗口里。
             return new UserAvatarVO(userId, saved.url());
         } catch (BusinessException e) {
             deleteNewQuietly(saved);
@@ -98,14 +100,13 @@ public class AvatarService {
     /**
      * 切换到某张默认头像（{@code PUT /api/v1/users/me/avatar/default}）。
      *
-     * <p>旧值是自定义文件时删除它；旧值是另一张默认头像时只改 {@code avatar_ref}。
+     * <p>只改 {@code avatar_ref}；旧的自定义文件**保留**（`R-37`：延迟回收，避免旧 URL 404）。
      * 编号非法 ⇒ 400，用户不存在 ⇒ 401（与 `GET /users/me` 同口径）。
      */
     public UserAvatarVO chooseDefault(long userId, Integer avatarId) {
         int id = AvatarRefs.validateDefaultId(avatarId);
 
-        User current = userDao.findByIdForProfile(userId);
-        if (current == null) {
+        if (userDao.findByIdForProfile(userId) == null) {
             throw new UserNotFoundException();
         }
 
@@ -114,15 +115,7 @@ public class AvatarService {
         }
         // R-37：同 upload —— 写库成功后失效，保证下一次读拿到新 ref。
         avatarUrlResolver.invalidate(userId);
-        deleteOldCustom(current.getAvatarRef());
         return new UserAvatarVO(userId, AvatarRefs.defaultUrl(id));
-    }
-
-    /** 旧值只有在 `/upload/avatar/` 下才是本业务拥有的文件；默认头像 URL 永不删。 */
-    private void deleteOldCustom(String oldRef) {
-        if (AvatarRefs.isCustom(oldRef)) {
-            fileUploadService.deleteFileByUrl(oldRef);
-        }
     }
 
     private void deleteNewQuietly(UploadResult saved) {

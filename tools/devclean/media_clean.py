@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""开发期数据清理 · **媒体清理脚本**（T31）。
+"""开发期数据清理 · **媒体清理脚本**（T31；`R-37` 起接管头像延迟回收）。
 
 ## 它清什么
 
-`content_media.url` 是**唯一权威**的磁盘引用源（用户 2026-10-17 确认：`comment_media` / `video`
-已无消费者 ⇒ 它们的 URL 一律按孤儿处理）。于是：
+引用源有**两处**：
 
-    盘上某个文件，若没有任何 `content_media.url` 指向它 ⇒ 孤儿 ⇒ 移到 `<媒体根同级>/trash/`。
+- `content_media.url` —— 内容媒体的权威引用源（用户 2026-10-17 确认：`comment_media` / `video`
+  已无消费者 ⇒ 它们的 URL 一律按孤儿处理）；
+- `users.avatar_ref` —— **仅 `/upload/avatar/...`**（`R-37`：换头像不再立即删旧文件，
+  旧 URL 要活过 5 分钟的读缓存窗口；真正的回收由本脚本做）。
+
+于是：
+
+    盘上某个文件，若没有任何引用源指向它 ⇒ 孤儿 ⇒ 移到 `<媒体根同级>/trash/`。
 
 **只移动、不删除**：删由人来做（确认无误后进 Windows 回收站）。`trash` 目录**不参与扫描**，
 也不被任何自动步骤清理。
@@ -19,8 +25,9 @@
 
 ## 红线
 
-1. **只扫** `media/{video,image,cover}` 三个子目录（用户确认的三目录）；
-2. URL→磁盘路径的解析**逐字复用** `FileUploadService`（`/upload/(video|image|cover)/名称` + `..` 守卫）；
+1. **只扫** `media/{video,image,cover,avatar}` 四个子目录；
+2. URL→磁盘路径的解析**逐字复用** `FileUploadService`（`/upload/(video|image|cover|avatar)/名称`
+   + `..` 守卫）；
 3. 脚本**不引用本仓目录之外的任何盘符**（trash 在媒体根的**同级**，不是别的盘）。
 
 ## 退出码
@@ -39,14 +46,13 @@ from pathlib import Path
 
 from common import load_conn, media_root, run_mysql
 
-# 与 FileUploadService.UPLOAD_URL_PATTERN 逐字对应（含三个子目录与文件名合法字符集）。
-URL_PATTERN = re.compile(r"^/upload/(video|image|cover)/([A-Za-z0-9._-]+)$")
-MEDIA_DIRS = ["video", "image", "cover"]
+# 与 FileUploadService.UPLOAD_URL_PATTERN 逐字对应（含四个子目录与文件名合法字符集）。
+URL_PATTERN = re.compile(r"^/upload/(video|image|cover|avatar)/([A-Za-z0-9._-]+)$")
+MEDIA_DIRS = ["video", "image", "cover", "avatar"]
 
 
-def referenced_urls(conn) -> tuple[set[str], int, int]:
-    """返回 (被引用的 URL 集合, 无效 URL 数)；无效 = 不匹配正则 / 含 `..`（无法定位磁盘路径）。"""
-    stdout = run_mysql(conn, "SELECT url FROM content_media")
+def parse_refs(stdout: str) -> tuple[set[str], int]:
+    """把 mysql 输出的 URL 行解析成（有效集合, 无效数）。"""
     refs: set[str] = set()
     invalid = 0
     for line in stdout.splitlines():
@@ -58,6 +64,21 @@ def referenced_urls(conn) -> tuple[set[str], int, int]:
             refs.add(url)
         else:
             invalid += 1
+    return refs, invalid
+
+
+def referenced_urls(conn) -> tuple[set[str], int, int]:
+    """返回 (content_media 被引用的 URL 集合, 无效 URL 数, 行数)。"""
+    stdout = run_mysql(conn, "SELECT url FROM content_media")
+    refs, invalid = parse_refs(stdout)
+    return refs, invalid, len(stdout.splitlines())
+
+
+def avatar_refs(conn) -> tuple[set[str], int, int]:
+    """返回 (users.avatar_ref 里的头像 URL 集合, 无效数, 行数)。`R-37` 的延迟回收引用源。"""
+    stdout = run_mysql(
+        conn, "SELECT avatar_ref FROM users WHERE avatar_ref LIKE '/upload/avatar/%'")
+    refs, invalid = parse_refs(stdout)
     return refs, invalid, len(stdout.splitlines())
 
 
@@ -114,7 +135,10 @@ def main() -> int:
 
     conn = load_conn()
     try:
-        refs, invalid, total_rows = referenced_urls(conn)
+        content_refs, invalid, total_rows = referenced_urls(conn)
+        avatar_ref_set, avatar_invalid, avatar_rows = avatar_refs(conn)
+        refs = content_refs | avatar_ref_set
+        invalid += avatar_invalid
         # 被排除的引用源：本仓无消费者的表（其 URL 一律按孤儿处理）。此处只**登记**，不据此判断。
         excluded_comment_media = int(run_mysql(conn, "SELECT COUNT(*) FROM comment_media").strip() or "0")
     except RuntimeError as e:
@@ -130,10 +154,11 @@ def main() -> int:
 
     print(f"媒体根: {root}")
     print(f"目标库: {conn.describe()}")
-    print(f"content_media 行数 {total_rows} / 有效引用 URL {len(refs)} / 无效 URL（无法定位）{invalid}")
+    print(f"content_media 行数 {total_rows} / users.avatar_ref 行数 {avatar_rows}"
+          f" / 有效引用 URL {len(refs)} / 无效 URL（无法定位）{invalid}")
     print(f"被排除的引用源（一律按孤儿处理）: comment_media {excluded_comment_media} 行"
           f" —— 若将来启用它，其图片会被误判为孤儿")
-    print(f"磁盘三目录文件 {len(disk_files)} 个"
+    print(f"磁盘四目录文件 {len(disk_files)} 个"
           f" / 孤儿 {len(orphans)} 个（{human_bytes(orphan_bytes)}）")
     print(f"被引用但盘上缺失 {len(missing)} 个"
           f"（⚠️ 仅登记：含'从未扫描'误报，勿据此判断，见 F-05/E-2）")
