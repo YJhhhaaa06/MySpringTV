@@ -29,6 +29,13 @@ function detail(overrides: Partial<Record<keyof ContentDetailVO, unknown>> = {})
 }
 
 describe('toVideoDetail', () => {
+  it('★ R-37：作者头像随详情内联；缺字段 / 空串 ⇒ null（按 authorId 回落）', () => {
+    expect(toVideoDetail(detail({ avatarUrl: '/upload/avatar/a.jpg' })).authorAvatarUrl)
+      .toBe('/upload/avatar/a.jpg')
+    expect(toVideoDetail(detail({ avatarUrl: '' })).authorAvatarUrl).toBeNull()
+    expect(toVideoDetail(detail({ avatarUrl: undefined })).authorAvatarUrl).toBeNull()
+  })
+
   it('详情侧五个计数都是真数字（与列表侧相反），且**不预先格式化**', () => {
     // 保持数字是硬要求：互动态要乐观加减，预格式化成 "1.2万" 就没法加减了
     expect(toVideoDetail(detail()).stats).toEqual({

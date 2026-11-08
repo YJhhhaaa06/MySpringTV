@@ -157,6 +157,8 @@ export interface VideoDetailVM {
   authorId: number
   authorName: string
   authorHref: string
+  /** 作者生效头像 URL（`R-37` 内联；null = 老后端缺字段，`UserAvatar` 按 id 回落） */
+  authorAvatarUrl: string | null
   /** 发布日期文本（`2026-05-09 19:43`） */
   dateText: string
   coverUrl: string | null
@@ -194,6 +196,8 @@ export interface CommentVM {
   authorName: string
   /** 昵称首字（无 `authorId` 时的头像兜底；默认头像按 `authorId` 分配） */
   initial: string
+  /** 作者生效头像 URL（`R-37` 随响应内联；null = 老后端缺字段，按 `authorId` 回落） */
+  avatarUrl: string | null
   content: string
   likeCount: number
   liked: boolean
@@ -359,6 +363,8 @@ export interface DynamicCardVM {
   authorHref: string
   /** 昵称首字（拿不到 `authorId` 时的头像兜底；默认头像按 `authorId` 分配） */
   authorInitial: string
+  /** 作者生效头像 URL（`R-37` 随 `/feed` 内联；null = 缺字段 ⇒ 按 `authorId` 回落） */
+  authorAvatarUrl: string | null
   /** 相对时间（`刚刚` / `4分钟前` / `05-09`） */
   timeText: string
   /** 动态动作文案：`投稿了视频` / `发布了图文`（由 `type` 推导，不是后端字段） */
@@ -386,14 +392,16 @@ export interface DynamicPageVM {
 /**
  * 关注 / 粉丝列表里的一个人（`FollowUserVO`）。
  *
- * <p>★ 这个 VO 只有 `userId / username / isFollowed / isSelf` —— **没有头像字段 / 没有签名**
- * （头像由页面 `GET /users/avatars` 批量补，`R-27`）⇒ 卡片渲染头像、名字与关注按钮，不编签名。
+ * <p>★ `R-37` 起带 `avatarUrl`（随列表响应内联，与 username 同一次 users 查询）；
+ * 仍**没有签名** ⇒ 卡片渲染头像、名字与关注按钮，不编签名。
  */
 export interface RelationUserVM {
   id: number
   name: string
   /** 昵称首字（拿不到 `id` 时才当头像兜底；默认头像按 `id` 分配） */
   initial: string
+  /** 生效头像 URL（`R-37` 内联；null = 老后端缺字段，按 `id` 回落） */
+  avatarUrl: string | null
   /** 当前登录用户是否关注了 TA（端点要求登录 ⇒ 这个布尔一定是真值，不是三态） */
   followed: boolean
   isSelf: boolean

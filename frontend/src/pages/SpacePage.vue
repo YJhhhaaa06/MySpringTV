@@ -1220,7 +1220,7 @@ function goItemPage(page: number): void {
                       :key="card.id"
                       :item="card"
                       :busy="likeBusy.has(card.id)"
-                      :avatar-url="header?.avatarUrl ?? null"
+                      :avatar-url="card.authorAvatarUrl"
                       :comments-open="openCommentsId === card.id"
                       @toggle-like="toggleLike(card)"
                       @toggle-comments="toggleComments(card)"

@@ -8,7 +8,6 @@ import { initialOf, isTitleless } from '../api/adapters/format'
 import { videoHref } from '../api/adapters/links'
 import { sessionState } from '../auth/session'
 import { shareCurrentPage } from '../common/share'
-import { useUserAvatars } from '../composables/useUserAvatars'
 import { useVideoInteractions } from '../composables/useVideoInteractions'
 import EmptyState from '../components/common/EmptyState.vue'
 import UserAvatar from '../components/common/UserAvatar.vue'
@@ -66,10 +65,6 @@ const {
 } = interactions
 
 const authorInitial = computed(() => initialOf(detail.value?.authorName))
-
-/** 图文作者头像（`R-27`）：详情只带 authorId，由批量端点补 URL。 */
-const authorAvatarIds = computed(() => (detail.value ? [detail.value.authorId] : []))
-const { avatars: authorAvatars } = useUserAvatars(authorAvatarIds)
 
 async function load(): Promise<void> {
   if (!id.value) {
@@ -158,7 +153,7 @@ function onCommentCount(count: number): void {
             :title="`${detail.authorName} 的空间`"
             :aria-label="`${detail.authorName} 的空间`"
           ><UserAvatar
-            :avatar-url="authorAvatars.get(detail.authorId) ?? null"
+            :avatar-url="detail.authorAvatarUrl"
             :user-id="detail.authorId"
             :initial="authorInitial"
             :size="48"

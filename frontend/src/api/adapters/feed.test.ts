@@ -33,6 +33,13 @@ function content(overrides: Partial<Record<keyof ContentVO, unknown>> = {}): Con
 const now = new Date('2026-05-09T20:00:00+08:00')
 
 describe('toDynamicCard', () => {
+  it('★ R-37：作者头像随 /feed 内联；缺字段 ⇒ null（按 authorId 回落）', () => {
+    expect(toDynamicCard(content({ avatarUrl: '/upload/avatar/a.jpg' }), now).authorAvatarUrl)
+      .toBe('/upload/avatar/a.jpg')
+    expect(toDynamicCard(content({ avatarUrl: '' }), now).authorAvatarUrl).toBeNull()
+    expect(toDynamicCard(content({ avatarUrl: undefined }), now).authorAvatarUrl).toBeNull()
+  })
+
   it('视频卡：动作文案「投稿了视频」+ 播放量 / 点赞 / 评论三个真计数', () => {
     const card = toDynamicCard(content({ playCount: 12345, likeCount: 678, commentCount: 9 }), now)
     expect(card.actionText).toBe('投稿了视频')

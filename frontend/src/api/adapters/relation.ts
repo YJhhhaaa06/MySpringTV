@@ -5,9 +5,9 @@ import { initialOf } from './format'
 /**
  * `FollowUserVO` → 关注/粉丝卡片。
  *
- * <p>★ 这是本仓**信息最少**的用户 VO：`userId / username / isFollowed / isSelf`，
- * 仍没有头像 / 签名 / 等级 ⇒ 头像由页面批量端点补（`R-27`），卡片保留「名字 + 关注按钮」，
- * **不编签名**（B 站那句「这个人很神秘，什么都没有写」是 B 站自己的默认签名，
+ * <p>★ `R-37` 起带 `avatarUrl`（随列表响应内联，与 username 同一次 users 查询）；
+ * 仍**没有签名 / 等级** ⇒ 卡片保留「名字 + 关注按钮」，**不编签名**
+ * （B 站那句「这个人很神秘，什么都没有写」是 B 站自己的默认签名，
  * 我们连"有没有签名"都不知道）。
  *
  * <p>`isFollowed` 是**布尔**而不是三态：两个列表端点都是类级 `@RequiresLogin`
@@ -20,6 +20,7 @@ export function toRelationUser(user: components['schemas']['FollowUserVO']): Rel
     id: user.userId ?? 0,
     name,
     initial: initialOf(name),
+    avatarUrl: user.avatarUrl?.trim() || null,
     followed: user.isFollowed === true,
     isSelf: user.isSelf === true,
   }

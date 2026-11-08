@@ -1,18 +1,18 @@
 import type { components } from '../types/api'
-import { getJson, putForm, putJson } from './http'
+import { putForm, putJson } from './http'
 
 /**
- * 头像端点封装（`R-27`）。
+ * 头像**写**端点封装（`R-27`）。
  *
- * <h2>三条路径的分工</h2>
+ * <h2>两条路径</h2>
  * <ul>
- *   <li>{@code PUT /users/me/avatar}：multipart 自定义上传（服务端写 ref + 删旧文件）；</li>
- *   <li>{@code PUT /users/me/avatar/default}：JSON 切默认（`avatarId` 1..6）；</li>
- *   <li>{@code GET /users/avatars?userIds=}：作者快照面的批量读（公开，≤100 个 id）。</li>
+ *   <li>{@code PUT /users/me/avatar}：multipart 自定义上传（服务端写 ref + 延迟回收旧文件）；</li>
+ *   <li>{@code PUT /users/me/avatar/default}：JSON 切默认（`avatarId` 1..6）。</li>
  * </ul>
  *
- * <p>★ 头像**不进**评论 / 动态 / 关注列表的缓存载荷：这些面只拿得到 userId，
- * 由页面调批量端点实时补 URL。换头像后下一次进页即生效，旧 URL 不会留在缓存里。
+ * <p>★ `R-37` 起**没有**"批量读作者头像"这一层：评论 / 动态 / 关注列表 / 详情作者
+ * 都把生效 `avatarUrl` 随响应内联，前端不再二次请求 `GET /users/avatars`。
+ * 本文件只保留两个写端点。
  */
 
 export type UserAvatarVO = components['schemas']['UserAvatarVO']
@@ -27,29 +27,4 @@ export function uploadAvatar(file: File): Promise<UserAvatarVO> {
 /** 选择默认头像（1..6）。 */
 export function selectDefaultAvatar(avatarId: number): Promise<UserAvatarVO> {
   return putJson('/api/v1/users/me/avatar/default', { avatarId })
-}
-
-/** 批量读作者头像；返回的 `avatarUrl` 对存在的用户恒非空。 */
-export function fetchUserAvatars(userIds: number[]): Promise<UserAvatarVO[]> {
-  const ids = userIds.join(',')
-  return getJson('/api/v1/users/avatars', { query: { userIds: ids } })
-}
-
-/**
- * 批量响应 → `Map<userId, avatarUrl>`。
- *
- * 非法的 id / URL 静默丢弃：调用方拿不到时 `UserAvatar` 会按 userId 回落默认，
- * 而不是把 `undefined` 画成空头像。
- */
-export function toAvatarMap(items: UserAvatarVO[] | undefined): Map<number, string> {
-  const map = new Map<number, string>()
-  for (const item of items ?? []) {
-    const userId = item?.userId
-    const avatarUrl = item?.avatarUrl
-    if (typeof userId === 'number' && Number.isInteger(userId) && userId > 0
-      && typeof avatarUrl === 'string' && avatarUrl) {
-      map.set(userId, avatarUrl)
-    }
-  }
-  return map
 }

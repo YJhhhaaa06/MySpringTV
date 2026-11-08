@@ -58,6 +58,7 @@ export function toDynamicCard(
     authorName,
     authorHref: spaceHref(item.authorId),
     authorInitial: initialOf(authorName),
+    authorAvatarUrl: item.avatarUrl?.trim() || null,
     timeText: formatRelativeDate(item.createTime, now),
     // 由 type + 有无媒体推导的**动作**文案（不是后端字段，所以不叫「动态类型」）：
     // 无图无封面的图文就是纯文字动态（`R-31`），不写「发布了图文」

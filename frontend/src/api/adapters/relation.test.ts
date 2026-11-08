@@ -15,6 +15,13 @@ function user(overrides: Partial<Record<keyof FollowUserVO, unknown>> = {}): Fol
 }
 
 describe('toRelationUser', () => {
+  it('★ R-37：头像随列表内联；缺字段 / 空串 ⇒ null（按 id 回落默认）', () => {
+    expect(toRelationUser(user({ avatarUrl: '/avatars/default-3.svg' })).avatarUrl)
+      .toBe('/avatars/default-3.svg')
+    expect(toRelationUser(user({ avatarUrl: '' })).avatarUrl).toBeNull()
+    expect(toRelationUser(user({ avatarUrl: undefined })).avatarUrl).toBeNull()
+  })
+
   it('映射 id / 名字 / 首字头像 / 关注态', () => {
     const vm = toRelationUser(user())
     expect(vm.id).toBe(4)

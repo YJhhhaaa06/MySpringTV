@@ -9,7 +9,6 @@ import { formatCount } from '../../api/adapters/format'
 import { requireLogin } from '../../auth/loginPrompt'
 import { sessionState } from '../../auth/session'
 import { showToast } from '../../common/toast'
-import { useUserAvatars } from '../../composables/useUserAvatars'
 import AppIcon from '../common/AppIcon.vue'
 import EmptyState from '../common/EmptyState.vue'
 import Pagination from '../common/Pagination.vue'
@@ -24,8 +23,8 @@ import UserAvatar from '../common/UserAvatar.vue'
  * tab 条保持 主页 / 收藏，进入本面板后**两个 tab 都不高亮**（B 站同样没有高亮项）。
  *
  * <h2>★ 降级（GAP-25，界面上不假装有）</h2>
- * `FollowUserVO` 只有 `userId / username / isFollowed / isSelf`：
- * - **头像**经 `GET /users/avatars` 批量读（`R-27`），不扩 `FollowUserVO` 字段；
+ * `FollowUserVO` 带 `userId / username / avatarUrl / isFollowed / isSelf`（`R-37` 起头像内联）：
+ * - **头像**直接用响应字段，不再走 `GET /users/avatars` 二次批量；
  * - 没有签名 ⇒ **不渲染**（B 站那句「这个人很神秘」是 B 站自己的默认签名，
  *   我们连"有没有签名"都不知道，写上去就是编）；
  * - 没有分组 / 最近关注 / 最常访问 / 关键词搜索 / 批量操作 ⇒ 一个都不摆
@@ -56,9 +55,6 @@ const relation = ref<RelationPageVM | null>(null)
 const loading = ref(false)
 const error = ref('')
 
-/** 关注/粉丝列表的作者头像（`R-27` 批量读；页面只拿得到 userId）。 */
-const avatarIds = computed(() => (relation.value?.items ?? []).map((user) => user.id))
-const { avatars } = useUserAvatars(avatarIds)
 /** 正在请求关注/取关的用户（同一人只发一次；其余人不受影响） */
 const busy = reactive(new Set<number>())
 
@@ -213,7 +209,7 @@ async function signIn(): Promise<void> {
                 :to="{ name: 'space', params: { id: user.id } }"
                 :title="`${user.name} 的空间`"
               ><UserAvatar
-                :avatar-url="avatars.get(user.id) ?? null"
+                :avatar-url="user.avatarUrl"
                 :user-id="user.id"
                 :initial="user.initial"
                 :size="60"

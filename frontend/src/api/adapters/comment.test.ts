@@ -47,6 +47,13 @@ describe('toComment', () => {
     expect(vm.replies[0]?.timeText).toBe('28分钟前') // ★ 递归必须把 now 传下去（漏传 ⇒ 用真实时钟 ⇒ 红）
   })
 
+  it('★ R-37：头像随响应内联；缺字段 ⇒ null（由 UserAvatar 按 userId 回落）', () => {
+    expect(toComment(comment({ avatarUrl: '/avatars/default-3.svg' }), null).avatarUrl)
+      .toBe('/avatars/default-3.svg')
+    expect(toComment(comment({ avatarUrl: '' }), null).avatarUrl).toBeNull()
+    expect(toComment(comment({ avatarUrl: undefined }), null).avatarUrl).toBeNull()
+  })
+
   it('★ GAP-12 补回后：时间文本按评论口径格式化（不是空串，也不是"刚刚"兜底）', () => {
     // 契约跟随（G8）：后端自 2026-10-31 起返回 createTime，本用例原先断言的"恒空串"作废。
     const now = new Date('2026-10-30T14:00:00+08:00')

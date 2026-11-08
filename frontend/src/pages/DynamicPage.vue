@@ -12,7 +12,6 @@ import { requireLogin } from '../auth/loginPrompt'
 import { useDynamicActions } from '../composables/useDynamicActions'
 import { useDynamicFeed } from '../composables/useDynamicFeed'
 import { useNewDynamics } from '../composables/useNewDynamics'
-import { useUserAvatars } from '../composables/useUserAvatars'
 import type { DynamicSource } from '../feed/dynamicPaging'
 import AppIcon from '../components/common/AppIcon.vue'
 import BackToTop from '../components/common/BackToTop.vue'
@@ -97,14 +96,6 @@ const { hasNew } = newDynamics
 const profile = ref<SpaceHeaderVM | null>(null)
 const following = ref<RelationPageVM | null>(null)
 
-/**
- * 作者快照面的头像（`R-27`）：动态卡 / 右栏关注列表只拿得到 userId，
- * 由批量端点按页实时补 URL；缺 id 时 UserAvatar 按 userId 回落默认。
- */
-const feedAvatarIds = computed(() => state.value.items.map((item) => item.authorId))
-const { avatars: feedAvatars } = useUserAvatars(feedAvatarIds)
-const followingAvatarIds = computed(() => (following.value?.items ?? []).map((user) => user.id))
-const { avatars: followingAvatars } = useUserAvatars(followingAvatarIds)
 /** 右栏只摆前 8 个；头像行用完整的一页（≤24） */
 const followingPreview = computed(() => (following.value?.items ?? []).slice(0, PREVIEW_LIMIT))
 
@@ -374,7 +365,7 @@ function followingHref(userId: number): string {
             >
               <span class="dyn-filter__avatar">
                 <UserAvatar
-                  :avatar-url="followingAvatars.get(user.id) ?? null"
+                  :avatar-url="user.avatarUrl"
                   :user-id="user.id"
                   :initial="user.initial"
                   :size="52"
@@ -449,7 +440,7 @@ function followingHref(userId: number): string {
                   :key="card.id"
                   :item="card"
                   :busy="likeBusy.has(card.id)"
-                  :avatar-url="feedAvatars.get(card.authorId) ?? null"
+                  :avatar-url="card.authorAvatarUrl"
                   :comments-open="openCommentsId === card.id"
                   @toggle-like="toggleLike(card)"
                   @toggle-comments="toggleComments(card)"
@@ -508,7 +499,7 @@ function followingHref(userId: number): string {
                   :title="`${user.name} 的空间`"
                 >
                   <UserAvatar
-                    :avatar-url="followingAvatars.get(user.id) ?? null"
+                    :avatar-url="user.avatarUrl"
                     :user-id="user.id"
                     :initial="user.initial"
                     :size="36"
