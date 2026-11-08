@@ -3,6 +3,7 @@ package io.github.yjhhhaaa06.videoweb.user;
 import io.github.yjhhhaaa06.videoweb.common.config.UploadProperties;
 import io.github.yjhhhaaa06.videoweb.support.AbstractHttpIntegrationTest;
 import io.github.yjhhhaaa06.videoweb.support.Envelope;
+import io.github.yjhhhaaa06.videoweb.user.service.AvatarUrlResolver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -57,6 +58,9 @@ class AvatarWriteTests extends AbstractHttpIntegrationTest {
 
     @Autowired
     private UploadProperties uploadProperties;
+
+    @Autowired
+    private AvatarUrlResolver avatarUrlResolver;
 
     @BeforeEach
     void cleanAvatarDir() throws IOException {
@@ -121,6 +125,28 @@ class AvatarWriteTests extends AbstractHttpIntegrationTest {
         assertThat(Envelope.data(get("/api/v1/users/" + userId, null)).path("avatarUrl").asString())
                 .as("他人主页/播放页侧栏也读同一个生效 URL")
                 .isEqualTo(url);
+    }
+
+    @Test
+    @DisplayName("R-37：写完头像后 JVM 缓存立即失效（先预热旧值，再上传 / 切默认）")
+    void 写后失效Jvm缓存() {
+        String token = registerAndGetToken("13800004107", "avatar-cache", PASSWORD);
+        long userId = userIdOf("13800004107");
+
+        assertThat(avatarUrlResolver.resolve(userId))
+                .as("预热：未选过 ⇒ 按 userId 回落默认")
+                .isEqualTo(fallbackUrl(userId));
+
+        String uploaded = Envelope.str(uploadAvatar(jpegBytes(), "cache.jpg", "image/jpeg", token), "avatarUrl");
+        assertThat(avatarUrlResolver.resolve(userId))
+                .as("没有 invalidate 的话，这里会继续返回预热时的默认 URL（最长 5min）")
+                .isEqualTo(uploaded);
+
+        ResponseEntity<String> resp = put("/api/v1/users/me/avatar/default", Map.of("avatarId", 3), token);
+        assertThat(resp.getStatusCode().value()).as("%s", resp.getBody()).isEqualTo(200);
+        assertThat(avatarUrlResolver.resolve(userId))
+                .as("切默认也必须失效")
+                .isEqualTo("/avatars/default-3.svg");
     }
 
     @Test

@@ -50,10 +50,13 @@ public class AvatarService {
 
     private final UserDao userDao;
     private final FileUploadService fileUploadService;
+    private final AvatarUrlResolver avatarUrlResolver;
 
-    public AvatarService(UserDao userDao, FileUploadService fileUploadService) {
+    public AvatarService(UserDao userDao, FileUploadService fileUploadService,
+                         AvatarUrlResolver avatarUrlResolver) {
         this.userDao = userDao;
         this.fileUploadService = fileUploadService;
+        this.avatarUrlResolver = avatarUrlResolver;
     }
 
     /**
@@ -85,6 +88,8 @@ public class AvatarService {
             if (userDao.updateAvatarRef(userId, saved.url()) == 0) {
                 throw new UserNotFoundException();
             }
+            // R-37：写库成功后立刻失效 JVM 缓存；顺序不能反（先失效再写库，读线程可能回填旧值）。
+            avatarUrlResolver.invalidate(userId);
             deleteOldCustom(current.getAvatarRef());
             return new UserAvatarVO(userId, saved.url());
         } catch (BusinessException e) {
@@ -114,6 +119,8 @@ public class AvatarService {
         if (userDao.updateAvatarRef(userId, AvatarRefs.defaultRef(id)) == 0) {
             throw new UserNotFoundException();
         }
+        // R-37：同 upload —— 写库成功后失效，保证下一次读拿到新 ref。
+        avatarUrlResolver.invalidate(userId);
         deleteOldCustom(current.getAvatarRef());
         return new UserAvatarVO(userId, AvatarRefs.defaultUrl(id));
     }
