@@ -23,6 +23,15 @@ public class CommentVO extends CommentCacheDTO {
 
     private boolean isLiked;
 
+    /**
+     * 作者**生效头像 URL**（`R-37`）：由 {@code CommentService} 在 VO 转换时按树批量填充，
+     * 来源是 user 域的 {@code AvatarUrlResolver}（JVM 缓存，命中不查库）。
+     *
+     * <p>★ 只在响应子类上，**不进** {@link CommentCacheDTO}：评论缓存是跨用户共享的载荷，
+     * 放进 URL 就要在换头像时失效所有含此作者的评论 key；放在响应层 = 每次读拿当前 URL。
+     */
+    private String avatarUrl;
+
     public CommentVO() {
         super();
     }
@@ -45,5 +54,13 @@ public class CommentVO extends CommentCacheDTO {
 
     public void setIsLiked(boolean isLiked) {
         this.isLiked = isLiked;
+    }
+
+    public String getAvatarUrl() {
+        return avatarUrl;
+    }
+
+    public void setAvatarUrl(String avatarUrl) {
+        this.avatarUrl = avatarUrl;
     }
 }
