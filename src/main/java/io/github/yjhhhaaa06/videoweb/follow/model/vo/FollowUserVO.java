@@ -12,11 +12,14 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * <h2>字段口径（TV 原样）</h2>
  * <ul>
  *   <li>{@code userId} / {@code username} —— 条目本人（条目来自 {@code users} 表）；</li>
+ *   <li>{@code avatarUrl} —— 条目本人的**生效头像 URL**（`R-37`）：跟随
+ *       {@code findUsersByIds} 顺手多读的 {@code avatar_ref}，由 {@code AvatarRefs#resolveUrl}
+ *       解析；与用户名同一次查询，**不多一次往返**；</li>
  *   <li>{@code isFollowed} —— **当前登录用户**是否关注了该条目本人
  *       （注意不是"条目本人关注了谁"）；</li>
  *   <li>{@code isSelf} —— 该条目本人是否就是当前登录用户。</li>
  * </ul>
- * 三项都由 {@code FollowService.buildUserViews} 组装；{@code isFollowed} 依赖
+ * 四项都由 {@code FollowService.buildUserViews} 组装；{@code isFollowed} 依赖
  * {@code FollowCache.batchIsFollowing}（一趟 pipeline 三态读，Redis 挂则降级 DB）。
  *
  * <h2>⚠️ 为什么组件名带 {@code is} 前缀**并且**显式标 {@code @JsonProperty}</h2>
@@ -28,6 +31,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 public record FollowUserVO(
         long userId,
         String username,
+        String avatarUrl,
         @JsonProperty("isFollowed") boolean isFollowed,
         @JsonProperty("isSelf") boolean isSelf) {
 }

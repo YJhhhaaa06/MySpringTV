@@ -148,7 +148,7 @@ class PayloadShapeContractTests extends AbstractIntegrationTest {
         media.setMediaId(17L);
         media.setContentId(18L);
         ContentCreatedVO created = new ContentCreatedVO(19L);
-        FollowUserVO followUser = new FollowUserVO(20L, "u", false, false);
+        FollowUserVO followUser = new FollowUserVO(20L, "u", "/avatars/default-3.svg", false, false);
 
         Map<String, Object[]> cases = new LinkedHashMap<>();
         // label → [VO, 字段名]

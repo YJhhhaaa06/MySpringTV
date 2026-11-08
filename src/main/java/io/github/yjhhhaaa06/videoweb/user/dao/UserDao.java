@@ -96,7 +96,7 @@ public interface UserDao {
     int updateFollowerCount(@Param("userId") long userId, @Param("delta") int delta);
 
     /**
-     * 批量查用户（关注/粉丝列表装载用，**只装配 id 与 username**）。
+     * 批量查用户（关注/粉丝列表装载用，**装配 id / username / avatar_ref**）。
      *
      * <p>TV: {@code findUsersByIds} ——
      * {@code SELECT id, username FROM users WHERE id IN (...) ORDER BY id}
@@ -106,7 +106,8 @@ public interface UserDao {
      * 分页'顺序稳定'只能靠巧合"。**勿删**（决策表 F-3）。
      *
      * <p>用途：{@code FollowService.loadUserList}（**事务外纯读**，见 F-3）。
-     * 未选中的列留 null（本方法只服务列表视图，不需要手机号 / 口令散列）。
+     * `R-37` 起多带 {@code avatar_ref}：关注 / 粉丝列表要内联作者头像，它与 username 同一次
+     * 行访问 ⇒ **零额外查询**。未选中的列仍留 null（本方法不返回手机号 / 口令散列）。
      *
      * @param ids 非空（调用方保证：空 {@code IN ()} 是非法 SQL）
      */
