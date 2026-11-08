@@ -21,7 +21,7 @@
   决策 **`R-27`** 起（`R-25` = 记录开关、`R-26` = 历史可删 + per-day 口径；**已用到 `R-37`，下一编号 `R-38`**）/ 问题 **`I-33`** 起（`I-31`/`I-32` 已终结；**下一编号 `I-34`**）/ 结转 **`F-30`** 起（**已用到 `F-35`，下一编号 `F-36`**）。
   ⚠️ **编号不回收、不复用**：后端期已用的 `I-01`–`I-30` 随归档留在原地，联调期**从 `I-31` 继续**；
   `F-##` 同理（`F-01`–`F-35` 已用，见 [FURTHER_ISSUES](./FURTHER_ISSUES.md)）。
-* ★ **回归基线**：全量 **1036 / 0 失败**（2026-11-08，`DB_POOL_MAX_SIZE=4`，`R-37` 后；含 `resilience`）+ 前端 **406**（`R-37` 后；上一档 413）。
+* ★ **回归基线**：全量 **1037 / 0 失败**（2026-11-08，`DB_POOL_MAX_SIZE=4`，`R-37` 后；含 `resilience`）+ 前端 **406**（`R-37` 后；上一档 413）。
   跑全量必须带 `DB_POOL_MAX_SIZE=4`，否则容器 MySQL `Too many connections`（**不是代码缺陷**）。
 * ★ **门禁**：文档三道 —— `python tools/docs/doc_links.py` · `python tools/docs/doc_refs.py` · `python tools/docs/doc_stats.py`；
   前端 `npm run typecheck` / `npm run test` / `npm run build`（★ **先 `cd frontend`** —— 仓库根**没有** `package.json`，在根目录跑 `npm run build` 会 `ENOENT`，不是编译失败；跑起来与截图规矩见 `frontend/README.md`）。
@@ -165,7 +165,7 @@
 | `T125` | `R-37` 前端切内联：适配器映射 `avatarUrl`；`CommentSection` / `DynamicCard` / `RelationPanel` / `OpusPage` / `SpacePage` 直接用响应字段；删 `useUserAvatars` / `avatarIds` / `fetchUserAvatars` | 不落 localStorage；保留上传 / 切默认 API；旧字段 `authorName` 等不动 | 适配器测试 + 接线断言 + `typecheck` / `test` / `build`；反向注入：忽略字段 ⇒ 对应面头像回落断言红 | **已完成（2026-11-08）**：4 个适配器 + 5 个页面 / 组件直用响应字段；删 `useUserAvatars` / `avatarIds` / `fetchUserAvatars` 与旧用例；前端 **406** 例 / typecheck / build 全绿（较基线 413 少 11 条旧用例、多 4 条新断言）。 |
 | `T126` | `R-37` 退役 `GET /users/avatars`：删 controller / service / `OpenApiConfig` 登记 / `AvatarBatchTests`；更新端点 76→75、`SecurityContractTests`、spec 快照 | 保留 `UserAvatarVO`（上传响应仍用）；不删 `findAvatarRefsByIds`（缓存回源用）；前端无第二消费者 | 端点清单 / spec 导出 / 404 断言 + 全量回归 | **已完成（2026-11-08）**：删 controller / service / `OpenApiConfig` / `AvatarBatchTests`；端点 **76→75**；inventory / spec / 前端类型重生成；契约三件 **45** 例全绿。 |
 | `T127` | `R-37` 旧头像延迟删：`AvatarService` 不再立即删旧文件；`AvatarWriteTests` 两条断言改为"旧文件仍在"；扩 `tools/devclean/media_clean.py` 把 `users.avatar_ref` 当引用源回收（或登记 `F-36`）；`R-27` 文字同步 | 只影响 `/upload/avatar/`；不误删默认头像；回收不能删当前引用 | 替换 / 切默认后旧文件仍在 + 工具 dry-run 不误删当前文件 + 反向注入：恢复立即删 ⇒ 断言红 | **已完成（2026-11-08）**：`AvatarService` 不再删旧文件；`AvatarWriteTests` 两条改为"旧文件仍在"；`media_clean.py` 加 `users.avatar_ref` 引用源 + `avatar` 目录；反向注入恢复立即删 ⇒ 1 红。 |
-| `T128` | `R-37` 收口：`接口契约`（4 个字段 + 端点 75）、`前端.md` 矩阵、`缓存与数据一致性`（JVM 缓存清单 / 已知代价）、`openapi.yaml`、`CURRENT_INTEGRATION` 回写；三道门禁 + 全量回归 + subagent review + 真服务（`UPLOAD_ROOT=.tmp/e2e-media`） | 只增不改号；代码注释只引 `architecture/**` / `archive/**`；review P0/P1 全修；发现超预期先登记 `I-##` 或停下问 | 门禁 0 违规；后端全量 0 失败；前端全绿；真服务四处头像内联且不再发 `/users/avatars`；review 报告留痕 | 待执行 |
+| `T128` | `R-37` 收口：`接口契约`（4 个字段 + 端点 75）、`前端.md` 矩阵、`缓存与数据一致性`（JVM 缓存清单 / 已知代价）、`openapi.yaml`、`CURRENT_INTEGRATION` 回写；三道门禁 + 全量回归 + subagent review + 真服务（`UPLOAD_ROOT=.tmp/e2e-media`） | 只增不改号；代码注释只引 `architecture/**` / `archive/**`；review P0/P1 全修；发现超预期先登记 `I-##` 或停下问 | 门禁 0 违规；后端全量 0 失败；前端全绿；真服务四处头像内联且不再发 `/users/avatars`；review 报告留痕 | **已完成（2026-11-08）**：门禁 0 违规；后端全量 **1037 / 0**；前端 **406** / typecheck / build 绿；真服务（3307 独立库 + `.tmp/e2e-media`）8 项：详情 / 评论 / 空间内联、换头像立即生效、旧批量 URL 不再返回数组；review **0 P0 / 2 P1 / 8 P2** 全处理（见 R-37 回写）。 |
 | — | *（本窗第一件事：跑基线 + 列联调清单，见 §一 / §2.1）* | — | — | — |
 
 > **R-27 回写（2026-11-01）**：`T80`–`T85` 已完成。后端 `V11` + 3 端点 + 生效 `avatarUrl` + 公开批量读；前端默认头像稳定 URL、空间页弹窗 + 1:1 裁剪、评论 / 动态 / 关注 / 图文作者批量接线。
@@ -177,12 +177,20 @@
 > `AvatarUrlResolver`（存 ref / TTL 5min **不续期** / 写后 `remove` / 空串负缓存 / 写纪元守卫）；
 > `CommentVO` / `ContentVO` / `ContentDetailVO` / `FollowUserVO` 各带 `avatarUrl`；
 > `GET /users/avatars` 退役（**76→75**）；旧头像文件延迟回收（`media_clean.py` 加
-> `users.avatar_ref` 引用源）。后端新增用例 **18**（9 + 5 + 2 + 1 + 写后失效 1），
+> `users.avatar_ref` 引用源 + `--min-age 300`）。后端新增用例 **19**（9 + 4 + 1 + 2 + 1 + 2），
 > 前端 **406**；反向注入 5 条实测全红（去 invalidate / 去详情填充 / 去 children 收集 /
-> 去 `avatar_ref` 列 / 恢复立即删）。**批量端点退役的判别力**：`OpenApiSpecExportTests`
-> `hasSize(75)` + `endpoint-inventory.tsv` 少一行 + `SecurityContractTests` 移除公开项。
+> 去 `avatar_ref` 列 / 恢复立即删上传分支；切默认分支由同一条保留断言钉住，未单独注入）。**批量端点退役的判别力**：
+> `OpenApiSpecExportTests` `hasSize(75)` + `endpoint-inventory.tsv` 少一行 +
+> `AvatarWriteTests#批量端点退役后旧URL返回400`（旧 URL 被 `/users/{id}` 兜成 400）。
 > 已知代价：① 同页同作者头像可能不同（写后失效 + 5min TTL，触发条件苛刻，不做防护）；
-> ② 多实例下最多旧 5min（用户接受；旧文件延迟删 ⇒ 显示旧头像而非裂图）。
+> ② 多实例下最多旧 5min（用户接受；旧文件延迟删 ⇒ 显示旧头像而非裂图）；
+> ③ 回填的 `[stable 判定, put]` 窄窗用"写后再查纪元并按值删回"兜住，但**无单测**
+> （需要能插在 put 前后的钩子），只能靠 review —— 不冒充"已钉住"。
+> **review 回写**：subagent 0 P0 / 2 P1 / 8 P2，全处理。P1：`ContentVO.avatarUrl` 补进
+> `OpenApiConfig` 可空登记（搜索 / 推荐面确为 null）；`FollowAvatarInlineTests` 改为
+> `(r+2)%6+1` 选头像，消掉写死 5 的 1/6 误红与 1/6 假绿。P2：写纪元窄窗、旧 URL 400
+> 文档 + 用例、`media_clean` 文案 + `--min-age`、6 处旧口径注释、76/73 → 75/1037/406、
+> `AvatarReadModel` 接口与实现拆分、评论"缓存命中"补 Redis key 断言。
 
 > **R-28 回写（2026-11-02）**：`T86`–`T90` 完成（**后端 + 前端形状适配**）。`recommended` 改游标分页
 > （`{list,nextCursor}`、随机序、翻页不重不漏）；**前端只读第一页，无限滚动未做**（行为另窗讨论）。
