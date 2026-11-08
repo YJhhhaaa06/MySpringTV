@@ -38,9 +38,19 @@ class FollowAvatarInlineTests extends AbstractFollowIntegrationTest {
         TestUser a = register(PHONE_A, "follow-avatar-a");
         TestUser b = register(PHONE_B, "follow-avatar-b");
 
-        // B 选了默认 5；A 没选过 ⇒ 按 userId%6+1 回落。两个来源不同，才能钉住"按人解析"。
+        // ★ 不能写死 default:5：A 的回落值 = a.id()%6+1，随自增 id 变。
+        //   写死 5 会 1/6 误红（A 回落正好是 5），也会 1/6 假绿（去掉 avatar_ref 列后
+        //   B 的回落正好也是 5）。用 (r+2)%6+1 保证 pick 与 A 的回落、B 自己的回落都不同。
+        int r = (int) (a.id() % 6);
+        int aFallback = r + 1;
+        int bPick = (r + 2) % 6 + 1;
+        assertThat(bPick).as("夹具自检：B 的选择不能撞 A 的回落")
+                .isNotEqualTo(aFallback);
+        assertThat(bPick).as("夹具自检：B 的选择不能撞 B 自己的回落（否则去列假绿）")
+                .isNotEqualTo((int) ((a.id() + 1) % 6) + 1);
+
         ResponseEntity<String> setAvatar = put("/api/v1/users/me/avatar/default",
-                Map.of("avatarId", 5), b.token());
+                Map.of("avatarId", bPick), b.token());
         assertThat(setAvatar.getStatusCode().value()).as("%s", setAvatar.getBody()).isEqualTo(200);
 
         assertThat(follow(b.id(), a.token()).getStatusCode().value()).isEqualTo(200);
@@ -49,18 +59,18 @@ class FollowAvatarInlineTests extends AbstractFollowIntegrationTest {
         JsonNode bItem = itemOf(following, b.id());
         assertThat(bItem.path("userId").asLong()).isEqualTo(b.id());
         assertThat(bItem.path("avatarUrl").asString())
-                .as("following 里 B 是已设置的 default:5")
-                .isEqualTo("/avatars/default-5.svg");
+                .as("following 里 B 是已设置的 default:%s", bPick)
+                .isEqualTo("/avatars/default-" + bPick + ".svg");
 
         JsonNode followers = Envelope.data(getFollowers(b.id(), b.token())).path("list");
         JsonNode aItem = itemOf(followers, a.id());
         assertThat(aItem.path("userId").asLong()).isEqualTo(a.id());
         assertThat(aItem.path("avatarUrl").asString())
                 .as("followers 里 A 没设置过 ⇒ 按 userId%6+1 回落（独立复算）")
-                .isEqualTo("/avatars/default-" + (a.id() % 6 + 1) + ".svg");
+                .isEqualTo("/avatars/default-" + aFallback + ".svg");
         assertThat(aItem.path("avatarUrl").asString())
                 .as("不能把 B 的头像串给 A")
-                .isNotEqualTo("/avatars/default-5.svg");
+                .isNotEqualTo("/avatars/default-" + bPick + ".svg");
     }
 
     private static JsonNode itemOf(JsonNode list, long userId) {

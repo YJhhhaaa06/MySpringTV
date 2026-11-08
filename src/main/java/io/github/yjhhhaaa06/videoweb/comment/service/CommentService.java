@@ -16,7 +16,7 @@ import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
 import io.github.yjhhhaaa06.videoweb.content.service.ContentService;
 import io.github.yjhhhaaa06.videoweb.like.service.LikeService;
-import io.github.yjhhhaaa06.videoweb.user.service.AvatarUrlResolver;
+import io.github.yjhhhaaa06.videoweb.user.service.AvatarReadModel;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -83,8 +83,8 @@ public class CommentService {
     private final CommentCache commentCache;
     private final LikeService likeService;
     private final ApplicationEventPublisher events;
-    /** `R-37`：评论作者头像的读时装饰（JVM 缓存，命中不查库）。 */
-    private final AvatarUrlResolver avatarUrlResolver;
+    /** `R-37`：评论作者头像的读时装饰（跨域只依赖 user 域的读契约）。 */
+    private final AvatarReadModel avatarReadModel;
 
     public CommentService(CommentDao commentDao,
                           ContentDao contentDao,
@@ -92,14 +92,14 @@ public class CommentService {
                           CommentCache commentCache,
                           LikeService likeService,
                           ApplicationEventPublisher events,
-                          AvatarUrlResolver avatarUrlResolver) {
+                          AvatarReadModel avatarReadModel) {
         this.commentDao = commentDao;
         this.contentDao = contentDao;
         this.contentService = contentService;
         this.commentCache = commentCache;
         this.likeService = likeService;
         this.events = events;
-        this.avatarUrlResolver = avatarUrlResolver;
+        this.avatarReadModel = avatarReadModel;
     }
 
     // ========================================================================
@@ -342,7 +342,7 @@ public class CommentService {
     private Map<Long, String> resolveAvatars(List<CommentCacheDTO> tree) {
         Set<Long> userIds = new LinkedHashSet<>();
         collectUserIds(tree, userIds);
-        return userIds.isEmpty() ? Map.of() : avatarUrlResolver.resolveBatch(userIds);
+        return userIds.isEmpty() ? Map.of() : avatarReadModel.resolveBatch(userIds);
     }
 
     private static void collectUserIds(List<CommentCacheDTO> nodes, Set<Long> userIds) {

@@ -50,7 +50,8 @@ public class AvatarController {
      *
      * <p>服务端只校验类型（jpg/png/jpeg）与 ≤2MB，**不重编码、不强制 180×180** ——
      * 裁剪是客户端体验，不是安全边界（`R-27` 已知代价）。
-     * 旧的自定义文件在写库成功后删除；失败路径删除本次新文件。
+     * ★ `R-37` 起旧的自定义文件**不立即删**（延迟回收，避免旧 URL 在缓存窗口内 404）；
+     * 失败路径只删本次新文件。
      */
     @RequiresLogin
     @PutMapping("/api/v1/users/me/avatar")

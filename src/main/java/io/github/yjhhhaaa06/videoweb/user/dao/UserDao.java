@@ -324,8 +324,8 @@ public interface UserDao {
     /**
      * 写头像选择（`default:N` 或 `/upload/avatar/...`）。
      *
-     * <p>单条 UPDATE ⇒ 天然幂等（同一个 ref 写两遍结果一样）。调用方必须在写之前
-     * 读过旧的 {@code avatar_ref}，以便写成功后删除旧的自定义文件。
+     * <p>单条 UPDATE ⇒ 天然幂等（同一个 ref 写两遍结果一样）。调用方写之前读旧的
+     * {@code avatar_ref} 只为**判存在**；旧文件按 `R-37` 延迟回收，**不在写路径删除**。
      *
      * @return 影响行数（0 = 用户不存在 ⇒ 401 / 本次上传的新文件需补偿删除）
      */

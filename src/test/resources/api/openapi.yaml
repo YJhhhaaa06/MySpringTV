@@ -3366,7 +3366,9 @@ components:
         authorName:
           type: string
         avatarUrl:
-          type: string
+          anyOf:
+          - type: string
+          - type: "null"
         categoryId:
           type: integer
           format: int32

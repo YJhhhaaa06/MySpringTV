@@ -151,6 +151,15 @@ class AvatarWriteTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
+    @DisplayName("R-37：批量端点已退役——旧 URL 被 /users/{id} 兜成 400（不是 200 数组）")
+    void 批量端点退役后旧URL返回400() {
+        ResponseEntity<String> resp = get("/api/v1/users/avatars?userIds=1", null);
+        assertThat(resp.getStatusCode().value()).as("%s", resp.getBody()).isEqualTo(400);
+        assertThat(Envelope.code(resp)).as("字面路由已删；{id} 把 avatars 当非法 id 拒绝")
+                .isEqualTo("PARAM_INVALID");
+    }
+
+    @Test
     @DisplayName("★替换自定义：旧文件保留（R-37 延迟回收），新文件生效")
     void 替换自定义保留旧文件() throws IOException {
         String token = registerAndGetToken("13800004103", "avatar-replace", PASSWORD);

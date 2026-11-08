@@ -86,6 +86,9 @@ class CommentAvatarInlineTests extends AbstractContentIntegrationTest {
         JsonNode first = Envelope.data(get("/api/v1/contents/" + contentId + "/comments", null));
         assertThat(itemOf(first.path("list"), rootId).path("avatarUrl").asString())
                 .isEqualTo("/avatars/default-3.svg");
+        assertThat(redisKeys())
+                .as("第一次读必须把评论树写进缓存；否则'第二次命中'只是口头声明")
+                .anyMatch(key -> key.startsWith("content:comments:" + contentId));
 
         // 第二次：评论缓存 hit；头像仍必须由读时装饰给出（不在缓存载荷里）。
         JsonNode cached = Envelope.data(get("/api/v1/contents/" + contentId + "/comments", null));

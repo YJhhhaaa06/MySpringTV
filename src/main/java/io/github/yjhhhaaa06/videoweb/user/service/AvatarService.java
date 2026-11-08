@@ -15,7 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * 头像业务（`R-27`）：自定义上传 / 默认切换 / 批量读。
+ * 头像业务（`R-27`）：自定义上传 / 默认切换。
  *
  * <h2>职责边界</h2>
  * <ul>

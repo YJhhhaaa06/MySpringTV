@@ -2,7 +2,7 @@ package io.github.yjhhhaaa06.videoweb.content.service;
 
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentDetailVO;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentVO;
-import io.github.yjhhhaaa06.videoweb.user.service.AvatarUrlResolver;
+import io.github.yjhhhaaa06.videoweb.user.service.AvatarReadModel;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashSet;
@@ -16,7 +16,7 @@ import java.util.Set;
  * <h2>为什么是 filler，而不是 {@code ContentCache#toContentVO} 里顺手填</h2>
  * 形态照 {@link ContentStatusFiller} / {@link ContentCountFiller}：缓存载荷只装慢变字段，
  * 请求期再加"读时才确定"的字段。区别只是来源——互动态来自互动域、计数来自计数聚合，
- * 头像来自 user 域的 {@link AvatarUrlResolver}（JVM 缓存）。
+ * 头像来自 user 域的 {@link AvatarReadModel}（实现 = `AvatarUrlResolver` 的 JVM 缓存）。
  *
  * <p>★ <b>绝不能在 {@code toContentVO} 单条里解析</b>：那会把"一页一次批量"退化成
  * "一条一次"（N+1），与 `T9` 的批量纪律相反。本类只做一件事——收集该页 authorId、
@@ -43,10 +43,10 @@ import java.util.Set;
 @Component
 public class ContentAvatarFiller {
 
-    private final AvatarUrlResolver avatarUrlResolver;
+    private final AvatarReadModel avatarReadModel;
 
-    public ContentAvatarFiller(AvatarUrlResolver avatarUrlResolver) {
-        this.avatarUrlResolver = avatarUrlResolver;
+    public ContentAvatarFiller(AvatarReadModel avatarReadModel) {
+        this.avatarReadModel = avatarReadModel;
     }
 
     /** 列表出口：一趟批量解析该页所有作者。 */
@@ -63,7 +63,7 @@ public class ContentAvatarFiller {
         if (authorIds.isEmpty()) {
             return;
         }
-        Map<Long, String> urls = avatarUrlResolver.resolveBatch(authorIds);
+        Map<Long, String> urls = avatarReadModel.resolveBatch(authorIds);
         for (ContentVO vo : vos) {
             if (vo != null && vo.getAuthorId() > 0) {
                 vo.setAvatarUrl(urls.get(vo.getAuthorId()));
@@ -76,6 +76,6 @@ public class ContentAvatarFiller {
         if (vo == null || vo.getAuthorId() <= 0) {
             return;
         }
-        vo.setAvatarUrl(avatarUrlResolver.resolve(vo.getAuthorId()));
+        vo.setAvatarUrl(avatarReadModel.resolve(vo.getAuthorId()));
     }
 }

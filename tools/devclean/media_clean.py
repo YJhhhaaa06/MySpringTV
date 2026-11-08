@@ -22,6 +22,7 @@
 
     python tools/devclean/media_clean.py            # 默认 dry-run：列出孤儿（不搬）
     python tools/devclean/media_clean.py --apply    # 搬走到 trash，并写 manifest
+    python tools/devclean/media_clean.py --apply --min-age 300  # 只搬 5 分钟前的孤儿（默认）
 
 ## 红线
 
@@ -41,12 +42,14 @@ import argparse
 import re
 import shutil
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
 from common import load_conn, media_root, run_mysql
 
-# 与 FileUploadService.UPLOAD_URL_PATTERN 逐字对应（含四个子目录与文件名合法字符集）。
+# FileUploadService.UPLOAD_URL_PATTERN 的**扫描子集**：不含 `favorite-cover`
+# （收藏夹封面由 favorite 域自己清理，R-33 的已知代价；这里不扫就不会误搬）。
 URL_PATTERN = re.compile(r"^/upload/(video|image|cover|avatar)/([A-Za-z0-9._-]+)$")
 MEDIA_DIRS = ["video", "image", "cover", "avatar"]
 
@@ -83,7 +86,7 @@ def avatar_refs(conn) -> tuple[set[str], int, int]:
 
 
 def scan(root: Path) -> list[Path]:
-    """扫描三个子目录下的**文件**（不递归、不跟随目录），返回文件路径列表。"""
+    """扫描四个子目录下的**文件**（不递归、不跟随目录），返回文件路径列表。"""
     files: list[Path] = []
     for d in MEDIA_DIRS:
         sub = root / d
@@ -125,6 +128,8 @@ def unique_target(target: Path) -> Path:
 def main() -> int:
     parser = argparse.ArgumentParser(description="开发期数据清理·媒体孤儿清理（默认 dry-run）")
     parser.add_argument("--apply", action="store_true", help="真搬（默认只列孤儿，不落盘）")
+    parser.add_argument("--min-age", type=int, default=300,
+                        help="只搬 mtime 早于 N 秒的孤儿（R-37 延迟回收窗口；默认 300）")
     args = parser.parse_args()
 
     root = media_root()
@@ -146,7 +151,10 @@ def main() -> int:
         return 1
 
     disk_files = scan(root)
-    orphans = [p for p in disk_files if url_of(root, p) not in refs]
+    now = time.time()
+    candidates = [p for p in disk_files if url_of(root, p) not in refs]
+    young = [p for p in candidates if now - p.stat().st_mtime < args.min_age]
+    orphans = [p for p in candidates if now - p.stat().st_mtime >= args.min_age]
     orphan_bytes = sum(p.stat().st_size for p in orphans)
 
     # 被引用但盘上缺失（仅登记，**不据此判断** —— `file_exists=0` 也含"从未扫描"，见 F-05/E-2）。
@@ -160,6 +168,8 @@ def main() -> int:
           f" —— 若将来启用它，其图片会被误判为孤儿")
     print(f"磁盘四目录文件 {len(disk_files)} 个"
           f" / 孤儿 {len(orphans)} 个（{human_bytes(orphan_bytes)}）")
+    print(f"跳过 {len(young)} 个「刚写入 < {args.min_age}s」的候选（R-37 延迟回收窗口）")
+    print("未扫描目录：/upload/favorite-cover/（R-33 的已知代价，由 favorite 域自清）")
     print(f"被引用但盘上缺失 {len(missing)} 个"
           f"（⚠️ 仅登记：含'从未扫描'误报，勿据此判断，见 F-05/E-2）")
 

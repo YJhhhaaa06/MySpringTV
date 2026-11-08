@@ -64,7 +64,7 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 @Slf4j
 @Service
-public class AvatarUrlResolver {
+public class AvatarUrlResolver implements AvatarReadModel {
 
     /** 条目有效期。从写入时刻起算，命中不续期（见类注释）。 */
     static final Duration TTL = Duration.ofMinutes(5);
@@ -109,6 +109,7 @@ public class AvatarUrlResolver {
      *
      * <p>一次调用最多回源一次 {@code IN} 查询；命中与未命中混合时只查未命中的子集。
      */
+    @Override
     public Map<Long, String> resolveBatch(Collection<Long> ids) {
         if (ids == null || ids.isEmpty()) {
             return Map.of();
@@ -147,6 +148,7 @@ public class AvatarUrlResolver {
     }
 
     /** 单条解析（详情 / 关注列表的零散调用）。 */
+    @Override
     public String resolve(long userId) {
         return resolveBatch(List.of(userId)).get(userId);
     }
@@ -182,7 +184,13 @@ public class AvatarUrlResolver {
         for (Long id : misses) {
             String ref = refs.getOrDefault(id, KNOWN_NULL);
             if (stable) {
-                put(id, new Entry(ref, expiresAt));
+                Entry entry = new Entry(ref, expiresAt);
+                put(id, entry);
+                // ★ 写入后再比一次：堵住 [stable 判定, put] 之间的窄窗口。
+                //   若期间有写，按**值相等**删回（不会误删别的线程刚写入的新值）。
+                if (writeEpoch.get() != epochBefore) {
+                    cache.remove(id, entry);
+                }
             }
             urls.put(id, urlOf(id, ref));
         }

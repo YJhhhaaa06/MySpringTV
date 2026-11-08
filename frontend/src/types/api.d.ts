@@ -1259,7 +1259,7 @@ export interface components {
             /** Format: int64 */
             authorId?: number;
             authorName?: string;
-            avatarUrl?: string;
+            avatarUrl?: string | null;
             /** Format: int32 */
             categoryId?: number;
             commentCount?: number | null;
