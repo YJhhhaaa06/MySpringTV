@@ -64,7 +64,8 @@ content.favorite_count bigint（V2 加列 / V3 回填；冗余列，见 §四）
 - ⚠️ `favorite_item` **刻意不加 `content_id` 前导索引** —— 它是 §四 那条一期计数基线的对照面。
 - ★ `favorite_folder.cover_ref` 是 **V12（R-33）** 新增列：只存自定义封面的应用内相对 URL
   （`/upload/favorite-cover/...`）；**自动封面不落库**（读取时按夹内最新一条收藏现算）。
-  落盘目录与内容媒体 `cover/` 分家（`media_clean.py` 只认 `content_media` 引用，复用会被判孤儿）。
+  落盘目录与内容媒体 `cover/` 分家（`media_clean.py` 的引用源是 `content_media` + `users.avatar_ref`，
+  仍**不含** `favorite-cover`；复用 `cover/` 会被判孤儿）。
 
 ---
 

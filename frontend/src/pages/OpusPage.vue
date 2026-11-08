@@ -25,7 +25,7 @@ import OpusImageGallery from '../components/opus/OpusImageGallery.vue'
  * 图片区默认九宫格，点图进放大态，两种形态随时可切换（`OpusImageGallery`）。
  *
  * <h2>降级（GAP 台账；不渲染 = 后端没有，不是漏做）</h2>
- * - 作者头像经 `GET /users/avatars` 批量读（`R-27`）；缺 URL 时仍按 userId 回落默认；
+ * - 作者头像随详情响应内联（`R-37`）；缺 URL 时仍按 userId 回落默认；
  * - 图文没有播放语义（GAP-05）⇒ 不渲染播放量；
  * - 图文不支持投币（coin 域只服务视频）⇒ 操作栏**不渲染硬币按钮**；
  * - 没有「列出点赞人 / 转发人」端点、也没有转发域 ⇒ 不渲染「赞与转发」tab；

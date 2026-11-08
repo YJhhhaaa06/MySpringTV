@@ -4,7 +4,7 @@
  * <h2>为什么是稳定 URL，而不是 `src/assets` 的 import</h2>
  * 后端 `users.avatar_ref` 存的是选择（`default:1..6` 或自定义 URL），API 出口统一解析成
  * `avatarUrl`。默认头像也必须是一个**稳定 URL**（`/avatars/default-N.svg`），否则后端
- * 无法返回它、批量端点也无法把"选了默认 3"解析成同一个字符串。
+ * 无法返回它、响应也无法把"选了默认 3"解析成同一个字符串。
  *
  * <p>六张 SVG 在 `frontend/public/avatars/`：
  * dev 由 Vite 直接服务；生产 `npm run stage` 复制到 Spring 静态根。顺序保持不变

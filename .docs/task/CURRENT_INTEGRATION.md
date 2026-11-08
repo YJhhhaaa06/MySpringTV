@@ -21,8 +21,7 @@
   决策 **`R-27`** 起（`R-25` = 记录开关、`R-26` = 历史可删 + per-day 口径；**已用到 `R-37`，下一编号 `R-38`**）/ 问题 **`I-33`** 起（`I-31`/`I-32` 已终结；**下一编号 `I-34`**）/ 结转 **`F-30`** 起（**已用到 `F-35`，下一编号 `F-36`**）。
   ⚠️ **编号不回收、不复用**：后端期已用的 `I-01`–`I-30` 随归档留在原地，联调期**从 `I-31` 继续**；
   `F-##` 同理（`F-01`–`F-35` 已用，见 [FURTHER_ISSUES](./FURTHER_ISSUES.md)）。
-* ★ **回归基线**：默认集 **981**（2026-11-07，`DB_POOL_MAX_SIZE=4`，`R-36` 后；上一档 980）+ 前端 **413**（`R-36` 后；上一档 405）；
-  `resilience` 组 **41** 按惯例单跑 ⇒ 全量口径 **1022**。★ 本次默认集 **981 / 0 失败**（`resilience` 未重跑，本次无相关改动）。
+* ★ **回归基线**：全量 **1036 / 0 失败**（2026-11-08，`DB_POOL_MAX_SIZE=4`，`R-37` 后；含 `resilience`）+ 前端 **406**（`R-37` 后；上一档 413）。
   跑全量必须带 `DB_POOL_MAX_SIZE=4`，否则容器 MySQL `Too many connections`（**不是代码缺陷**）。
 * ★ **门禁**：文档三道 —— `python tools/docs/doc_links.py` · `python tools/docs/doc_refs.py` · `python tools/docs/doc_stats.py`；
   前端 `npm run typecheck` / `npm run test` / `npm run build`（★ **先 `cd frontend`** —— 仓库根**没有** `package.json`，在根目录跑 `npm run build` 会 `ENOENT`，不是编译失败；跑起来与截图规矩见 `frontend/README.md`）。
@@ -166,7 +165,7 @@
 | `T125` | `R-37` 前端切内联：适配器映射 `avatarUrl`；`CommentSection` / `DynamicCard` / `RelationPanel` / `OpusPage` / `SpacePage` 直接用响应字段；删 `useUserAvatars` / `avatarIds` / `fetchUserAvatars` | 不落 localStorage；保留上传 / 切默认 API；旧字段 `authorName` 等不动 | 适配器测试 + 接线断言 + `typecheck` / `test` / `build`；反向注入：忽略字段 ⇒ 对应面头像回落断言红 | **已完成（2026-11-08）**：4 个适配器 + 5 个页面 / 组件直用响应字段；删 `useUserAvatars` / `avatarIds` / `fetchUserAvatars` 与旧用例；前端 **406** 例 / typecheck / build 全绿（较基线 413 少 11 条旧用例、多 4 条新断言）。 |
 | `T126` | `R-37` 退役 `GET /users/avatars`：删 controller / service / `OpenApiConfig` 登记 / `AvatarBatchTests`；更新端点 76→75、`SecurityContractTests`、spec 快照 | 保留 `UserAvatarVO`（上传响应仍用）；不删 `findAvatarRefsByIds`（缓存回源用）；前端无第二消费者 | 端点清单 / spec 导出 / 404 断言 + 全量回归 | **已完成（2026-11-08）**：删 controller / service / `OpenApiConfig` / `AvatarBatchTests`；端点 **76→75**；inventory / spec / 前端类型重生成；契约三件 **45** 例全绿。 |
 | `T127` | `R-37` 旧头像延迟删：`AvatarService` 不再立即删旧文件；`AvatarWriteTests` 两条断言改为"旧文件仍在"；扩 `tools/devclean/media_clean.py` 把 `users.avatar_ref` 当引用源回收（或登记 `F-36`）；`R-27` 文字同步 | 只影响 `/upload/avatar/`；不误删默认头像；回收不能删当前引用 | 替换 / 切默认后旧文件仍在 + 工具 dry-run 不误删当前文件 + 反向注入：恢复立即删 ⇒ 断言红 | **已完成（2026-11-08）**：`AvatarService` 不再删旧文件；`AvatarWriteTests` 两条改为"旧文件仍在"；`media_clean.py` 加 `users.avatar_ref` 引用源 + `avatar` 目录；反向注入恢复立即删 ⇒ 1 红。 |
-| `T128` | `R-37` 收口：`接口契约`（4 个字段 + 端点 73）、`前端.md` 矩阵、`缓存与数据一致性`（JVM 缓存清单 / 已知代价）、`openapi.yaml`、`CURRENT_INTEGRATION` 回写；三道门禁 + 全量回归 + subagent review + 真服务（`UPLOAD_ROOT=.tmp/e2e-media`） | 只增不改号；代码注释只引 `architecture/**` / `archive/**`；review P0/P1 全修；发现超预期先登记 `I-##` 或停下问 | 门禁 0 违规；后端全量 0 失败；前端全绿；真服务四处头像内联且不再发 `/users/avatars`；review 报告留痕 | 待执行 |
+| `T128` | `R-37` 收口：`接口契约`（4 个字段 + 端点 75）、`前端.md` 矩阵、`缓存与数据一致性`（JVM 缓存清单 / 已知代价）、`openapi.yaml`、`CURRENT_INTEGRATION` 回写；三道门禁 + 全量回归 + subagent review + 真服务（`UPLOAD_ROOT=.tmp/e2e-media`） | 只增不改号；代码注释只引 `architecture/**` / `archive/**`；review P0/P1 全修；发现超预期先登记 `I-##` 或停下问 | 门禁 0 违规；后端全量 0 失败；前端全绿；真服务四处头像内联且不再发 `/users/avatars`；review 报告留痕 | 待执行 |
 | — | *（本窗第一件事：跑基线 + 列联调清单，见 §一 / §2.1）* | — | — | — |
 
 > **R-27 回写（2026-11-01）**：`T80`–`T85` 已完成。后端 `V11` + 3 端点 + 生效 `avatarUrl` + 公开批量读；前端默认头像稳定 URL、空间页弹窗 + 1:1 裁剪、评论 / 动态 / 关注 / 图文作者批量接线。

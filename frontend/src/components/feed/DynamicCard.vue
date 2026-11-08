@@ -50,7 +50,7 @@ import CommentSection from '../video/CommentSection.vue'
 const props = defineProps<{
   item: DynamicCardVM
   busy?: boolean
-  /** 作者头像 URL（`R-27` 批量端点）；null ⇒ UserAvatar 按 userId 回落 */
+  /** 作者头像 URL（`R-37` 随 `/feed` 内联）；null ⇒ UserAvatar 按 userId 回落 */
   avatarUrl?: string | null
   /** 评论区是否展开（受控：页面保证同时只开一个） */
   commentsOpen?: boolean

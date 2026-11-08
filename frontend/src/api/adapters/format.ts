@@ -301,7 +301,7 @@ export function isTitleless(title: string | null | undefined): boolean {
 /**
  * 头像占位：昵称首字（大写）。
  *
- * <p>头像 URL 由 `UserAvatar` / 页面批量端点负责；这里只保留「昵称首字」作为兜底，
+ * <p>头像 URL 由响应内联（`R-37`）/ `UserAvatar` 负责；这里只保留「昵称首字」作为兜底，
  * 与 B 站默认头像的**位置/尺寸**一致，但不引用不存在的 URL。
  * 空昵称回 `U`（不画一个空圆）。
  */

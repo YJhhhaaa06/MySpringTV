@@ -32,7 +32,7 @@
 > 路径判据、例外清单），spec 只写**形状**（路径 / 方法 / 参数 / 响应）。
 > 两者不是"同一事实写两处"：规则推不出来（"为什么不用 PATCH"），形状不该手抄（抄了必漂移）。
 
-- **产物**：`src/test/resources/api/openapi.yaml`（与 `endpoint-inventory.tsv` 同目录，76 条 / ~105 KB；R-33 起 +2 端点）。
+- **产物**：`src/test/resources/api/openapi.yaml`（与 `endpoint-inventory.tsv` 同目录，75 条 / ~105 KB；R-33 起 +2、R-37 起 −1）。
   入库判据不是"能不能重建"（那 `target/` 都该入库），而是 **diff 有没有信息** ——
   spec 的 diff 就是"对外契约变了什么"的记录，重制期与 review 都以它为准。
 
@@ -41,7 +41,7 @@
   `@RestController` —— **加不上注解**。只剩两条路：开路径白名单（违反《安全与鉴权》§2.1 的
   "授权唯一事实源"）或干脆不暴露。取后者，换来三条连带都归零：匿名面为零、登记簿仍 **76**、
   安全契约与权重表不动。spec 只在测试里由 `OpenApiWebMvcResource` 直接生成（**不走 HTTP**），
-  因此也不需要任何豁免。契约由 `OpenApiExposureTests` 钉住。
+  因此也不需要任何豁免。契约由 `OpenApiExposureTests` 钉住（登记簿当前 **75** 条）。
 
 - **生成命令**（与登记簿同一套纪律：显式写入 + review diff + 不许把红变绿）：
   ```
