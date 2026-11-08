@@ -25,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>关注成功无 data、取关成功 204 无体（`T59`：String 文案退役；重复 PUT/DELETE 幂等）；</li>
  *   <li>列表返回**分页信封**（T11-A 起缺省不再是全量数组），键集合 = {@code {list,total,page,pageSize,totalPages}}；</li>
  *   <li>顺序 = **按 id 升序**（TV 的 T7 注释："关注/粉丝列表顺序由此处决定"）；</li>
- *   <li>条目字段 = {@code {userId, username, isFollowed, isSelf}}。</li>
+ *   <li>条目字段 = {@code {userId, username, avatarUrl, isFollowed, isSelf}}（`R-37` 起头像内联）。</li>
  * </ul>
  */
 class FollowFlowTests extends AbstractFollowIntegrationTest {
@@ -244,8 +244,10 @@ class FollowFlowTests extends AbstractFollowIntegrationTest {
         assertThat(item.path("username").asString()).isEqualTo("flow-a");
         assertThat(item.path("isFollowed").asBoolean()).isTrue();
         assertThat(item.path("isSelf").asBoolean()).isFalse();
+        assertThat(item.path("avatarUrl").isTextual())
+                .as("R-37：生效头像 URL 随列表内联").isTrue();
         assertThat(item.propertyNames()).as("字段形状是契约，不得多/少字段")
-                .containsExactlyInAnyOrder("userId", "username", "isFollowed", "isSelf");
+                .containsExactlyInAnyOrder("userId", "username", "avatarUrl", "isFollowed", "isSelf");
     }
 
     @Test

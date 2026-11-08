@@ -1,6 +1,5 @@
 package io.github.yjhhhaaa06.videoweb.content;
 
-import io.github.yjhhhaaa06.videoweb.feed.AbstractFeedIntegrationTest;
 import io.github.yjhhhaaa06.videoweb.support.Envelope;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -16,8 +15,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <h2>钉住什么</h2>
  * <ul>
- *   <li><b>详情 / 空间 / 动态卡</b>三个有展示位的面：{@code avatarUrl} 必须非空，且等于
- *       "该内容作者"的生效 URL（不是整页一个常量）；</li>
+ *   <li><b>详情 / 空间</b>两个有展示位的面：{@code avatarUrl} 必须非空，且等于
+ *       "该内容作者"的生效 URL（不是整页一个常量）；动态卡在 `feed/FeedAvatarInlineTests`；</li>
  *   <li><b>按作者区分</b>：两个作者各用不同默认头像，同一响应里不能串；</li>
  *   <li><b>换头像后下一次读立即生效</b>：证明写后失效 + 读时装饰这条链真的通了；</li>
  *   <li><b>搜索面不填</b>：搜索结果卡不显示作者头像 ⇒ {@code avatarUrl} 保持 {@code null}
@@ -29,15 +28,14 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@code AvatarRefs}；作者 id 直查 {@code users} 表。
  *
  * <h2>反向验证（注入 ⇒ 必红）</h2>
- * ① 去掉 {@code ContentAvatarFiller.fillAvatarBatch} ⇒ 动态 / 空间断言红；
+ * ① 去掉 {@code ContentAvatarFiller.fillAvatarBatch} ⇒ 空间断言红；
  * ② 去掉 {@code fillAvatar} ⇒ 详情断言红；
  * ③ 去掉 {@code AvatarService} 的 {@code invalidate} ⇒ "换头像后生效"红。
  */
-class ContentAvatarInlineTests extends AbstractFeedIntegrationTest {
+class ContentAvatarInlineTests extends AbstractContentIntegrationTest {
 
     private static final String PHONE_AUTHOR = "13900009101";
     private static final String PHONE_OTHER = "13900009102";
-    private static final String PHONE_VIEWER = "13900009103";
 
     @Test
     @DisplayName("详情：作者头像内联，且按作者区分（默认 3 vs 默认 5）")
@@ -104,32 +102,6 @@ class ContentAvatarInlineTests extends AbstractFeedIntegrationTest {
 
         assertThat(Envelope.data(get("/api/v1/contents/" + contentId, null)).path("avatarUrl").asString())
                 .as("没有写后失效的话，这里会继续读预热值（最长 5min）")
-                .isEqualTo("/avatars/default-5.svg");
-    }
-
-    @Test
-    @DisplayName("动态卡：两位作者的卡片各带各的头像（同一响应内不串）")
-    void 动态卡_作者头像内联且按作者区分() {
-        String viewerToken = registerAndGetToken(PHONE_VIEWER, "avatar-viewer");
-        long viewerId = userIdOf(PHONE_VIEWER);
-
-        String aToken = registerAndGetToken(PHONE_AUTHOR, "avatar-feed-a");
-        long aId = userIdOf(PHONE_AUTHOR);
-        chooseDefault(aToken, 3);
-        long c1 = insertVideoContent(aId, "动态头像一");
-
-        String bToken = registerAndGetToken(PHONE_OTHER, "avatar-feed-b");
-        long bId = userIdOf(PHONE_OTHER);
-        chooseDefault(bToken, 5);
-        long c2 = insertVideoContent(bId, "动态头像二");
-
-        insertFollowRow(viewerId, aId);
-        insertFollowRow(viewerId, bId);
-
-        JsonNode list = Envelope.data(get("/api/v1/feed", viewerToken)).path("list");
-        assertThat(itemOf(list, c1).path("avatarUrl").asString()).isEqualTo("/avatars/default-3.svg");
-        assertThat(itemOf(list, c2).path("avatarUrl").asString())
-                .as("两张卡不能共用第一个作者的头像")
                 .isEqualTo("/avatars/default-5.svg");
     }
 
