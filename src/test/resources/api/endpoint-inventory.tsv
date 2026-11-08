@@ -66,7 +66,6 @@ POST	/api/v1/history/flush	LOGIN	ApiResponse<Void>
 POST	/api/v1/sessions	PUBLIC	ApiResponse<LoginVO>
 POST	/api/v1/uploads/{type}	LOGIN	ApiResponse<UploadedAssetVO>
 POST	/api/v1/users	PUBLIC	ApiResponse<LoginVO>
-GET	/api/v1/users/avatars	PUBLIC	ApiResponse<List<UserAvatarVO>>
 GET	/api/v1/users/me	LOGIN	ApiResponse<UserInfoVO>
 PUT	/api/v1/users/me/avatar	LOGIN	ApiResponse<UserAvatarVO>
 PUT	/api/v1/users/me/avatar/default	LOGIN	ApiResponse<UserAvatarVO>

@@ -103,9 +103,7 @@ public class OpenApiConfig {
      */
     private static final Map<String, Set<String>> REQUIRED_QUERY_PARAMS = Map.of(
             "POST /api/v1/contents/videos", Set.of("title", "categoryId"),
-            "POST /api/v1/contents/posts", Set.of("title", "categoryId"),
-            // R-27：userIds 用 @RequestParam(required=false) + 手写判空；spec 不覆盖会谎报可选。
-            "GET /api/v1/users/avatars", Set.of("userIds"));
+            "POST /api/v1/contents/posts", Set.of("title", "categoryId"));
 
     /**
      * 同上，但必填的是 **multipart part**（`@RequestPart(required = false)` + 手写判空）。

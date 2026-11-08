@@ -153,11 +153,6 @@ class SecurityContractTests extends AbstractIntegrationTest {
         assertThat(requiresLogin("POST", "/api/v1/sessions")).isFalse();
         assertThat(requiresLogin("POST", "/api/v1/users")).isFalse();
         assertThat(requiresLogin("GET", "/api/v1/coupons")).isFalse();
-        // R-27：作者快照面的批量头像读必须匿名可达（评论 / 图文本身公开）。
-        // ⚠️ 这条同时钉住"字面量 /users/avatars 优先于 /users/{id}"——若被 {id} 吃掉，
-        //     handler 仍是 ProfileController 的 @Public，判定恰好也是 false（假绿）；
-        //     真正的判别力在 AvatarBatchTests 的 200 响应形状（400「userId 格式错误」会红）。
-        assertThat(requiresLogin("GET", "/api/v1/users/avatars")).isFalse();
     }
 
     @Test

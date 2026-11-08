@@ -331,10 +331,10 @@ public interface UserDao {
     int updateAvatarRef(@Param("userId") long userId, @Param("avatarRef") String avatarRef);
 
     /**
-     * 批量读头像选择（**只选 id / avatar_ref**，作者快照面的批量端点用）。
+     * 批量读头像选择（**只选 id / avatar_ref**，`AvatarUrlResolver` 的 JVM 缓存回源用）。
      *
      * <p>{@code ORDER BY id} 只为输出稳定；调用方最终按 userId 建 Map，不依赖顺序。
-     * 不存在的 id 自然不在结果里 ⇒ 批量端点"缺 id 不返回条目"。
+     * 不存在的 id 自然不在结果里 ⇒ 缓存回源时按"已确认 NULL"回填（防穿透）。
      *
      * @param ids 非空且去重（调用方保证：空 {@code IN ()} 是非法 SQL）
      */

@@ -2032,32 +2032,6 @@ paths:
           $ref: "#/components/responses/InternalError"
       tags:
       - user-controller
-  /api/v1/users/avatars:
-    get:
-      operationId: batch
-      parameters:
-      - in: query
-        name: userIds
-        required: true
-        schema:
-          type: string
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiResponseListUserAvatarVO"
-          description: OK
-        "400":
-          $ref: "#/components/responses/ParamInvalid"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "429":
-          $ref: "#/components/responses/RateLimited"
-        "500":
-          $ref: "#/components/responses/InternalError"
-      tags:
-      - avatar-controller
   /api/v1/users/me:
     get:
       operationId: me
@@ -2930,21 +2904,6 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/PublicFavoriteFolderVO"
-        errors:
-          type: array
-          items:
-            $ref: "#/components/schemas/ApiFieldError"
-        msg:
-          type: string
-    ApiResponseListUserAvatarVO:
-      type: object
-      properties:
-        code:
-          type: string
-        data:
-          type: array
-          items:
-            $ref: "#/components/schemas/UserAvatarVO"
         errors:
           type: array
           items:

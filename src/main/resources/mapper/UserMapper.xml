@@ -229,8 +229,8 @@
     </update>
 
     <!-- 批量读头像选择（只选 id / avatar_ref，作者快照面的批量端点用）。
-         ★ 不扩 findUsersByIds 的列集：关注列表不显示头像字段（GAP-25 由批量端点填）。
-         ORDER BY id 只为输出稳定。 -->
+         ★ 本方法是 AvatarUrlResolver 的 JVM 缓存回源口；关注列表走 findUsersByIds
+         （那边 R-37 起自带 avatar_ref）。ORDER BY id 只为输出稳定。 -->
     <select id="findAvatarRefsByIds" resultMap="userResultMap">
         select id, avatar_ref from users where id in
         <foreach collection="ids" item="id" open="(" separator="," close=")">

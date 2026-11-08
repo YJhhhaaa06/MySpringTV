@@ -676,22 +676,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/users/avatars": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["batch"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/users/me": {
         parameters: {
             query?: never;
@@ -1065,12 +1049,6 @@ export interface components {
         ApiResponseListPublicFavoriteFolderVO: {
             code?: string;
             data?: components["schemas"]["PublicFavoriteFolderVO"][];
-            errors?: components["schemas"]["ApiFieldError"][];
-            msg?: string;
-        };
-        ApiResponseListUserAvatarVO: {
-            code?: string;
-            data?: components["schemas"]["UserAvatarVO"][];
             errors?: components["schemas"]["ApiFieldError"][];
             msg?: string;
         };
@@ -3483,32 +3461,6 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             415: components["responses"]["UnsupportedMediaType"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
-        };
-    };
-    batch: {
-        parameters: {
-            query: {
-                userIds: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiResponseListUserAvatarVO"];
-                };
-            };
-            400: components["responses"]["ParamInvalid"];
-            404: components["responses"]["NotFound"];
             429: components["responses"]["RateLimited"];
             500: components["responses"]["InternalError"];
         };

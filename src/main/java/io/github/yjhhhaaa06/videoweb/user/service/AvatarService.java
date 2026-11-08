@@ -15,10 +15,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Set;
-
 /**
  * 头像业务（`R-27`）：自定义上传 / 默认切换 / 批量读。
  *
@@ -44,9 +40,6 @@ public class AvatarService {
 
     /** 服务端硬上限：前端裁剪产物通常 <100KB；2MB 是防"直接调 API 传大图"的边界。 */
     private static final long MAX_AVATAR_BYTES = 2L * 1024 * 1024;
-
-    /** 批量端点单次最多 100 个 userId（与接口契约一致）。 */
-    public static final int MAX_BATCH_SIZE = 100;
 
     private final UserDao userDao;
     private final FileUploadService fileUploadService;
@@ -123,26 +116,6 @@ public class AvatarService {
         avatarUrlResolver.invalidate(userId);
         deleteOldCustom(current.getAvatarRef());
         return new UserAvatarVO(userId, AvatarRefs.defaultUrl(id));
-    }
-
-    /**
-     * 批量读作者头像（{@code GET /api/v1/users/avatars?userIds=}）。
-     *
-     * <p>真正的"作者快照面"（评论 / 动态 / 关注列表 / 图文作者）用它，**不把头像写进缓存载荷**：
-     * 一次 {@code IN} 查询 + 纯函数解析，换掉整套"改头像要失效所有评论缓存"的机制。
-     *
-     * @param rawIds 已解析、可能重复的 id 列表（服务层再去重；不存在的 id 不返回）
-     */
-    public List<UserAvatarVO> listAvatars(List<Long> rawIds) {
-        Set<Long> ids = new LinkedHashSet<>(rawIds);
-        if (ids.isEmpty()) {
-            return List.of();
-        }
-        return userDao.findAvatarRefsByIds(List.copyOf(ids)).stream()
-                // 用户行存在 ⇒ avatarUrl 恒非空（未选过也按 userId 回落）
-                .map(user -> new UserAvatarVO(user.getId(),
-                        AvatarRefs.resolveUrl(user.getId(), user.getAvatarRef())))
-                .toList();
     }
 
     /** 旧值只有在 `/upload/avatar/` 下才是本业务拥有的文件；默认头像 URL 永不删。 */
