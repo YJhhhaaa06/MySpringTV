@@ -93,19 +93,23 @@ public class ProfileService {
     private final ContentCache contentCache;
     private final ContentStatusFiller contentStatusFiller;
     private final ContentCountFiller contentCountFiller;
+    /** `R-37`：空间投稿列表的作者头像读时装饰。 */
+    private final ContentAvatarFiller contentAvatarFiller;
 
     public ProfileService(UserDao userDao,
                           ContentDao contentDao,
                           FollowService followService,
                           ContentCache contentCache,
                           ContentStatusFiller contentStatusFiller,
-                          ContentCountFiller contentCountFiller) {
+                          ContentCountFiller contentCountFiller,
+                          ContentAvatarFiller contentAvatarFiller) {
         this.userDao = userDao;
         this.contentDao = contentDao;
         this.followService = followService;
         this.contentCache = contentCache;
         this.contentStatusFiller = contentStatusFiller;
         this.contentCountFiller = contentCountFiller;
+        this.contentAvatarFiller = contentAvatarFiller;
     }
 
     /**
@@ -154,6 +158,8 @@ public class ProfileService {
         }
         // R-31：同一响应服务「空间网格 + 动态时间线」两个视图 ⇒ 三维全带；公共计数不看登录态。
         contentCountFiller.fillCountsBatch(contentList, PROFILE_COUNT_FIELDS);
+        // R-37：投稿卡片的作者头像；同一页作者通常就是 profileUserId，仍走一趟批量（缓存命中）。
+        contentAvatarFiller.fillAvatarBatch(contentList);
 
         // R-27：头像与用户名同源（users 行），实时解析成生效 URL（默认 / 自定义 / 未选过回落）。
         // 它不进内容缓存：ProfileVO 每次由本方法直接组装，缓存里只有内容条目。

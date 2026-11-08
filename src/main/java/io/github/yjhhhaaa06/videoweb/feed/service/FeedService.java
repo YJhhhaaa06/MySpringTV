@@ -3,6 +3,7 @@ package io.github.yjhhhaaa06.videoweb.feed.service;
 import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
 import io.github.yjhhhaaa06.videoweb.content.model.ContentCountField;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentVO;
+import io.github.yjhhhaaa06.videoweb.content.service.ContentAvatarFiller;
 import io.github.yjhhhaaa06.videoweb.content.service.ContentCountFiller;
 import io.github.yjhhhaaa06.videoweb.content.service.ContentService;
 import io.github.yjhhhaaa06.videoweb.follow.service.FollowService;
@@ -68,6 +69,8 @@ public class FeedService {
     private final FollowService followService;
     private final ContentService contentService;
     private final ContentCountFiller contentCountFiller;
+    /** `R-37`：动态卡的作者头像（读时装饰，不进内容缓存）。 */
+    private final ContentAvatarFiller contentAvatarFiller;
     private final InteractionService interactionService;
     private final FeedReadService feedReadService;
     private final FeedPullReader pullReader;
@@ -75,12 +78,14 @@ public class FeedService {
     public FeedService(FollowService followService,
                        ContentService contentService,
                        ContentCountFiller contentCountFiller,
+                       ContentAvatarFiller contentAvatarFiller,
                        InteractionService interactionService,
                        FeedReadService feedReadService,
                        FeedPullReader pullReader) {
         this.followService = followService;
         this.contentService = contentService;
         this.contentCountFiller = contentCountFiller;
+        this.contentAvatarFiller = contentAvatarFiller;
         this.interactionService = interactionService;
         this.feedReadService = feedReadService;
         this.pullReader = pullReader;
@@ -181,6 +186,8 @@ public class FeedService {
                                              int page, int pageSize) {
         List<ContentVO> contentList = new ArrayList<>(contentService.loadContentVOs(pageIds));
         if (!contentList.isEmpty()) {
+            // R-37：动态卡显示作者头像；只在这一面填，收藏 / 历史 / 稍后再看不付这份成本。
+            contentAvatarFiller.fillAvatarBatch(contentList);
             // ★ 一趟批量（feed 必登录 ⇒ currentUserId 非 null ⇒ 互动域不会返回 null）
             Map<Long, InteractionStatusVO> statuses = interactionService.batchGetStatus(
                     currentUserId, targets(contentList), FEED_DIMENSIONS);

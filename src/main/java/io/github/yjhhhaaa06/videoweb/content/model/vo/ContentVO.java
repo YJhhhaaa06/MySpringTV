@@ -119,6 +119,22 @@ public class ContentVO extends ContentCacheDTO {
      */
     private Long playCount;
 
+    /**
+     * 作者**生效头像 URL**（`R-37`）：由 {@code ContentAvatarFiller} 在列表出口按页批量填充，
+     * 来源是 user 域的 {@code AvatarUrlResolver}（JVM 缓存，命中不查库）。
+     *
+     * <p>★ 为什么在响应 VO 而不在 {@link ContentCacheDTO}：缓存载荷是"一条内容被所有人共享"的
+     * 慢变快照；头像虽慢变，但旧 URL 会随换头像失效。放在响应层 = 每次读都拿当前 URL，
+     * 不需要"换头像 ⇒ 失效所有含此作者的内容缓存"的扇出。
+     *
+     * <p>与 {@code authorName} 同源（都来自 {@code users} 行），但**不**跟着
+     * `R-27` 的"作者快照面走独立批量端点"——`R-37` 起由本字段内联，前端不再二次补。
+     *
+     * <p>★ <b>按面填</b>：动态卡（{@code /feed}）与空间投稿填；搜索结果 / 首页推荐卡不显示作者头像
+     * ⇒ 这两面保持 {@code null}（与 {@code playCount} 等"本面不查"的计数同一口径，不是漏填）。
+     */
+    private String avatarUrl;
+
     public ContentVO() {
     }
 
@@ -152,6 +168,14 @@ public class ContentVO extends ContentCacheDTO {
 
     public void setPlayCount(Long playCount) {
         this.playCount = playCount;
+    }
+
+    public String getAvatarUrl() {
+        return avatarUrl;
+    }
+
+    public void setAvatarUrl(String avatarUrl) {
+        this.avatarUrl = avatarUrl;
     }
 
     /** 列表不返回视频地址（TV {@code @JsonIgnore} 原样；`R-31` 只放开了 {@code imageUrls}）。 */

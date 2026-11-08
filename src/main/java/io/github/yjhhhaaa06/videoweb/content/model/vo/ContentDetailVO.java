@@ -95,6 +95,12 @@ public class ContentDetailVO extends ContentCacheDTO {
      */
     private long playCount;
 
+    /**
+     * 作者**生效头像 URL**（`R-37`）：详情出口由 {@code ContentAvatarFiller} 单条解析。
+     * 与 {@link ContentVO#getAvatarUrl()} 同口径——响应层字段，**不进** {@link ContentCacheDTO}。
+     */
+    private String avatarUrl;
+
     public ContentDetailVO() {
     }
 
@@ -144,5 +150,13 @@ public class ContentDetailVO extends ContentCacheDTO {
 
     public void setPlayCount(long playCount) {
         this.playCount = playCount;
+    }
+
+    public String getAvatarUrl() {
+        return avatarUrl;
+    }
+
+    public void setAvatarUrl(String avatarUrl) {
+        this.avatarUrl = avatarUrl;
     }
 }

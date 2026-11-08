@@ -92,6 +92,8 @@ public class ContentService {
     private final InteractionService interactionService;
     private final ContentStatusFiller contentStatusFiller;
     private final ContentCountFiller contentCountFiller;
+    /** `R-37`：作者头像读时装饰（列表一趟批量 / 详情单条）。 */
+    private final ContentAvatarFiller contentAvatarFiller;
     private final ContentMediaManifestService contentMediaManifestService;
     private final ApplicationEventPublisher events;
 
@@ -125,6 +127,7 @@ public class ContentService {
                           InteractionService interactionService,
                           ContentStatusFiller contentStatusFiller,
                           ContentCountFiller contentCountFiller,
+                          ContentAvatarFiller contentAvatarFiller,
                           ContentMediaManifestService contentMediaManifestService,
                           ApplicationEventPublisher events,
                           MediaProperties mediaProps) {
@@ -137,6 +140,7 @@ public class ContentService {
         this.interactionService = interactionService;
         this.contentStatusFiller = contentStatusFiller;
         this.contentCountFiller = contentCountFiller;
+        this.contentAvatarFiller = contentAvatarFiller;
         this.contentMediaManifestService = contentMediaManifestService;
         this.events = events;
         this.mediaProps = mediaProps;
@@ -260,6 +264,8 @@ public class ContentService {
             return null;
         }
         ContentDetailVO vo = contentCache.toDetailVO(dto);
+        // R-37：详情作者头像单条解析（JVM 缓存命中不查库）。
+        contentAvatarFiller.fillAvatar(vo);
         // 单条四维走互动域单条契约；匿名（userId == null）由它短路返回 null ⇒ "interaction": null。
         // coin 维在互动域内按 type 分流：视频 ⇒ 0/1/2；图文 ⇒ null（"该维不适用"）。
         vo.setInteraction(interactionService.getStatus(userId, contentId, vo.getAuthorId(), vo.getType()));
