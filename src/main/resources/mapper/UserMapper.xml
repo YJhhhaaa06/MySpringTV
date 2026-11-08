@@ -27,6 +27,28 @@
         <result property="role" column="role"/>
     </resultMap>
 
+    <!--
+      /users/me 的端点专属投影（2026-11-08）。列集**只由 UserInfoVO 决定**：
+      VO 要 7 个字段，这里就 7 列，不多读 hashed_password（与 findByIdForProfile 同口径）。
+      ⚠️ 不要拆回"资料 + 三个单列窄查询"：基线实测那是 7 次往返 / p50 2917µs，
+         合并后 1 次 / 444µs；而多读一列的服务端代价是 0（同一行同一页）。
+    -->
+    <resultMap id="userProfileRowMap" type="io.github.yjhhhaaa06.videoweb.user.model.row.UserProfileRow">
+        <id property="id" column="id"/>
+        <result property="username" column="username"/>
+        <result property="avatarRef" column="avatar_ref"/>
+        <result property="role" column="role"/>
+        <result property="coinDeci" column="coin_deci"/>
+        <result property="lastSignDate" column="last_sign_date"/>
+        <result property="historyRecording" column="history_recording"/>
+    </resultMap>
+
+    <!-- 当前用户资料：一条主键点查拿齐 VO 的全部字段（走 PRIMARY，const 一行）。 -->
+    <select id="findProfileRow" resultMap="userProfileRowMap">
+        select id, username, avatar_ref, role, coin_deci, last_sign_date, history_recording
+        from users where id = #{id}
+    </select>
+
     <!-- TV: insert into users(username,hashed_password,phone) values(?,?,?) -->
     <insert id="insert" parameterType="io.github.yjhhhaaa06.videoweb.user.model.entity.User"
             useGeneratedKeys="true" keyProperty="id">
@@ -195,20 +217,11 @@
     </update>
 
     <!-- 余额（单列，十分位）。返回包装类型 Integer：无行 ⇒ null（不是 0 —— 0 是真实余额）。
-         与 getFollowCountById 的 COALESCE 口径**有意不同**，理由见 UserDao#findCoinDeci。 -->
+         与 getFollowCountById 的 COALESCE 口径**有意不同**，理由见 UserDao#findCoinDeci。
+         ⚠️ 只服务 coin 域（签到 / 投币**之后**回读余额）；/users/me 已改走 findProfileRow。
+         ★ 它不是"投币前判余额"的手段 —— 够不够由 deductCoinDeci 的条件写判定。 -->
     <select id="findCoinDeci" resultType="java.lang.Integer">
         select coin_deci from users where id = #{userId}
-    </select>
-
-    <!-- 最近签到日（单列，date）。无行 / 未签到 ⇒ null，两种 null 在签到判定上等价。 -->
-    <select id="findLastSignDate" resultType="java.time.LocalDate">
-        select last_sign_date from users where id = #{userId}
-    </select>
-
-    <!-- 记录浏览历史开关（R-25；V9 的列）。包装 Boolean：无行 ⇒ null ⇒ 调用方按"开"处理。
-         ★ history 域**不读**这一列 —— 服务端不强制该开关（刻意，见 history-已知代价.md）。 -->
-    <select id="findHistoryRecording" resultType="java.lang.Boolean">
-        select history_recording from users where id = #{userId}
     </select>
 
     <!-- 写开关：单条 UPDATE ⇒ 天然幂等（同值重写结果一样），重试安全。 -->

@@ -57,8 +57,10 @@ CREATE TABLE IF NOT EXISTS `content_coin` (
 - ★ **余额复用 `GET /api/v1/users/me`**（`UserInfoVO` 加 `coin` 字段，一位小数）：不新增"余额查询"端点。
   写操作**响应体回带新余额** ⇒ 前端投币/签到后无需再拉一次 `/api/v1/users/me`。
   ★ **`UserInfoVO` 同时加 `signedToday`**（= `last_sign_date == 上海今日`）—— 签到按钮要靠它才**进页就置灰**；
-  否则只能"点了才知道今天已签"（幂等回「今日已签到」），体验差一档，而它只是**同一张表的两次单列点查**
-  （主键命中、成本可忽略；刻意不把两列塞进 `findByIdForProfile` 的列集，见 `UserDao#findCoinDeci` 注释）。
+  否则只能"点了才知道今天已签"（幂等回「今日已签到」），体验差一档。
+  两列随 `/users/me` 的**同一条查询**取回（`UserDao#findProfileRow`，2026-11-08 起；
+  此前是 4 条单列点查，一次请求 7 次数据库往返）—— 仍刻意**不**把两列塞进 `findByIdForProfile` 的列集：
+  那个方法返回 `User` 实体，被 profile / avatar 两条读路径共用。
 - `balance` 用 `BigDecimal`（手工 scale = 1）序列化 —— `deci / 10` 恒为一位小数、精确无损；
   用 `double` 会在 `0.1` 这类值上引入二进制尾差。
 
@@ -219,7 +221,7 @@ UPDATE users SET coin_deci = coin_deci + 10, last_sign_date = :today
 | 边 | 形态 | 依据 |
 |---|---|---|
 | coin → `content.dao.ContentDao` | `findAliveContentAuthorAndType`（一趟取 `authorId` + `type`）/ `updateCoinCount` / `findCoinCount` / `findCoinCountsByIds`（计数缓存回源） | 《模块边界与依赖》§三「**同事务改计数/级联 ⇒ 允许 DAO 薄依赖**」；其中**纯读的那几条窄查询**属该文 §六 要登记的读例外 |
-| coin → `user.dao.UserDao` | `updateCoinDeci` / `deductCoinDeci` / `signIn` / `findCoinDeci` / `findLastSignDate` | **计数列方法进所在表的 DAO**（follow 域 `updateFollowCount` 先例）；`users` 的两列由本域维护 |
+| coin → `user.dao.UserDao` | `updateCoinDeci` / `deductCoinDeci` / `signIn` / `findCoinDeci` | **计数列方法进所在表的 DAO**（follow 域 `updateFollowCount` 先例）；`users` 的两列由本域维护。`findLastSignDate` 已于 2026-11-08 删除（`/users/me` 改走 `findProfileRow` 一条查齐），本域从未调用它 |
 | coin → `coin.dao.ContentCoinDao` | `content_coin` 表（**按表命名**，镜像 `ContentLikeDao`） | 自有数据 |
 | interaction → `coin.service.CoinService` | 详情互动态的第四维 `coin`（`getCoinAmount`，按 `type` 分流）+ **公共计数回填转发** `backfillCoinCount`（T44-2；T43 的读聚合 `getPublicCounts` 已删） | §六；**只调 Service**，不碰 `coin.cache`（ArchUnit 规则 2） |
 

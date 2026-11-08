@@ -18,6 +18,7 @@ import io.github.yjhhhaaa06.videoweb.user.model.AvatarRefs;
 import io.github.yjhhhaaa06.videoweb.user.model.dto.ChangePasswordRequest;
 import io.github.yjhhhaaa06.videoweb.user.model.dto.RegisterRequest;
 import io.github.yjhhhaaa06.videoweb.user.model.entity.User;
+import io.github.yjhhhaaa06.videoweb.user.model.row.UserProfileRow;
 import io.github.yjhhhaaa06.videoweb.user.model.vo.HistoryRecordingVO;
 import io.github.yjhhhaaa06.videoweb.user.model.vo.LoginVO;
 import io.github.yjhhhaaa06.videoweb.user.model.vo.UserInfoVO;
@@ -190,7 +191,7 @@ public class UserService implements AdminChecker {
     /**
      * 当前用户信息（新增端点，见 UserInfoVO 说明）。
      *
-     * <p><b>T37 加了硬币两个字段</b>（{@code coin} / {@code signedToday}）：
+     * <h2>字段口径（每条都想当然不得）</h2>
      * <ul>
      *   <li>{@code coin}：读 {@code users.coin_deci}（**十分位整数**）后在 VO 出口换算成一位小数。
      *       ⚠️ 这里**刻意不调** {@code CoinService.toCoinAmount}——那会让 user 域新增一条
@@ -203,34 +204,55 @@ public class UserService implements AdminChecker {
      *       （上海自然日），不能用 JVM 默认时区或 DB 时钟——否则跨时区部署时按钮会指错一天。</li>
      *   <li>{@code historyRecording}（{@code R-25}）：{@code users.history_recording}。
      *       它是「记录浏览历史」开关的**唯一读入口**（客户端每次整页装载读一次）——
-     *       同 {@code signedToday} 的形态：不新增"设置"端点族，也不把用户偏好塞进内容载荷。</li>
+     *       不新增"设置"端点族，也不把用户偏好塞进内容载荷。
+     *       ⚠️ 服务端**不**据此校验 history 写端点，"停用后不再记录"由客户端不发写请求保证
+     *       （代价见 {@code architecture/domain/history/history-已知代价.md}）。</li>
+     *   <li>{@code avatarUrl}（{@code R-27}）：DB 存的是**选择**（{@code default:N} /
+     *       {@code /upload/avatar/...}），出口统一用 {@code AvatarRefs} 解析成生效 URL。</li>
      * </ul>
      *
-     * <p>多三次**单列窄查询**（而不是把三列塞进 {@code findByIdForProfile}）：那个方法返回的是
-     * {@link User} 实体，加列会改实体与既有的列集契约；而这里只关心三个标量，
-     * 窄查询让"资料端点不需要知道签到日 / 开关"这件事保持在实现里，不扩散到 VO。
+     * <h2>★ 一条 SQL 拿齐，且**不开事务**（2026-11-08 基线之后的改判）</h2>
+     * 原来这里是「4 条单列窄查询 + {@code @Transactional(readOnly = true)}」。基线实测
+     * （MySQL 8.4 · 10 万 users · 5000 次单连接循环，脚本 `tools/perf/UserProfileBench.java`）：
+     * <pre>
+     * 现状：SET autocommit=0 → SELECT ×4 → COMMIT → SET autocommit=1   p50 2917 µs（7 次往返）
+     * 合并：SELECT ×1                                                  p50 444 µs（1 次往返，−85%）
+     * </pre>
+     * （5 次运行的 p50 区间：现状 2783–3046 µs，合并 402–447 µs。绝对值随单次往返成本变，
+     * 本机 Docker Desktop 端口转发把它抬到 ~400 µs；**可迁移的是 7→1 这个比值**。）
+     * ⚠️ 两个动作**必须一起做**：事务壳本身占 3 次往返，只合并查询不去事务只能省 3/7（仍是 4 次往返）；
+     * 而只去事务不合并会留下"4 条语句各自独立快照"的**撕裂读**——并发签到正好落在第 2、3 条之间时，
+     * 接口会返回"旧余额 + 今天已签"。合成一条后单语句本身原子 ⇒ 事务是纯开销。
+     *
+     * <p>★ 同轮实测：**多读一列的服务端代价是 0**（8 列 71.6 µs vs 7 列 76.1 µs，同一行同一页）
+     * ⇒ 按页面裁剪字段、加 {@code detail} 参数都换不到性能；成本在**往返数**。
+     * 这也正是"不做 nav + 账户详情式端点拆分"的依据：多一次请求 = 444 µs，多一列 = 0。
+     *
+     * <p>★ 仍然<strong>不</strong>扩 {@code findByIdForProfile} 的列集——那个方法返回 {@link User} 实体，
+     * 还被 {@code ProfileService} / {@code AvatarService} 共用，加列要连带改这三处调用点的列集契约。
+     * 这里读的是**端点专属投影** {@link UserProfileRow}：字段集只由 {@link UserInfoVO} 决定，
+     * "这个端点需要知道签到日 / 开关"仍然只留在实现里。
+     *
+     * @throws UserNotFoundException 查无此人（token 有效，但用户行已不在）
      */
-    @Transactional(readOnly = true)
     public UserInfoVO getProfile(long userId) {
-        User user = userDao.findByIdForProfile(userId);
-        if (user == null) {
+        UserProfileRow row = userDao.findProfileRow(userId);
+        if (row == null) {
             throw new UserNotFoundException();
         }
-        Integer coinDeci = userDao.findCoinDeci(userId);
-        // 用户刚被查到（上面已挡 404）；null 只可能是"同一行在两次查询之间被删"的窗口，
-        // 按 0 处理，避免读接口因这种竞态抛 NPE / 500。
+        // 列 NOT NULL；null 只可能是映射异常，按 0 兜住，不让读接口因数据问题抛 500。
+        Integer coinDeci = row.getCoinDeci();
         BigDecimal coin = BigDecimal.valueOf(coinDeci == null ? 0 : coinDeci)
                 .movePointLeft(1)
                 .setScale(1);
-        boolean signedToday = SiteTime.today().equals(userDao.findLastSignDate(userId));
-        Boolean recording = userDao.findHistoryRecording(userId);
-        // null = "同一行在两次查询之间被删"的窗口（列 NOT NULL ⇒ 不会读到空值）。
-        // 按**开**处理：DB 默认就是开，"误开"只是多记一次观看，"误关"要用户自己发现记录少了。
+        boolean signedToday = SiteTime.today().equals(row.getLastSignDate());
+        // 列 NOT NULL DEFAULT 1；仍按"开"兜底：误关比误开贵（用户只会觉得记录坏了）。
+        Boolean recording = row.getHistoryRecording();
         boolean historyRecording = recording == null || recording;
         // R-27：DB 存的是"选择"（default:N / /upload/avatar/...），出口统一解析成生效 URL。
         // 未选过 ⇒ 按 userId % 6 回落默认（与前端 UserAvatar 的历史分配一致）。
-        String avatarUrl = AvatarRefs.resolveUrl(user.getId(), user.getAvatarRef());
-        return new UserInfoVO(user.getId(), user.getUsername(), user.isAdmin(),
+        String avatarUrl = AvatarRefs.resolveUrl(row.getId(), row.getAvatarRef());
+        return new UserInfoVO(row.getId(), row.getUsername(), row.isAdmin(),
                 coin, signedToday, historyRecording, avatarUrl);
     }
 
