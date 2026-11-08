@@ -28,7 +28,7 @@ import java.util.List;
  * <h2>★ 字段集是对外契约（JSON 形状）</h2>
  * 对外的评论 JSON 键 = {@code username / commentId / contentId / userId / content / parentId /
  * replyToUserId / replyToUsername / createTime / likeCount / replyCount / children}
- * （+ VO 的 {@code isLiked}）。
+ * （+ VO 的 {@code isLiked} / {@code avatarUrl}；`R-37` 起头像只在响应子类上，不进本缓存 DTO）。
  * 旧 pytest 对 {@code commentId} / {@code content} / {@code children} / {@code replyCount}
  * 有逐字断言。
  *

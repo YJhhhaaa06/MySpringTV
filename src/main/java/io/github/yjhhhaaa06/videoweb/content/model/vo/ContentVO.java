@@ -25,9 +25,10 @@ import io.github.yjhhhaaa06.videoweb.interaction.model.vo.InteractionStatusVO;
  * ⚠️ T43 起两个 VO **不再逐字段同形**；GAP-01（2026-10-26）起列表也带**三个可空公共计数**
  * （见下一节），但仍不含详情独有的 `videoUrl` 与投币/收藏数。
  * 于是对外 JSON 的键集 = 父类键集 − {videoUrl}
- * + {interaction, likeCount, commentCount, playCount}，
+ * + {interaction, likeCount, commentCount, playCount, avatarUrl}，
  * 即 {@code {id, authorId, type, title, description, categoryId, commentEnabled, authorName,
- * coverUrl, imageUrls, durationSeconds, createTime, interaction, likeCount, commentCount, playCount}}。
+ * coverUrl, imageUrls, durationSeconds, createTime, interaction, likeCount, commentCount,
+ * playCount, avatarUrl}}。
  *
  * <h2>★ GAP-01（2026-10-26）：列表平铺三个**可空**计数，按面按需填充</h2>
  * T43 的"列表零计数"已被按面推翻。三类卡片对计数的需求不同（B站对照见

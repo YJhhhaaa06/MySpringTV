@@ -13,7 +13,7 @@ import io.github.yjhhhaaa06.videoweb.interaction.model.vo.InteractionStatusVO;
  * 在详情里才返回**——这正是它与 {@link ContentVO}（列表，屏蔽播放地址）的主要区别；
  * `imageUrls` 自 `R-31` 起两边都返回（列表的图文卡要用图集，且缓存载荷本来就有）。
  *
- * <h2>★ 对外 JSON 键集 = 父类全部键 + {@code interaction} + 五个公共计数（T10 / T40 / T43 / T48）</h2>
+ * <h2>★ 对外 JSON 键集 = 父类全部键 + {@code interaction} + 五个公共计数 + {@code avatarUrl}（T10 / T40 / T43 / T48 / R-37）</h2>
  * 顶层 {@code isLiked} / {@code isFollowed} **已于 T10 搬进** {@code interaction} 子对象
  * （用户 2026-10-11 明确接受 breaking）；子对象键集恰好
  * {@code {isLiked, isFavorited, isFollowed, coin}}，逐字段口径见 {@link InteractionStatusVO}。

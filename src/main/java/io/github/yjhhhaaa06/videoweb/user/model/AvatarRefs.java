@@ -22,7 +22,7 @@ import io.github.yjhhhaaa06.videoweb.common.exception.ParamException;
  *
  * <h2>纯函数</h2>
  * 本类不触盘、不查库，只做字符串解析与 ID 校验，可被 UserService / ProfileService /
- * AvatarService / 批量端点共用。自定义 URL 的磁盘存在性由写入路径保证（
+ * AvatarService / AvatarUrlResolver 共用。自定义 URL 的磁盘存在性由写入路径保证（
  * {@code FileUploadService#saveFile} 先落盘再写库）。
  */
 public final class AvatarRefs {
