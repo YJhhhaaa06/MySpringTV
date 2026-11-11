@@ -1,7 +1,7 @@
 import type { components } from '../../types/api'
 import type {
   Count,
-  PublicFolderVM,
+  LibraryFolderVM,
   SpaceHeaderVM,
   SpaceWorksVM,
   VideoCardVM,
@@ -9,6 +9,7 @@ import type {
 import { initialOf } from './format'
 import { videoHref } from './links'
 import { toVideoCard } from './videoCard'
+import { serverNow } from '../serverClock'
 
 /** 计数：非数字 ⇒ null（渲染成 `-`） */
 function count(value: number | null | undefined): Count {
@@ -18,9 +19,8 @@ function count(value: number | null | undefined): Count {
 /**
  * `ProfileVO` → 空间页头部。
  *
- * <p>★ 三处降级（都记在 GAP 台账里，界面上**不假装有**）：
- * 没有头像（昵称首字）、没有签名 / 生日 / 地区（资料卡只放真实计数）、
- * 没有 banner 图（渐变底）。
+ * <p>★ `avatarUrl`（`R-27`）已有；签名 / 生日 / 地区 / banner 仍降级
+ * （资料卡只放真实计数、banner 用渐变底）。
  *
  * <p>`isFollowed` 匿名时是 `null` ⇒ 关注按钮显示"关注"但**点下去先弹登录**
  * （不是"已关注"——那会把"不知道"画成"知道"）。
@@ -35,6 +35,7 @@ export function toSpaceHeader(
     id,
     name,
     initial: initialOf(name),
+    avatarUrl: typeof profile.avatarUrl === 'string' && profile.avatarUrl ? profile.avatarUrl : null,
     followerCount: count(profile.followerCount),
     followingCount: count(profile.followCount),
     worksCount: count(profile.contentPage?.total),
@@ -43,10 +44,10 @@ export function toSpaceHeader(
   }
 }
 
-/** `PageResult<ContentVO>` → 空间作品分页（与搜索页同一个卡片口径） */
+/** `PageResult<ContentVO>` → 空间作品分页（与搜索页同一个卡片口径，`now` 同源取服务器时钟） */
 export function toSpaceWorks(
   page: components['schemas']['PageResultContentVO'] | undefined,
-  now: Date = new Date(),
+  now: Date = serverNow(),
 ): SpaceWorksVM {
   const list = page?.list ?? []
   return {
@@ -58,12 +59,23 @@ export function toSpaceWorks(
   }
 }
 
-/** `PublicFavoriteFolderVO` → 收藏夹卡片 */
-export function toPublicFolder(folder: components['schemas']['PublicFavoriteFolderVO']): PublicFolderVM {
+/**
+ * `PublicFavoriteFolderVO` → 收藏夹条目（公开面）。
+ *
+ * <p>公开面只回 `id / name / itemCount / coverUrl`：没有 `isDefault`（`null`，不判断），
+ * `isPrivate` 由端点语义保证为 `false`（只返回公开夹）。封面 `coverUrl` 是 `R-33`
+ * 的生效封面，取不到即 `null`。
+ */
+export function toPublicFolder(folder: components['schemas']['PublicFavoriteFolderVO']): LibraryFolderVM {
   return {
     id: folder.id ?? 0,
     name: folder.name?.trim() || '未命名收藏夹',
     itemCount: folder.itemCount ?? 0,
+    coverUrl: folder.coverUrl?.trim() || null,
+    // 公开面 VO 没有 `hasCustomCover`（也不该让访客知道）⇒ 一律 false
+    hasCustomCover: false,
+    isPrivate: false,
+    isDefault: null,
   }
 }
 

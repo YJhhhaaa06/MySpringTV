@@ -1,44 +1,125 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { loadHome } from '../api/endpoints'
-import { ApiError } from '../api/http'
-import { CREATOR_HREF } from '../constants/features'
-import type { HeroSlideVM, VideoCardVM } from '../types/ui'
-import EmptyState from '../components/common/EmptyState.vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRecommendFeed } from '../composables/useRecommendFeed'
 import AppIcon from '../components/common/AppIcon.vue'
-import ChannelWall from '../components/layout/ChannelWall.vue'
+import EmptyState from '../components/common/EmptyState.vue'
 import HeroBanner from '../components/home/HeroBanner.vue'
+import HomeFloatingActions from '../components/home/HomeFloatingActions.vue'
 import VideoGrid from '../components/home/VideoGrid.vue'
+import ChannelWall from '../components/layout/ChannelWall.vue'
 
 /**
- * 首页闭环：`GET /contents/recommended`（固定 12 条、无分页 ⇒ **不做无限滚动**）。
+ * 首页：`GET /contents/recommended` 的**无限滚动**（游标信封）。
  *
- * <p>12 条的分配：前 3 条有封面的进大轮播（「推荐橱窗」，见 HeroBanner 注释），
- * 其余 9 条进 5 列网格 —— 同一内容不会重复出现。
+ * <p>分工：状态迁移在 `feed/listState.ts`（纯函数），请求 / 提示在
+ * `composables/useRecommendFeed`；本页只管 DOM —— 哨兵、骨架、到底文案、两个「换一换」。
+ *
+ * <p>★ 三个容易写错的点：
+ * <ol>
+ *   <li>轮播只在**第一页**拆（`loadHome` 负责）；续页全进网格；</li>
+ *   <li>`nextCursor === null` 是**唯一**的到底判据（不按"本页不满"猜）；</li>
+ *   <li>首屏空（池子真空 / 读失败同形）走空态，**不是**"刷到底"。</li>
+ * </ol>
  */
-const slides = ref<HeroSlideVM[]>([])
-const cards = ref<VideoCardVM[]>([])
-const loading = ref(true)
-const error = ref('')
+const feed = useRecommendFeed()
+const { state, slides, view, errorText, retryAfter, canRetry } = feed
 
-/** 只有「首屏还没有任何数据」才铺骨架；点「换一换」时保留旧内容，不闪屏 */
-const initialLoading = computed(() => loading.value && !cards.value.length && !slides.value.length && !error.value)
+/** 离底还有 800px 就开始拉下一页：滚到底时下一页通常已经在路上 */
+const PREFETCH_MARGIN = 800
 
-async function load(): Promise<void> {
-  loading.value = true
-  error.value = ''
-  try {
-    const data = await loadHome()
-    slides.value = data.slides
-    cards.value = data.cards
-  } catch (exception) {
-    error.value = exception instanceof ApiError ? exception.message : '加载失败，请稍后重试'
-  } finally {
-    loading.value = false
+const sentinel = ref<HTMLElement | null>(null)
+/** 内联「换一换」：它的可见性决定右下浮层出不出现（`display:none` 时 IO 报 false） */
+const inlineRefresh = ref<HTMLButtonElement | null>(null)
+const inlineVisible = ref(true)
+
+const initialLoading = computed(() => view.value === 'initial')
+const loadingMore = computed(() => view.value === 'loadingMore')
+const refreshing = computed(() => view.value === 'initial' || view.value === 'refreshing')
+const skeletons = computed(() => (initialLoading.value ? 11 : 10))
+const retryLabel = computed(() => (canRetry.value ? '重试' : `${retryAfter.value} 秒后再试`))
+/**
+ * "有没有可展示的内容"要**算上轮播**：池子只有 1~3 条且都有封面时，`splitHero` 会把它们
+ * 全抽进轮播、`cards` 为空 —— 只按 `items` 判会在这三张真轮播下面写「暂时没有内容」。
+ */
+const hasContent = computed(() => state.value.items.length > 0 || slides.value.length > 0)
+
+let sentinelObserver: IntersectionObserver | null = null
+let inlineObserver: IntersectionObserver | null = null
+
+function inPrefetchRange(): boolean {
+  const element = sentinel.value
+  // 卸载后元素已脱离文档，rect 恒 0 ⇒ 不加这一句会让 while 继续把整池拉完
+  if (!element?.isConnected) return false
+  return element.getBoundingClientRect().top <= window.innerHeight + PREFETCH_MARGIN
+}
+
+/**
+ * 连续补页：短页 / 大视口下哨兵可能仍留在触发区，而 IntersectionObserver 不会因为
+ * "元素还在视口里"再报一次。补到哨兵被推出触发区、到底、或失败为止。
+ * 熔断在纯函数里（空页 + 游标非空 ⇒ error），这里不会死循环。
+ */
+async function loadMore(): Promise<void> {
+  while (feed.shouldLoadMore() && inPrefetchRange()) {
+    await feed.loadMore()
+    await nextTick()
   }
 }
 
-onMounted(load)
+/** 首屏 / 换一批 + 补一次"首屏装不满"的续页（小池子时 IO 不会二次触发） */
+async function refresh(): Promise<void> {
+  await feed.refresh()
+  await nextTick()
+  if (feed.shouldLoadMore() && inPrefetchRange()) void loadMore()
+}
+
+/** 行内重试 + 补一次预取：失败时哨兵可能仍在触发区，IO 不会因为"还在视口里"再报 */
+async function retryLoadMore(): Promise<void> {
+  await feed.retry()
+  await nextTick()
+  if (feed.shouldLoadMore() && inPrefetchRange()) void loadMore()
+}
+
+/** 内联按钮：**原地**换一批，不动滚动位置 */
+function onInlineRefresh(): void {
+  void refresh()
+}
+
+/** 浮层：**先回顶再拉**（列表整批替换，滚动动画越过变化中的内容只会更晕） */
+function onFloatRefresh(): void {
+  window.scrollTo({ top: 0, behavior: 'auto' })
+  void refresh()
+}
+
+function backToTop(): void {
+  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+  window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' })
+}
+
+onMounted(() => {
+  void refresh()
+
+  // 先按"真实的 display 状态"定初值：`display:none` 时 offsetParent 为 null。
+  // 只靠 IO 的首次回调也行，但那一帧会让浮层闪一下（窄屏）/ 判断晚一拍。
+  inlineVisible.value = inlineRefresh.value?.offsetParent !== null
+
+  inlineObserver = new IntersectionObserver((entries) => {
+    inlineVisible.value = entries[0]?.isIntersecting ?? false
+  })
+  if (inlineRefresh.value) inlineObserver.observe(inlineRefresh.value)
+
+  sentinelObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) void loadMore()
+    },
+    { rootMargin: `0px 0px ${PREFETCH_MARGIN}px 0px` },
+  )
+  if (sentinel.value) sentinelObserver.observe(sentinel.value)
+})
+
+onBeforeUnmount(() => {
+  inlineObserver?.disconnect()
+  sentinelObserver?.disconnect()
+})
 </script>
 
 <template>
@@ -57,43 +138,69 @@ onMounted(load)
 
       <div class="home__grid-wrap">
         <button
+          ref="inlineRefresh"
           class="home__refresh"
           type="button"
-          :disabled="loading"
+          :disabled="refreshing"
           title="换一换：重新拉取推荐流（真接口，顺序每次不同）"
-          @click="load"
+          @click="onInlineRefresh"
         >
-          <AppIcon name="refresh" :size="20" :class="{ 'is-spinning': loading }" />
+          <AppIcon name="refresh" :size="20" :class="{ 'is-spinning': refreshing }" />
           <span>换一换</span>
         </button>
 
         <VideoGrid
-          :items="cards"
-          :loading="initialLoading"
+          :items="state.items"
+          :loading="initialLoading || loadingMore"
+          :skeleton-count="skeletons"
         >
           <HeroBanner v-if="slides.length" :slides="slides" />
           <div v-else-if="initialLoading" class="home__hero-skeleton skeleton" />
         </VideoGrid>
 
+        <!-- 行内失败：只影响"下一页"，已加载的内容留着 -->
+        <div v-if="view === 'errorMore'" class="home__more-error">
+          <span>{{ errorText }}</span>
+          <button class="home__more-retry" type="button" :disabled="!canRetry" @click="retryLoadMore">
+            {{ retryLabel }}
+          </button>
+        </div>
+
+        <!-- 到底：会话级文案；块里不放按钮（此时右下浮层一定在）。
+             池子只有 1~3 条时 items 为空、内容全在轮播里 —— 仍算到底，不算空 -->
+        <p v-if="(view === 'done' || view === 'empty') && hasContent" class="home__done">
+          这次的推荐到底了
+        </p>
+
         <EmptyState
-          v-if="error"
+          v-if="view === 'error'"
           icon="tv"
           title="内容加载失败"
-          :description="error"
+          :description="errorText"
         >
-          <button class="btn btn-blue" type="button" @click="load">重试</button>
+          <button class="btn btn-blue" type="button" @click="refresh">重试</button>
         </EmptyState>
 
         <EmptyState
-          v-else-if="!loading && !cards.length && !slides.length"
+          v-else-if="view === 'empty' && !hasContent"
           icon="tv"
-          title="还没有内容"
-          description="后端返回的推荐流是空的。可以先去创作中心发布第一条内容。"
+          title="暂时没有内容"
+          description="刷新试试"
         >
-          <a class="btn btn-primary" :href="CREATOR_HREF">去投稿</a>
+          <button class="btn btn-blue" type="button" @click="refresh">刷新</button>
         </EmptyState>
+
+        <!-- 哨兵：1px，必须在所有内容之后 -->
+        <div ref="sentinel" class="home__sentinel" aria-hidden="true" />
       </div>
     </div>
+
+    <HomeFloatingActions
+      v-if="!inlineVisible"
+      :refreshing="refreshing"
+      @refresh="onFloatRefresh"
+      @top="backToTop"
+    />
   </div>
 </template>
 
@@ -186,7 +293,50 @@ onMounted(load)
   }
 }
 
+/* 续页失败：行内重试，不自动重试（429 的"等多久"由 api 层翻译成文案） */
+.home__more-error {
+  display: flex;
+  padding: 20px 0;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+.home__more-retry {
+  padding: 6px 14px;
+  border: 1px solid var(--line-1);
+  border-radius: var(--radius-pill);
+  font-size: 13px;
+  color: var(--text-2);
+  background: var(--bg-0);
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.home__more-retry:hover:not(:disabled) {
+  color: var(--brand-blue);
+  border-color: var(--brand-blue);
+}
+
+.home__more-retry:disabled {
+  color: var(--text-4);
+}
+
+/* 到底：会话级（"这次的"），不承诺"全站已被你看完" */
+.home__done {
+  padding: 28px 0 8px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+.home__sentinel {
+  height: 1px;
+}
+
 @media (max-width: 1500px) {
+  /* 边距不够：内联按钮让位给右下浮层（浮层的显隐由它的可见性驱动） */
   .home__refresh {
     display: none;
   }
@@ -208,6 +358,12 @@ onMounted(load)
 
   .home__hero-skeleton {
     height: 220px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .is-spinning {
+    animation: none;
   }
 }
 </style>

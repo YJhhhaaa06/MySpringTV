@@ -133,6 +133,8 @@
         <result property="content" column="content"/>
         <result property="parentId" column="parent_id"/>
         <result property="replyToUserId" column="reply_to_user_id"/>
+        <!-- GAP-12：发布时间。三处同步（本映射 / CommentCacheDTO / convertToCommentVO），漏此处即恒 null。 -->
+        <result property="createTime" column="create_time"/>
         <result property="likeCount" column="like_count"/>
         <result property="replyCount" column="reply_count"/>
         <!-- 两列来自 LEFT JOIN users -->

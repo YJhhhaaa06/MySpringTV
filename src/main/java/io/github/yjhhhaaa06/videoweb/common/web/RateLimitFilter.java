@@ -47,7 +47,7 @@ import java.util.Set;
  * 与**前端 HTML 外壳路由**（{@code /search}、{@code /favorites}、{@code /history} 与各 {@code *.html} 入口）＋ 前缀 {@code /assets/}
  * （前端构建产物）、{@code /video/}、{@code /space/}、
  * {@code /placeholder/}（history 模式转发到入口 HTML 的应用内路由）、{@code /actuator/}、
- * {@code /upload/}。理由：静态资源不是业务成本，一起过闸会拖慢首屏、甚至 429 掉 CSS；
+ * {@code /upload/}、{@code /avatars/}（六张默认头像 SVG，`R-27`）。理由：静态资源不是业务成本，一起过闸会拖慢首屏、甚至 429 掉 CSS；
  * ★ **HTML 外壳也过闸**会变成"每翻一页先扣一枚令牌"，而页面里的 {@code /api/v1/**}
  * 才是真正的成本来源（跳过外壳 ≠ 跳过数据）。
  * ⚠️ {@code /upload/}（静态媒体服务，{@code WebMvcConfig#addResourceHandlers}）在原始
@@ -115,9 +115,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
             // 浏览器默认请求（文件不存在也是 404）
             "/", "/index.html", "/favicon.ico", "/favicon.svg",
             // 前端 HTML 外壳（`WebMvcConfig#addViewControllers` 的转发目标与入口本身）
+            // 旧收藏页 `/favorites`、`/watchlater` 已于 2026-11-07 退役（直接 404），
+            // 不再是 HTML 外壳 ⇒ 从跳过清单移除。
             "/search", "/search.html",
-            "/favorites", "/favorites.html",
-            "/watchlater",
             "/history", "/history.html",
             "/dynamic", "/dynamic.html",
             // 创作中心（2026-10-28）：HTML 外壳同样是静态文件；页面随后发的 /api/v1/** 才过闸
@@ -135,7 +135,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
      * {@code /api/v1/**} 上。
      */
     private static final List<String> SKIP_PREFIXES = List.of(
-            "/assets/", "/actuator/", "/upload/",
+            "/assets/", "/actuator/", "/upload/", "/avatars/",
             "/video/", "/opus/", "/space/", "/placeholder/",
             // 创作中心应用内路由（2026-10-29）：`/creator/manage`、`/creator/edit/{id}`
             // 都是 HTML 外壳的转发入口，与 `/creator` 本身同口径 —— 成本在页面随后发的 `/api/v1/**`。

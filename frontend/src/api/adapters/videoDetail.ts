@@ -28,6 +28,7 @@ export function toVideoDetail(detail: components['schemas']['ContentDetailVO']):
     authorId: detail.authorId ?? 0,
     authorName: detail.authorName?.trim() || '未知UP主',
     authorHref: spaceHref(detail.authorId),
+    authorAvatarUrl: detail.avatarUrl?.trim() || null,
     dateText: formatDateTime(detail.createTime),
     coverUrl: detail.coverUrl?.trim() || null,
     videoUrl: isVideo ? detail.videoUrl?.trim() || null : null,

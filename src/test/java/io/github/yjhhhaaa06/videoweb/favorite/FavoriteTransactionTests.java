@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.favorite;
 
+import io.github.yjhhhaaa06.videoweb.common.config.UploadProperties;
 import io.github.yjhhhaaa06.videoweb.favorite.dao.FavoriteFolderDao;
 import io.github.yjhhhaaa06.videoweb.favorite.dao.FavoriteItemDao;
 import io.github.yjhhhaaa06.videoweb.support.AbstractHttpIntegrationTest;
@@ -7,12 +8,17 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.PreparedStatement;
 import java.util.Map;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -22,6 +28,7 @@ import static org.mockito.Mockito.doThrow;
 /**
  * 收藏一期的**声明式机制生效证明**：为两处原本"零判别力的 {@code @Transactional}"补上可注入的判别力
  * （T8 收口；来源 {@code favorite.md 附录「编号速查」} <b>I-04</b> 与 T4 审查遗留）。
+ * ★ R-33 追加第三条：删夹回滚时**封面文件不能被提前删除**（证明清理挂在 `AfterCommit`）。
  *
  * <h2>为什么单列一个类（照 {@code AdminTransactionTests} 的范式）</h2>
  * 其余收藏用例都断言"两次写都成功"的**终态** ⇒ 去掉 {@code @Transactional} 仍绿（假绿）。
@@ -38,7 +45,9 @@ import static org.mockito.Mockito.doThrow;
  *   <li>{@code deleteFolder}：删条目（第一步，<b>真实执行</b>）→ 删夹行（第二步，<b>打桩抛错</b>）
  *       ⇒ 断言"条目被回滚"（R-02 的"同进同退"）；</li>
  *   <li>{@code moveItem}：插目标夹（第一步，<b>真实执行</b>）→ 删源夹（第二步，<b>打桩抛错</b>）
- *       ⇒ 断言"目标夹的插入被回滚"（先插后删的同事务语义）。</li>
+ *       ⇒ 断言"目标夹的插入被回滚"（先插后删的同事务语义）；</li>
+ *   <li>{@code deleteFolder} 的封面清理（R-33）：删条目 / 删夹行（第二步打桩抛错）⇒ 回滚，
+ *       `AfterCommit` 回调不执行 ⇒ 自定义封面文件**仍在**（若清理写在事务内，文件已被提前删除）。</li>
  * </ul>
  *
  * <p>⚠️ 不对 MyBatis mapper 用 {@code doCallRealMethod().doThrow(...)}：mapper 是 JDK 动态代理、
@@ -54,6 +63,9 @@ class FavoriteTransactionTests extends AbstractHttpIntegrationTest {
 
     @MockitoSpyBean
     private FavoriteFolderDao folderDao;
+
+    @Autowired
+    private UploadProperties uploadProperties;
 
     @BeforeEach
     void 清空本域相关表并复位打桩() {
@@ -87,6 +99,30 @@ class FavoriteTransactionTests extends AbstractHttpIntegrationTest {
         assertThat(oracleItemCount(folder))
                 .as("★ @Transactional 必须真的生效：第二步失败要回滚第一步已写入的删条目（无事务则提交后 = 0）")
                 .isEqualTo(2L);
+    }
+
+    @Test
+    @DisplayName("★机制证明(R-33)：删夹第二写失败 ⇒ 回滚，自定义封面文件不被提前删除")
+    void 删夹回滚不删封面文件() throws IOException {
+        TestUser me = register("13800006003", "事务封面用户");
+        long folder = insertFolderRow(me.id, "带封面的待删夹");
+        String fileName = "rollback-" + UUID.randomUUID() + ".jpg";
+        Path coverDir = Path.of(uploadProperties.root(), "favorite-cover");
+        Files.createDirectories(coverDir);
+        Path cover = coverDir.resolve(fileName);
+        Files.write(cover, new byte[]{0x01, 0x02, 0x03});
+        jdbcTemplate.update("UPDATE favorite_folder SET cover_ref = ? WHERE id = ?",
+                "/upload/favorite-cover/" + fileName, folder);
+
+        // 删夹行 = deleteFolder 的第二步（删条目之后）—— 打桩抛错 ⇒ 整个事务回滚。
+        doThrow(new IllegalStateException("boom: 模拟删夹行失败"))
+                .when(folderDao).deleteById(anyLong());
+
+        ResponseEntity<String> resp = removeFolder(me.token, folder);
+        assertThat(resp.getStatusCode().value()).as("非业务异常 → 500").isEqualTo(500);
+        assertThat(folderExists(folder)).as("事务回滚 ⇒ 夹仍在").isTrue();
+        assertThat(cover).as("★ 文件清理必须挂在 AfterCommit：回滚时不能提前删文件（删除在事务内即红）")
+                .exists();
     }
 
     // ========================================================================

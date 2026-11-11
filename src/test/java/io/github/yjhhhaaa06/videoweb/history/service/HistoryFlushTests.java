@@ -13,6 +13,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 
 import java.sql.Timestamp;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -60,6 +62,7 @@ class HistoryFlushTests extends AbstractIntegrationTest {
     @BeforeEach
     void cleanState() {
         jdbc.update("DELETE FROM watch_history WHERE user_id IN (?,?,?)", U_IDLE, U_ACTIVE, U_OTHER);
+        jdbc.update("DELETE FROM content_play_dedup WHERE user_id IN (?,?,?)", U_IDLE, U_ACTIVE, U_OTHER);
         for (long userId : new long[]{U_IDLE, U_ACTIVE, U_OTHER}) {
             redis.delete(CacheKeys.historyReport(userId));
             redis.opsForZSet().remove(CacheKeys.HISTORY_DIRTY, String.valueOf(userId));
@@ -145,26 +148,28 @@ class HistoryFlushTests extends AbstractIntegrationTest {
     }
 
     /**
-     * ★ flush 只写进度与时间，**绝不碰** `play_counted`（那是 `/play` 的唯一职责）。
-     * 两条夹具刻意反着放：已有行是 1（防"被重置成 0"），新行是 0（防"被写成 1"）——
-     * 单夹具的话，注入任一方向的缺陷都不会红。
+     * ★ flush 只写进度与时间，**绝不碰**播放量账本（那是 `/play` 的唯一职责，`R-26`）。
+     * 夹具刻意两个方向：一条内容**预先有一笔账**（防"被删/被改"）、另一条**没有任何账**
+     * （防"上报顺手记了一笔"）—— 单夹具的话，注入任一方向的缺陷都不会红。
      */
     @Test
-    @DisplayName("flush 不覆盖 play_counted（已计的不清、未计的不置）")
-    void flushDoesNotTouchPlayCounted() {
-        jdbc.update("INSERT INTO watch_history (user_id, content_id, progress_seconds, play_counted) "
-                + "VALUES (?,?,?,1)", U_IDLE, C1, 1);
-        jdbc.update("INSERT INTO watch_history (user_id, content_id, progress_seconds, play_counted) "
-                + "VALUES (?,?,?,0)", U_IDLE, C2, 1);
+    @DisplayName("flush 不记账：已有的账不动、没有的账不建（计数唯一入口是 /play）")
+    void flushDoesNotTouchPlayDedup() {
+        LocalDate yesterday = LocalDate.now(ZoneId.of("Asia/Shanghai")).minusDays(1);
+        jdbc.update("INSERT INTO content_play_dedup (user_id, content_id, play_date) VALUES (?,?,?)",
+                U_IDLE, C1, yesterday);
         bufferOps.write(U_IDLE, C1, 500, TS, props.bufferTtl());
         bufferOps.write(U_IDLE, C2, 600, TS, props.bufferTtl());
 
         flushService.flushUser(U_IDLE);
 
         assertThat(progressOf(U_IDLE, C1)).isEqualTo(500);
-        assertThat(playCountedOf(U_IDLE, C1)).isEqualTo(1);
         assertThat(progressOf(U_IDLE, C2)).isEqualTo(600);
-        assertThat(playCountedOf(U_IDLE, C2)).isZero();
+        assertThat(ledgerDates(U_IDLE, C1))
+                .as("★ 已有的账一笔都不能动（flush 只写 watch_history）")
+                .containsExactly(yesterday);
+        assertThat(ledgerDates(U_IDLE, C2))
+                .as("★ 上报不是计数入口：新落库的行也不该冒出账本行").isEmpty();
     }
 
     /**
@@ -241,10 +246,10 @@ class HistoryFlushTests extends AbstractIntegrationTest {
                 Timestamp.class, userId, contentId);
     }
 
-    private Integer playCountedOf(long userId, long contentId) {
-        return jdbc.queryForObject(
-                "SELECT play_counted FROM watch_history WHERE user_id = ? AND content_id = ?",
-                Integer.class, userId, contentId);
+    private List<LocalDate> ledgerDates(long userId, long contentId) {
+        return jdbc.queryForList(
+                "SELECT play_date FROM content_play_dedup WHERE user_id = ? AND content_id = ? ORDER BY play_date",
+                LocalDate.class, userId, contentId);
     }
 
     private int rowCount(long userId) {

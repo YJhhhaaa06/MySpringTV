@@ -37,6 +37,12 @@ import org.springframework.web.bind.annotation.RestController;
  * TV 的 {@code FEED_PAGE_SIZE_MAX=100} / {@code FEED_PAGE_SIZE_DEFAULT=100} 逐字承接
  * （T19 拍板：四域统一 100）。{@code page} / {@code pageSize} 收 {@code String} 以复刻
  * "非数字静默归一"（收 {@code Integer} 会变成 400，属契约改动——与 {@code FollowController} 同款理由）。
+ *
+ * <h2>★ 可选快照锚点 {@code beforeContentId}</h2>
+ * 无限滚动时列表头部会插入新内容，纯 offset 分页会让第 2 页重复上一页末条（窗口整体后移一位）。
+ * 客户端把**首屏第一条的 id** 作为锚点带给后续页，服务端只在该 id（含）以下切页 ⇒ 已加载区段冻结、
+ * {@code total} 也只算锚点内条数。缺省 / 非数字 / ≤0 一律**静默忽略**（与 {@code page} 同口径），
+ * 不带该参数时行为与旧契约**逐字一致**。语义与代价见 {@code architecture/domain/feed/feed.md} §3.4。
  */
 @RestController
 @RequiresLogin
@@ -58,13 +64,27 @@ public class FeedController {
      * 关注动态流（{@code GET /api/v1/feed}）。
      *
      * <p>返回 {@code PageResult<ContentVO>}，信封形状 {@code {list,total,page,pageSize,totalPages}}。
+     *
+     * @param beforeContentId 可选快照锚点（首屏第一条的 id）；缺省 / 非法 = 不启用（旧行为）
      */
     @GetMapping("/api/v1/feed")
     public ApiResponse<PageResult<ContentVO>> feed(@CurrentUserId long userId,
                                                    @RequestParam(required = false) String page,
-                                                   @RequestParam(required = false) String pageSize) {
+                                                   @RequestParam(required = false) String pageSize,
+                                                   @RequestParam(required = false) String beforeContentId) {
         return ApiResponse.success(feedService.getFeed(userId,
                 PageParams.normalizePage(page),
-                PageParams.normalizePageSize(pageSize, FEED_PAGE_SIZE_MAX, FEED_PAGE_SIZE_DEFAULT)));
+                PageParams.normalizePageSize(pageSize, FEED_PAGE_SIZE_MAX, FEED_PAGE_SIZE_DEFAULT),
+                normalizeBeforeContentId(beforeContentId)));
+    }
+
+    /**
+     * 锚点归一：缺省 / 非数字 / ≤0 → {@code null}（= 不启用锚点）。
+     *
+     * <p>与 {@code page} 的"静默归一"同口径：非法值不 400、也不当成"过滤到 0 条"。
+     */
+    private static Long normalizeBeforeContentId(String raw) {
+        Long parsed = PageParams.parseLongOrNull(raw);
+        return (parsed == null || parsed <= 0) ? null : parsed;
     }
 }

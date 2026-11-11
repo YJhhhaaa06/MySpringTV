@@ -3,7 +3,7 @@ import vue from '@vitejs/plugin-vue'
 import { defineConfig, type Connect, type Plugin } from 'vite'
 
 /**
- * 前端重制：**MPA 外壳 + 应用内 SPA**（口径见 `.docs/task/CURRENT_FRONTEND.md` §十二）。
+ * 前端重制：**MPA 外壳 + 应用内 SPA**（口径见 `.docs/architecture/frontend/前端.md` §一）。
  *
  * <p>跨应用 = 整页跳转（每个入口一个 HTML + 一个 vue-router 实例）；
  * 应用内 = `createWebHistory`，切 tab 只改 URL、不整页重载。
@@ -18,9 +18,8 @@ const pageEntries: ReadonlyArray<readonly [RegExp, string]> = [
   [/^\/search\/?$/, '/search.html'],
   [/^\/video\/\d+\/?$/, '/video.html'],
   [/^\/opus\/\d+\/?$/, '/opus.html'],
+  [/^\/space\/me\/?$/, '/space.html'],
   [/^\/space\/\d+\/?$/, '/space.html'],
-  [/^\/favorites\/?$/, '/favorites.html'],
-  [/^\/watchlater\/?$/, '/favorites.html'],
   [/^\/history\/?$/, '/history.html'],
   [/^\/dynamic\/?$/, '/dynamic.html'],
   // 创作中心（2026-10-28）：**刻意不用 `/upload`** —— `/upload/**` 是后端媒体静态路径
@@ -88,7 +87,6 @@ export default defineConfig({
         video: fileURLToPath(new URL('./video.html', import.meta.url)),
         opus: fileURLToPath(new URL('./opus.html', import.meta.url)),
         space: fileURLToPath(new URL('./space.html', import.meta.url)),
-        favorites: fileURLToPath(new URL('./favorites.html', import.meta.url)),
         history: fileURLToPath(new URL('./history.html', import.meta.url)),
         dynamic: fileURLToPath(new URL('./dynamic.html', import.meta.url)),
         creator: fileURLToPath(new URL('./creator.html', import.meta.url)),

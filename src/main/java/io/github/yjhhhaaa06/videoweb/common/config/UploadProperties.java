@@ -2,6 +2,8 @@ package io.github.yjhhhaaa06.videoweb.common.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.nio.file.Path;
+
 /**
  * 上传媒体**磁盘根目录**配置（S7）。
  *
@@ -36,10 +38,16 @@ public record UploadProperties(String root) {
      * 空值 fail-fast——口径沿袭 TV {@code AppShutDownListener}：
      * {@code "upload.path 未配置或为空，拒绝启动"}（那里是启动期检查，此处改为**绑定期**校验，
      * 与 {@link BigVProperties} 等本项目的配置纪律一致）。
+     *
+     * <p>★ <b>相对路径在绑定期归一成绝对路径</b>（`2026-11-01`，头像 E2E 暴露）：
+     * {@code UPLOAD_ROOT=.tmp/e2e-media} 这类相对值，{@code File.mkdirs()} 会按**进程工作目录**
+     * 建目录，而 Tomcat 的 {@code MultipartFile.transferTo(File)} 会把相对目标按**临时 work 目录**
+     * 解析 ⇒ 两边不一致，上传 500「找不到路径」。归一后落盘、静态挂载、删除、审计只认一个绝对根。
      */
     public UploadProperties {
         if (root == null || root.isBlank()) {
             throw new IllegalArgumentException("video.upload.root 未配置或为空，拒绝启动");
         }
+        root = Path.of(root).toAbsolutePath().normalize().toString();
     }
 }

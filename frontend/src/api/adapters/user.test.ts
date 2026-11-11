@@ -5,11 +5,17 @@ import { toAuthorCard, toCurrentUser } from './user'
 type ProfileVO = components['schemas']['ProfileVO']
 
 describe('toCurrentUser', () => {
-  it('用昵称首字做头像占位（后端没有 avatar 字段）', () => {
-    const user = toCurrentUser({ id: 233, username: 'frontend_demo', phone: '13900000002', admin: false, coin: 3 })
+  it('用昵称首字做兜底（avatarUrl 缺失时由 UserAvatar 再按 userId 回落）', () => {
+    const user = toCurrentUser({ id: 233, username: 'frontend_demo', admin: false, coin: 3 })
     expect(user.initial).toBe('F')
     expect(user.name).toBe('frontend_demo')
     expect(user.spaceHref).toBe('/space/233')
+    expect(user.avatarUrl).toBeNull()
+  })
+
+  it('★ avatarUrl 原样带出（R-27：自定义 / 默认 URL 都只做透传，不在这里拼）', () => {
+    expect(toCurrentUser({ avatarUrl: '/upload/avatar/x.jpg' }).avatarUrl).toBe('/upload/avatar/x.jpg')
+    expect(toCurrentUser({ avatarUrl: '/avatars/default-3.svg' }).avatarUrl).toBe('/avatars/default-3.svg')
   })
 
   it('中文昵称取第一个字（不是首字节）', () => {
@@ -45,12 +51,21 @@ describe('toCurrentUser', () => {
   it('coin 保留一位小数（取整只在展示层，投币弹层要用真值）', () => {
     expect(toCurrentUser({ coin: 1.5 }).coin).toBe(1.5)
   })
+
+  it('★ historyRecording 与上面两条**反向**：缺失 ⇒ true（按"开"，DB 默认值）', () => {
+    // 去掉 toCurrentUser 里那行 `!== false` 映射（或改成 `=== true`），本用例必红。
+    // 口径与 signedToday 相反是有意的：那里缺字段宁可"别放行"，这里缺字段宁可"别关掉记录"。
+    expect(toCurrentUser({}).historyRecording).toBe(true)
+    expect(toCurrentUser({ historyRecording: true }).historyRecording).toBe(true)
+    expect(toCurrentUser({ historyRecording: false }).historyRecording).toBe(false)
+  })
 })
 
 describe('toAuthorCard', () => {
   const profile: ProfileVO = {
     userId: 3,
     username: '基米',
+    avatarUrl: '/upload/avatar/up.jpg',
     followerCount: 12_345,
     followCount: 2,
     isFollowed: false,
@@ -61,6 +76,7 @@ describe('toAuthorCard', () => {
     const card = toAuthorCard(profile)
     expect(card.name).toBe('基米')
     expect(card.initial).toBe('基')
+    expect(card.avatarUrl).toBe('/upload/avatar/up.jpg')
     expect(card.followerCount).toBe(12_345)
     expect(card.followingCount).toBe(2)
     expect(card.worksCount).toBe(8)

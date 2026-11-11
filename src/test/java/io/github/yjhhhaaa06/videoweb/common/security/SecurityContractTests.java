@@ -136,6 +136,11 @@ class SecurityContractTests extends AbstractIntegrationTest {
         assertThat(requiresLogin("GET", "/api/v1/users/me")).isTrue();
         assertThat(requiresLogin("PUT", "/api/v1/users/me/password")).isTrue();
         assertThat(requiresLogin("PUT", "/api/v1/users/me/username")).isTrue();
+        // 记录开关（R-25 / T73）：路由必须落到 @Controller 处理器上（写错路径 ⇒ 未映射 ⇒ false）。
+        assertThat(requiresLogin("PUT", "/api/v1/users/me/history-recording")).isTrue();
+        // 头像写端点（R-27 / T80）：两个都是"我的"资源，必须登录。
+        assertThat(requiresLogin("PUT", "/api/v1/users/me/avatar")).isTrue();
+        assertThat(requiresLogin("PUT", "/api/v1/users/me/avatar/default")).isTrue();
         assertThat(requiresLogin("POST", "/api/v1/coupons/1/claims")).isTrue();
         assertThat(requiresLogin("GET", "/api/v1/users/me/coupons")).isTrue();
         assertThat(requiresLogin("POST", "/api/v1/comments")).isTrue();
@@ -236,6 +241,15 @@ class SecurityContractTests extends AbstractIntegrationTest {
         assertThat(requiresLogin("PUT", "/api/v1/favorite-folders/1")).isTrue();
         assertThat(requiresLogin("DELETE", "/api/v1/favorite-folders/1")).isTrue();
         assertThat(requiresLogin("GET", "/api/v1/favorite-folders")).isTrue();
+    }
+
+    @Test
+    @DisplayName("R-33：收藏夹封面写端点判为需登录（上传 / 恢复自动；方法级注解，与夹 CRUD 同一口径）")
+    void favorite封面端点需登录() {
+        // 两条都是"改我的夹"，且都收 @CurrentUserId（取不到即 401）——
+        // 与夹 CRUD 同组理由：不能靠类级 @RequiresLogin（会误拦三条匿名端点）。
+        assertThat(requiresLogin("PUT", "/api/v1/favorite-folders/1/cover")).isTrue();
+        assertThat(requiresLogin("DELETE", "/api/v1/favorite-folders/1/cover")).isTrue();
     }
 
     @Test
@@ -346,16 +360,16 @@ class SecurityContractTests extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("★播放记录 T47/T49/T51-2：history 五端点判为需登录（钉路由；**不**证明类级注解在不在）")
+    @DisplayName("★播放记录 T47/T49/T51-2/R-26：history 六端点判为需登录（钉路由；**不**证明类级注解在不在）")
     void history写端点需登录() {
-        // 本域五个端点都只对当前登录用户有意义（历史是"我的"私有记录）⇒ 类级 @RequiresLogin。
+        // 本域六个端点都只对当前登录用户有意义（历史是"我的"私有记录）⇒ 类级 @RequiresLogin。
         // ★ 判别力边界（如实声明，同 coin）：本仓是**默认拒绝** ⇒ 去掉类级注解后 requiresLogin
         //   仍然是 true ⇒ 这条用例**测不到"注解在不在"**。它真正钉的是"路由落到了一个
         //   @Controller 处理器上"（路径写错 / 控制器没被扫到 ⇒ 未映射 ⇒ false）。
         // ⚠️ HTTP 侧对 @RequiresLogin 同样是假绿（401 由 @CurrentUserId 参数解析器兜出）。
-        // 📌 T47 落了写路径两段；T49 读面两段已补进本方法（核销 I-23）；T51-2 补 /flush
-        //    ——五个端点都有至少"路由可达"的机制级证据。方法名里的"写端点"是 T47 的引用锚点
-        //   （多处文档按名引用），语义已扩展为五端点，改名会带来静默断链。
+        // 📌 T47 落了写路径两段；T49 读面两段已补进本方法（核销 I-23）；T51-2 补 /flush；
+        //   R-26 补 DELETE /history —— 六个端点都有至少"路由可达"的机制级证据。方法名里的
+        //   "写端点"是 T47 的引用锚点（多处文档按名引用），语义已扩展为六端点，改名会带来静默断链。
         // `T58` 契约变更（接口契约.md §2.3/§2.4）：资源化 /api/v1/history、
         //   /api/v1/contents/{id}/progress（report=PUT）、/api/v1/contents/{id}/play（{id} 取样成 1）。
         assertThat(requiresLogin("PUT", "/api/v1/contents/1/progress")).isTrue();
@@ -363,6 +377,8 @@ class SecurityContractTests extends AbstractIntegrationTest {
         assertThat(requiresLogin("POST", "/api/v1/contents/1/play")).isTrue();
         assertThat(requiresLogin("GET", "/api/v1/history")).isTrue();
         assertThat(requiresLogin("GET", "/api/v1/contents/1/progress")).isTrue();
+        // R-26（T77）：删除 / 清空是同一条路由（形态由 query 区分），路由必须落到本域处理器上。
+        assertThat(requiresLogin("DELETE", "/api/v1/history")).isTrue();
     }
 
     @Test

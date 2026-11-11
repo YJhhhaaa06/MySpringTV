@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.favorite.model.vo;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -17,7 +18,7 @@ import lombok.NoArgsConstructor;
  * 公开面的字段集由本类**逐字段显式**决定，加字段必须动本类（契约测试还会对着键集断言，
  * 见 {@code FavoritePrivacyTests}）。
  *
- * <h2>字段口径（就这三个，别顺手加）</h2>
+ * <h2>字段口径（就这四个，别顺手加）</h2>
  * <ul>
  *   <li>★ {@code id} —— 夹 id，**T18 新加**：消费方是"点开他人公开夹看内容"
  *       （前端据此调 {@code GET /api/v1/favorite-folders/{id}/items}）。一期刻意不给 id
@@ -27,7 +28,10 @@ import lombok.NoArgsConstructor;
  *   <li>{@code name} —— 夹名；</li>
  *   <li>{@code itemCount} —— 夹内**收藏记录数**（含失效内容的记录，口径与
  *       {@link FavoriteFolderVO#getItemCount()} 完全一致：数的是 {@code favorite_item} 行，
- *       不感知内容有效性）。</li>
+ *       不感知内容有效性）；</li>
+ *   <li>★ {@code coverUrl}（V12 / R-33）—— **生效封面**（自定义优先，否则最新一条收藏的
+ *       {@code coverUrl}）；{@code null} = 前端占位。公开面**只给 URL**，不给
+ *       {@code hasCustomCover} / {@code coverRef}：看别人夹的人不需要"这封面是不是自定义"。</li>
  * </ul>
  * ★ <b>为什么现在可以给 {@code id} 而不泄露隐私</b>：id 只用来"按 folderId 打开"，
  * 而"能不能打开"由服务端在 {@code GET /api/v1/favorite-folders/{id}/items} 上**强制 {@code is_private = 0}**
@@ -38,7 +42,7 @@ import lombok.NoArgsConstructor;
  *
  * <p>JSON 形状（{@code data} 是数组）：
  * <pre>
- * [{"id":1,"name":"公开夹","itemCount":3}]
+ * [{"id":1,"name":"公开夹","itemCount":3,"coverUrl":"/upload/cover/x.png"}]
  * </pre>
  */
 @Data
@@ -53,4 +57,11 @@ public class PublicFavoriteFolderVO {
 
     /** 夹内**收藏记录数**（含已失效内容的记录 —— 与"我的夹"列表同一口径）。 */
     private Integer itemCount;
+
+    /** 自定义封面相对 URL（Mapper 行承载，**不进 JSON**；对外只暴露 {@link #coverUrl}）。 */
+    @JsonIgnore
+    private String coverRef;
+
+    /** 生效封面（自定义优先，否则最新一条收藏的 `coverUrl`）；`null` = 前端占位。 */
+    private String coverUrl;
 }

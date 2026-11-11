@@ -21,6 +21,15 @@ public class User {
     private Long id;
     private String username;
 
+    /**
+     * 头像选择（`R-27`）：{@code default:1..6} 或 {@code /upload/avatar/...}；{@code NULL}=从没选过。
+     *
+     * <p>⚠️ 这是**存储值**，不是对外 URL。资料出口必须经
+     * {@code AvatarRefs#resolveUrl(userId, avatarRef)} 解析成生效 `avatarUrl`
+     * （未选过 ⇒ 按 {@code userId % 6} 回落默认）。
+     */
+    private String avatarRef;
+
     /** BCrypt 散列后的密码。**任何情况下不得序列化进 VO**。 */
     private String hashedPassword;
 

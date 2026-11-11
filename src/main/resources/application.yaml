@@ -193,7 +193,7 @@ video:
   #    夹数只数**自建夹**（默认夹不计入 —— 计入会让"夹数满 ⇒ 默认夹建不出来"成为不自愈的死局）。
   # ⚠️ **软上限**（用户 2026-10-14 拍板）：判定是 COUNT → INSERT 两步、非原子 ⇒ 真并发下可**瞬时越界**
   #    （越界 ≤ 并发请求数，且越界后自限）；**读路径不因越界做任何隐藏/限制**。为什么不加锁见
-  #    `FURTHER_ISSUES.md` F-23。超限 ⇒ 400（判在夹归属 403/404 **之后**）。
+  #    `favorite-已知代价.md` 的 F-23 条。超限 ⇒ 400（判在夹归属 403/404 **之后**）。
   # ⚠️ 写 0 / 键名写错 ⇒ 上下文**启动失败**（FavoriteLimitProperties 构造器校验"必须为正"）——
   #    这是有意的：静默绑成 0 会把每一次新增都判成 400。
   favorite:
@@ -467,6 +467,11 @@ video:
         # —— 用户资料修改 ——
         "[PUT /api/v1/users/me/password]": 3
         "[PUT /api/v1/users/me/username]": 3
+        # 记录开关（R-25）：低频设置写，按"其余写 3"计；不参与 history 上报路径的任何判断。
+        "[PUT /api/v1/users/me/history-recording]": 3
+        # 头像（R-27）：自定义上传是文件写重活（10）；默认切换是低频设置写（3）。
+        "[PUT /api/v1/users/me/avatar]": 10
+        "[PUT /api/v1/users/me/avatar/default]": 3
         # —— 内容作者操作（delete 为级联软删，成本与"单个作品"同阶）——
         "[PUT /api/v1/contents/{id}/comment-enabled]": 3
         "[PUT /api/v1/contents/{id}]": 3
@@ -487,6 +492,9 @@ video:
         "[POST /api/v1/favorite-folders]": 3
         "[PUT /api/v1/favorite-folders/{id}]": 3
         "[DELETE /api/v1/favorite-folders/{id}]": 3
+        # 收藏夹封面（R-33）：上传是文件写重活（同头像 10）；恢复自动是低频设置写（3）。
+        "[PUT /api/v1/favorite-folders/{id}/cover]": 10
+        "[DELETE /api/v1/favorite-folders/{id}/cover]": 3
         # —— 稍后再看（同批迁移）——
         "[PUT /api/v1/watch-later/{id}]": 3
         "[DELETE /api/v1/watch-later]": 3
@@ -505,6 +513,9 @@ video:
         "[PUT /api/v1/contents/{id}/progress]": 1
         "[POST /api/v1/history/flush]": 3
         "[POST /api/v1/contents/{id}/play]": 1
+        #    删除 / 清空历史（R-26）：一次最多 500 条、要动 DB + 清缓冲 ⇒ 按"其余写 3"计；
+        #    清空是同一条路由（all=true），权重按请求计、不按影响行数计。
+        "[DELETE /api/v1/history]": 3
         # —— admin（人工操作、流量极小，但**无白名单** ⇒ 同样过闸计费；`T58` 起资源化：
         #    删评论 = DELETE /comments/{id}、下架/恢复 = PUT|DELETE /contents/{id}/hidden，
         #    权重值逐字保持）——

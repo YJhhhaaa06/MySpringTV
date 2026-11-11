@@ -77,6 +77,33 @@ export function clearPending(contentId: number): void {
   }
 }
 
+/**
+ * 清掉**全部**本地 pending（清空历史时用，`R-26`）。
+ *
+ * <p>★ 为什么删除历史必须连带清它：`/position` 在删完之后答 `0`，但播放页的定位取
+ * `max(服务端, 本地)`（契约 §6.2）—— 不清就会从**被删掉的那条**的旧位置接着播，
+ * 而第一次上报又会立刻把历史行重建出来（用户视角 = "删了没生效"）。
+ *
+ * <p>★ 为什么按前缀遍历而不是记一张索引表：`localStorage` 没有前缀查询 API，而多存一张索引表
+ * 就等于**新增第三个 key**（前端只许两个 key 的红线，见 `客户端静默机制.md` §3.10）。
+ * 页面自己的 pending 条目数是"看过多少个视频"的量级，遍历可接受。
+ */
+export function clearAllPending(): void {
+  const store = storage()
+  if (!store) return
+  try {
+    // ★ 两趟：边遍历边删会让 key(i) 的下标错位，漏掉一半
+    const keys: string[] = []
+    for (let i = 0; i < store.length; i += 1) {
+      const key = store.key(i)
+      if (key !== null && key.startsWith(PENDING_PREFIX)) keys.push(key)
+    }
+    for (const key of keys) store.removeItem(key)
+  } catch {
+    // 同 clearPending：清不掉最多多一次"从旧位置续播"，不影响上报正确性
+  }
+}
+
 export interface ResumePlan {
   /** 播放头应该定位到的秒数（0 = 从头） */
   start: number

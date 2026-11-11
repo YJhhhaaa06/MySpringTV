@@ -130,6 +130,35 @@
         LIMIT #{limit} OFFSET #{offset}
     </select>
 
+    <!-- 一组夹各自的**最新一条收藏**（R-33 自动封面）：一条窗口查询取回
+         {folderId → contentId}，再交 ContentService.loadContentVOs 批量取 coverUrl。
+         ★ 只碰本域表：不 JOIN content / content_media / users（I-07 ③）；"这条内容能不能装出来"
+           与"封面 URL 是什么"整体由 content 装载契约回答。
+         ★ 排序与夹内列表同一契约：create_time DESC, id DESC（同秒收藏的 tie-breaker 一致）。
+         ★ 不过滤内容有效性：失效内容的最新记录**必须**仍被选中 —— 它命中"取不到 ⇒ 占位"
+           就是契约（R-33：不向前回退）。若在这里加 JOIN/is_deleted 过滤，会把占位悄悄变成"上一条"。
+         ⚠️ 空 folderIds 会生成 IN () 语法错 —— service 已拦空集（不调用）。
+         ⚠️ 窗口函数需要 MySQL 8.0+（本仓容器 8.4，已满足）。 -->
+    <select id="findLatestContentIdByFolderIds"
+            resultType="io.github.yjhhhaaa06.videoweb.favorite.model.FolderLatestContent">
+        SELECT t.folder_id AS folderId,
+               t.content_id AS contentId
+        FROM (
+            SELECT folder_id,
+                   content_id,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY folder_id
+                       ORDER BY create_time DESC, id DESC
+                   ) AS rn
+            FROM favorite_item
+            WHERE folder_id IN
+            <foreach collection="folderIds" item="folderId" open="(" separator="," close=")">
+                #{folderId}
+            </foreach>
+        ) t
+        WHERE t.rn = 1
+    </select>
+
     <!-- ==================================================================
          T9：判存在（互动域组装互动态用 —— 不 JOIN 的轻量版）
          ================================================================== -->

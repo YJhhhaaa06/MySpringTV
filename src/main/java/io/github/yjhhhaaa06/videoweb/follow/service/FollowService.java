@@ -8,6 +8,7 @@ import io.github.yjhhhaaa06.videoweb.follow.dao.FollowDao;
 import io.github.yjhhhaaa06.videoweb.follow.event.FollowChangedEvent;
 import io.github.yjhhhaaa06.videoweb.follow.model.vo.FollowUserVO;
 import io.github.yjhhhaaa06.videoweb.user.dao.UserDao;
+import io.github.yjhhhaaa06.videoweb.user.model.AvatarRefs;
 import io.github.yjhhhaaa06.videoweb.user.model.entity.User;
 import io.github.yjhhhaaa06.videoweb.user.service.AutoBigVStateService;
 import lombok.extern.slf4j.Slf4j;
@@ -259,6 +260,8 @@ public class FollowService {
             result.add(new FollowUserVO(
                     u.getId(),
                     u.getUsername(),
+                    // R-37：头像与用户名同一次 users 查询带出，零额外往返。
+                    AvatarRefs.resolveUrl(u.getId(), u.getAvatarRef()),
                     followedSet.contains(u.getId()),
                     u.getId() == currentUserId));
         }

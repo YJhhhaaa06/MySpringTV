@@ -62,14 +62,14 @@ public class GlobalExceptionHandler {
     /** 根路径上的静态文件 / 前端入口 HTML（精确匹配）：缺文件时只回 404 状态、不产信封。 */
     private static final Set<String> STATIC_EXACT = Set.of(
             "/", "/index.html", "/search.html", "/video.html", "/opus.html", "/space.html",
-            "/favorites.html", "/history.html", "/dynamic.html", "/favicon.ico", "/favicon.svg");
+            "/history.html", "/dynamic.html", "/favicon.ico", "/favicon.svg");
 
     /**
      * 静态媒体 / 前端构建产物前缀：缺文件时同样不产信封。
      *
      * <p>⚠️ 与 {@code RateLimitFilter} 的跳过前缀**同集合但不是同一份**（见 {@link #handleNoResource}）。
      */
-    private static final List<String> STATIC_PREFIXES = List.of("/assets/", "/upload/");
+    private static final List<String> STATIC_PREFIXES = List.of("/assets/", "/upload/", "/avatars/");
 
     private final ApiErrorWriter errorWriter;
 

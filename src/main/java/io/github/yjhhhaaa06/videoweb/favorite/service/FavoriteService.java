@@ -213,6 +213,14 @@ public class FavoriteService {
     private final FavoriteCache favoriteCache;
 
     /**
+     * 收藏夹封面（R-33）：列表读取时填生效 `coverUrl` / `hasCustomCover`；删夹后清旧文件。
+     *
+     * <p>它是本域内的窄服务（不反向依赖本类），解析时只经 `ContentService` 契约取封面，
+     * 不直连 content / content_media 表。
+     */
+    private final FavoriteFolderCoverService folderCoverService;
+
+    /**
      * 容量上限（T16）—— 三个数字的**唯一来源**（{@code video.favorite.*}）。
      *
      * <p>⚠️ 阈值必须从它读，**不得**在方法里写死数字字面量：上限是**对外契约**
@@ -222,12 +230,14 @@ public class FavoriteService {
 
     public FavoriteService(FavoriteFolderDao folderDao, FavoriteItemDao itemDao, ContentDao contentDao,
                            ContentService contentService, FavoriteCache favoriteCache,
+                           FavoriteFolderCoverService folderCoverService,
                            FavoriteLimitProperties limits) {
         this.folderDao = folderDao;
         this.itemDao = itemDao;
         this.contentDao = contentDao;
         this.contentService = contentService;
         this.favoriteCache = favoriteCache;
+        this.folderCoverService = folderCoverService;
         this.limits = limits;
     }
 
@@ -262,7 +272,7 @@ public class FavoriteService {
      * <ol>
      *   <li><b>不查重名 —— "允许重名"是契约，不是"碰巧没撞上"</b>：表上没有
      *       {@code (user_id, name)} 唯一键，同名夹是合法状态（<b>B 站实测确认</b>，
-     *       用户 2026-10-14 拍板 ⇒ 这是 {@code FURTHER_ISSUES.md} F-11 里"是否拒重名"那个
+     *       用户 2026-10-14 拍板 ⇒ 这是 {@code favorite.md} 附录 F-11 里"是否拒重名"那个
      *       问号的答案）。⇒ <b>不得</b>加唯一键、也<b>不得</b>写"先 SELECT 同名再 INSERT"：
      *       后者既拦不住并发，又平白多一次查询，还会把"允许重名"伪装成"碰巧没撞上"。
      *       ⚠️ T16 只**补契约测试**钉住它（同一用户两个同名夹都建得成）；
@@ -290,7 +300,10 @@ public class FavoriteService {
      * 让"我的"和"他人的"共用一条 SQL、靠"传没传 userId"分流，正是 R-08 否决的形态。
      */
     public List<FavoriteFolderVO> listMyFolders(long userId) {
-        return folderDao.findByUserIdWithItemCount(userId);
+        List<FavoriteFolderVO> folders = folderDao.findByUserIdWithItemCount(userId);
+        // R-33：自定义优先，否则夹内最新一条收藏的 coverUrl；取不到即 null（前端占位）。
+        folderCoverService.fillMyCovers(folders);
+        return folders;
     }
 
     /**
@@ -314,7 +327,10 @@ public class FavoriteService {
      * <p>顺序与条目数口径同 {@link #listMyFolders}（SQL 里复用同一顺序：默认夹置顶 + 创建序）。
      */
     public List<PublicFavoriteFolderVO> listPublicFolders(long userId) {
-        return folderDao.findPublicByUserIdWithItemCount(userId);
+        List<PublicFavoriteFolderVO> folders = folderDao.findPublicByUserIdWithItemCount(userId);
+        // R-33：公开面只回带生效 coverUrl（不含 hasCustomCover / coverRef）。
+        folderCoverService.fillPublicCovers(folders);
+        return folders;
     }
 
     /**
@@ -446,6 +462,8 @@ public class FavoriteService {
         AfterCommit.run(() -> {
             favoriteCache.invalidateUserFavorites(userId);
             favoriteCache.invalidateFavoriteCounts(affectedContentIds);
+            // R-33：删夹才删自定义封面文件；回滚时本回调不执行（文件留到下一次替换/恢复）。
+            folderCoverService.deleteCustomCoverQuietly(folder.getCoverRef());
         });
     }
 
@@ -790,7 +808,7 @@ public class FavoriteService {
      * <b>打破响应自洽</b>（T5 不变量 {@code isFavorited ≡ !folders.isEmpty()}）。
      * ⇒ 本方法做的是"**在保住自洽前提下能做到的最大统一**"，不是"完全统一到缓存"。
      *
-     * <p><b>★ 为什么这么做（用户 2026-10-13 的判据，见 {@code FURTHER_ISSUES.md} F-17）</b>：
+     * <p><b>★ 为什么这么做（用户 2026-10-13 的判据，见 {@code favorite.md} 附录 F-17）</b>：
      * <b>同一个语义不该有两个来源</b>。而这个语义**此前已经分裂**：详情页收藏按钮读详情内联的
      * {@code interaction.isFavorited}（走缓存成员集），收藏弹窗读本端点（走 DB），
      * 前端 {@code detail.js#initFavorite} 与 {@code #loadPicker} 正把两个答案写进**同一个按钮态**。
@@ -804,7 +822,7 @@ public class FavoriteService {
      * <ol>
      *   <li><b>冷状态会自愈</b>：回填之后，该用户的后续请求都命中 ⇒ 不再有"每请求必一次点查、
      *       **永不收敛**"的形态。⚠️ 这是移除一个"每请求、不自愈的查库口子"，
-     *       <b>不是安全收益</b> —— 限流（{@code FURTHER_ISSUES.md} <b>F-22</b>）仍不可替代，
+     *       <b>不是安全收益</b> —— 限流（{@code 限流.md} 附录 <b>F-22</b>）仍不可替代，
      *       回填也挡不住"换个端点刷"；它只是把本端点的放大倍数钉住。</li>
      *   <li><b>与详情页按钮逐字同源</b>：同上 —— 这正是本条改动被批准的那个判据本身。</li>
      * </ol>

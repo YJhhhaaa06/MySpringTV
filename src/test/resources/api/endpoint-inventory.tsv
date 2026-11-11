@@ -25,7 +25,7 @@ GET	/api/v1/comments/{id}/replies	PUBLIC	ApiResponse<CursorResult<CommentVO>>
 GET	/api/v1/contents	PUBLIC	ApiResponse<PageResult<ContentVO>>
 POST	/api/v1/contents	LOGIN	ApiResponse<ContentCreatedVO>
 POST	/api/v1/contents/posts	LOGIN	ApiResponse<ContentCreatedVO>
-GET	/api/v1/contents/recommended	PUBLIC	ApiResponse<List<ContentVO>>
+GET	/api/v1/contents/recommended	PUBLIC	ApiResponse<RecommendPageVO>
 POST	/api/v1/contents/videos	LOGIN	ApiResponse<ContentCreatedVO>
 DELETE	/api/v1/contents/{id}	LOGIN	ResponseEntity<Void>
 GET	/api/v1/contents/{id}	PUBLIC	ApiResponse<ContentDetailVO>
@@ -50,6 +50,8 @@ GET	/api/v1/favorite-folders	LOGIN	ApiResponse<List<FavoriteFolderVO>>
 POST	/api/v1/favorite-folders	LOGIN	ApiResponse<Void>
 DELETE	/api/v1/favorite-folders/{id}	LOGIN	ResponseEntity<Void>
 PUT	/api/v1/favorite-folders/{id}	LOGIN	ApiResponse<Void>
+DELETE	/api/v1/favorite-folders/{id}/cover	LOGIN	ResponseEntity<Void>
+PUT	/api/v1/favorite-folders/{id}/cover	LOGIN	ApiResponse<Void>
 GET	/api/v1/favorite-folders/{id}/items	PUBLIC	ApiResponse<PageResult<FavoriteItemVO>>
 DELETE	/api/v1/favorites	LOGIN	ResponseEntity<Void>
 GET	/api/v1/favorites	LOGIN	ApiResponse<PageResult<FavoriteItemVO>>
@@ -58,14 +60,18 @@ PUT	/api/v1/favorites/{id}	LOGIN	ApiResponse<Void>
 GET	/api/v1/feed	LOGIN	ApiResponse<PageResult<ContentVO>>
 DELETE	/api/v1/follows/{id}	LOGIN	ResponseEntity<Void>
 PUT	/api/v1/follows/{id}	LOGIN	ApiResponse<Void>
+DELETE	/api/v1/history	LOGIN	ResponseEntity<Void>
 GET	/api/v1/history	LOGIN	ApiResponse<PageResult<HistoryItemVO>>
 POST	/api/v1/history/flush	LOGIN	ApiResponse<Void>
 POST	/api/v1/sessions	PUBLIC	ApiResponse<LoginVO>
 POST	/api/v1/uploads/{type}	LOGIN	ApiResponse<UploadedAssetVO>
 POST	/api/v1/users	PUBLIC	ApiResponse<LoginVO>
 GET	/api/v1/users/me	LOGIN	ApiResponse<UserInfoVO>
+PUT	/api/v1/users/me/avatar	LOGIN	ApiResponse<UserAvatarVO>
+PUT	/api/v1/users/me/avatar/default	LOGIN	ApiResponse<UserAvatarVO>
 POST	/api/v1/users/me/check-ins	LOGIN	ApiResponse<SignInVO>
 GET	/api/v1/users/me/coupons	LOGIN	ApiResponse<List<CouponOrderVO>>
+PUT	/api/v1/users/me/history-recording	LOGIN	ApiResponse<HistoryRecordingVO>
 PUT	/api/v1/users/me/password	LOGIN	ApiResponse<Void>
 PUT	/api/v1/users/me/username	LOGIN	ApiResponse<Void>
 GET	/api/v1/users/{id}	PUBLIC	ApiResponse<ProfileVO>

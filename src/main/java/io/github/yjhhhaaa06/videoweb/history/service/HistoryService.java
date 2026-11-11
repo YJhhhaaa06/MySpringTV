@@ -11,6 +11,7 @@ import io.github.yjhhhaaa06.videoweb.content.model.ContentType;
 import io.github.yjhhhaaa06.videoweb.content.model.vo.ContentVO;
 import io.github.yjhhhaaa06.videoweb.content.service.ContentService;
 import io.github.yjhhhaaa06.videoweb.history.cache.HistoryReportBuffer;
+import io.github.yjhhhaaa06.videoweb.history.dao.PlayDedupDao;
 import io.github.yjhhhaaa06.videoweb.history.dao.WatchHistoryDao;
 import io.github.yjhhhaaa06.videoweb.history.event.PlayCountChangedEvent;
 import io.github.yjhhhaaa06.videoweb.history.model.vo.HistoryItemVO;
@@ -21,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -37,8 +39,8 @@ import java.util.Map;
  *   <tr><th>端点</th><th>写什么</th><th>事务</th><th>为什么不合并</th></tr>
  *   <tr><td>{@code /report}</td><td>只写 {@code progress_seconds}（一条 ODKU）</td><td>**不加**</td>
  *       <td>单条 ODKU 自带原子性；且它**不需要判首播** ⇒ 绕开 affected-rows 歧义</td></tr>
- *   <tr><td>{@code /play}</td><td>标记位 + {@code content.play_count}</td><td>**加**</td>
- *       <td>两位必须同进同退，否则不变量 {@code play_count == COUNT(play_counted=1)} 没有自愈路径</td></tr>
+ *   <tr><td>{@code /play}</td><td>去重账本一行 + {@code content.play_count}</td><td>**加**</td>
+ *       <td>两位必须同进同退，否则不变量 {@code play_count == COUNT(content_play_dedup)} 没有自愈路径</td></tr>
  * </table>
  *
  * <h2>校验复用内容域 Service（不新增读边）</h2>
@@ -51,8 +53,16 @@ import java.util.Map;
  * <ul>
  *   <li><b>不做"进度只能增"</b>：后到即新（LWW）。重看从头会把进度改回 0 —— 用户拍板接受，
  *       代价见 {@code history.md} §十 #1；</li>
- *   <li><b>不删历史</b>：一删就与"播放量只增"打架，且不变量无法复算（{@code history-需求.md} §六）。</li>
+ *   <li><b>不按内容做特例</b>：图文在 {@code /play} 与 {@code /report} 都被 400 拦下，
+ *       没有"图文也计播放量"的分支。</li>
  * </ul>
+ *
+ * <h2>`R-26`（2026-10-31）：历史可删 + 播放量改「每人·每内容·每自然日一次」</h2>
+ * 旧口径把去重标记 {@code watch_history.play_counted} 长在历史行上 ⇒ 删历史会把标记一起删掉、
+ * 再播被判首播、播放量重复 +1，于是"历史不可删"成了代价。现在标记搬进独立账本
+ * {@code content_play_dedup}（{@link PlayDedupDao}）：**历史行只存进度、可以删；账本只增、删不到**。
+ * 判首播仍是 {@code INSERT IGNORE} 的 1/0，但判定维度从"这对 (user, content) 有没有行"
+ * 变成"**今天**这对 (user, content, play_date) 有没有行"。
  */
 @Slf4j
 @Service
@@ -65,7 +75,18 @@ public class HistoryService {
      */
     private static final String INVALID_CONTENT_TITLE = "内容已失效";
 
+    /**
+     * 一次批量删除的条数上限（`R-26`）。
+     *
+     * <p>★ 这不是拍脑袋的数字，判据有两条：① 实测 B站 历史页"全选"一次能选中 **259** 条
+     * （2026-10-31 用户截图），上限必须明显大于它；② 批量 id 只能走 query（§2.5：DELETE 无 body），
+     * 而请求行+请求头的容器上限是 **8 KB** —— 500 条 id 约 3.5 KB，留一半余量。
+     * 没有上限的话，超过 URL 长度时的失败形态是容器抛 414/431，**不可解释**。
+     */
+    private static final int MAX_DELETE_BATCH = 500;
+
     private final WatchHistoryDao watchHistoryDao;
+    private final PlayDedupDao playDedupDao;
     private final ContentService contentService;
     private final ContentDao contentDao;
     private final ApplicationEventPublisher events;
@@ -73,12 +94,14 @@ public class HistoryService {
     private final HistoryFlushService flushService;
 
     public HistoryService(WatchHistoryDao watchHistoryDao,
+                          PlayDedupDao playDedupDao,
                           ContentService contentService,
                           ContentDao contentDao,
                           ApplicationEventPublisher events,
                           HistoryReportBuffer reportBuffer,
                           HistoryFlushService flushService) {
         this.watchHistoryDao = watchHistoryDao;
+        this.playDedupDao = playDedupDao;
         this.contentService = contentService;
         this.contentDao = contentDao;
         this.events = events;
@@ -103,7 +126,7 @@ public class HistoryService {
      * </ol>
      *
      * <p>★ 本方法**不写 {@code play_count}**（{@code /play} 是唯一计数入口），也**不碰**
-     * {@code play_counted}（落库时同样不碰，见 {@code HistoryFlushService}）。
+     * 去重账本 {@code content_play_dedup}（落库时同样不碰，见 {@code HistoryFlushService}）。
      */
     public void report(long userId, long contentId, int progressSeconds) {
         if (progressSeconds < 0) {
@@ -144,18 +167,95 @@ public class HistoryService {
     }
 
     /**
-     * 播放事件（{@code POST /api/v1/contents/{id}/play}）：**首播去重后** {@code play_count + 1}，单事务。
+     * 删除历史（{@code DELETE /api/v1/history}，`R-26`）：批量删若干条，或 {@code all=true} 清空。
      *
-     * <p>三步走（设计 §四.2）：
+     * <h2>为什么"删历史"现在才敢做</h2>
+     * 旧口径下去重标记 {@code play_counted} 长在历史行上，删行会连带丢掉"这个人计过数"的证据
+     * ⇒ 再播被判首播、播放量重复 +1。`R-26` 把证据搬进账本 {@code content_play_dedup} 后，
+     * 删行**碰不到计数** —— 于是"删掉今天的历史、今天再看"不会重复计，而"明天再看"会正常再计一次。
+     *
+     * <h2>★ 三条刻意</h2>
+     * <ul>
+     *   <li><b>不校验内容存在性</b>（同收藏域 G11 红线）：失效占位（「内容已失效」）必须删得掉，
+     *       否则那几条永远清不掉；</li>
+     *   <li><b>不动 {@code content.play_count}</b>：删历史不减播放量（B站 同口径）。这也意味着
+     *       本方法**不产生跨域写**、不需要锁 {@code content} 行；</li>
+     *   <li><b>命中 0 行不算错</b>：幂等 204（陈旧页面 / 别的标签页已删 / id 打错都走这条路）。
+     *       与"缺参 400"是两件事 —— 后者是调用方根本没说要删什么。</li>
+     * </ul>
+     *
+     * <h2>★ 必须连带清 Redis 缓冲</h2>
+     * 缓冲里可能还压着这批内容的脏进度（`/report` 只写缓冲不落库）。不清的话，下一次
+     * {@code /flush} 或轮询兜底会把行**原样写回来**。清理失败**不阻断删除**：删除是用户意图，
+     * 不该因缓存抖动而失败 —— 代价是"极窄窗口内可能复活一条"，已登记为已知代价。
+     *
+     * <p>★ 不加事务：一条 {@code DELETE} 本身就是原子的；缓冲清理不属于同一原子域（也不该是 —— 
+     * 让 DB 事务包住一次 Redis 往返只会把失败面拉长）。
+     *
+     * @param userId     当前登录用户（进 WHERE，天然收窄作用域）
+     * @param contentIds 要删的内容 id；{@code all=false} 时必填、去重后 ≤ {@value #MAX_DELETE_BATCH}
+     * @param all        清空该用户全部历史
+     */
+    public void delete(long userId, List<Long> contentIds, boolean all) {
+        boolean hasIds = contentIds != null && !contentIds.isEmpty();
+        if (all && hasIds) {
+            throw new ParamException(ErrorCode.PARAM_INVALID, "contentIds 与 all=true 不能同时指定");
+        }
+        if (all) {
+            watchHistoryDao.deleteAllByUserId(userId);
+            forgetBuffered(userId, null);
+            return;
+        }
+        if (!hasIds) {
+            throw new ParamException(ErrorCode.PARAM_INVALID, "请指定要删除的记录（contentIds），或用 all=true 清空历史");
+        }
+        List<Long> distinct = new ArrayList<>(new LinkedHashSet<>(contentIds));
+        if (distinct.size() > MAX_DELETE_BATCH) {
+            throw new ParamException(ErrorCode.PARAM_INVALID,
+                    "一次最多删除 " + MAX_DELETE_BATCH + " 条历史记录");
+        }
+        watchHistoryDao.deleteByUserIdAndContentIds(userId, distinct);
+        forgetBuffered(userId, distinct);
+    }
+
+    /**
+     * 静默清缓冲：失败只记 WARN，不影响删除结果（见 {@link #delete} 的说明）。
+     *
+     * @param contentIds {@code null} = 清空整键
+     */
+    private void forgetBuffered(long userId, List<Long> contentIds) {
+        try {
+            if (contentIds == null) {
+                reportBuffer.forgetAll(userId);
+            } else {
+                reportBuffer.forget(userId, contentIds);
+            }
+        } catch (CacheUnavailableException e) {
+            log.warn("删除历史时缓冲清理失败（这些内容可能在下次 flush / 轮询兜底时复活）: userId={}, contents={}",
+                    userId, contentIds == null ? "ALL" : contentIds.size());
+        }
+    }
+
+    /**
+     * 播放事件（{@code POST /api/v1/contents/{id}/play}）：**当天首播去重后** {@code play_count + 1}，单事务。
+     *
+     * <p>`R-26` 起两步（设计 §四.2）：
      * <ol>
-     *   <li>{@code INSERT IGNORE ... (progress=0, play_counted=1)} ⇒ 1 = 首播；0 = 行已存在；</li>
-     *   <li>行已存在 ⇒ 条件 {@code UPDATE ... WHERE play_counted = 0} ⇒ 1 = 首播，0 = 已计过（幂等 200）；</li>
-     *   <li>首播 ⇒ {@code content.play_count + 1} + 发 {@link PlayCountChangedEvent}。</li>
+     *   <li>{@code INSERT IGNORE INTO content_play_dedup (user_id, content_id, play_date=<今天>)}
+     *       ⇒ 1 = 今天首播；0 = 今天已计过（幂等 200）；</li>
+     *   <li>今天首播 ⇒ {@code content.play_count + 1} + 发 {@link PlayCountChangedEvent}；</li>
+     *   <li>**无条件**建历史行（{@code INSERT IGNORE}，{@code progress=0}）—— 只在首播时建的话，
+     *       "删了历史又重看"会让页面在播、列表里却没有它。</li>
      * </ol>
-     * ① / ② 与 ③ 必须同进同退：标记位置了但计数没加 ⇒ 该用户永远拿不到这次播放量
-     * （不变量 {@code play_count == COUNT(play_counted=1)} 会永久破裂，且**没有自愈路径**）。
+     * ① 与 ② 必须同进同退：账本记了但计数没加 ⇒ 这一天永远拿不到这次播放量（账本只增，
+     * 没有自愈路径）。
      *
-     * <p>锁序：先 {@code watch_history} 后 {@code content}；内容删除不碰历史行 ⇒ 无反向锁序。
+     * <p>★ 与旧实现的差别：**没有**第二条条件 {@code UPDATE}（{@code markCountedIfNotCounted}）——
+     * 日期进了主键，"今天有没有计过"由一条 {@code INSERT IGNORE} 直接回答，语句更少、
+     * 也不再有两个语句之间的锁序窗口。
+     *
+     * <p>锁序：先 {@code content_play_dedup} 再 {@code watch_history} 再 {@code content}；
+     * 内容删除既不碰账本也不碰历史行 ⇒ 无反向锁序。
      *
      * <p>⚠️ 重复播放**不报错**（幂等 200）：客户端重试 / 多标签页并发都是正常现象。
      */
@@ -163,9 +263,9 @@ public class HistoryService {
     public void play(long userId, long contentId) {
         requireVideoContent(contentId);
 
-        boolean firstPlay = watchHistoryDao.insertIgnoreCounted(userId, contentId) == 1
-                || watchHistoryDao.markCountedIfNotCounted(userId, contentId) == 1;
-        if (!firstPlay) {
+        boolean firstPlayToday = playDedupDao.insertIgnore(userId, contentId, PlayDay.today()) == 1;
+        watchHistoryDao.insertIgnoreEmpty(userId, contentId);
+        if (!firstPlayToday) {
             return;
         }
         contentDao.updatePlayCount(contentId);

@@ -16,14 +16,17 @@ import io.github.yjhhhaaa06.videoweb.common.model.dto.PageResult;
 import io.github.yjhhhaaa06.videoweb.content.dao.ContentDao;
 import io.github.yjhhhaaa06.videoweb.content.service.ContentService;
 import io.github.yjhhhaaa06.videoweb.like.service.LikeService;
+import io.github.yjhhhaaa06.videoweb.user.service.AvatarReadModel;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 评论业务。
@@ -80,19 +83,23 @@ public class CommentService {
     private final CommentCache commentCache;
     private final LikeService likeService;
     private final ApplicationEventPublisher events;
+    /** `R-37`：评论作者头像的读时装饰（跨域只依赖 user 域的读契约）。 */
+    private final AvatarReadModel avatarReadModel;
 
     public CommentService(CommentDao commentDao,
                           ContentDao contentDao,
                           ContentService contentService,
                           CommentCache commentCache,
                           LikeService likeService,
-                          ApplicationEventPublisher events) {
+                          ApplicationEventPublisher events,
+                          AvatarReadModel avatarReadModel) {
         this.commentDao = commentDao;
         this.contentDao = contentDao;
         this.contentService = contentService;
         this.commentCache = commentCache;
         this.likeService = likeService;
         this.events = events;
+        this.avatarReadModel = avatarReadModel;
     }
 
     // ========================================================================
@@ -316,17 +323,38 @@ public class CommentService {
     // VO 树转换（承接 TV convertToCommentVOList / convertToCommentVO）
     // ========================================================================
 
-    /** 评论树 → VO 树（带 {@code isLiked}）。 */
+    /** 评论树 → VO 树（带 {@code isLiked} + `R-37` 作者头像）。 */
     public List<CommentVO> convertToCommentVOList(List<CommentCacheDTO> cacheList,
                                                   Map<Long, Boolean> likedMap) {
         List<CommentVO> result = new ArrayList<>();
         if (cacheList == null) {
             return result;
         }
+        // R-37：一棵树（roots + 所有层 children）一趟批量；不能逐节点调，否则 N+1。
+        Map<Long, String> avatars = resolveAvatars(cacheList);
         for (CommentCacheDTO node : cacheList) {
-            result.add(convertToCommentVO(node, likedMap));
+            result.add(convertToCommentVO(node, likedMap, avatars));
         }
         return result;
+    }
+
+    /** 收集树里所有作者 id（去重），一趟批量解析头像 URL。 */
+    private Map<Long, String> resolveAvatars(List<CommentCacheDTO> tree) {
+        Set<Long> userIds = new LinkedHashSet<>();
+        collectUserIds(tree, userIds);
+        return userIds.isEmpty() ? Map.of() : avatarReadModel.resolveBatch(userIds);
+    }
+
+    private static void collectUserIds(List<CommentCacheDTO> nodes, Set<Long> userIds) {
+        if (nodes == null) {
+            return;
+        }
+        for (CommentCacheDTO node : nodes) {
+            if (node.getUserId() > 0) {
+                userIds.add(node.getUserId());
+            }
+            collectUserIds(node.getChildren(), userIds);
+        }
     }
 
     /**
@@ -337,19 +365,25 @@ public class CommentService {
      * 以及递归 children——漏掉任何一处都会**静默丢字段**。本实现逐字段显式拷贝，
      * 字段集一目了然（与 {@code ContentCache.copyCommon} 同一手法）。
      */
-    private CommentVO convertToCommentVO(CommentCacheDTO node, Map<Long, Boolean> likedMap) {
+    private CommentVO convertToCommentVO(CommentCacheDTO node, Map<Long, Boolean> likedMap,
+                                         Map<Long, String> avatars) {
         CommentVO vo = new CommentVO(
                 node.getUsername(), node.getCommentId(), node.getContentId(),
                 node.getUserId(), node.getContent(), node.getParentId(), node.getLikeCount());
         vo.setReplyToUserId(node.getReplyToUserId());
         vo.setReplyToUsername(node.getReplyToUsername());
         vo.setReplyCount(node.getReplyCount());
+        // ★ 手写逐字段拷贝：CommentCacheDTO 加字段时必须在此同步（GAP-12）。
+        //   漏这行 = 缓存里有值、响应里恒 null，DB 与缓存都"看起来正常"。
+        vo.setCreateTime(node.getCreateTime());
+        // R-37：头像不在缓存载荷里，由外层一次性解析的 map 现填。
+        vo.setAvatarUrl(avatars.get(node.getUserId()));
         Boolean liked = likedMap.get(node.getCommentId());
         vo.setIsLiked(liked != null && liked);
         if (node.getChildren() != null) {
             List<CommentVO> children = new ArrayList<>(node.getChildren().size());
             for (CommentCacheDTO child : node.getChildren()) {
-                children.add(convertToCommentVO(child, likedMap));
+                children.add(convertToCommentVO(child, likedMap, avatars));
             }
             vo.setChildren(new ArrayList<>(children));
         }

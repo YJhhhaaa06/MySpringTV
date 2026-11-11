@@ -6,8 +6,8 @@
  * （2026-10-27 实测）。所以这不是本仓的缺口，是**关注关系的隐私口径**；
  * 前端在空间页的这两个 tab 里渲染「登录后查看」，而不是把 401 画成空列表。
  *
- * <p>载荷是 `PageResult<FollowUserVO>`：只有 `userId / username / isFollowed / isSelf`，
- * 没有头像与签名（GAP 台账）⇒ 卡片只放首字头像 + 名字 + 关注按钮。
+ * <p>载荷是 `PageResult<FollowUserVO>`：`userId / username / avatarUrl / isFollowed / isSelf`
+ * （`R-37` 起头像随响应内联），仍没有签名 ⇒ 卡片保留名字 + 头像 + 关注按钮。
  */
 import type { RelationPageVM } from '../types/ui'
 import { toRelationPage } from './adapters/relation'

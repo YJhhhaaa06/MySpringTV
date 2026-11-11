@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, UPLOAD_TIMEOUT_MS, deleteJson, getJson, postForm, postJson, putJson } from './http'
+import { ApiError, UPLOAD_TIMEOUT_MS, deleteJson, getJson, postForm, postJson, putForm, putJson } from './http'
 import { IDEMPOTENCY_HEADER, newIdempotencyKey } from './idempotency'
+import { resetServerClock, serverNow } from './serverClock'
 
 /**
  * 请求层的契约测试（不是"调用了 fetch"的实现测试）。
@@ -59,6 +60,36 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+  resetServerClock() // 模块级锚点，跨用例必须隔离
+})
+
+describe('服务器时钟', () => {
+  it('★ 响应的 Date 头成为"现在"的基准（删掉 request 里的 syncServerClock 必红）', async () => {
+    const serverTime = 'Fri, 30 Oct 2026 16:00:00 GMT'
+    vi.spyOn(performance, 'now').mockReturnValue(1_000)
+    stubFetch(() => jsonResponse({ code: 'OK', data: {} }, 200, { Date: serverTime }))
+
+    await getJson('/api/v1/users/me')
+
+    expect(serverNow().getTime()).toBe(Date.parse(serverTime))
+  })
+
+  it('XHR（上传）路径同样同步锚点', async () => {
+    const serverTime = 'Fri, 30 Oct 2026 16:00:00 GMT'
+    vi.spyOn(performance, 'now').mockReturnValue(1_000)
+    stubXhr()
+
+    const pending = postForm('/api/v1/contents/videos', new FormData(), {
+      headers: { [IDEMPOTENCY_HEADER]: newIdempotencyKey() },
+    })
+    const xhr = FakeXhr.last!
+    xhr.date = serverTime
+    xhr.respond(200, JSON.stringify({ code: 'OK', data: {} }))
+    await pending
+
+    expect(serverNow().getTime()).toBe(Date.parse(serverTime))
+  })
 })
 
 describe('信封与身份', () => {
@@ -187,6 +218,7 @@ class FakeXhr {
   responseText = ''
   timeout = 0
   retryAfter: string | null = null
+  date: string | null = null
   method = ''
   url = ''
   headers = new Map<string, string>()
@@ -210,7 +242,9 @@ class FakeXhr {
   }
 
   getResponseHeader(name: string): string | null {
-    return name === 'Retry-After' ? this.retryAfter : null
+    if (name === 'Retry-After') return this.retryAfter
+    if (name === 'Date') return this.date
+    return null
   }
 
   send(body: FormData): void {
@@ -249,6 +283,28 @@ describe('multipart 上传（postForm）', () => {
 
     xhr.respond(200, JSON.stringify({ code: 'OK', msg: 'success', data: { contentId: 9 } }))
     await expect(pending).resolves.toEqual({ contentId: 9 })
+  })
+
+  it('putForm：PUT + FormData，信封 / Bearer 与 postForm 同一份实现（头像上传 R-27）', async () => {
+    stubXhr()
+    localStorage.setItem('myspringtv.token', 'tok-avatar')
+    const form = new FormData()
+    form.append('file', new Blob([new Uint8Array([1, 2, 3])]), 'avatar.jpg')
+
+    const pending = putForm('/api/v1/users/me/avatar', form)
+    const xhr = FakeXhr.last!
+    expect(xhr.method).toBe('PUT')
+    expect(xhr.url).toBe('/api/v1/users/me/avatar')
+    expect(xhr.body).toBe(form)
+    expect(xhr.headers.get('Authorization')).toBe('Bearer tok-avatar')
+    expect(xhr.headers.has('Content-Type')).toBe(false)
+
+    xhr.respond(200, JSON.stringify({
+      code: 'OK',
+      msg: 'success',
+      data: { userId: 233, avatarUrl: '/upload/avatar/x.jpg' },
+    }))
+    await expect(pending).resolves.toEqual({ userId: 233, avatarUrl: '/upload/avatar/x.jpg' })
   })
 
   it('上传进度只在 lengthComputable 时回调（loaded/total 原样交给页面）', async () => {

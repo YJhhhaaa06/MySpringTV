@@ -239,7 +239,7 @@ class FavoritePrivacyTests extends AbstractHttpIntegrationTest {
     }
 
     @Test
-    @DisplayName("★公开端点条目形状：恰好 id + name + itemCount 三键（T18 加入 id；isPrivate / isDefault 仍不给）")
+    @DisplayName("★公开端点条目形状：恰好 id + name + itemCount + coverUrl 四键（T18 加 id；R-33 加 coverUrl；isPrivate / isDefault / coverRef 仍不给）")
     void 公开端点条目形状() {
         TestUser me = register("13800002009", "形状用户");
         long folder = insertFolder(me.id, "公开夹", false, false);
@@ -254,13 +254,18 @@ class FavoritePrivacyTests extends AbstractHttpIntegrationTest {
                 .isEqualTo(folder);
         assertThat(item.path("name").asString()).isEqualTo("公开夹");
         assertThat(item.path("itemCount").asLong()).isEqualTo(oracleItemCount(folder));
+        // R-33：空夹没有自动封面 ⇒ 显式 null（不是缺键）。公开面**只给生效 URL**，
+        // 内部 coverRef 与 hasCustomCover 都不得出现。
+        assertThat(item.has("coverUrl")).as("R-33 起公开面必须回带 coverUrl").isTrue();
+        assertThat(item.get("coverUrl").isNull()).as("空夹 ⇒ coverUrl 显式 null").isTrue();
         // ★ 键集是契约：多一个键 = 可能把"我的夹"的信息（如 isPrivate/isDefault）泄露到公开面；
-        //   少一个键 = 破坏"打开他人公开夹"或"名称 + 数量"的消费方。两端都要拦
+        //   少一个键 = 破坏"打开他人公开夹"或"名称 + 数量 + 封面"的消费方。两端都要拦
         //   （同 FollowFlowTests "字段形状是契约"）。
         assertThat(item.propertyNames())
-                .as("★ 公开面字段集（R-08 → T18 演进）：id 供'打开他人公开夹'，name + itemCount 供展示；"
-                        + "isPrivate / isDefault 仍**不得**出现（私密恒被过滤 ⇒ 放进去是噪声/泄露信号）")
-                .containsExactlyInAnyOrder("id", "name", "itemCount");
+                .as("★ 公开面字段集（R-08 → T18 → R-33 演进）：id 供'打开他人公开夹'，name + itemCount 供展示，"
+                        + "coverUrl 供封面；isPrivate / isDefault / coverRef / hasCustomCover 仍**不得**出现"
+                        + "（私密恒被过滤 ⇒ 放进去是噪声/泄露信号）")
+                .containsExactlyInAnyOrder("id", "name", "itemCount", "coverUrl");
     }
 
     @Test

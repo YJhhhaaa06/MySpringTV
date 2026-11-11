@@ -112,7 +112,8 @@ public class ContentRedisOps extends RedisOps {
      *
      * <p>{@code entries} 的顺序 = {@code ContentDao.findAllContent} 的顺序
      * （{@code create_time DESC, id DESC}）；由于每条都是 LPUSH，最终 LIST 内顺序与入参**相反**。
-     * TV 如此，且 {@code getRecommendByFilter} 读后必定 shuffle ⇒ 顺序不可观察。保持原样。
+     * TV 如此；早期读路径（{@code getRecommendByFilter}，已删除）每次都会 shuffle ⇒ 顺序不可观察。
+     * 现在推荐序由 {@code RecommendOrder} 重排，更不依赖索引内的顺序，保持原样。
      */
     public void rebuildIndexes(List<String> staleKeys, List<IndexEntry> entries) {
         pipeline(ops -> {

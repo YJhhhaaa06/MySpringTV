@@ -10,15 +10,23 @@
  * ⇒ 作者只能渲染成纯文本、不显示时长与日期（GAP-16）。
  */
 import type { components } from '../../types/api'
-import type { MyFolderVM, VideoCardVM } from '../../types/ui'
+import type { LibraryFolderVM, VideoCardVM } from '../../types/ui'
 import { videoHref } from './links'
 
-/** `FavoriteFolderVO`（我的夹，含私密）→ 侧栏条目 */
-export function toMyFolder(folder: components['schemas']['FavoriteFolderVO']): MyFolderVM {
+/**
+ * `FavoriteFolderVO`（我的夹，含私密）→ 收藏浏览器条目。
+ *
+ * <p>`coverUrl`（`R-33`）是后端**现算**的生效封面：自定义优先，否则夹内最新一条收藏的封面，
+ * 取不到就是 `null`（前端灰 TV 占位）。空白串按 `null` 处理，不让 `<img src="">` 打空请求。
+ */
+export function toMyFolder(folder: components['schemas']['FavoriteFolderVO']): LibraryFolderVM {
   return {
     id: folder.id ?? 0,
     name: folder.name?.trim() || '未命名收藏夹',
     itemCount: typeof folder.itemCount === 'number' ? folder.itemCount : 0,
+    coverUrl: folder.coverUrl?.trim() || null,
+    // `R-35`：只有我的夹列表带这个字段；缺省 / 脏值按 false，不凭它猜"设过自定义"
+    hasCustomCover: folder.hasCustomCover === true,
     isDefault: folder.isDefault === true,
     isPrivate: folder.isPrivate === true,
   }

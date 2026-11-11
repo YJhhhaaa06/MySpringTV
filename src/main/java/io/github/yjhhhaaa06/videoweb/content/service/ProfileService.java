@@ -12,6 +12,7 @@ import io.github.yjhhhaaa06.videoweb.content.model.vo.ProfileVO;
 import io.github.yjhhhaaa06.videoweb.follow.service.FollowService;
 import io.github.yjhhhaaa06.videoweb.interaction.model.InteractionDimension;
 import io.github.yjhhhaaa06.videoweb.user.dao.UserDao;
+import io.github.yjhhhaaa06.videoweb.user.model.AvatarRefs;
 import io.github.yjhhhaaa06.videoweb.user.model.entity.User;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -46,7 +47,7 @@ import java.util.Set;
  * ③ 用户行 + 总数 + 窗口 id（DB）    —— 用户不存在 ⇒ 404
  * ④ 页内内容批量（ContentCache）      —— 取不到的条目**跳过**（已删/媒体损坏）
  * ⑤ 页内互动态（互动域批量，只带赞维）  —— 仅登录且列表非空
- * ⑥ 页内公共计数（本域批量）            —— 列表非空即读，**与登录态无关**（GAP-01 起只有播放量）
+ * ⑥ 页内公共计数（本域批量）            —— 列表非空即读，**与登录态无关**（`R-31` 起三维全带：同一响应服务网格 + 时间线）
  * </pre>
  * ①② 放在 ③ 之前是 TV 的原样顺序（缓存读比 DB 读便宜，且 404 时白读一次也无害）。
  *
@@ -54,7 +55,7 @@ import java.util.Set;
  * {@code FollowService} 的公开查询方法——关注域的缓存实现不再是对外 API。行为不变。
  *
  * <h2>★ T13（R-13）：⑤ 由"直连 {@code LikeService} 批量"改为走互动域</h2>
- * 这就是 {@code FURTHER_ISSUES.md} <b>F-16</b> 的兑现 —— R-10 立下"content 不再直接依赖
+ * 这就是 {@code favorite.md} 附录 <b>F-16</b> 的兑现 —— R-10 立下"content 不再直接依赖
  * like / follow"时，{@code ProfileService} 是唯一**有意保留**的例外（当初记在
  * {@code favorite.md 附录「编号速查」} I-09），至此归零：本类不再 import like / follow 的
  * 点赞契约（follow 的两条是**用户维度**的 {@code ProfileVO.isFollowed} 与两个计数，
@@ -75,8 +76,16 @@ public class ProfileService {
      */
     private static final Set<InteractionDimension> PROFILE_DIMENSIONS = Set.of(InteractionDimension.LIKE);
 
-    /** 主页「投稿」是**网格卡片**：只显示播放量（GAP-01）。 */
-    private static final Set<ContentCountField> PROFILE_COUNT_FIELDS = Set.of(ContentCountField.PLAY);
+    /**
+     * 主页内容页带的公共计数：**三维全带**（`R-31`，2026-11-03）。
+     *
+     * <p>★ 同一个 {@code GET /users/{id}} 现在服务两个视图：空间的**网格**（主页 / 投稿）与
+     * **动态时间线**（空间 {@code ?tab=dynamic}）。网格只显示播放量，但时间线卡片要点赞 / 评论数
+     * ⇒ 整个面都查。代价是网格每页多两维的 key 读（约 24 次）；这是"同一端点两个面"的显式取舍，
+     * 与首页 / 搜索 / 推荐（仍只查 PLAY）不同。
+     */
+    private static final Set<ContentCountField> PROFILE_COUNT_FIELDS =
+            Set.of(ContentCountField.PLAY, ContentCountField.LIKE, ContentCountField.COMMENT);
 
     private final UserDao userDao;
     private final ContentDao contentDao;
@@ -84,19 +93,23 @@ public class ProfileService {
     private final ContentCache contentCache;
     private final ContentStatusFiller contentStatusFiller;
     private final ContentCountFiller contentCountFiller;
+    /** `R-37`：空间投稿列表的作者头像读时装饰。 */
+    private final ContentAvatarFiller contentAvatarFiller;
 
     public ProfileService(UserDao userDao,
                           ContentDao contentDao,
                           FollowService followService,
                           ContentCache contentCache,
                           ContentStatusFiller contentStatusFiller,
-                          ContentCountFiller contentCountFiller) {
+                          ContentCountFiller contentCountFiller,
+                          ContentAvatarFiller contentAvatarFiller) {
         this.userDao = userDao;
         this.contentDao = contentDao;
         this.followService = followService;
         this.contentCache = contentCache;
         this.contentStatusFiller = contentStatusFiller;
         this.contentCountFiller = contentCountFiller;
+        this.contentAvatarFiller = contentAvatarFiller;
     }
 
     /**
@@ -143,10 +156,15 @@ public class ProfileService {
         if (currentUserId != null && !contentList.isEmpty()) {
             contentStatusFiller.fillInteractionBatch(contentList, currentUserId, PROFILE_DIMENSIONS);
         }
-        // GAP-01：主页「投稿」是网格卡片，只显示播放量；公共计数不看登录态。
+        // R-31：同一响应服务「空间网格 + 动态时间线」两个视图 ⇒ 三维全带；公共计数不看登录态。
         contentCountFiller.fillCountsBatch(contentList, PROFILE_COUNT_FIELDS);
+        // R-37：投稿卡片的作者头像；同一页作者通常就是 profileUserId，仍走一趟批量（缓存命中）。
+        contentAvatarFiller.fillAvatarBatch(contentList);
 
+        // R-27：头像与用户名同源（users 行），实时解析成生效 URL（默认 / 自定义 / 未选过回落）。
+        // 它不进内容缓存：ProfileVO 每次由本方法直接组装，缓存里只有内容条目。
         return new ProfileVO(profileUserId, user.getUsername(),
+                AvatarRefs.resolveUrl(profileUserId, user.getAvatarRef()),
                 followerCount, followCount, isFollowed,
                 new PageResult<>(contentList, total, page, pageSize));
     }

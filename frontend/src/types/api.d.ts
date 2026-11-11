@@ -14,7 +14,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        delete: operations["delete_2"];
+        delete: operations["delete_3"];
         options?: never;
         head?: never;
         patch?: never;
@@ -142,7 +142,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        delete: operations["delete_1"];
+        delete: operations["delete_2"];
         options?: never;
         head?: never;
         patch?: never;
@@ -500,6 +500,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/favorite-folders/{id}/cover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["uploadCover"];
+        post?: never;
+        delete: operations["resetCover"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/favorite-folders/{id}/items": {
         parameters: {
             query?: never;
@@ -590,7 +606,7 @@ export interface paths {
         get: operations["list_1"];
         put?: never;
         post?: never;
-        delete?: never;
+        delete: operations["delete_1"];
         options?: never;
         head?: never;
         patch?: never;
@@ -637,7 +653,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["upload"];
+        post: operations["upload_1"];
         delete?: never;
         options?: never;
         head?: never;
@@ -676,6 +692,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/users/me/avatar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["upload"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/me/avatar/default": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["chooseDefault"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/me/check-ins": {
         parameters: {
             query?: never;
@@ -701,6 +749,22 @@ export interface paths {
         };
         get: operations["my"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/me/history-recording": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["updateHistoryRecording"];
         post?: never;
         delete?: never;
         options?: never;
@@ -952,15 +1016,15 @@ export interface components {
             errors?: components["schemas"]["ApiFieldError"][];
             msg?: string;
         };
-        ApiResponseListAdminContentVO: {
+        ApiResponseHistoryRecordingVO: {
             code?: string;
-            data?: components["schemas"]["AdminContentVO"][];
+            data?: components["schemas"]["HistoryRecordingVO"];
             errors?: components["schemas"]["ApiFieldError"][];
             msg?: string;
         };
-        ApiResponseListContentVO: {
+        ApiResponseListAdminContentVO: {
             code?: string;
-            data?: components["schemas"]["ContentVO"][];
+            data?: components["schemas"]["AdminContentVO"][];
             errors?: components["schemas"]["ApiFieldError"][];
             msg?: string;
         };
@@ -1055,6 +1119,12 @@ export interface components {
             errors?: components["schemas"]["ApiFieldError"][];
             msg?: string;
         };
+        ApiResponseRecommendPageVO: {
+            code?: string;
+            data?: components["schemas"]["RecommendPageVO"];
+            errors?: components["schemas"]["ApiFieldError"][];
+            msg?: string;
+        };
         ApiResponseRestoreResult: {
             code?: string;
             data?: components["schemas"]["RestoreResult"];
@@ -1070,6 +1140,12 @@ export interface components {
         ApiResponseUploadedAssetVO: {
             code?: string;
             data?: components["schemas"]["UploadedAssetVO"];
+            errors?: components["schemas"]["ApiFieldError"][];
+            msg?: string;
+        };
+        ApiResponseUserAvatarVO: {
+            code?: string;
+            data?: components["schemas"]["UserAvatarVO"];
             errors?: components["schemas"]["ApiFieldError"][];
             msg?: string;
         };
@@ -1103,6 +1179,7 @@ export interface components {
             content?: string;
             /** Format: int64 */
             contentId?: number;
+            createTime?: string | null;
             /** Format: int32 */
             likeCount?: number;
             parentId?: number | null;
@@ -1122,12 +1199,14 @@ export interface components {
             enabled: boolean;
         };
         CommentVO: {
+            avatarUrl?: string;
             children?: components["schemas"]["CommentCacheDTO"][] | null;
             /** Format: int64 */
             commentId?: number;
             content?: string;
             /** Format: int64 */
             contentId?: number;
+            createTime?: string | null;
             isLiked?: boolean;
             /** Format: int32 */
             likeCount?: number;
@@ -1148,6 +1227,7 @@ export interface components {
             /** Format: int64 */
             authorId?: number;
             authorName?: string;
+            avatarUrl?: string;
             /** Format: int32 */
             categoryId?: number;
             /** Format: int64 */
@@ -1179,6 +1259,7 @@ export interface components {
             /** Format: int64 */
             authorId?: number;
             authorName?: string;
+            avatarUrl?: string | null;
             /** Format: int32 */
             categoryId?: number;
             commentCount?: number | null;
@@ -1190,6 +1271,7 @@ export interface components {
             durationSeconds?: number | null;
             /** Format: int64 */
             id?: number;
+            imageUrls?: string[] | null;
             interaction?: components["schemas"]["InteractionStatusVO"] | null;
             likeCount?: number | null;
             playCount?: number | null;
@@ -1257,6 +1339,8 @@ export interface components {
             name?: string;
         };
         FavoriteFolderVO: {
+            coverUrl?: string | null;
+            hasCustomCover?: boolean;
             /** Format: int64 */
             id?: number;
             isDefault?: boolean;
@@ -1282,6 +1366,7 @@ export interface components {
             isFavorited?: boolean;
         };
         FollowUserVO: {
+            avatarUrl?: string;
             isFollowed?: boolean;
             isSelf?: boolean;
             /** Format: int64 */
@@ -1304,6 +1389,9 @@ export interface components {
         HistoryPositionVO: {
             /** Format: int32 */
             progress?: number;
+        };
+        HistoryRecordingVO: {
+            historyRecording?: boolean;
         };
         InteractionStatusVO: {
             coin?: number | null;
@@ -1438,6 +1526,7 @@ export interface components {
             totalPages?: number;
         };
         ProfileVO: {
+            avatarUrl?: string;
             contentPage?: components["schemas"]["PageResultContentVO"];
             /** Format: int32 */
             followCount?: number;
@@ -1449,11 +1538,16 @@ export interface components {
             username?: string;
         };
         PublicFavoriteFolderVO: {
+            coverUrl?: string | null;
             /** Format: int64 */
             id?: number;
             /** Format: int32 */
             itemCount?: number;
             name?: string;
+        };
+        RecommendPageVO: {
+            list?: components["schemas"]["ContentVO"][];
+            nextCursor?: string | null;
         };
         RegisterRequest: {
             password: string;
@@ -1484,20 +1578,33 @@ export interface components {
             media?: components["schemas"]["MediaManifest"];
             title?: string;
         };
+        UpdateDefaultAvatarRequest: {
+            /** Format: int32 */
+            avatarId: number;
+        };
         UpdateFavoriteFolderRequest: {
             isPrivate?: boolean;
             name?: string;
+        };
+        UpdateHistoryRecordingRequest: {
+            historyRecording: boolean;
         };
         UploadedAssetVO: {
             durationSeconds?: number | null;
             url?: string;
         };
+        UserAvatarVO: {
+            avatarUrl?: string;
+            /** Format: int64 */
+            userId?: number;
+        };
         UserInfoVO: {
             admin?: boolean;
+            avatarUrl?: string;
             coin?: number;
+            historyRecording?: boolean;
             /** Format: int64 */
             id?: number;
-            phone?: string;
             signedToday?: boolean;
             username?: string;
         };
@@ -1606,7 +1713,7 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    delete_2: {
+    delete_3: {
         parameters: {
             query?: never;
             header?: never;
@@ -1855,7 +1962,7 @@ export interface operations {
             500: components["responses"]["InternalError"];
         };
     };
-    delete_1: {
+    delete_2: {
         parameters: {
             query?: never;
             header?: never;
@@ -2128,6 +2235,8 @@ export interface operations {
     start: {
         parameters: {
             query?: {
+                cursor?: string;
+                pageSize?: string;
                 type?: string;
                 categoryId?: string;
             };
@@ -2143,7 +2252,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponseListContentVO"];
+                    "application/json": components["schemas"]["ApiResponseRecommendPageVO"];
                 };
             };
             400: components["responses"]["ParamInvalid"];
@@ -2873,6 +2982,70 @@ export interface operations {
             500: components["responses"]["InternalError"];
         };
     };
+    uploadCover: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+            400: components["responses"]["ParamInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    resetCover: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 已生效，无响应体 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["ParamInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
     publicFolderItems: {
         parameters: {
             query?: {
@@ -3031,6 +3204,7 @@ export interface operations {
             query?: {
                 page?: string;
                 pageSize?: string;
+                beforeContentId?: string;
             };
             header?: never;
             path?: never;
@@ -3140,6 +3314,34 @@ export interface operations {
             500: components["responses"]["InternalError"];
         };
     };
+    delete_1: {
+        parameters: {
+            query?: {
+                contentIds?: number[];
+                all?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 已生效，无响应体 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["ParamInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
     flush: {
         parameters: {
             query?: never;
@@ -3195,7 +3397,7 @@ export interface operations {
             500: components["responses"]["InternalError"];
         };
     };
-    upload: {
+    upload_1: {
         parameters: {
             query?: never;
             header?: never;
@@ -3286,6 +3488,73 @@ export interface operations {
             500: components["responses"]["InternalError"];
         };
     };
+    upload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponseUserAvatarVO"];
+                };
+            };
+            400: components["responses"]["ParamInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    chooseDefault: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDefaultAvatarRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponseUserAvatarVO"];
+                };
+            };
+            400: components["responses"]["ParamInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
     signIn: {
         parameters: {
             query?: never;
@@ -3331,6 +3600,38 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    updateHistoryRecording: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateHistoryRecordingRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponseHistoryRecordingVO"];
+                };
+            };
+            400: components["responses"]["ParamInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["RateLimited"];
             500: components["responses"]["InternalError"];
         };

@@ -77,7 +77,7 @@ V1 一旦在任一库上被应用，就写进了该库的 `flyway_schema_history
 
 **结论**：V1 是**冻结**的。它是一份"已经发生过的历史"，不是可以被编辑的当前状态。
 
-### 2.3 增量演进：逐版本新增（当前已应用到 V8）
+### 2.3 增量演进：逐版本新增（当前已应用到 V11）
 
 要改结构，**新增一个版本号更高的脚本**，绝不回写 V1：
 
@@ -91,7 +91,10 @@ db/migration/
 ├── V6__watch_history.sql             ← 已应用（2026-10-21 播放记录 T45）：`watch_history` + 两列
 ├── V7__drop_legacy_video.sql         ← 已应用（2026-10-21 播放记录 T45）：删遗留 `video` / `videoinfo`
 ├── V8__watch_history_list_index.sql  ← 已应用（2026-10-21 播放记录 T50）：换 `watch_history` 列表索引
-└── V9__<描述>.sql                    ← 下一次演进写这里（编号递增，绝不回写 V1~V8）
+├── V9__user_history_recording.sql    ← 已应用（2026-10-31 记录开关 R-25）：`users.history_recording`
+├── V10__content_play_dedup.sql       ← 已应用（2026-10-31 播放量 R-26）：建去重账本 + 删标记列/死索引
+├── V11__user_avatar.sql              ← 已应用（2026-11-01 头像 R-27）：`users.avatar_ref`
+└── V12__<描述>.sql                   ← 下一次演进写这里（编号递增，绝不回写 V1~V11）
 ```
 
 - V2 在**所有环境**都会被执行（活库：V1 已应用 ⇒ 只有 V2 是新的，会真正跑；空库：V1→V2 顺序跑完）。
@@ -108,11 +111,18 @@ db/migration/
   **`V7__drop_legacy_video.sql`**（删遗留 `video` / `videoinfo`）⇒ **下一次演进走 V8**。
   ★ 删表**单独一版**是刻意的：DROP 不可逆，与建表混在一个文件里会让回滚粒度变成"全做或全不做"，
   而两件事的风险等级完全不同。V1 里那两条 `CREATE TABLE … IF NOT EXISTS video/videoinfo`
-  **不改**（冻结）—— 空库终态由"V1 建、V7 删"共同决定，最终仍是 18 张业务表。
+  **不改**（冻结）—— 空库终态由"V1 建、V7 删"共同决定，当时仍是 18 张业务表
+  （V10 再 +1 ⇒ 19，见 §四）。
 - ★ **现状更新（2026-10-21，T50）**：**`V8__watch_history_list_index.sql`** 落了列表索引替换
   （`idx_user_update` → `idx_user_update_content` 覆盖复合索引）⇒ **下一次演进走 V9**。
   ★ 它是**非结构性**的一版（不动表/列、表计数不变），单独一版是为了让"查询计划优化"有独立的
   回滚与审计粒度；动机 / 基线 / 代价见 [history.md §二·§7.1](../../domain/history/history.md)。
+- ★ **现状更新（2026-10-31）**：记录开关 **`R-25`** 落 **`V9__user_history_recording.sql`**
+  （`users.history_recording`，不加表）；同日播放量改口径 **`R-26`** 落 **`V10__content_play_dedup.sql`**
+  （建 `content_play_dedup` 账本 + 删 `watch_history.play_counted` / `idx_content_id`）
+  ⇒ **下一次演进走 V11**。
+- ★ **现状更新（2026-11-01）**：头像选择 **`R-27`** 落 **`V11__user_avatar.sql`**
+  （`users.avatar_ref`，不加表）⇒ **下一次演进走 V12**。
 
 ⚠️ **V5 落地时活库路径的特殊之处**：三条 `ALTER TABLE … ADD COLUMN` 是裸语句（MySQL 8.0 不支持
 `ADD COLUMN IF NOT EXISTS`），只由 Flyway 应用一次；落笔前已用 `information_schema` 复核活库
@@ -213,9 +223,11 @@ registry.add("video.upload.root", AbstractIntegrationTest::testMediaRoot); // �
 V1 共定义 **15 张业务表**，V2 再增 **2 张**（收藏一期），V4 再增 **1 张**（收藏三期 T17 稍后再看），
 V5 再增 **1 张**（投币 T36 `content_coin`）+ **3 列**（`users.coin_deci` / `users.last_sign_date` / `content.coin_count`），
 V6 再增 **1 张**（播放记录 T45 `watch_history`）+ **2 列**（`content_media.duration_seconds` / `content.play_count`），
-V7 **减 2 张**（删遗留 `video` / `videoinfo`），V8 **不动表 / 列**（只换 `watch_history` 的列表索引）；
+V7 **减 2 张**（删遗留 `video` / `videoinfo`），V8 **不动表 / 列**（只换 `watch_history` 的列表索引），
+V9 **加 1 列**（`users.history_recording`），V10 **增 1 张**（`content_play_dedup`）+ **删 1 列 / 1 索引**
+（`watch_history.play_counted` / `idx_content_id`），V11 **加 1 列**（`users.avatar_ref`）；
 **当前**活库/测试库的 `information_schema`
-（`table_type='BASE TABLE'`）计数 = **19** = 18 张业务表 + 1 张 Flyway 元表 `flyway_schema_history`
+（`table_type='BASE TABLE'`）计数 = **20** = 19 张业务表 + 1 张 Flyway 元表 `flyway_schema_history`
 （与 `InfrastructureConnectivityTests` 的断言一致）。按归属域列出（归属判据见 [模块边界与依赖](../module-boundary/模块边界与依赖.md)）：
 
 | # | 表 | 归属域 | 用途（一句） |
@@ -272,9 +284,9 @@ V7 **减 2 张**（删遗留 `video` / `videoinfo`），V8 **不动表 / 列**�
 
 | # | 表 / 列 | 归属域 | 用途（一句） | 口径 |
 |---|---|---|---|---|
-| 20 | `watch_history` | history | 播放记录：**一人一内容一行**（`uk_user_content` 是 ODKU / `INSERT IGNORE` 的落点）+ `idx_user_update_content`（**V8 起**：列表倒序 + 三列覆盖）+ `idx_content_id` 只服务不变量复算 | `play_counted` 与 `progress_seconds` **解耦**（拆端点：`/report` 只改进度、`/play` 只改标记）；**不可删**（删了就和"播放量只增"打架） |
+| 20 | `watch_history` | history | 播放记录：**一人一内容一行**（`uk_user_content` 是 ODKU / `INSERT IGNORE` 的落点）+ `idx_user_update_content`（**V8 起**：列表倒序 + 三列覆盖）+ `idx_content_id` 只服务不变量复算 | `play_counted` 与 `progress_seconds` **解耦**（拆端点：`/report` 只改进度、`/play` 只改标记）；**不可删**（删了就和"播放量只增"打架）。★ **V10 起 `play_counted` / `idx_content_id` 已删除**（判定搬进账本），本行描述的是 V6 当时的形态 |
 | — | `content_media.duration_seconds` | （列在 content_media 上，业务归 upload 解析 / content 投影） | 视频时长（秒；mp4 `moov → mvhd` 解析） | **可空**，NULL = 未知（解析失败 / 图文 / 文件缺失；存量已于 2026-10-27 一次性回填）；只对 `type=1` 的媒体行有意义 |
-| — | `content.play_count` | （列在 content 上，业务归 content 自持） | 播放量（**按用户去重**，一人一次） | `int unsigned` 且**只增**（没有取消播放）⇒ 刻意没有 like / comment 的防负守卫 |
+| — | `content.play_count` | （列在 content 上，业务归 content 自持） | 播放量（**按用户去重**，一人一次）★ **R-26/V10 起改为「每人·每内容·每自然日一次」**（见下方 V10 块） | `int unsigned` 且**只增**（没有取消播放）⇒ 刻意没有 like / comment 的防负守卫 |
 
 **V7 增量（`V7__drop_legacy_video.sql`，2026-10-21 播放记录专项 T45）——★ 只删表、不动结构**：
 
@@ -294,6 +306,26 @@ V7 **减 2 张**（删遗留 `video` / `videoinfo`），V8 **不动表 / 列**�
 | 形态口径 | **替换**而非新增：新索引前缀已覆盖旧索引（`countByUserId` 一并覆盖）⇒ 索引总数不变（仍 4 个）；写路径代价实测无回归（1000 次 ODKU：5.52/5.81s → 5.93/5.55s） |
 | 为什么单独一版 | 非结构性但**独立回滚 / 审计粒度**（与建表、删表同级的可追溯单元）；表计数不变（仍 19） |
 | 冻结状态 | ✅ **已应用 ⇒ 逐字节冻结**（§2.4：连注释都不能改） |
+
+**V9 增量（`V9__user_history_recording.sql`，2026-10-31 记录开关 `R-25`）**：
+
+| # | 表 / 列 | 归属域 | 用途（一句） | 口径 |
+|---|---|---|---|---|
+| — | `users.history_recording` | （列在 users 上，规则归 history） | 用户级「记录浏览历史」开关 | `tinyint(1) NOT NULL DEFAULT 1`（存量无感，"停用"是显式动作）；★ **服务端不据此校验任何写端点** —— `R-25` 的刻意取舍、不是漏做（四个写口子漏一个就静默破功）；只由 `PUT /users/me/history-recording` 写、`GET /users/me` 读；不新增表 |
+
+**V10 增量（`V10__content_play_dedup.sql`，2026-10-31 播放量口径 `R-26`）**：
+
+| # | 表 / 列 | 归属域 | 用途（一句） | 口径 |
+|---|---|---|---|---|
+| 21 | `content_play_dedup` | history | **播放量去重账本**：`PRIMARY KEY (user_id, content_id, play_date)`；`idx_date` 只服务将来的清理脚本、不在读路径 | **每人·每内容·每自然日一次**；`play_date` = **业务时区（`Asia/Shanghai`）日历日**，由 Java `PlayDay` 算好传参（**不用 `CURDATE()`**：MySQL 会话时区容器里常是 UTC，会差 8 小时）；账本**只增**、删除历史碰不到它 ⇒ 删完再播不会重复计数 |
+| — | `content.play_count` | （列在 content 上，业务归 content 自持） | 播放量（对外唯一计数列） | ★ **本版起口径改为「每人·每内容·每自然日一次」** —— `R-26` 推翻 `R-18` 的"一人一次（永久）"；仍 `int unsigned`、只增。⚠️ 因此它**不是"去重人数"**：同一批人连看三天，数字会涨三次 |
+| — | `watch_history.play_counted` / `idx_content_id` | history | **本版删除** | 判定搬进账本后标记列不再被读写（留着会被下一个人当成真相）；`idx_content_id` 只服务旧的不变量复算、内容删除本就不碰本表 ⇒ 死索引。表计数 **+1**（V10 起 20） |
+
+**V11 增量（`V11__user_avatar.sql`，2026-11-01 头像选择 `R-27`）**：
+
+| # | 表 / 列 | 归属域 | 用途（一句） | 口径 |
+|---|---|---|---|---|
+| — | `users.avatar_ref` | （列在 users 上，业务归 user） | 头像选择：`default:1`…`default:6` 或 `/upload/avatar/{uuid}.jpg` | `varchar(128) NULL`；**NULL = 从没选过**（按 `userId % 6` 回落默认），不是"没有头像"；出口统一解析成生效 `avatarUrl`；不新增表（仍 20） |
 
 > 📌 本表出现的 `R-##` / `T#` 编号：收藏相关见 [favorite.md 附录「编号速查」](../../domain/favorite/favorite.md)，投币相关见 [coin.md 附录「编号速查」](../../domain/coin/coin.md)，播放记录相关见 [history.md 附录「编号速查」](../../domain/history/history.md)（编号的**活**查证入口；逐条论证在相应 `archive/` 或 git）。
 

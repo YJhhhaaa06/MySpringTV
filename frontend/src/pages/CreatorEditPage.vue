@@ -530,7 +530,9 @@ function backToList(): void {
         <h2 class="edit-section__title">基本设置</h2>
 
         <div class="field">
-          <label class="field__label" for="edit-title"><i class="required">*</i>标题</label>
+          <label class="field__label" for="edit-title">
+            <i v-if="!draft.titleless" class="required">*</i>标题
+          </label>
           <div class="input-wrap">
             <input
               id="edit-title"
@@ -538,11 +540,17 @@ function backToList(): void {
               class="input"
               type="text"
               maxlength="50"
-              placeholder="请输入稿件标题"
+              :disabled="draft.titleless"
+              :placeholder="draft.titleless ? '提交时将保存为「无标题」' : '请输入稿件标题'"
               @input="clearError('title')"
             />
             <span class="counter">{{ draft.title.length }}/{{ TITLE_MAX }}</span>
           </div>
+          <!-- `R-31`：取回时标题 === 魔串「无标题」⇒ 勾选态；取消勾选必须重新填标题 -->
+          <label v-if="draft.isPost" class="titleless-toggle">
+            <input v-model="draft.titleless" type="checkbox" @change="clearError('title')" />
+            <span>不使用标题（提交为「无标题」）</span>
+          </label>
           <p v-if="errorOf('title')" class="field-error">{{ errorOf('title') }}</p>
         </div>
 
@@ -598,7 +606,7 @@ function backToList(): void {
     <CoverPreview
       v-if="coverPreviewOpen && draft"
       :src="draft.coverUrl"
-      :title="draft.title"
+      :title="draft.titleless ? '无标题' : draft.title"
       @close="coverPreviewOpen = false"
     />
   </div>
@@ -763,6 +771,20 @@ function backToList(): void {
   font-size: 12px;
   color: var(--text-3);
   pointer-events: none;
+}
+
+.titleless-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.titleless-toggle input {
+  accent-color: var(--brand-blue);
 }
 
 .field-error {

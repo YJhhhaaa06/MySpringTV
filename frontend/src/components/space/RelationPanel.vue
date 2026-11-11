@@ -12,6 +12,7 @@ import { showToast } from '../../common/toast'
 import AppIcon from '../common/AppIcon.vue'
 import EmptyState from '../common/EmptyState.vue'
 import Pagination from '../common/Pagination.vue'
+import UserAvatar from '../common/UserAvatar.vue'
 
 /**
  * 空间页的「关注 / 粉丝」面板（B 站 `/{uid}/relation/following` 的对应物）。
@@ -22,9 +23,10 @@ import Pagination from '../common/Pagination.vue'
  * tab 条保持 主页 / 收藏，进入本面板后**两个 tab 都不高亮**（B 站同样没有高亮项）。
  *
  * <h2>★ 降级（GAP-25，界面上不假装有）</h2>
- * `FollowUserVO` 只有 `userId / username / isFollowed / isSelf`：
- * - 没有头像 ⇒ 首字 + 渐变底；没有签名 ⇒ **不渲染**（B 站那句「这个人很神秘」是
- *   B 站自己的默认签名，我们连"有没有签名"都不知道，写上去就是编）；
+ * `FollowUserVO` 带 `userId / username / avatarUrl / isFollowed / isSelf`（`R-37` 起头像内联）：
+ * - **头像**直接用响应字段，不再走 `GET /users/avatars` 二次批量；
+ * - 没有签名 ⇒ **不渲染**（B 站那句「这个人很神秘」是 B 站自己的默认签名，
+ *   我们连"有没有签名"都不知道，写上去就是编）；
  * - 没有分组 / 最近关注 / 最常访问 / 关键词搜索 / 批量操作 ⇒ 一个都不摆
  *   （这些在 B 站各自有端点，本仓没有）。
  *
@@ -52,6 +54,7 @@ const emit = defineEmits<{
 const relation = ref<RelationPageVM | null>(null)
 const loading = ref(false)
 const error = ref('')
+
 /** 正在请求关注/取关的用户（同一人只发一次；其余人不受影响） */
 const busy = reactive(new Set<number>())
 
@@ -205,7 +208,12 @@ async function signIn(): Promise<void> {
                 class="relation-card__avatar"
                 :to="{ name: 'space', params: { id: user.id } }"
                 :title="`${user.name} 的空间`"
-              >{{ user.initial }}</RouterLink>
+              ><UserAvatar
+                :avatar-url="user.avatarUrl"
+                :user-id="user.id"
+                :initial="user.initial"
+                :size="60"
+              /></RouterLink>
               <div class="relation-card__body">
                 <RouterLink
                   class="relation-card__name"
@@ -334,17 +342,10 @@ async function signIn(): Promise<void> {
 }
 
 .relation-card__avatar {
-  display: flex;
-  width: 60px;
-  height: 60px;
+  display: block;
   flex: none;
-  align-items: center;
-  justify-content: center;
   border-radius: 50%;
-  font-size: 22px;
-  font-weight: 600;
-  color: var(--text-inverse);
-  background: linear-gradient(135deg, var(--brand-pink) 0%, var(--brand-blue) 100%);
+  line-height: 0;
 }
 
 .relation-card__body {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { gridColumns, gridPreview, isEditableTarget, rotateBy, stepIndex } from './opusImages'
+import { feedGridColumns, gridColumns, gridPreview, isEditableTarget, rotateBy, stepIndex } from './opusImages'
 
 describe('gridColumns', () => {
   it('1 张单图、2 张两列、3 张及以上三列（九宫格）', () => {
@@ -8,6 +8,22 @@ describe('gridColumns', () => {
     expect(gridColumns(3)).toBe(3)
     expect(gridColumns(6)).toBe(3)
     expect(gridColumns(9)).toBe(3)
+  })
+})
+
+describe('feedGridColumns（动态卡版式）', () => {
+  it('1 张单图、2–4 张两列（4 张正好 2×2）、5 张及以上三列', () => {
+    expect(feedGridColumns(1)).toBe(1)
+    expect(feedGridColumns(2)).toBe(2)
+    expect(feedGridColumns(3)).toBe(2)
+    expect(feedGridColumns(4)).toBe(2)
+    expect(feedGridColumns(5)).toBe(3)
+    expect(feedGridColumns(9)).toBe(3)
+  })
+
+  it('★ 与详情页的九宫格刻意分开：4 张在详情是 3 列、在动态卡是 2 列', () => {
+    expect(gridColumns(4)).toBe(3)
+    expect(feedGridColumns(4)).toBe(2)
   })
 })
 

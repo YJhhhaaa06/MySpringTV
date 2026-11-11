@@ -1,5 +1,6 @@
 package io.github.yjhhhaaa06.videoweb.favorite.model.vo;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -20,7 +21,12 @@ import lombok.NoArgsConstructor;
  *   <li>{@code isPrivate} —— 列表是"我的夹"，**含私密**（favorite.md §三 原话）；
  *       本 VO 只**读**它；写入口（私密开关）在 T3 已落地（{@code PUT /api/v1/favorite-folders/{id}}，
  *       部分更新，见 {@code FavoriteService.updateFolder}）；</li>
- *   <li>{@code itemCount} —— 每夹**条目数**。</li>
+ *   <li>{@code itemCount} —— 每夹**条目数**；</li>
+ *   <li>★ {@code coverUrl}（V12 / R-33）—— **生效封面**：自定义优先，否则夹内最新一条收藏的
+ *       {@code coverUrl}；取不到（失效 / 图文无封面 / 空夹）⇒ {@code null}，前端按灰底 TV 占位；</li>
+ *   <li>★ {@code hasCustomCover}（V12 / R-33）—— 是否设过自定义封面；前端据此决定
+ *       「恢复自动封面」菜单项是否出现。{@code coverRef} 本身只作 Mapper 行的内部承载
+ *       （{@link JsonIgnore}），**不进 JSON**。</li>
  * </ul>
  *
  * <h2>★ {@code itemCount} 的口径：数的是<b>收藏记录</b>，不是"还能打开的内容"</h2>
@@ -40,7 +46,8 @@ import lombok.NoArgsConstructor;
  *
  * <p>JSON 形状（{@code /api/v1/favorite-folders} 的 {@code data}）：
  * <pre>
- * [{"id":1,"name":"默认收藏夹","isDefault":true,"isPrivate":false,"itemCount":3}]
+ * [{"id":1,"name":"默认收藏夹","isDefault":true,"isPrivate":false,"itemCount":3,
+ *   "coverUrl":"/upload/favorite-cover/x.jpg","hasCustomCover":true}]
  * </pre>
  */
 @Data
@@ -58,4 +65,19 @@ public class FavoriteFolderVO {
 
     /** 夹内**收藏记录数**（含已失效内容的记录，见类注释）。 */
     private Integer itemCount;
+
+    /**
+     * 自定义封面相对 URL（Mapper 行承载，**不进 JSON**）。
+     *
+     * <p>⚠️ 它是内部字段：对外只暴露 {@link #coverUrl}（生效）与 {@link #hasCustomCover}。
+     * {@code @JsonIgnore} 保证 Mapper 能用同一形状承载、又不会把"内部 ref"漏成公开契约。
+     */
+    @JsonIgnore
+    private String coverRef;
+
+    /** 生效封面：自定义优先，否则最新一条收藏的 `coverUrl`；`null` = 前端占位。 */
+    private String coverUrl;
+
+    /** 是否设过自定义封面（前端据此决定是否显示「恢复自动」）。 */
+    private Boolean hasCustomCover;
 }

@@ -85,6 +85,25 @@ export function currentUserId(): number | null {
 }
 
 /**
+ * 就地写「记录浏览历史」开关（拨动后调用；未登录 ⇒ no-op）。
+ *
+ * <h2>★ 为什么"乐观"且不落 localStorage</h2>
+ * 唯一事实源是 `users.history_recording`；本函数只改**这个应用实例**的内存，
+ * 下一次整页装载由 `restoreSession()` 重新读服务端。
+ * 所以"断网时切到关闭"的结局是：界面变了、服务端没收到、**刷新后变回开** ——
+ * 这正是 B站 实测口径（`R-25`），也是它**不**提示、**不**回弹的原因：
+ * 服务端才是判据，本地只是先走一步。
+ *
+ * <p>⚠️ 不写 localStorage（前端只许两个 key 的纪律，见 `客户端静默机制.md` §3.10）：
+ * 存一份就会造出"本地说关、服务端说开"的第二事实源，而那正是这套设计要避免的。
+ */
+export function applyHistoryRecording(recording: boolean): void {
+  if (!state.user) return
+  if (state.user.historyRecording === recording) return
+  state.user = { ...state.user, historyRecording: recording }
+}
+
+/**
  * 服务端回来的**权威余额**覆盖本地硬币数（投币 / 签到之后）。
  *
  * <p>为什么必须由服务端给：本地的 `coin - 1` 只是乐观展示；余额是会被
@@ -93,6 +112,22 @@ export function currentUserId(): number | null {
 export function applyCoinBalance(balance: number | null | undefined): void {
   if (!state.user || typeof balance !== 'number' || !Number.isFinite(balance)) return
   state.user = { ...state.user, coin: balance }
+}
+
+/**
+ * 头像切换成功后**就地更新**本应用实例的登录态（`R-27`）。
+ *
+ * <p>顶栏 / 创作中心 / 评论框 / 动态页自己的资料卡都读 `sessionState.user.avatarUrl`；
+ * 更新后立即生效，不必整页刷新。唯一事实源仍是服务端 `users.avatar_ref`，
+ * 下一次整页装载由 `restoreSession()` 重新读。**不写 localStorage**。
+ *
+ * <p>只接受非空字符串：服务端返回的是生效 URL；null 只可能是"老后端缺字段"，
+ * 此时保留原值（继续按 userId 回落），不把头像画空。
+ */
+export function applyAvatarUrl(url: string | null | undefined): void {
+  if (!state.user || typeof url !== 'string' || !url) return
+  if (state.user.avatarUrl === url) return
+  state.user = { ...state.user, avatarUrl: url }
 }
 
 /**

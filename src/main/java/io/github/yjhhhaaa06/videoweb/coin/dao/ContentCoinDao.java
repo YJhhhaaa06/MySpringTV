@@ -20,29 +20,38 @@ import java.util.List;
  * 没有 like 那样的 {@code deleteLike}。
  *
  * <p>⚠️ 被拒的投币尝试**不落行**：写路径整体在一个事务里，封顶 / 余额不足都是抛异常回滚
- * ⇒ {@link #insertIgnoreZero} 刚插的 `amount = 0` 行会一起消失
+ * ⇒ {@link #ensureRow} 刚插的 `amount = 0` 行会一起消失
  * （`architecture/domain/coin/coin.md` §四.1 与 `coin/` 的验收②）。
  */
 @Mapper
 public interface ContentCoinDao {
 
     /**
-     * 保证"用户 × 内容"这一行存在（不存在则插 `amount = 0`；已存在则 0 行、不报错）。
+     * 保证"用户 × 内容"这一行存在：不存在则插 `amount = 0`；已存在则把它**原样锁住**。
      *
-     * <p>SQL: {@code insert ignore into content_coin (user_id, content_id, amount) values (?, ?, 0)}。
+     * <p>SQL: {@code insert into content_coin (user_id, content_id, amount) values (?, ?, 0)
+     * on duplicate key update amount = amount}。
      *
      * <p>★ <b>它只负责"保证行存在"，不承担封顶。</b>封顶在 {@link #addAmount} 的
      * {@code amount + ? <= 2} 上。为什么必须分两步：条件累加需要一行可 UPDATE 的目标，
      * 而"先 SELECT 再决定插不插"会引入读写窗口（并发下两个线程都判"无行"）。
-     * {@code INSERT IGNORE} 把"插或忽略"压成一条原子语句，唯一键
-     * {@code uk_user_content} 是它的判据。
+     * 一条 upsert 把"插或忽略"压成一条原子语句，唯一键 {@code uk_user_content} 是它的判据。
      *
-     * <p>⚠️ {@code INSERT IGNORE} 对**已存在行**是 0 行、不抛错 —— 这正是要的：
-     * 存在与否都不影响后续的条件累加，调用方**不需要**看返回值。
+     * <p>★ <b>为什么是 ODKU 而不是 {@code INSERT IGNORE}</b>：两者语义相同（都是"保证行在"），
+     * 差别只在**加锁形态**——普通 INSERT 撞唯一键时 InnoDB 只对命中记录加<b>共享锁</b>，
+     * 紧随的条件 UPDATE 需要把它升级成排他锁；两个事务同时停在这个升级点上就互等
+     * ⇒ {@code 1213} ⇒ 被 {@code handleDataAccess} 兜成 500。ODKU 撞重时<b>直接加排他锁</b>，
+     * 没有升级这一步，后来者只是排队等锁。
+     * ⚠️ 改回 {@code insert ignore} 会把死锁窗口带回来（实测，见 `coin.md` §四.1）。
      *
-     * @return 受影响行数（1 = 本次插入；0 = 行已存在）
+     * <p>⚠️ {@code amount = amount} 是**空操作**，不要往这里塞业务：值的增减只由
+     * {@link #addAmount} 做。也**不要看返回值**——ODKU 在 {@code useAffectedRows=false}
+     * （Connector/J 默认）下"插入"与"撞重"都返回 1，据此判业务结果必错
+     * （同 {@code WatchHistoryDao} 的类注释）。
+     *
+     * @return 受影响行数：**无业务含义**，调用方忽略
      */
-    int insertIgnoreZero(@Param("userId") long userId, @Param("contentId") long contentId);
+    int ensureRow(@Param("userId") long userId, @Param("contentId") long contentId);
 
     /**
      * 条件累加投币枚数：只有"加完仍不超过 2"才写。
@@ -59,7 +68,7 @@ public interface ContentCoinDao {
      * 两者都答 409。前端按 `0/1/2` 只给出合法选项，正常客户端不可达。
      *
      * @param delta 本次投出的枚数（1 或 2，由 Service 先校验）
-     * @return 受影响行数（0 = 被封顶条件拦住；行不存在同样 0 行，但调用方已先 {@link #insertIgnoreZero}）
+     * @return 受影响行数（0 = 被封顶条件拦住；行不存在同样 0 行，但调用方已先 {@link #ensureRow}）
      */
     int addAmount(@Param("userId") long userId, @Param("contentId") long contentId,
                   @Param("delta") int delta);

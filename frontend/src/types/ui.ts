@@ -58,12 +58,17 @@ export interface HeroSlideVM {
   authorName: string
 }
 
-/** 当前登录用户（`GET /users/me`；★ 后端没有 avatar 字段，见 GAP 台账） */
+/** 当前登录用户（`GET /users/me`） */
 export interface CurrentUserVM {
   id: number
   name: string
-  /** 头像占位：昵称首字（等 avatars 端点/字段，GAP 台账） */
+  /** 昵称首字（只有 `avatarUrl` 缺失时才当兜底；默认头像见 `UserAvatar`） */
   initial: string
+  /**
+   * 生效头像 URL（`R-27`）：`/avatars/default-N.svg` 或 `/upload/avatar/...`。
+   * 后端对真实用户恒返回非空；`null` 只用于"老后端 / 字段缺失"的兼容兜底。
+   */
+  avatarUrl: string | null
   admin: boolean
   /**
    * 硬币余额，**一位小数**（后端 `coin_deci / 10`，`1.5` 就是一枚半）。
@@ -78,6 +83,15 @@ export interface CurrentUserVM {
    * （理由见 `architecture/frontend/前端.md` §五「签到状态不落本地」）。
    */
   signedToday: boolean
+  /**
+   * 是否**记录**观看历史（「记录浏览历史」开关，`users.history_recording`）。
+   *
+   * ★ 它是开关的**唯一读入口**：每次整页装载随 `GET /users/me` 读一次；
+   * 拨动开关只写 `PUT /users/me/history-recording` 并就地改这里（乐观，不回弹）。
+   * ⚠️ 判"要不要上报"请用 `player/historyTracking.ts#isRecording` / `#planTracking`，
+   * 别在组件里写 `=== false` —— 极性口径只允许有一处（见该文件注释）。
+   */
+  historyRecording: boolean
   /** 个人空间跨应用链接 */
   spaceHref: string
 }
@@ -120,11 +134,13 @@ export interface InteractionVM {
   followed: boolean | null
 }
 
-/** 播放页侧栏的 UP 主卡（`GET /users/{id}`，真粉丝数/投稿数） */
+/** 播放页侧栏的 UP 主卡（`GET /users/{id}`，真粉丝数/投稿数；头像来自 `R-27`） */
 export interface AuthorCardVM {
   id: number
   name: string
   initial: string
+  /** 生效头像 URL；null = 老后端缺字段（`UserAvatar` 按 id 回落） */
+  avatarUrl: string | null
   href: string
   followerCount: Count
   followingCount: Count
@@ -141,6 +157,8 @@ export interface VideoDetailVM {
   authorId: number
   authorName: string
   authorHref: string
+  /** 作者生效头像 URL（`R-37` 内联；null = 老后端缺字段，`UserAvatar` 按 id 回落） */
+  authorAvatarUrl: string | null
   /** 发布日期文本（`2026-05-09 19:43`） */
   dateText: string
   coverUrl: string | null
@@ -168,16 +186,18 @@ export interface VideoDetailVM {
 /**
  * 评论（`CommentVO` / 楼中楼）。
  *
- * <p>★ 后端 `CommentVO` **没有 `createTime`**（GAP 台账 M1）⇒ `timeText` 恒空串，
- * 界面上不出现时间；**不许**拿"刚刚"顶上（那是编数字的变体）。
+ * <p>时间：`createTime` 自 GAP-12 起由后端返回，由 `formatCommentTime` 转成 `timeText`。
+ * 空串 = 缺时间（存量缓存 / 脏数据）⇒ 渲染层不显示节点；**不许**用"刚刚"兜空值。
  */
 export interface CommentVM {
   id: number
   parentId: number | null
   authorId: number
   authorName: string
-  /** 头像占位：昵称首字 */
+  /** 昵称首字（无 `authorId` 时的头像兜底；默认头像按 `authorId` 分配） */
   initial: string
+  /** 作者生效头像 URL（`R-37` 随响应内联；null = 老后端缺字段，按 `authorId` 回落） */
+  avatarUrl: string | null
   content: string
   likeCount: number
   liked: boolean
@@ -189,7 +209,7 @@ export interface CommentVM {
   replyToName: string | null
   /** 当前登录用户能否删（自己的评论才显示删除按钮） */
   canDelete: boolean
-  /** 空串 = 后端没有时间字段（GAP），渲染处直接不显示 */
+  /** 评论时间（`刚刚` / `N分钟前` / `N小时前` / `YYYY-MM-DD HH:MM`）；空串 = 缺时间或脏数据，渲染处不显示 */
   timeText: string
 }
 
@@ -221,11 +241,13 @@ export interface FavoriteFolderVM {
   contains: boolean
 }
 
-/** 空间页头部（`GET /users/{id}`；后端没有头像 / 签名 / banner ⇒ 全部降级） */
+/** 空间页头部（`GET /users/{id}`；头像已有，签名 / banner 仍降级） */
 export interface SpaceHeaderVM {
   id: number
   name: string
   initial: string
+  /** 生效头像 URL（`R-27`）；null = 老后端缺字段 */
+  avatarUrl: string | null
   followerCount: Count
   followingCount: Count
   worksCount: Count
@@ -243,23 +265,35 @@ export interface SpaceWorksVM {
   totalPages: number
 }
 
-/** 公开收藏夹条目（空间的「收藏」tab） */
-export interface PublicFolderVM {
-  id: number
-  name: string
-  itemCount: number
+/** `PUT /favorite-folders/{id}` 的部分更新载荷：只放用户真正改过的字段。 */
+export interface FolderEditPatch {
+  name?: string
+  isPrivate?: boolean
 }
 
 /**
- * 我的收藏夹（`GET /favorite-folders`，**含私密夹**；与 `PublicFolderVM` 是两种视图：
- * 后者只给公开夹、匿名可见）。
+ * 收藏夹（空间「收藏」tab 左栏 / 主页夹卡共用）。
+ *
+ * <p>self 面来自 `FavoriteFolderVO`（含私密夹与 `isDefault`）；公开面来自
+ * `PublicFavoriteFolderVO`（只保证公开）。公开面 VO **没有** `isDefault` ⇒ `null`，
+ * 不拿它做任何判断（自动选夹按服务端顺序）。
+ *
+ * <p>封面 `coverUrl`（`R-33`）：自定义 / 夹内最新一条收藏 / `null`（前端灰 TV 占位）。
  */
-export interface MyFolderVM {
+export interface LibraryFolderVM {
   id: number
   name: string
   itemCount: number
-  isDefault: boolean
+  coverUrl: string | null
+  /**
+   * self：是否设过自定义封面（`R-35`）；公开面 VO 没有这个字段 ⇒ 一律 `false`。
+   * 只用于「恢复自动封面」入口是否显示，公开面不做任何编辑判断。
+   */
+  hasCustomCover: boolean
+  /** self：真实私密标记；公开面只会返回公开夹 ⇒ false */
   isPrivate: boolean
+  /** 默认夹：self 面真实；公开面 `null`（不知道，也不判断） */
+  isDefault: boolean | null
 }
 
 /**
@@ -310,17 +344,27 @@ export interface HistoryGroupVM {
  */
 export interface DynamicCardVM {
   id: number
+  /** 展示标题；图文「不使用标题」时是中性占位「无标题」，由 `hasTitle` 决定是否渲染 */
   title: string
+  /** 是否渲染标题：图文命中 `「无标题」` 魔串 ⇒ false（正文为主）；视频恒 true */
+  hasTitle: boolean
   /** 跨应用链接：`/video/{id}`（动态没有独立详情页，B 站的动态详情是另一套文档） */
   href: string
   coverUrl: string | null
+  /**
+   * 图文卡要展示的图集（`R-31`）：后端 `imageUrls` 按 `sort` 升序；
+   * 为空但有封面时用封面兜底成单图；视频恒 `[]`。
+   */
+  imageUrls: string[]
   /** 时长角标；图文恒 null */
   durationText: string | null
   authorId: number
   authorName: string
   authorHref: string
-  /** 头像占位：昵称首字（后端没有头像字段，GAP 台账） */
+  /** 昵称首字（拿不到 `authorId` 时的头像兜底；默认头像按 `authorId` 分配） */
   authorInitial: string
+  /** 作者生效头像 URL（`R-37` 随 `/feed` 内联；null = 缺字段 ⇒ 按 `authorId` 回落） */
+  authorAvatarUrl: string | null
   /** 相对时间（`刚刚` / `4分钟前` / `05-09`） */
   timeText: string
   /** 动态动作文案：`投稿了视频` / `发布了图文`（由 `type` 推导，不是后端字段） */
@@ -348,13 +392,16 @@ export interface DynamicPageVM {
 /**
  * 关注 / 粉丝列表里的一个人（`FollowUserVO`）。
  *
- * <p>★ 这个 VO 只有 `userId / username / isFollowed / isSelf` —— **没有头像、没有签名**
- * （GAP 台账）⇒ 卡片只渲染首字头像、名字与关注按钮，不编签名。
+ * <p>★ `R-37` 起带 `avatarUrl`（随列表响应内联，与 username 同一次 users 查询）；
+ * 仍**没有签名** ⇒ 卡片渲染头像、名字与关注按钮，不编签名。
  */
 export interface RelationUserVM {
   id: number
   name: string
+  /** 昵称首字（拿不到 `id` 时才当头像兜底；默认头像按 `id` 分配） */
   initial: string
+  /** 生效头像 URL（`R-37` 内联；null = 老后端缺字段，按 `id` 回落） */
+  avatarUrl: string | null
   /** 当前登录用户是否关注了 TA（端点要求登录 ⇒ 这个布尔一定是真值，不是三态） */
   followed: boolean
   isSelf: boolean

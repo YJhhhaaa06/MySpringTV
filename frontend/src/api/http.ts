@@ -1,5 +1,6 @@
 import { readToken } from '../auth/token'
 import type { components, paths } from '../types/api'
+import { syncServerClock } from './serverClock'
 
 /**
  * 极简请求层：**只为"类型来自 spec"这一件事存在**。
@@ -20,10 +21,11 @@ import type { components, paths } from '../types/api'
  *       `architecture/domain/history/history-客户端契约.md` §五）。</li>
  * </ol>
  *
- * <h2>★ 唯一例外：multipart 上传走 {@link postForm}</h2>
+ * <h2>★ 唯一例外：multipart 上传走 {@link postForm} / {@link putForm}</h2>
  * `fetch` 不提供上传进度，而投稿页的进度条是用户能看见的东西 ⇒ 上传用 `XMLHttpRequest`。
  * 但**信封解包 / Bearer / 204 / Retry-After 与上面是同一份实现**（{@link parseEnvelope}），
- * 不允许在页面里另写一套判信封。
+ * 不允许在页面里另写一套判信封。`putForm` 与 `postForm` 共用同一个 `sendForm`，
+ * 只为头像这种"PUT 替换单值资源 + multipart"的端点存在（`R-27`）。
  *
  * <h2>★ 写接口的幂等键是**调用方显式传**的</h2>
  * 后端只有 4 条 `KEYED` 端点（评论 / 投币 / 投稿视频 / 投稿图文）——它们的效果层非幂等，
@@ -165,6 +167,11 @@ async function request<T>(url: string, init: RequestInit, headers: Headers): Pro
     clearTimeout(timer)
   }
 
+  // ★ 用服务器时间校准"现在"：`Date` 由服务器生成，与 create_time 同源。
+  //   必须在 parseEnvelope 之前同步 —— 时间文本是在本函数返回之后才格式化的，
+  //   晚一步就会让首屏用浏览器时钟渲染（用户改过系统时间时表现为"全部刚刚"）。
+  syncServerClock(response.headers.get('Date'))
+
   return parseEnvelope<T>(response.status, await response.text(), retryAfterOf(response))
 }
 
@@ -286,9 +293,35 @@ export function postForm<K extends keyof paths>(
   options?: FormRequestOptions,
 ): Promise<OkData<OpFor<K, 'post'>>> {
   const url = buildUrl(expandPath(path as string, options?.path), options?.query)
+  return sendForm<OkData<OpFor<K, 'post'>>>('POST', url, form, options)
+}
+
+/**
+ * PUT + `multipart/form-data`（头像上传专用，`R-27`）。
+ *
+ * <p>与 {@link postForm} 共用 {@link sendForm}：信封 / Bearer / 超时 / 进度回调只有一份实现。
+ * 为什么不复用 `PUT /uploads/{type}`：头像要"落盘 + 写 user + 删旧文件"的单一意图，
+ * 通用上传口只落盘不写库（见 `AvatarController` 类注释）。
+ */
+export function putForm<K extends keyof paths>(
+  path: K,
+  form: FormData,
+  options?: FormRequestOptions,
+): Promise<OkData<OpFor<K, 'put'>>> {
+  const url = buildUrl(expandPath(path as string, options?.path), options?.query)
+  return sendForm<OkData<OpFor<K, 'put'>>>('PUT', url, form, options)
+}
+
+/** multipart 的唯一实现：`postForm` / `putForm` 只是动词不同。 */
+function sendForm<T>(
+  method: 'POST' | 'PUT',
+  url: string,
+  form: FormData,
+  options?: FormRequestOptions,
+): Promise<T> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
-    xhr.open('POST', url)
+    xhr.open(method, url)
     xhr.timeout = UPLOAD_TIMEOUT_MS
     xhr.setRequestHeader('Accept', 'application/json')
     const token = readToken()
@@ -304,6 +337,7 @@ export function postForm<K extends keyof paths>(
 
     xhr.onload = () => {
       try {
+        syncServerClock(xhr.getResponseHeader('Date'))
         resolve(
           parseEnvelope(xhr.status, xhr.responseText, retryAfterValue(xhr.getResponseHeader('Retry-After'))),
         )

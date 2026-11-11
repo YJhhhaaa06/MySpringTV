@@ -1,6 +1,7 @@
 package io.github.yjhhhaaa06.videoweb.user.dao;
 
 import io.github.yjhhhaaa06.videoweb.user.model.entity.User;
+import io.github.yjhhhaaa06.videoweb.user.model.row.UserProfileRow;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -51,8 +52,31 @@ public interface UserDao {
      */
     User findByPhoneForLogin(@Param("phone") String phone);
 
-    /** 按 id 查用户（资料用，不含 hashedPassword）。TV: {@code getUserForProfileById}。 */
+    /**
+     * 按 id 查用户（资料用，不含 hashedPassword）。TV: {@code getUserForProfileById}。
+     *
+     * <p>`R-27` 起列集含 {@code avatar_ref}：资料出口要解析出生效 `avatarUrl`。
+     * 它仍是**单列窄查询**，不把签到 / 开关等其它新列一起拖出来。
+     */
     User findByIdForProfile(@Param("id") long id);
+
+    /**
+     * 当前用户资料的一次性投影（{@code GET /api/v1/users/me} 专用读模型）。
+     *
+     * <p><b>一条主键点查拿齐 VO 需要的全部列</b>（{@code const} 一行）。这不是"顺手多查几列"，
+     * 而是基线换来的结论（2026-11-08）：原来「资料 + 硬币 + 签到日 + 开关」4 条查询外套一个
+     * {@code @Transactional(readOnly = true)}，一次请求要 <b>7 次数据库往返</b>
+     * （{@code SET autocommit=0} + 4 × SELECT + {@code COMMIT} + {@code SET autocommit=1}），
+     * p50 <b>2917 µs</b>；合并成 1 条后 <b>444 µs</b>（−85%，p99 4391 → 827）。
+     * 同轮实测里"多读一列"的服务端代价是 0（同一行同一页）⇒ <b>成本在往返数，不在列数</b>。
+     *
+     * <p>⚠️ <b>不要拆回窄查询</b>，也<b>不要</b>去扩 {@link #findByIdForProfile} 的列集：
+     * 那个方法返回 {@link User} 实体，还被 {@code ProfileService} / {@code AvatarService} 共用
+     * （三处调用点），加列要连带改它们的列集契约。本方法的字段集只由 {@code UserInfoVO} 决定。
+     *
+     * @return 查无此人 ⇒ {@code null}（由 Service 转 404）
+     */
+    UserProfileRow findProfileRow(@Param("id") long id);
 
     /** 手机号是否已被使用。TV: {@code isPhoneUsed}。 */
     boolean isPhoneUsed(@Param("phone") String phone);
@@ -91,7 +115,7 @@ public interface UserDao {
     int updateFollowerCount(@Param("userId") long userId, @Param("delta") int delta);
 
     /**
-     * 批量查用户（关注/粉丝列表装载用，**只装配 id 与 username**）。
+     * 批量查用户（关注/粉丝列表装载用，**装配 id / username / avatar_ref**）。
      *
      * <p>TV: {@code findUsersByIds} ——
      * {@code SELECT id, username FROM users WHERE id IN (...) ORDER BY id}
@@ -101,7 +125,8 @@ public interface UserDao {
      * 分页'顺序稳定'只能靠巧合"。**勿删**（决策表 F-3）。
      *
      * <p>用途：{@code FollowService.loadUserList}（**事务外纯读**，见 F-3）。
-     * 未选中的列留 null（本方法只服务列表视图，不需要手机号 / 口令散列）。
+     * `R-37` 起多带 {@code avatar_ref}：关注 / 粉丝列表要内联作者头像，它与 username 同一次
+     * 行访问 ⇒ **零额外查询**。未选中的列仍留 null（本方法不返回手机号 / 口令散列）。
      *
      * @param ids 非空（调用方保证：空 {@code IN ()} 是非法 SQL）
      */
@@ -254,28 +279,63 @@ public interface UserDao {
      *
      * <p>刻意返回包装类型 {@link Integer}：无行 ⇒ {@code null}。写成 {@code int} 会在
      * MyBatis 返回 null 时拆箱 NPE，而"用户不存在"是**可能发生**的读结果
-     * （{@code UserService#getProfile} 在查到用户之后才调它；{@code CoinService#signIn}
-     * 没有存在性前置，靠调用侧把 null 兜成 0）。
+     * （{@code CoinService#signIn} 没有存在性前置，靠调用侧把 null 兜成 0）。
      *
      * <p>写法选择：直接 {@code select coin_deci ...}，**不用** {@code COALESCE((子查询), 0)}
      * （同文件的 {@code getFollowCountById} 用的是后者）。理由：那条的口径是"用户不存在按 0 处理"，
      * 而余额的 0 是**真实值**——用 COALESCE 会把"查无此人"伪装成"余额为零"，把数据异常吞掉。
      *
-     * <p>⚠️ 调用方读到 null 时先确认前提：{@code UserService#getProfile} 在
-     * {@code findByIdForProfile} 非 null 之后才调它（用户必然存在）。
+     * <p>⚠️ 用途已收窄（2026-11-08）：只剩 coin 域在**写路径之后回读**（签到 / 投币的响应回带余额）。
+     * 它**不是**"投币前判余额"的手段 —— 够不够由 {@code deductCoinDeci} 的条件写判定，
+     * 先读后减在并发下必然漏判。{@code /users/me} 改走 {@link #findProfileRow}（一条查齐）。
      */
     Integer findCoinDeci(@Param("userId") long userId);
 
+    // ========================================================================
+    // 以下 1 个方法由「记录浏览历史」开关（`R-25` / `T73`）补入：
+    // `users.history_recording` 由 user 域维护（先例 = 上面的 coin_deci / last_sign_date）。
+    // ★ history 域**不读**这一列 —— 服务端不强制该开关，见
+    //   architecture/domain/history/history-已知代价.md。
+    // ⚠️ 读这一列的单列窄查询已于 2026-11-08 删除（/users/me 改走 findProfileRow），本段只剩写。
+    // ========================================================================
+
     /**
-     * 最近签到日（单列窄查询，{@code date} 列 ⇒ {@link LocalDate}）。
+     * 写「记录浏览历史」开关。
      *
-     * <p>无行 / 从未签到（列 {@code NULL}）⇒ {@code null}。两种 null 在本仓不可区分，
-     * 且都不影响语义：{@code null} 一律视为"今天还没签"（签到守卫
-     * {@code last_sign_date is null or last_sign_date < today} 同样把它们视为可签）。
+     * <p>{@code update users set history_recording = ? where id = ?}：单条 UPDATE，
+     * <b>天然幂等</b>（同一个值写两遍结果一样）⇒ 重试安全，不需要幂等键。
      *
-     * <p>用途：{@code /user/me} 的 {@code signedToday}（是否有值 == 今天）。
-     * 这里**只读一列**，不扩 {@code findByIdForProfile} 的列集——资料端点没必要为了一个布尔
-     * 把签到日暴露成 VO 字段。
+     * <p>⚠️ 只改一个**偏好**，不承担"关掉之后不会再记录"的保证 —— 那是客户端义务
+     * （{@code R-25}）。服务端的任何 history 写端点都**不**读这一列。
+     *
+     * @return 影响行数（0 = 用户不存在）
      */
-    LocalDate findLastSignDate(@Param("userId") long userId);
+    int updateHistoryRecording(@Param("userId") long userId, @Param("recording") boolean recording);
+
+    // ========================================================================
+    // 以下 2 个方法由头像域（`R-27` / `T80`）补入：
+    // `users.avatar_ref` 由 user 域维护（先例 = V5 coin_deci、V9 history_recording）。
+    // ⚠️ 头像**不进**评论 / feed / 内容缓存；作者快照面由 `R-37` 的读时装饰
+    //    （`AvatarUrlResolver`）按 userId 解析，响应内联 `avatarUrl`。
+    // ========================================================================
+
+    /**
+     * 写头像选择（`default:N` 或 `/upload/avatar/...`）。
+     *
+     * <p>单条 UPDATE ⇒ 天然幂等（同一个 ref 写两遍结果一样）。调用方写之前读旧的
+     * {@code avatar_ref} 只为**判存在**；旧文件按 `R-37` 延迟回收，**不在写路径删除**。
+     *
+     * @return 影响行数（0 = 用户不存在 ⇒ 401 / 本次上传的新文件需补偿删除）
+     */
+    int updateAvatarRef(@Param("userId") long userId, @Param("avatarRef") String avatarRef);
+
+    /**
+     * 批量读头像选择（**只选 id / avatar_ref**，`AvatarUrlResolver` 的 JVM 缓存回源用）。
+     *
+     * <p>{@code ORDER BY id} 只为输出稳定；调用方最终按 userId 建 Map，不依赖顺序。
+     * 不存在的 id 自然不在结果里 ⇒ 缓存回源时按"已确认 NULL"回填（防穿透）。
+     *
+     * @param ids 非空且去重（调用方保证：空 {@code IN ()} 是非法 SQL）
+     */
+    List<User> findAvatarRefsByIds(@Param("ids") List<Long> ids);
 }

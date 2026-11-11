@@ -8,14 +8,15 @@
  * - `PUT /progress` 是**唯一**可能 503 + `Retry-After` 的端点（Redis 不可用时），
  *   客户端必须按服务端给的节奏退避（见 `progressReporter.ts`）。
  *
- * <p>★ 2026-10-26 追加**列表读端点** `GET /history`（历史页交付）——
- * 播放页用的五个写/读端点仍在；列表是第六个，前端只读不写（后端没有删除端点，GAP-19）。
+ * <p>★ 2026-10-26 追加**列表读端点** `GET /history`（历史页交付）。
+ * ★ 2026-10-31（`R-26`）追加**删除端点** `DELETE /history`：批量（`contentIds`）与清空（`all=true`）
+ * 是**同一条路由**的两种形态，互斥（见 `deleteHistory` / `clearHistory`）。
  */
 import type { components } from '../types/api'
 import type { HistoryItemVM, PageVM } from '../types/ui'
 import { readToken } from '../auth/token'
 import { groupHistory, toHistoryItem } from './adapters/history'
-import { getJson, postJson, putJson } from './http'
+import { deleteJson, getJson, postJson, putJson } from './http'
 
 /** `POST /contents/{id}/play`：播放量去重计数（幂等，重复调不报错） */
 export function reportPlay(contentId: number): Promise<undefined> {
@@ -58,6 +59,30 @@ export async function loadHistory(page = 1, pageSize = 20): Promise<PageVM<Histo
  * 这里只做一个转发，省得页面同时 import 两个模块。
  */
 export const groupHistoryByDay = groupHistory
+
+/**
+ * 删除若干条历史（`DELETE /api/v1/history?contentIds=`）。
+ *
+ * <p>★ **幂等**：服务端对"行不存在"也回 204 ⇒ 陈旧页面 / 别的标签页已经删过都不是错误，
+ * 调用方不需要区分"真删了"与"本来就没有"。
+ * <p>★ 与 {@link clearHistory} **互斥**：同时给会被服务端 400（见 `history.md` §八）。
+ * <p>★ 上限 **500 条**（服务端校验，超出 400）：历史页的「全选」只选**已加载**的条目（B站 实测口径），
+ * 一页 20 条 ⇒ 正常操作离上限很远；真撞上了要给用户一句可解释的提示，而不是静默失败。
+ */
+export function deleteHistory(contentIds: number[]): Promise<undefined> {
+  return deleteJson('/api/v1/history', { query: { contentIds } })
+}
+
+/**
+ * 清空历史（`DELETE /api/v1/history?all=true`）。
+ *
+ * <p>★ 必须**显式** `all=true`：服务端刻意不用"少传 contentIds"表达清空，
+ * 那样一次前端 bug 就是不可逆的数据事故（见 `history.md` §八）。
+ * <p>★ 同 {@link deleteHistory}：幂等，空历史也 204。
+ */
+export function clearHistory(): Promise<undefined> {
+  return deleteJson('/api/v1/history', { query: { all: true } })
+}
 
 /**
  * 退出信号：`fetch(keepalive)` —— **不是** `navigator.sendBeacon`。

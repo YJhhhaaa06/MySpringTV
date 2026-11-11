@@ -1,45 +1,68 @@
 import type { components } from '../../types/api'
 import type { Count, DynamicCardVM, DynamicPageVM } from '../../types/ui'
 import { CONTENT_TYPE_POST } from '../contentTypes'
-import { cleanDescription, formatCount, formatDuration, formatRelativeDate, initialOf } from './format'
+import { serverNow } from '../serverClock'
+import {
+  cleanDescription,
+  formatCount,
+  formatDuration,
+  formatRelativeDate,
+  initialOf,
+  isTitleless,
+} from './format'
 import { likedOf } from './interaction'
 import { contentHref, spaceHref } from './links'
 
 /**
  * `ContentVO` → 动态卡（`GET /feed`）。
  *
- * <h2>这是 `likeCount` / `commentCount` 的第一个消费方</h2>
+ * <h2>`likeCount` / `commentCount` 在这里第一次有展示位</h2>
  * 后端自 GAP-01 起在 `/feed` 上带 `playCount + likeCount + commentCount`
- * （`FeedService#FEED_COUNT_FIELDS`），但网格卡只要播放量 ⇒ 后两维一直没人读。
- * 动态卡底部操作栏正好是它们的展示位。
+ * （`FeedService#FEED_COUNT_FIELDS`）；`R-31` 起空间 `contentPage` 也带三维
+ * （同一响应服务空间网格 + 动态时间线）。动态卡底部操作栏是它们的展示位。
  *
  * <h2>★ 缺口 fallback 仍在这一层</h2>
  * - **图文没有播放量**：后端 `play_count` 对图文结构性恒 0（GAP-05）⇒ 恒 `null`，不画「浏览 0」；
  * - 三个计数都可能是 `null`（本面没给）⇒ 保持 `null`，组件不渲染该数字（≠ 0）；
  * - `interaction` 只回「赞」一维 ⇒ `liked` 是三态，`null` 不归一成 `false`（否则「没查」会画成「没点过」）；
  * - 弹幕数**根本不在这里**：动态卡没有弹幕位，本仓也没有弹幕域。
+ *
+ * <p>`now` 默认取**服务器时钟**（与卡片 / 评论同源），见 `serverClock.ts`。
  */
 export function toDynamicCard(
   item: components['schemas']['ContentVO'],
-  now: Date = new Date(),
+  now: Date = serverNow(),
 ): DynamicCardVM {
   const isPost = item.type === CONTENT_TYPE_POST
   const authorName = item.authorName?.trim() || '未知UP主'
+  const coverUrl = item.coverUrl?.trim() || null
+  const rawTitle = item.title?.trim() || '无标题'
+  // `R-31`：「不使用标题」的图文把标题存成「无标题」魔串 ⇒ 卡片不渲染标题，正文为主
+  const titleless = isPost && isTitleless(item.title)
+  const backendImages = isPost
+    ? (item.imageUrls ?? []).map((url) => url?.trim() ?? '').filter((url) => url !== '')
+    : []
+  // 存量图文可能只有封面（GAP-28 的旧形态）⇒ 用封面兜底成单图，别让它退化成纯文字
+  const imageUrls = isPost && backendImages.length === 0 && coverUrl ? [coverUrl] : backendImages
   return {
     id: item.id ?? 0,
-    title: item.title?.trim() || '无标题',
+    title: titleless ? '无标题' : rawTitle,
+    hasTitle: !titleless,
     // 图文 → /opus/{id}，视频 → /video/{id}（与首页 / 搜索同一套落点规则）
     href: contentHref(item.id, isPost),
-    coverUrl: item.coverUrl?.trim() || null,
+    coverUrl,
+    imageUrls,
     // 图文没有时长概念：即使后端误回填也不显示
     durationText: isPost ? null : formatDuration(item.durationSeconds),
     authorId: item.authorId ?? 0,
     authorName,
     authorHref: spaceHref(item.authorId),
     authorInitial: initialOf(authorName),
+    authorAvatarUrl: item.avatarUrl?.trim() || null,
     timeText: formatRelativeDate(item.createTime, now),
-    // 由 type 推导的**动作**文案（不是后端字段，所以不叫「动态类型」）
-    actionText: isPost ? '发布了图文' : '投稿了视频',
+    // 由 type + 有无媒体推导的**动作**文案（不是后端字段，所以不叫「动态类型」）：
+    // 无图无封面的图文就是纯文字动态（`R-31`），不写「发布了图文」
+    actionText: isPost ? (imageUrls.length > 0 ? '发布了图文' : '发布了动态') : '投稿了视频',
     description: cleanDescription(item.description),
     isPost,
     playCountText:
@@ -56,7 +79,7 @@ export function toDynamicCard(
 /** `PageResult<ContentVO>` → 动态流一页（形状与搜索 / 空间作品同一套 Page 口径） */
 export function toDynamicPage(
   page: components['schemas']['PageResultContentVO'] | undefined,
-  now: Date = new Date(),
+  now: Date = serverNow(),
 ): DynamicPageVM {
   const list = page?.list ?? []
   return {

@@ -290,14 +290,16 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
             hitSkippedAndAssertUntouched("/assets/t25-missing.js");
             hitSkippedAndAssertUntouched("/actuator/health");
             hitSkippedAndAssertUntouched("/upload/" + UPLOAD_PROBE);
+            // 默认头像 SVG（R-27）：静态资源，缺文件也 404 无体；不能扣任何桶
+            hitSkippedAndAssertUntouched("/avatars/t25-missing.svg");
             // /favicon.ico：文件不存在 ⇒ NoResourceFoundException ⇒ T56 起回 **404 无体**
             hitSkippedAndAssertUntouched("/favicon.ico");
             hitSkippedAndAssertUntouched("/favicon.svg");
             // ★ HTML 外壳 = 静态文件（生产由 WebMvcConfig#addViewControllers 转发到入口 HTML）：
             //   它们不碰 DB / Redis，跳过的只是外壳；页面随后发的 /api/v1/** 才是成本。
+            //   旧收藏页 `/favorites`、`/watchlater` 已于 2026-11-07 退役（直接 404），
+            //   不再是外壳 ⇒ 不在本清单里。
             hitSkippedAndAssertUntouched("/search");
-            hitSkippedAndAssertUntouched("/favorites");
-            hitSkippedAndAssertUntouched("/watchlater");
             hitSkippedAndAssertUntouched("/history");
             hitSkippedAndAssertUntouched("/dynamic");
             hitSkippedAndAssertUntouched("/creator");
@@ -347,6 +349,19 @@ class RateLimitFilterContractTests extends AbstractHttpIntegrationTest {
         assertThat(anonRaw).as("用户桶过闸被扣").isNotNull();
         assertThat(tokensOf(anonRaw)).isEqualTo(CAP - COST, within(1e-9));
         assertThat(tokensOf(rawOf(SERVER_KEY))).as("服务器桶只在放行时扣").isEqualTo(CAP - COST, within(1e-9));
+
+        // ★ 反向验证（旧收藏页退役）：`/favorites` 已不是 HTML 外壳 ⇒ 必须过闸。
+        //   重置两个桶后发一次请求；若有人把它加回 `RateLimitFilter.SKIP_EXACT`，
+        //   两桶都不会下降 ⇒ 下列 isLessThan 红（不依赖 refill 的精确值）。
+        putBucket(ANON_KEY, CAP, System.currentTimeMillis());
+        putBucket(SERVER_KEY, CAP, System.currentTimeMillis());
+        double anonBefore = tokensOf(rawOf(ANON_KEY));
+        double serverBefore = tokensOf(rawOf(SERVER_KEY));
+        ResponseEntity<String> retired = get("/favorites", null);
+        assertThat(retired.getStatusCode().value())
+                .as("旧收藏页已退役：未映射 404，且必须过闸").isEqualTo(404);
+        assertThat(tokensOf(rawOf(ANON_KEY))).as("匿名桶必须被扣").isLessThan(anonBefore);
+        assertThat(tokensOf(rawOf(SERVER_KEY))).as("服务器桶必须被扣").isLessThan(serverBefore);
     }
 
     @Test

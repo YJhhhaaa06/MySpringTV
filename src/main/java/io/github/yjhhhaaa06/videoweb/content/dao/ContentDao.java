@@ -324,8 +324,8 @@ public interface ContentDao {
     int resetLikeCount(@Param("contentId") long contentId);
 
     /**
-     * 播放量 {@code +1}（T47）：{@code history} 域在**判首播成功后**、与 {@code watch_history}
-     * 的标记位**同一事务**调用。
+     * 播放量 {@code +1}（T47）：{@code history} 域在**判当天首播成功后**、与账本
+     * {@code content_play_dedup} 的当日行**同一事务**调用（`R-26`：判定依据已从历史的标记位搬到账本）。
      *
      * <p>★ <b>没有防负守卫</b>：{@code content.play_count} 是 {@code int unsigned} 且**只增**
      * （没有"取消播放"）⇒ 不需要 {@link #updateLikeCount} / {@link #updateCommentCount} 那套
@@ -625,19 +625,27 @@ public interface ContentDao {
      *
      * <p>{@code userIds} 为空时**不发 SQL**（{@code <foreach>} 不接受空集合，调用方保证非空）。
      *
+     * <p>{@code beforeContentId} 是动态流无限滚动的快照锚点：非空时只取 {@code id <= 锚点} 的行
+     * （计数用的 {@link #countContentByUsers} 必须带同一条件，否则 total 与当页口径漂移）。
+     *
      * @param offset 起始偏移（{@code (page-1)*pageSize}，调用方保证 ≥0）
      * @param pageSize 页大小
+     * @param beforeContentId 快照锚点（{@code null} = 不启用）
      */
     List<Long> findContentIdsByUsers(@Param("userIds") List<Long> userIds,
                                      @Param("offset") int offset,
-                                     @Param("pageSize") int pageSize);
+                                     @Param("pageSize") int pageSize,
+                                     @Param("beforeContentId") Long beforeContentId);
 
     /**
      * 关注流纯拉降级路径的**命中总数**（与当页 id 同源 SQL，仅 SELECT 列不同）。
      *
      * <p>TV: {@code SELECT COUNT(*) FROM content WHERE user_id IN (?,…) AND is_deleted = 0}
+     *
+     * @param beforeContentId 快照锚点（{@code null} = 不启用；必须与当页查询同条件）
      */
-    int countContentByUsers(@Param("userIds") List<Long> userIds);
+    int countContentByUsers(@Param("userIds") List<Long> userIds,
+                            @Param("beforeContentId") Long beforeContentId);
 
     /**
      * **每作者各取最近 K 条**内容 id（窗口重建的窗口装载）。

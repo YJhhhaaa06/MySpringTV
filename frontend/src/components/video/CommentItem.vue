@@ -9,6 +9,7 @@ import { requireLogin } from '../../auth/loginPrompt'
 import { sessionState } from '../../auth/session'
 import { showToast } from '../../common/toast'
 import AppIcon from '../common/AppIcon.vue'
+import UserAvatar from '../common/UserAvatar.vue'
 import CommentComposer from './CommentComposer.vue'
 
 /**
@@ -27,7 +28,11 @@ import CommentComposer from './CommentComposer.vue'
  * 第一次点"删除"变成"确认删除 / 取消"（不做 `window.confirm`：阻塞式原生弹窗
  * 在播放页会打断播放，而且样式不可控）。
  */
-const props = defineProps<{ comment: CommentVM; contentId: number; highlight?: boolean }>()
+const props = defineProps<{
+  comment: CommentVM
+  contentId: number
+  highlight?: boolean
+}>()
 
 const emit = defineEmits<{
   (event: 'removed', commentId: number): void
@@ -194,14 +199,21 @@ async function loadReplies(): Promise<void> {
 
 <template>
   <article ref="rootEl" class="comment" :class="{ 'comment--highlight': highlight }">
-    <span class="comment__avatar" aria-hidden="true">{{ comment.initial }}</span>
+    <UserAvatar
+      :avatar-url="comment.avatarUrl"
+      :user-id="comment.authorId"
+      :initial="comment.initial"
+      :size="40"
+      aria-hidden="true"
+    />
 
     <div class="comment__body">
       <a class="comment__author" :href="`/placeholder/space?uid=${comment.authorId}`">{{ comment.authorName }}</a>
       <p class="comment__content">{{ comment.content }}</p>
 
       <p class="comment__meta">
-        <!-- 时间：后端 CommentVO 没有 createTime（GAP 台账），**不显示**，也不写"刚刚" -->
+        <!-- 时间：GAP-12 补回后由后端 createTime 格式化；空串（存量缓存 / 脏数据）不渲染节点 -->
+        <span v-if="comment.timeText" class="comment__time">{{ comment.timeText }}</span>
         <button
           class="comment__action"
           :class="{ 'is-active': comment.liked }"
@@ -251,7 +263,13 @@ async function loadReplies(): Promise<void> {
 
       <ul v-if="shownReplies.length" class="reply-list">
         <li v-for="reply in shownReplies" :key="reply.id" class="reply">
-          <span class="reply__avatar" aria-hidden="true">{{ reply.initial }}</span>
+          <UserAvatar
+            :avatar-url="reply.avatarUrl"
+            :user-id="reply.authorId"
+            :initial="reply.initial"
+            :size="24"
+            aria-hidden="true"
+          />
           <div class="reply__body">
             <p class="reply__head">
               <a class="reply__author" :href="`/placeholder/space?uid=${reply.authorId}`">{{ reply.authorName }}</a>
@@ -338,20 +356,6 @@ async function loadReplies(): Promise<void> {
   }
 }
 
-.comment__avatar {
-  display: flex;
-  width: 40px;
-  height: 40px;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-inverse);
-  background: linear-gradient(135deg, var(--brand-pink) 0%, var(--brand-blue) 100%);
-}
-
 .comment__body {
   flex: 1;
   min-width: 0;
@@ -391,6 +395,11 @@ async function loadReplies(): Promise<void> {
   color: var(--text-3);
 }
 
+.comment__time {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
 .comment__action:hover {
   color: var(--brand-blue);
 }
@@ -422,20 +431,6 @@ async function loadReplies(): Promise<void> {
   display: flex;
   gap: 8px;
   padding: 5px 0;
-}
-
-.reply__avatar {
-  display: flex;
-  width: 24px;
-  height: 24px;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-inverse);
-  background: linear-gradient(135deg, #b8c0cc 0%, #8f98a6 100%);
 }
 
 .reply__body {

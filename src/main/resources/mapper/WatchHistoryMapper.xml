@@ -3,9 +3,9 @@
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 
 <!--
-  watch_history Mapper（播放记录专项 T47）。
-  SQL 逐字来自 architecture/domain/history/history.md §四 —— 那三个语句是设计的一部分，
-  尤其"ODKU 不判首播 / INSERT IGNORE + 条件 UPDATE 判首播"的拆分，改动前先读那份文档。
+  watch_history Mapper（播放记录专项 T47；R-26 起本表**只存进度**，"计过数"搬去 content_play_dedup）。
+  SQL 逐字来自 architecture/domain/history/history.md §四 —— 那几条语句是设计的一部分，
+  尤其"ODKU 不判首播 / 首播靠账本的 INSERT IGNORE"的拆分，改动前先读那份文档。
 -->
 <mapper namespace="io.github.yjhhhaaa06.videoweb.history.dao.WatchHistoryDao">
 
@@ -23,7 +23,7 @@
     <!-- 批量落库（T51-2）：语义与 upsertProgress 逐字一致（LWW、只改进度与时间）。
          ★ update_time 取**每条自己的** serverReceiveTs（#{it.updateTime}），不能用 CURRENT_TIMESTAMP：
            一批里各条的接收时刻不同，用数据库当前时间会把它们压成同一秒 ⇒ 历史列表倒序退化。
-         ★ 绝不写 play_counted（那是 /play 两条语句的职责）。
+         ★ 本表自 R-26 起**没有** play_counted 列（去重账本独立成表）。
          ⚠️ 一条语句 = 一个隐式事务：任一行失败整批回滚 ⇒ 调用方必须能降级逐条重试。 -->
     <insert id="upsertProgressBatch">
         INSERT INTO watch_history (user_id, content_id, progress_seconds, update_time)
@@ -36,20 +36,34 @@
           update_time = VALUES(update_time)
     </insert>
 
-    <!-- /history/play ①：行不存在 ⇒ 建行并直接标记已计（affected = 1 即首播）。
-         ★ 不用 ODKU：useAffectedRows=false 下"插入"与"值没变的更新"都返回 1
-           ⇒ 会把重复播放误判成首播（history.md §四.2）。 -->
-    <insert id="insertIgnoreCounted">
-        INSERT IGNORE INTO watch_history (user_id, content_id, progress_seconds, play_counted)
-        VALUES (#{userId}, #{contentId}, 0, 1)
+    <!-- /history/play：**只建行**（progress=0），不判首播。
+         ★ R-26 起首播判据搬去 content_play_dedup（日期进主键），本语句只负责
+           "只 play 不 report 的视频也要出现在历史里"。
+         ★ 必须**无条件**执行（不能只在首播时执行）：用户删了历史又重看时，
+           今天不会再计播放量，但历史行应该重新出现。 -->
+    <insert id="insertIgnoreEmpty">
+        INSERT IGNORE INTO watch_history (user_id, content_id, progress_seconds)
+        VALUES (#{userId}, #{contentId}, 0)
     </insert>
 
-    <!-- /history/play ②：行已存在 ⇒ 条件抢占标记位（affected = 1 即首播，0 = 已计过）。
-         条件 UPDATE 在并发下是天然的互斥：只有一个事务能把 0 改成 1 ⇒ 播放量恰 +1。 -->
-    <update id="markCountedIfNotCounted">
-        UPDATE watch_history SET play_counted = 1
-        WHERE user_id = #{userId} AND content_id = #{contentId} AND play_counted = 0
-    </update>
+    <!-- /history 删除（R-26）：作用域 = 当前登录用户（user_id 在 WHERE 里 ⇒ 天然无越权面）。
+         ★ 命中 0 行不是错误（幂等 204）；不碰 content.play_count、也不碰 content_play_dedup ——
+           删历史不减播放量，而"今天计过数"的证据在账本里、删行删不到它。
+         空 IN 是 SQL 语法错 ⇒ 调用方必须保证非空（Service 已校验）。 -->
+    <delete id="deleteByUserIdAndContentIds">
+        DELETE FROM watch_history
+        WHERE user_id = #{userId}
+          AND content_id IN
+        <foreach collection="contentIds" item="cid" open="(" separator="," close=")">
+            #{cid}
+        </foreach>
+    </delete>
+
+    <!-- /history 清空（R-26）：all=true 的落点。同上：幂等、不动播放量、不动账本。
+         user_id 是 uk_user_content 的前缀 ⇒ 走唯一键范围扫描，不需要额外索引。 -->
+    <delete id="deleteAllByUserId">
+        DELETE FROM watch_history WHERE user_id = #{userId}
+    </delete>
 
     <!-- /history/list 的行类型：★ 只映射本域三列。
          title/coverUrl/authorName/durationSeconds 由 HistoryService#list 经
@@ -63,7 +77,8 @@
     </resultMap>
 
     <!-- 历史总条数（列表 total）。数的是 watch_history **行** —— 失效条目照常计入
-         （历史不可删、占位不缩水；否则 total 与页内条数打架，history.md §七.1）。 -->
+         （内容删除不删历史行、占位不缩水；否则 total 与页内条数打架，history.md §七.1）。
+         ★ 用户主动删除（R-26）之后不再计入 —— 那是"用户要它消失"，与"内容失效"是两回事。 -->
     <select id="countByUserId" resultType="int">
         SELECT COUNT(*) FROM watch_history WHERE user_id = #{userId}
     </select>

@@ -164,6 +164,91 @@ class FeedReadTests extends AbstractFeedIntegrationTest {
         assertThat(data.path("total").asInt()).as("total 不因跳过而缩水——窗口条数").isEqualTo(3);
     }
 
+    // ==================== 快照锚点（beforeContentId） ====================
+
+    @Test
+    @DisplayName("★快照锚点：首屏之后发新内容，第 2 页不重复上一页末条（对照：不带锚点会重复）")
+    void 窗口路径_快照锚点冻结头部() {
+        long viewerId = registerViewer();
+        long authorId = registerAuthor();
+        // ★ c0 故意**不写进收件箱**：若读路径退化到纯拉，total 会变成 5 ⇒ 本用例同时钉住"走的是窗口路径"
+        insertVideoContent(authorId, "窗口外（不在收件箱）");
+        long c1 = insertVideoContent(authorId, "第1条");
+        long c2 = insertVideoContent(authorId, "第2条");
+        long c3 = insertVideoContent(authorId, "第3条");
+        long c4 = insertVideoContent(authorId, "第4条");
+        insertFollowRow(viewerId, authorId);
+        for (long id : List.of(c1, c2, c3, c4)) {
+            insertFeedInboxRow(viewerId, id);
+        }
+        markSynced(viewerId);
+        String token = tokenOf(PHONE_VIEWER);
+
+        JsonNode first = Envelope.data(getFeed(token, 1, 2));
+        assertThat(idList(first.path("list"))).as("首屏 2 条，锚点 = 第一条 c4").containsExactly(c4, c3);
+        assertThat(first.path("total").asInt()).isEqualTo(4);
+
+        // 首屏之后又发了一条：直接插 DB + 删收件箱缓存（等价于 fanout 的"写后失效"）
+        long c5 = insertVideoContent(authorId, "首屏之后发布");
+        insertFeedInboxRow(viewerId, c5);
+        redis.delete(FEED_INBOX_PREFIX + viewerId);
+
+        JsonNode drift = Envelope.data(getFeed(token, 2, 2));
+        assertThat(idList(drift.path("list")))
+                .as("★对照：不带锚点时窗口整体后移，c3 在第 1 页已出现过 —— 这正是锚点要解决的问题")
+                .containsExactly(c3, c2);
+
+        JsonNode anchored = Envelope.data(getFeed(token, 2, 2, String.valueOf(c4)));
+        assertThat(idList(anchored.path("list")))
+                .as("带锚点 ⇒ 只在 c4（含）以下切页，第 2 页是 c2,c1，不重复")
+                .containsExactly(c2, c1);
+        assertThat(anchored.path("total").asInt())
+                .as("total = 锚点内条数（不含首屏之后的新内容），与已冻结的列表一致")
+                .isEqualTo(4);
+        assertThat(anchored.path("totalPages").asInt()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("锚点是包含的（id <= 锚点）：锚点本身仍在第 1 页，total 随之收窄")
+    void 锚点包含自身() {
+        long viewerId = registerViewer();
+        long authorId = registerAuthor();
+        long c1 = insertVideoContent(authorId, "a");
+        long c2 = insertVideoContent(authorId, "b");
+        long c3 = insertVideoContent(authorId, "c");
+        insertFollowRow(viewerId, authorId);
+        for (long id : List.of(c1, c2, c3)) {
+            insertFeedInboxRow(viewerId, id);
+        }
+        markSynced(viewerId);
+
+        JsonNode data = Envelope.data(getFeed(tokenOf(PHONE_VIEWER), 1, 2, String.valueOf(c3)));
+        assertThat(idList(data.path("list"))).as("锚点 c3 本身可见（≤ 而非 <）").containsExactly(c3, c2);
+        assertThat(data.path("total").asInt()).as("total 只算锚点内").isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("锚点非法 / 非正 → 静默忽略（不 400、也不过滤成空页）")
+    void 锚点非法静默忽略() {
+        long viewerId = registerViewer();
+        long authorId = registerAuthor();
+        long c1 = insertVideoContent(authorId, "a");
+        long c2 = insertVideoContent(authorId, "b");
+        insertFollowRow(viewerId, authorId);
+        insertFeedInboxRow(viewerId, c1);
+        insertFeedInboxRow(viewerId, c2);
+        markSynced(viewerId);
+        String token = tokenOf(PHONE_VIEWER);
+
+        for (String raw : List.of("abc", "0", "-3")) {
+            ResponseEntity<String> resp = getFeed(token, 1, 2, raw);
+            assertThat(resp.getStatusCode()).as("非法锚点 %s 不应变成 400", raw).isEqualTo(HttpStatus.OK);
+            JsonNode data = Envelope.data(resp);
+            assertThat(idList(data.path("list"))).as("非法锚点 %s 等价于不带", raw).containsExactly(c2, c1);
+            assertThat(data.path("total").asInt()).isEqualTo(2);
+        }
+    }
+
     // ==================== 纯拉降级路径 ====================
 
     @Test
@@ -184,6 +269,38 @@ class FeedReadTests extends AbstractFeedIntegrationTest {
         assertThat(data.path("total").asInt())
                 .as("total = 关注作者内容总数（独立 oracle 直查 content 行数）")
                 .isEqualTo(countContentRows());
+    }
+
+    @Test
+    @DisplayName("★未同步（纯拉）同样受锚点约束：计数与当页必须同条件")
+    void 纯拉路径_快照锚点() {
+        long viewerId = registerViewer();
+        long authorId = registerAuthor();
+        long c1 = insertVideoContent(authorId, "第1条");
+        long c2 = insertVideoContent(authorId, "第2条");
+        long c3 = insertVideoContent(authorId, "第3条");
+        long c4 = insertVideoContent(authorId, "第4条");
+        insertFollowRow(viewerId, authorId);
+        // 故意不写 feed_inbox_sync ⇒ 走 purePull
+        assertThat(isSynced(viewerId)).isFalse();
+        String token = tokenOf(PHONE_VIEWER);
+
+        JsonNode first = Envelope.data(getFeed(token, 1, 2));
+        assertThat(idList(first.path("list"))).containsExactly(c4, c3);
+        assertThat(first.path("total").asInt()).isEqualTo(4);
+
+        insertVideoContent(authorId, "首屏之后发布");   // c5
+
+        JsonNode drift = Envelope.data(getFeed(token, 2, 2));
+        assertThat(idList(drift.path("list")))
+                .as("★对照：纯拉不带锚点时第 2 页同样从 c3 开始（重复）")
+                .containsExactly(c3, c2);
+
+        JsonNode anchored = Envelope.data(getFeed(token, 2, 2, String.valueOf(c4)));
+        assertThat(idList(anchored.path("list"))).containsExactly(c2, c1);
+        assertThat(anchored.path("total").asInt())
+                .as("计数 SQL 也必须带 id<=锚点，否则 total 会变成 5")
+                .isEqualTo(4);
     }
 
     @Test
@@ -232,6 +349,45 @@ class FeedReadTests extends AbstractFeedIntegrationTest {
         assertThat(untouchedView.path("isLiked").asBoolean()).as("未赞 ⇒ false（不是 null）").isFalse();
         assertThat(untouchedView.path("isFavorited").isNull()).isTrue();
         assertThat(untouchedView.path("isFollowed").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("★R-31：图文条目带 imageUrls（按 sort 升序，oracle = content_media 行）；视频条目为 null")
+    void 图文条目带图集且视频为null() {
+        long viewerId = registerViewer();
+        long authorId = registerAuthor();
+        // ★ 故意**逆序插入**媒体行：sort 2 先插、sort 1 后插。
+        //   若 buildContentMedia 丢了 sort（只靠 DAO 默认顺序），actual 会变成 2,1 ⇒ 红。
+        long post = insertContent(authorId, CONTENT_TYPE_IMAGE, "feed 图文图集", "feed 图文图集 的简介", 2);
+        insertMedia(post, "/upload/image/" + post + "_2.jpg", MEDIA_TYPE_IMAGE, 2);
+        insertMedia(post, "/upload/image/" + post + "_1.jpg", MEDIA_TYPE_IMAGE, 1);
+        insertMedia(post, "/upload/cover/" + post + ".png", MEDIA_TYPE_COVER, 1);
+        long video = insertVideoContent(authorId, "feed 视频无图集");
+        insertFollowRow(viewerId, authorId);
+        insertFeedInboxRow(viewerId, post);
+        insertFeedInboxRow(viewerId, video);
+        markSynced(viewerId);
+
+        JsonNode list = Envelope.data(getFeed(tokenOf(PHONE_VIEWER))).path("list");
+
+        // 独立 oracle：直接读 content_media 的 type=2 行（sort 升序），不看接口回显
+        List<String> expected = jdbcTemplate.queryForList(
+                "SELECT url FROM content_media WHERE content_id = ? AND type = 2 ORDER BY sort",
+                String.class, post);
+        assertThat(expected).as("夹具：图文有两张图").hasSize(2);
+
+        JsonNode postItem = itemOf(list, post);
+        assertThat(postItem.path("imageUrls").isArray()).as("R-31：图文列表条目带图集").isTrue();
+        List<String> actual = new ArrayList<>();
+        postItem.path("imageUrls").forEach(node -> actual.add(node.asString()));
+        assertThat(actual).as("顺序必须与 content_media.sort 一致").containsExactlyElementsOf(expected);
+
+        JsonNode videoItem = itemOf(list, video);
+        assertThat(videoItem.path("imageUrls").isNull())
+                .as("视频条目的 imageUrls 为 null（不是省略、也不是空数组）").isTrue();
+        // 反向边界：imageUrls 放开了，但 videoUrl 仍必须被 @JsonIgnore 挡住
+        assertThat(postItem.has("videoUrl")).as("图文条目不带 videoUrl").isFalse();
+        assertThat(videoItem.has("videoUrl")).as("视频条目也不带 videoUrl（播放地址属详情）").isFalse();
     }
 
     @Test

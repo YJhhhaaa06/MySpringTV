@@ -18,12 +18,36 @@
     <resultMap id="userResultMap" type="io.github.yjhhhaaa06.videoweb.user.model.entity.User">
         <id property="id" column="id"/>
         <result property="username" column="username"/>
+        <!-- R-27：存储值是选择（default:N / /upload/avatar/...），出口由 AvatarRefs 解析成 URL -->
+        <result property="avatarRef" column="avatar_ref"/>
         <result property="hashedPassword" column="hashed_password"/>
         <result property="phone" column="phone"/>
         <result property="followerCount" column="follower_count"/>
         <result property="followCount" column="follow_count"/>
         <result property="role" column="role"/>
     </resultMap>
+
+    <!--
+      /users/me 的端点专属投影（2026-11-08）。列集**只由 UserInfoVO 决定**：
+      VO 要 7 个字段，这里就 7 列，不多读 hashed_password（与 findByIdForProfile 同口径）。
+      ⚠️ 不要拆回"资料 + 三个单列窄查询"：基线实测那是 7 次往返 / p50 2917µs，
+         合并后 1 次 / 444µs；而多读一列的服务端代价是 0（同一行同一页）。
+    -->
+    <resultMap id="userProfileRowMap" type="io.github.yjhhhaaa06.videoweb.user.model.row.UserProfileRow">
+        <id property="id" column="id"/>
+        <result property="username" column="username"/>
+        <result property="avatarRef" column="avatar_ref"/>
+        <result property="role" column="role"/>
+        <result property="coinDeci" column="coin_deci"/>
+        <result property="lastSignDate" column="last_sign_date"/>
+        <result property="historyRecording" column="history_recording"/>
+    </resultMap>
+
+    <!-- 当前用户资料：一条主键点查拿齐 VO 的全部字段（走 PRIMARY，const 一行）。 -->
+    <select id="findProfileRow" resultMap="userProfileRowMap">
+        select id, username, avatar_ref, role, coin_deci, last_sign_date, history_recording
+        from users where id = #{id}
+    </select>
 
     <!-- TV: insert into users(username,hashed_password,phone) values(?,?,?) -->
     <insert id="insert" parameterType="io.github.yjhhhaaa06.videoweb.user.model.entity.User"
@@ -48,7 +72,7 @@
       减少明文口令散列在内存/日志中的暴露面。
     -->
     <select id="findByIdForProfile" resultMap="userResultMap">
-        select id, username, phone, follower_count, follow_count, role
+        select id, username, avatar_ref, phone, follower_count, follow_count, role
         from users where id = #{id}
     </select>
 
@@ -100,9 +124,11 @@
 
     <!-- TV: findUsersByIds —— SELECT id, username FROM users WHERE id IN (...) ORDER BY id
          StringBuilder 拼 IN → <foreach>（集合非空由调用方保证）。
-         ★ ORDER BY id 是契约（分页顺序稳定性），勿删。只选两列 ⇒ 用同一 resultMap，其余属性为 null。 -->
+         ★ ORDER BY id 是契约（分页顺序稳定性），勿删。
+         R-37 起多选 avatar_ref（关注 / 粉丝列表要内联头像）：与 username 同一次行访问，
+         零额外查询；其余属性仍为 null。 -->
     <select id="findUsersByIds" resultMap="userResultMap">
-        SELECT id, username FROM users WHERE id IN
+        SELECT id, username, avatar_ref FROM users WHERE id IN
         <foreach collection="ids" item="id" open="(" separator="," close=")">
             #{id}
         </foreach>
@@ -191,14 +217,39 @@
     </update>
 
     <!-- 余额（单列，十分位）。返回包装类型 Integer：无行 ⇒ null（不是 0 —— 0 是真实余额）。
-         与 getFollowCountById 的 COALESCE 口径**有意不同**，理由见 UserDao#findCoinDeci。 -->
+         与 getFollowCountById 的 COALESCE 口径**有意不同**，理由见 UserDao#findCoinDeci。
+         ⚠️ 只服务 coin 域（签到 / 投币**之后**回读余额）；/users/me 已改走 findProfileRow。
+         ★ 它不是"投币前判余额"的手段 —— 够不够由 deductCoinDeci 的条件写判定。 -->
     <select id="findCoinDeci" resultType="java.lang.Integer">
         select coin_deci from users where id = #{userId}
     </select>
 
-    <!-- 最近签到日（单列，date）。无行 / 未签到 ⇒ null，两种 null 在签到判定上等价。 -->
-    <select id="findLastSignDate" resultType="java.time.LocalDate">
-        select last_sign_date from users where id = #{userId}
+    <!-- 写开关：单条 UPDATE ⇒ 天然幂等（同值重写结果一样），重试安全。 -->
+    <update id="updateHistoryRecording">
+        update users set history_recording = #{recording} where id = #{userId}
+    </update>
+
+    <!-- ======================================================================
+         R-27（头像域）补入的 2 条。
+         ⚠️ avatar_ref 是"选择"不是 URL：default:N / /upload/avatar/...；
+            NULL = 从没选过（出口按 userId % 6 回落默认）。
+         ====================================================================== -->
+
+    <!-- 写头像选择。单条 UPDATE ⇒ 天然幂等；调用方先读旧值以删除旧的自定义文件。
+         0 行 ⇒ 用户不存在 ⇒ 401（本次新文件由调用方补偿删除）。 -->
+    <update id="updateAvatarRef">
+        update users set avatar_ref = #{avatarRef} where id = #{userId}
+    </update>
+
+    <!-- 批量读头像选择（只选 id / avatar_ref，AvatarUrlResolver 的 JVM 缓存回源用）。
+         ★ 本方法是 AvatarUrlResolver 的 JVM 缓存回源口；关注列表走 findUsersByIds
+         （那边 R-37 起自带 avatar_ref）。ORDER BY id 只为输出稳定。 -->
+    <select id="findAvatarRefsByIds" resultMap="userResultMap">
+        select id, avatar_ref from users where id in
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+        order by id
     </select>
 
 </mapper>

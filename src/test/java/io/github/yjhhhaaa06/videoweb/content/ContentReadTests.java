@@ -257,6 +257,35 @@ class ContentReadTests extends AbstractContentIntegrationTest {
     }
 
     @Test
+    @DisplayName("★R-31：搜索列表图文带 imageUrls（按 sort 序）；视频为 null；两者都不带 videoUrl")
+    void 搜索列表_图文带图集且不泄露播放地址() {
+        registerAndGetToken(AUTHOR_PHONE, AUTHOR);
+        long authorId = userIdOf(AUTHOR_PHONE);
+        long post = insertPostContent(authorId, "r31image 搜索图集");
+        long video = insertVideoContent(authorId, "r31image 搜索视频");
+
+        JsonNode list = Envelope.data(get("/api/v1/contents?keyword=r31image", null)).path("list");
+
+        // 独立 oracle：content_media 的 type=2 行（sort 升序），不信接口回显
+        List<String> expected = jdbcTemplate.queryForList(
+                "SELECT url FROM content_media WHERE content_id = ? AND type = 2 ORDER BY sort",
+                String.class, post);
+        JsonNode postItem = itemOf(list, post);
+        assertThat(postItem.path("imageUrls").isArray())
+                .as("R-31：列表统一透出图集（不只 /feed）").isTrue();
+        List<String> actual = new ArrayList<>();
+        postItem.path("imageUrls").forEach(node -> actual.add(node.asString()));
+        assertThat(actual).as("顺序 = content_media.sort").containsExactlyElementsOf(expected);
+
+        assertThat(itemOf(list, video).path("imageUrls").isNull())
+                .as("视频条目的 imageUrls 为 null（与 /feed 同口径）").isTrue();
+        assertThat(postItem.has("videoUrl"))
+                .as("★ 列表仍屏蔽播放地址（videoUrl 不是 R-31 放开的面）").isFalse();
+        assertThat(itemOf(list, video).has("videoUrl"))
+                .as("视频条目也不带 videoUrl").isFalse();
+    }
+
+    @Test
     @DisplayName("搜索：缺省（不传分页）== 显式 page=1&pageSize=100 响应逐字节一致")
     void 搜索_缺省等价显式首页() {
         registerAndGetToken(AUTHOR_PHONE, AUTHOR);
@@ -318,7 +347,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
     // ========================================================================
 
     @Test
-    @DisplayName("/api/v1/contents/recommended：返回列表且包含已发布内容；请求参数 limit 被忽略（TV 固定 12）")
+    @DisplayName("/api/v1/contents/recommended：返回 {list,nextCursor} 且包含已发布内容")
     void 首页推荐_列表与limit忽略() {
         registerAndGetToken(AUTHOR_PHONE, AUTHOR);
         long authorId = userIdOf(AUTHOR_PHONE);
@@ -327,8 +356,9 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         ResponseEntity<String> resp = get("/api/v1/contents/recommended?limit=10", null);
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         JsonNode data = Envelope.data(resp);
-        assertThat(data.isArray()).isTrue();
-        assertThat(idsOf(data)).contains(contentId);
+        assertThat(data.path("list").isArray()).as("游标信封：data.list 才是数组").isTrue();
+        assertThat(idsOf(data.path("list"))).contains(contentId);
+        assertThat(data.path("nextCursor").isNull()).as("只有一条内容 ⇒ 已到底").isTrue();
     }
 
     @Test
@@ -339,10 +369,10 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         long videoId = insertVideoContent(authorId, "类型过滤-视频");
         long postId = insertPostContent(authorId, "类型过滤-图文");
 
-        assertThat(idsOf(Envelope.data(get("/api/v1/contents/recommended?type=1", null)))).contains(videoId).doesNotContain(postId);
-        assertThat(idsOf(Envelope.data(get("/api/v1/contents/recommended?type=2", null)))).contains(postId).doesNotContain(videoId);
+        assertThat(idsOf(Envelope.data(get("/api/v1/contents/recommended?type=1", null)).path("list"))).contains(videoId).doesNotContain(postId);
+        assertThat(idsOf(Envelope.data(get("/api/v1/contents/recommended?type=2", null)).path("list"))).contains(postId).doesNotContain(videoId);
         // 语法非法（非数字）静默 → 不过滤
-        assertThat(idsOf(Envelope.data(get("/api/v1/contents/recommended?type=abc", null)))).contains(videoId, postId);
+        assertThat(idsOf(Envelope.data(get("/api/v1/contents/recommended?type=abc", null)).path("list"))).contains(videoId, postId);
         // 语义非法（越界）→ 400（文案由缓存层给出，TV 原样）
         ResponseEntity<String> badType = get("/api/v1/contents/recommended?type=3", null);
         assertThat(badType.getStatusCode().value()).isEqualTo(400);
@@ -370,7 +400,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
                 viewerId, authorId);
 
         // ---- /api/v1/contents/recommended：只带 {关注} ----
-        JsonNode startItem = itemOf(Envelope.data(get("/api/v1/contents/recommended", token)), contentId);
+        JsonNode startItem = itemOf(Envelope.data(get("/api/v1/contents/recommended", token)).path("list"), contentId);
         assertThat(startItem.has("isLiked")).as("顶层 isLiked 已删除（T13）").isFalse();
         assertThat(startItem.has("isFollowed")).as("顶层 isFollowed 已删除（T13）").isFalse();
         JsonNode startInteraction = startItem.path("interaction");
@@ -400,7 +430,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
                 .as("列表不查投币维 ⇒ coin 恒 null").isTrue();
 
         // ---- 匿名 ⇒ 整对象为 null（与 0 维可区分）----
-        JsonNode anonStart = itemOf(Envelope.data(get("/api/v1/contents/recommended", null)), contentId);
+        JsonNode anonStart = itemOf(Envelope.data(get("/api/v1/contents/recommended", null)).path("list"), contentId);
         assertThat(anonStart.path("interaction").isNull()).as("匿名 ⇒ interaction 为 null").isTrue();
         JsonNode anonSearch = itemOf(
                 Envelope.data(get("/api/v1/contents?keyword=zqtb", null)).path("list"), contentId);
@@ -418,7 +448,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
         insertContentLike(viewerId, contentId);
         Mockito.reset(interactionService);      // 前置夹具（注册/点赞）的调用不计入
 
-        assertThat(idsOf(Envelope.data(get("/api/v1/contents/recommended", token))))
+        assertThat(idsOf(Envelope.data(get("/api/v1/contents/recommended", token)).path("list")))
                 .as("本用例需非空列表才有判别力").contains(contentId);
 
         // ★ 判别力：把 ContentStatusFiller 改成"逐条调 getStatus"，这两个断言立即变红
@@ -444,7 +474,7 @@ class ContentReadTests extends AbstractContentIntegrationTest {
 
         // ---- /start：维度常量 = {关注} ⇒ 3 趟收敛为 1 趟 ----
         Mockito.reset(interactionService, likeService, favoriteService, followService);
-        assertThat(idsOf(Envelope.data(get("/api/v1/contents/recommended", token))))
+        assertThat(idsOf(Envelope.data(get("/api/v1/contents/recommended", token)).path("list")))
                 .as("本用例需非空列表才有判别力").contains(contentId);
         verify(followService, times(1)).batchIsFollowing(eq(viewerId), anyList());
         // ★ 判别力：把 START_DIMENSIONS 改回全量三维 ⇒ 下面四条立即变红

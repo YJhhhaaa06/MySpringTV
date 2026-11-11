@@ -31,18 +31,22 @@ public class FeedPullReader {
     /**
      * 纯拉的当页数据：命中总数 + 当页 id（同一只读事务 / 同一 read view）。
      *
-     * @param followedIds 关注作者集合（**非空**——调用方在空关注时已早退）
-     * @param page        页码（≥1）
-     * @param pageSize    页大小
+     * <p>{@code beforeContentId} 非空时，计数与当页都加 {@code id <= 锚点}（同源条件，不得只加一边）——
+     * 它是无限滚动的快照锚点，语义见 {@code architecture/domain/feed/feed.md} §3.4。
+     *
+     * @param followedIds     关注作者集合（**非空**——调用方在空关注时已早退）
+     * @param page            页码（≥1）
+     * @param pageSize        页大小
+     * @param beforeContentId 快照锚点（{@code null} = 不启用）
      */
     @Transactional(readOnly = true)
-    public DbPage pullForPage(List<Long> followedIds, int page, int pageSize) {
-        int total = contentDao.countContentByUsers(followedIds);
+    public DbPage pullForPage(List<Long> followedIds, int page, int pageSize, Long beforeContentId) {
+        int total = contentDao.countContentByUsers(followedIds, beforeContentId);
         if (total == 0) {
             return new DbPage(List.of(), 0);
         }
         int offset = (page - 1) * pageSize;
-        List<Long> pageIds = contentDao.findContentIdsByUsers(followedIds, offset, pageSize);
+        List<Long> pageIds = contentDao.findContentIdsByUsers(followedIds, offset, pageSize, beforeContentId);
         return new DbPage(pageIds, total);
     }
 

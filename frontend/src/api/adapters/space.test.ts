@@ -5,12 +5,14 @@ import { toFavoriteItemCard, toPublicFolder, toSpaceHeader, toSpaceWorks } from 
 type ProfileVO = components['schemas']['ProfileVO']
 type PageResultContentVO = components['schemas']['PageResultContentVO']
 
-const now = new Date('2026-10-25T12:00:00')
+/** 上海正午（**带偏移**：`createTime` 按 +08:00 解释，夹具必须同源） */
+const now = new Date('2026-10-25T12:00:00+08:00')
 
 function profile(fields: Partial<Record<keyof ProfileVO, unknown>> = {}): ProfileVO {
   return {
     userId: 1,
     username: '一号员工',
+    avatarUrl: '/avatars/default-3.svg',
     followerCount: 9,
     followCount: 1,
     isFollowed: false,
@@ -20,14 +22,17 @@ function profile(fields: Partial<Record<keyof ProfileVO, unknown>> = {}): Profil
 }
 
 describe('toSpaceHeader', () => {
-  it('资料都是真接口数字；昵称首字当头像（后端没有 avatar）', () => {
+  it('资料都是真接口数字；avatarUrl 原样带出（R-27）', () => {
     const header = toSpaceHeader(profile(), null)
     expect(header.id).toBe(1)
     expect(header.name).toBe('一号员工')
     expect(header.initial).toBe('一')
+    expect(header.avatarUrl).toBe('/avatars/default-3.svg')
     expect(header.followerCount).toBe(9)
     expect(header.followingCount).toBe(1)
     expect(header.worksCount).toBe(30)
+
+    expect(toSpaceHeader({}, null).avatarUrl).toBeNull()
   })
 
   it('★ isSelf：只有"看自己的空间"才不显示关注按钮', () => {
@@ -84,13 +89,19 @@ describe('toSpaceWorks', () => {
 })
 
 describe('toPublicFolder', () => {
-  it('公开收藏夹：名字与条目数（后端不返回私密夹，前端不用过滤）', () => {
-    expect(toPublicFolder({ id: 14, name: '默认收藏夹', itemCount: 3 })).toEqual({
+  it('公开收藏夹：名字 / 条目数 / 封面；私密固定 false、默认夹未知为 null', () => {
+    expect(toPublicFolder({ id: 14, name: '默认收藏夹', itemCount: 3, coverUrl: '/upload/cover/a.png' })).toEqual({
       id: 14,
       name: '默认收藏夹',
       itemCount: 3,
+      coverUrl: '/upload/cover/a.png',
+      hasCustomCover: false,
+      isPrivate: false,
+      isDefault: null,
     })
     expect(toPublicFolder({}).name).toBe('未命名收藏夹')
+    expect(toPublicFolder({}).coverUrl).toBeNull()
+    expect(toPublicFolder({ coverUrl: '   ' }).coverUrl).toBeNull()
   })
 })
 

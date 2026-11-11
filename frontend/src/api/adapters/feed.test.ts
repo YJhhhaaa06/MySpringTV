@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { components } from '../../types/api'
+import { dynamicQuery } from '../feed'
 import { toDynamicCard, toDynamicPage } from './feed'
 
 type ContentVO = components['schemas']['ContentVO']
@@ -15,6 +16,7 @@ function content(overrides: Partial<Record<keyof ContentVO, unknown>> = {}): Con
     categoryId: 0,
     commentEnabled: true,
     coverUrl: '/upload/cover/x.png',
+    imageUrls: null,
     createTime: '2026-05-09T19:45:57',
     description: '咕咕嘎嘎',
     durationSeconds: 61,
@@ -27,9 +29,17 @@ function content(overrides: Partial<Record<keyof ContentVO, unknown>> = {}): Con
   } as ContentVO
 }
 
-const now = new Date('2026-05-09T20:00:00')
+/** 上海 20:00（**带偏移**：`createTime` 按 +08:00 解释，夹具必须同源） */
+const now = new Date('2026-05-09T20:00:00+08:00')
 
 describe('toDynamicCard', () => {
+  it('★ R-37：作者头像随 /feed 内联；缺字段 ⇒ null（按 authorId 回落）', () => {
+    expect(toDynamicCard(content({ avatarUrl: '/upload/avatar/a.jpg' }), now).authorAvatarUrl)
+      .toBe('/upload/avatar/a.jpg')
+    expect(toDynamicCard(content({ avatarUrl: '' }), now).authorAvatarUrl).toBeNull()
+    expect(toDynamicCard(content({ avatarUrl: undefined }), now).authorAvatarUrl).toBeNull()
+  })
+
   it('视频卡：动作文案「投稿了视频」+ 播放量 / 点赞 / 评论三个真计数', () => {
     const card = toDynamicCard(content({ playCount: 12345, likeCount: 678, commentCount: 9 }), now)
     expect(card.actionText).toBe('投稿了视频')
@@ -55,9 +65,50 @@ describe('toDynamicCard', () => {
     expect(card.isPost).toBe(true)
     expect(card.playCountText).toBeNull()
     expect(card.durationText).toBeNull()
+    expect(card.hasTitle).toBe(true)
+    // 存量图文只有封面（GAP-28 旧形态）⇒ 封面兜底成单图，不退化回纯文字
+    expect(card.imageUrls).toEqual(['/upload/cover/x.png'])
     // 图文仍然有点赞 / 评论两个真计数
     expect(card.likeCount).toBe(2)
     expect(card.commentCount).toBe(3)
+  })
+
+  it('★ R-31：图集按后端顺序透传；无图无封面 ⇒ 纯文字动态（meta 改「发布了动态」）', () => {
+    const withImages = toDynamicCard(
+      content({ type: 2, imageUrls: ['/upload/image/a_1.jpg', '/upload/image/a_2.jpg'] }),
+      now,
+    )
+    expect(withImages.imageUrls).toEqual(['/upload/image/a_1.jpg', '/upload/image/a_2.jpg'])
+    expect(withImages.actionText).toBe('发布了图文')
+
+    const textOnly = toDynamicCard(content({ type: 2, coverUrl: null, imageUrls: [] }), now)
+    expect(textOnly.imageUrls).toEqual([])
+    expect(textOnly.actionText).toBe('发布了动态')
+    expect(textOnly.hasTitle).toBe(true)
+  })
+
+  it('★ R-31：标题为魔串「无标题」（含直角括号）⇒ 不渲染标题；视频不套用该约定', () => {
+    // 期望值直接写字面量（不从常量 import）—— 常量改名时这条必须红
+    const titleless = toDynamicCard(content({ type: 2, title: '「无标题」' }), now)
+    expect(titleless.hasTitle).toBe(false)
+    expect(titleless.title).toBe('无标题')
+
+    const normal = toDynamicCard(content({ type: 2, title: '一个真标题' }), now)
+    expect(normal.hasTitle).toBe(true)
+    expect(normal.title).toBe('一个真标题')
+
+    const video = toDynamicCard(content({ type: 1, title: '「无标题」' }), now)
+    expect(video.hasTitle).toBe(true)
+
+    // ★ 少一个直角括号就不是魔串：真标题「无标题」必须照常显示（一字不多一字不少）
+    const noBrackets = toDynamicCard(content({ type: 2, title: '无标题' }), now)
+    expect(noBrackets.hasTitle).toBe(true)
+    expect(noBrackets.title).toBe('无标题')
+  })
+
+  it('★ 视频的 imageUrls 恒为空（后端为 null；即使误回填也不画图集）', () => {
+    expect(toDynamicCard(content({ type: 1, imageUrls: null }), now).imageUrls).toEqual([])
+    expect(toDynamicCard(content({ type: 1, imageUrls: ['/x.jpg'] }), now).imageUrls).toEqual([])
   })
 
   it('★ 互动态三态：没查（null）≠ 没点过（false）', () => {
@@ -89,6 +140,13 @@ describe('toDynamicCard', () => {
   it('评论开关透传（关闭时组件不把「评论」画成可写）', () => {
     expect(toDynamicCard(content({ commentEnabled: false }), now).commentEnabled).toBe(false)
     expect(toDynamicCard(content({ commentEnabled: true }), now).commentEnabled).toBe(true)
+  })
+})
+
+describe('dynamicQuery', () => {
+  it('★ 只保留 author（无限滚动不写 page；去掉 author = 静默掉回全部动态）', () => {
+    expect(dynamicQuery(7)).toEqual({ author: '7' })
+    expect(dynamicQuery(null)).toEqual({})
   })
 })
 

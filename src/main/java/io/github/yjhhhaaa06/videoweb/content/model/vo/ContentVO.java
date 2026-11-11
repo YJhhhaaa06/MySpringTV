@@ -4,8 +4,6 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.github.yjhhhaaa06.videoweb.content.model.cache.ContentCacheDTO;
 import io.github.yjhhhaaa06.videoweb.interaction.model.vo.InteractionStatusVO;
 
-import java.util.List;
-
 /**
  * 内容**列表条目**（承接 TV {@code ContentVO}）。
  *
@@ -18,25 +16,33 @@ import java.util.List;
  *       第四维 {@code coin} 是 {@code 0/1/2} 或 {@code null}；
  *       **匿名（无有效 token）⇒ {@code "interaction": null}**（不是 {@code {}}、
  *       不是四个 {@code false}、也不是"四维全 null 的空壳"）。</li>
- *   <li>用 {@code @JsonIgnore} 屏蔽 {@code videoUrl} / {@code imageUrls}——
- *       **列表不带媒体地址**（TV 的设计：列表只需要封面，媒体地址属详情）</li>
+ *   <li>用 {@code @JsonIgnore} 屏蔽 {@code videoUrl}——
+ *       **列表不带播放地址**（播放属详情；列表拿到它没有消费方，还会拆掉"媒体地址属详情"的边界）。</li>
  * </ol>
+ * ★ `R-31`（2026-11-03）起 **`imageUrls` 不再屏蔽**：图文的图集是**卡片正文**（动态卡直接展示），
+ * 不是"详情才需要的播放资源"；且它本来就在 {@link ContentCacheDTO} 里（媒体装配产物），
+ * 透出**零额外读**。视频条目该字段仍为 {@code null}。
  * ⚠️ T43 起两个 VO **不再逐字段同形**；GAP-01（2026-10-26）起列表也带**三个可空公共计数**
- * （见下一节），但仍不含详情独有的媒体字段与投币/收藏数。
- * 于是对外 JSON 的键集 = 父类键集 − {videoUrl, imageUrls}
- * + {interaction, likeCount, commentCount, playCount}，
+ * （见下一节），但仍不含详情独有的 `videoUrl` 与投币/收藏数。
+ * 于是对外 JSON 的键集 = 父类键集 − {videoUrl}
+ * + {interaction, likeCount, commentCount, playCount, avatarUrl}，
  * 即 {@code {id, authorId, type, title, description, categoryId, commentEnabled, authorName,
- * coverUrl, durationSeconds, createTime, interaction, likeCount, commentCount, playCount}}。
+ * coverUrl, imageUrls, durationSeconds, createTime, interaction, likeCount, commentCount,
+ * playCount, avatarUrl}}。
  *
  * <h2>★ GAP-01（2026-10-26）：列表平铺三个**可空**计数，按面按需填充</h2>
  * T43 的"列表零计数"已被按面推翻。三类卡片对计数的需求不同（B站对照见
  * {@code .docs/temp/gap01-backend-note.md}），故这里只平铺**当前有展示位**的三维，
  * 且全部用包装类型 {@link Long}：
  * <pre>
- *   网格卡片（首页 / 搜索 / 相关推荐 / 空间投稿） ⇒ playCount
+ *   网格卡片（首页 / 搜索 / 相关推荐）              ⇒ playCount
  *   动态卡片（/feed）                              ⇒ playCount + likeCount + commentCount
+ *   空间 /users/{id}.contentPage                   ⇒ playCount + likeCount + commentCount
  * </pre>
- * ★ {@code null} = **本面不查这一维**，{@code 0} = 真实值 —— 两者必须可区分，
+ * ★ `/users/{id}` 一个端点服务两个视图（空间网格 + `R-31` 的动态时间线）：
+ * 网格不显示后两维，但**同一响应必须带上**（时间线要）—— 这是"同一端点两个面"的代价，
+ * 不是把 {@code null} 画成 0。其它网格面仍按面不查。
+ * <p>★ {@code null} = **本面不查这一维**，{@code 0} = 真实值 —— 两者必须可区分，
  * 这正是选包装类型而不是 {@code long} 的理由（互动态三态踩过同款坑）。
  * 没有展示位的 {@code coinCount} / {@code favoriteCount} **连字段都不加**：
  * 加了但恒 {@code null} 的键等于让契约说谎（要加时先有展示位）。
@@ -90,16 +96,18 @@ public class ContentVO extends ContentCacheDTO {
     /**
      * 内容的**点赞数**（公共计数，请求无关；GAP-01 起列表按面可空填充）。
      *
-     * <p>★ 只有动态卡片（{@code /feed}）查这一维；网格卡片为 {@code null}（= 本面不查，**不是 0**）。
-     * 来源是 {@code content:likeCount:{id}}（点赞域持有），与详情同名同源。
+     * <p>★ 只有动态卡片（{@code /feed} 与 {@code /users/{id}.contentPage} 的时间线视图；`R-31` 起后者
+     * 同一端点也服务空间网格，故整面都带）查这一维；首页 / 搜索 / 推荐为 {@code null}
+     * （= 本面不查，**不是 0**）。来源是 {@code content:likeCount:{id}}（点赞域持有），与详情同名同源。
      */
     private Long likeCount;
 
     /**
      * 内容的**评论总数**（公共计数，请求无关；GAP-01）。
      *
-     * <p>★ 只有动态卡片（{@code /feed}）查这一维；网格卡片为 {@code null}。
-     * 口径同详情：含楼中楼的**评论总数**（{@code content.comment_count}），不是主楼数。
+     * <p>★ 只有动态卡片（{@code /feed} 与 {@code /users/{id}.contentPage} 的时间线视图）查这一维；
+     * 首页 / 搜索 / 推荐为 {@code null}。口径同详情：含楼中楼的**评论总数**
+     * （{@code content.comment_count}），不是主楼数。
      */
     private Long commentCount;
 
@@ -111,6 +119,22 @@ public class ContentVO extends ContentCacheDTO {
      * 图文内容的语义是「浏览」而非「播放」（口径见 GAP-05）。
      */
     private Long playCount;
+
+    /**
+     * 作者**生效头像 URL**（`R-37`）：由 {@code ContentAvatarFiller} 在列表出口按页批量填充，
+     * 来源是 user 域的 {@code AvatarUrlResolver}（JVM 缓存，命中不查库）。
+     *
+     * <p>★ 为什么在响应 VO 而不在 {@link ContentCacheDTO}：缓存载荷是"一条内容被所有人共享"的
+     * 慢变快照；头像虽慢变，但旧 URL 会随换头像失效。放在响应层 = 每次读都拿当前 URL，
+     * 不需要"换头像 ⇒ 失效所有含此作者的内容缓存"的扇出。
+     *
+     * <p>与 {@code authorName} 同源（都来自 {@code users} 行），但**不**跟着
+     * `R-27` 的"作者快照面走独立批量端点"——`R-37` 起由本字段内联，前端不再二次补。
+     *
+     * <p>★ <b>按面填</b>：动态卡（{@code /feed}）与空间投稿填；搜索结果 / 首页推荐卡不显示作者头像
+     * ⇒ 这两面保持 {@code null}（与 {@code playCount} 等"本面不查"的计数同一口径，不是漏填）。
+     */
+    private String avatarUrl;
 
     public ContentVO() {
     }
@@ -147,17 +171,18 @@ public class ContentVO extends ContentCacheDTO {
         this.playCount = playCount;
     }
 
-    /** 列表不返回视频地址（TV {@code @JsonIgnore} 原样）。 */
+    public String getAvatarUrl() {
+        return avatarUrl;
+    }
+
+    public void setAvatarUrl(String avatarUrl) {
+        this.avatarUrl = avatarUrl;
+    }
+
+    /** 列表不返回视频地址（TV {@code @JsonIgnore} 原样；`R-31` 只放开了 {@code imageUrls}）。 */
     @Override
     @JsonIgnore
     public String getVideoUrl() {
         return super.getVideoUrl();
-    }
-
-    /** 列表不返回图片地址组（TV {@code @JsonIgnore} 原样）。 */
-    @Override
-    @JsonIgnore
-    public List<String> getImageUrls() {
-        return super.getImageUrls();
     }
 }
